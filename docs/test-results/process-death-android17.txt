@@ -1,0 +1,10 @@
+﻿Killed the live application process after ordinary SSH and tmux connected; the preparation runner is expected to terminate.
+
+io.itermux.app.ProcessDeathTest:.
+
+Time: 2.531
+
+OK (1 test)
+
+
+PASS: no stale sessions after process death, persisted Room/Keystore data, explicit tmux reattachment.

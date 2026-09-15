@@ -1,0 +1,2 @@
+﻿emulator-5554 : PASS: clean install v1, same-certificate upgrade v1 -> v2, force-stop/relaunch, delivered v1 restored.
+emulator-5556 : PASS: clean install v1, same-certificate upgrade v1 -> v2, force-stop/relaunch, delivered v1 restored.

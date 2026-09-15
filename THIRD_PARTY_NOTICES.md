@@ -1,0 +1,28 @@
+# Third-party notices
+
+iTermux's original code is copyright 2026 iTermux contributors, licensed under Apache-2.0. See [LICENSE](LICENSE).
+
+| Component | Pinned version / source | License |
+| --- | --- | --- |
+| Termux terminal-emulator and terminal-view | `termux/termux-app@4584488513c099f2e98bcfcd00f006d213248729` | Apache-2.0 exception declared in upstream LICENSE.md; original copyright notices retained |
+| mwiede/JSch | 2.28.0 | BSD-3-Clause; embedded JZlib BSD and jBCrypt ISC notices included |
+| Bouncy Castle bcprov-jdk18on | 1.80 | MIT-style Bouncy Castle license |
+| Kotlin and kotlinx.coroutines | 2.1.21 / 1.10.2 | Apache-2.0 |
+| AndroidX / Jetpack Compose / Room | Exact versions in Gradle build files | Apache-2.0 |
+| Gradle Wrapper | 8.11.1 | Apache-2.0 |
+| JUnit / Hamcrest (tests only) | 4.13.2 / transitive | EPL-1.0 / BSD-3-Clause |
+
+Upstream Termux is GPLv3 as an application. Only the two terminal libraries covered by its explicit Apache-2.0 exception are vendored. No Termux app, termux-shared, local shell launcher, JNI source, or native Termux binary is shipped. The original repository license declaration is preserved at `licenses/Termux-upstream-LICENSE.md`.
+
+Local changes to the vendored libraries:
+
+- Replaced the local-process TerminalSession implementation with a transport-neutral interface.
+- Added a silent client adapter; application parser diagnostics do not log terminal text.
+- Enabled text-class IME composition and prevented uncommitted-composition deletion from sending remote Backspace.
+- Enqueued bracketed paste as one packet; exposed the current paste mode to the UI.
+- Disabled remote OSC 52 clipboard writes. Local selection and copying remain available.
+- Added SSH-specific regression tests. Source files retain upstream headers.
+
+Full license texts are in `licenses/` and LICENSE, and are bundled in the application's offline guide. Dependencies used only to build or test are not part of the release APK. The separately downloaded Codex Linux binary is used only to validate a real remote AI terminal tool and is not shipped in the app or source archive.
+
+Sources: https://github.com/termux/termux-app/blob/4584488513c099f2e98bcfcd00f006d213248729/LICENSE.md, https://github.com/mwiede/jsch/tree/jsch-2.28.0, https://github.com/bcgit/bc-java/tree/r1rv80.

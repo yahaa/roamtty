@@ -1,0 +1,16 @@
+.gradle/
+.kotlin/
+**/build/
+.tools/
+.private/
+.local/
+local.properties
+signing.properties
+*.jks
+*.keystore
+*.p12
+*.hprof
+.idea/
+*.iml
+dist/*-source.zip
+app/src/androidTest/assets/test_password

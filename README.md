@@ -1,0 +1,85 @@
+# iTermux
+
+面向远程 AI 编程的免费开源 Android SSH 客户端。Android 8.0 / API 26 起，Kotlin + Compose，默认中文界面、深色终端。应用标识 `io.itermux.app`，Apache-2.0。
+
+## 安装与使用
+
+安装交付目录中的 `dist/iTermux-0.1.0.apk`，校验值见 `dist/SHA256SUMS.txt`。手机首次安装需允许相应文件管理器或浏览器安装未知来源应用。后续版本使用同一个签名密钥，可直接覆盖升级；卸载会清除主机和凭据。
+
+1. 添加名称、主机地址、端口、用户名。地址不含 `ssh://`；支持域名、IPv4、IPv6，可通过手机已有 VPN 连接。
+2. 选择密码、交互式认证或导入私钥。支持 OpenSSH/PEM 的 Ed25519、RSA（包括加密私钥）。密码默认每次输入；勾选后才在本机加密保存。私钥口令不保存。
+3. 首次连接，通过独立可信渠道核对 SHA-256 指纹，再点击“信任并连接”。服务器可运行 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256` 查看对应指纹。指纹变化时会阻止连接，只有显式重新核验才能替换信任记录。
+4. 连接页仅保留底部操作栏，默认收起键盘，轻触终端也不会自动弹出。点击“语音”打开编辑框和当前输入法，再点击微信输入法的麦克风。键盘按钮用于手动输入；更多菜单可展开快捷键、粘贴和调整字号。点击底部主机名称切换会话或返回列表，长按终端选择复制。
+5. 从更多菜单打开“编辑文本”，或使用语音入口。先确认中文或多行文本，再发送。“发送文本”不追加回车；“回车”单独操作。粘贴会尊重远端 bracketed paste 模式。未启用时，多行文本中的换行可能立即执行命令，发送前会提示。
+6. tmux 模式运行 `tmux new-session -A -s 'itermux'`。同一远端账号会附着同一个固定会话；需要独立工作区时使用 tmux 的窗口/窗格。服务器缺少 tmux 时可改用普通 SSH，本应用不会自动安装软件。
+
+AI 工具安装、账号和模型服务由远端环境提供。可以在终端启动已有的 Codex、Claude Code、Aider 等工具。本应用不自带模型，也不在手机上运行 Linux 环境。
+
+## 会话与隐私
+
+- 最多保留 8 个会话（含已断开历史），终端历史每个会话 5000 行。页面只显示服务持有的会话；切换和旋转不会主动关闭 SSH。
+- 主动连接使用前台服务和持续通知，通知可全部断开。通知权限被拒绝时系统可能只在任务管理器显示服务。
+- 不自动重连，不重放掉线前的输入。未发送队列随断线销毁。进程重建后显示无连接；普通 SSH 不会伪装成恢复的会话。远端长任务延续依靠 tmux。
+- 系统省电策略、锁屏或内存不足仍可能中断 SSH。15 秒保活和前台服务不构成后台永续保证。
+- Room 保存主机元数据及信任记录，Keystore AES-256-GCM 加密保存的密码和私钥，AAD 将密文绑定到主机 ID 与用途。
+- 无账号、无广告、无付费墙、无遥测。没有终端内容或凭据日志。终端历史、编辑草稿与私钥口令只在内存中存在。系统备份和设备迁移备份均已排除。
+- 正式应用开启安全窗口，避免系统截屏和最近任务缩略图保存终端或凭据。复制是用户明确操作；远端 OSC 52 不能改写手机剪贴板。
+
+## 构建
+
+固定依赖见 Gradle 文件；JDK 下载 URL 与 SHA-256 见 `toolchains.lock.json`。Gradle Wrapper 8.11.1 带分发校验值。构建需要完整 JDK 17、Android SDK platform 36 / build-tools 35.0.0 与 36.0.0，AGP 8.10.1、Kotlin 2.1.21。
+
+在已配置 Android SDK 的机器上：
+
+```sh
+./gradlew :app:assembleDebug :ssh-core:test :terminal-emulator:testDebugUnitTest :app:lint
+```
+
+在 Windows PowerShell 上，本项目也提供本地工具安装脚本，所有下载与构建缓存都位于项目目录，不修改系统 PATH：
+
+```powershell
+# 若系统限制本地脚本，可在你自己的开发终端设置仅当前进程的执行策略。
+Set-ExecutionPolicy -Scope Process Bypass
+./scripts/bootstrap.ps1
+./scripts/install-sdk.ps1
+./scripts/build.ps1 :app:assembleDebug
+./scripts/release.ps1
+```
+
+`bootstrap.ps1` 下载并校验 JDK、Gradle、固定提交的 Termux 源码、SDK 工具及用于可选测试的 Codex Linux 工具。`install-sdk.ps1` 接受 Android SDK 开发工具许可并下载基础工具、Android 8/16 镜像；`install-current-emulator.ps1` 下载 Android 17 / API 37.1 的 16 KiB 模拟器镜像。只编译应用时，无需下载模拟器镜像，可通过自己的 SDK Manager 安装 platform 36 与 build-tools 即可。
+
+### 签名与升级
+
+`release.ps1` 首次生成独立的 3072 位 RSA 发布密钥，后续复用，绝不自动替换已有签名。密钥在 `.private/signing/itermux-release.p12`，密码在被忽略的 `signing.properties`。两者必须单独安全备份；均不包含在交付源码压缩包中。丢失密钥后不能以相同身份升级。不要公开这两个路径的内容。
+
+源码中不提供他人的通用签名密钥。独立构建者应生成自己的签名；该 APK 不能覆盖其他签名构建的版本。测试 APK 使用开发签名。
+
+本次手机按用户选择保留开发签名和已有主机。`dist/iTermux-0.1.0-phone-test.apk` 是可覆盖手机当前测试版的更新包；`dist/iTermux-0.1.0.apk` 使用独立发布签名，适合全新安装，两者不能混用覆盖。手机测试签名原件在 `.local/android/debug.keystore`，另已备份到 `.private/signing/itermux-debug.keystore`；清理构建缓存后需恢复原件，才能继续保留手机数据升级。
+
+## 测试
+
+自动化测试覆盖主机信任策略竞争、指纹变化、取消与超时、真实 Linux OpenSSH 密码/交互式/加密 Ed25519/RSA、PTY resize、tmux、vim、终端 UTF-8/宽字符/粘贴/历史容量。设备测试覆盖 Keystore 防篡改、数据库重开、真实 SSH、IME 组合输入和 Activity 重建。
+
+真实 OpenSSH 测试是可选的。本机验证使用隔离的 WSL 测试账号和仅监听回环地址的端口 22228（正常连接）和 22229（tmux 检查失败），不修改系统 sshd 配置。准备与清理脚本分别是 `scripts/prepare-openssh-test.sh` 和 `scripts/cleanup-openssh-test.sh`，需要 root。`ssh-core` 测试仅在 `.private/test-password` 存在时启用真实连接测试，否则明确显示 skipped。测试私钥是公开的测试材料，口令为 `itermux-test-passphrase`，绝不能用于真实服务器。
+
+```powershell
+./scripts/emulator.ps1 -Api 26 -Port 5554
+./scripts/build.ps1 :app:assembleDebug :app:assembleDebugAndroidTest
+./scripts/device-test.ps1 -Serial emulator-5554
+```
+
+真实连接测试需要先在另一终端保持专用测试服务运行（脚本不会安装远端软件）：
+
+```powershell
+wsl.exe -d Ubuntu-22.04 -u root -- bash /mnt/c/Users/yahaa/work/itermux/scripts/run-openssh-test.sh
+```
+
+已安装测试 APK 的模拟器还可运行 `./scripts/process-death-test.ps1 -Serial emulator-5554`，验证两条活动 SSH 连接被进程终止后，Room/Keystore 数据仍在，并能手动重新附着 tmux。该脚本拒绝真机序列号。
+
+发布安装测试使用同一把发布密钥：先构建 `:app:assembleRelease '-PitermuxVersionCode=2'`，把输出另存 `.local/upgrade-test.apk`，再运行 `./scripts/release.ps1` 生成实际交付的 versionCode 1。`./scripts/release-smoke.ps1 -Serial emulator-5554` 验证全新安装和 1 → 2 覆盖升级；它会清除模拟器上本应用的数据，拒绝操作真机。
+
+结束后运行 `scripts/cleanup-openssh-test.sh`，并移除 `.private/test-password` 和 `app/src/androidTest/assets/test_password`，以停用临时测试凭据。打包源码使用 `./scripts/package-source.ps1`，采用明确文件白名单，排除签名、凭据和构建缓存。
+
+详细实测结果与未完成项见 [docs/TEST_REPORT.md](docs/TEST_REPORT.md)。架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，竞品调研见 [docs/TERMIUS_COMPARISON.md](docs/TERMIUS_COMPARISON.md)。第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+首版不包含 SFTP、端口转发、跳板机、云同步、命令片段自动化和本地 shell。不自动发布仓库或上架应用商店。
