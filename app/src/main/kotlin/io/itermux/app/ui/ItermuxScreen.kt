@@ -2,6 +2,7 @@ package io.itermux.app.ui
 
 import android.Manifest
 import android.content.Context
+import android.content.res.Configuration
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -9,8 +10,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -42,7 +45,7 @@ data class ConnectRequest(val host: Host, val mode: SessionMode)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ItermuxScreen(app: ItermuxApp, service: SessionService?) {
+fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onTerminalVisibleChange: (Boolean) -> Unit) {
     val context = LocalContext.current
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val scope = rememberCoroutineScope()
@@ -50,6 +53,9 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?) {
     val sessionFlow = remember(service) { service?.sessions ?: MutableStateFlow(emptyList()) }
     val sessions by sessionFlow.collectAsStateWithLifecycle()
     var page by rememberSaveable { mutableStateOf("hosts") }
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val terminalVisible = page == "sessions" && sessions.isNotEmpty()
+    LaunchedEffect(terminalVisible) { onTerminalVisibleChange(terminalVisible) }
     BackHandler(page == "sessions") { page = "hosts" }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var search by rememberSaveable { mutableStateOf("") }
@@ -94,30 +100,40 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?) {
 
     MaterialTheme(colorScheme = darkColorScheme(primary = Mint, onPrimary = Background, primaryContainer = Color(0xFF203B3D), secondaryContainer = Color(0xFF203B3D), onSecondaryContainer = Mint, background = Background, surface = Background, surfaceVariant = Panel, onSurfaceVariant = Muted)) {
         Surface(Modifier.fillMaxSize(), color = Background) {
-            Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
-                if (!imeVisible && (page == "hosts" || sessions.isEmpty())) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            val contentInsets = if (terminalVisible) WindowInsets.displayCutout.union(WindowInsets.captionBar) else WindowInsets.safeDrawing
+            Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).imePadding()) {
+                if (!imeVisible && !terminalVisible) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (landscape) 0.dp else 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("›_", color = Mint, fontSize = 27.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text("iTermux", fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     }
+                    if (landscape) {
+                        FilterChip(page == "hosts", { page = "hosts" }, label = { Text("主机  ${hosts.size}") })
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(page == "sessions", { page = "sessions" }, label = { Text("会话  ${sessions.size}") })
+                    }
                     TextButton(onClick = { showAbout = true }) { Text("使用指南") }
                 }
-                if (page != "sessions" || sessions.isEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (!terminalVisible && (!landscape || imeVisible)) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FilterChip(page == "hosts", { page = "hosts" }, label = { Text("主机  ${hosts.size}") })
                     FilterChip(page == "sessions", { page = "sessions" }, label = { Text("会话  ${sessions.size}") })
                 }
                 if (page == "hosts") {
-                    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-                        Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
+                    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(top = if (landscape) 0.dp else 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (landscape) {
+                                OutlinedTextField(search, { search = it }, label = { Text("搜索名称、地址或用户名") }, singleLine = true, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp))
+                            } else Column(Modifier.weight(1f)) {
                                 Text("你的远程空间", fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
                                 Text("SSH 连接 · tmux 延续任务", color = Muted, fontSize = 12.sp)
                             }
                             FilledTonalButton(onClick = { editHost = null; editorOpen = true }) { Text("＋ 主机") }
                         }
-                        OutlinedTextField(search, { search = it }, label = { Text("搜索名称、地址或用户名") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp))
-                        Spacer(Modifier.height(16.dp))
+                        if (!landscape) {
+                            OutlinedTextField(search, { search = it }, label = { Text("搜索名称、地址或用户名") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp))
+                            Spacer(Modifier.height(12.dp))
+                        }
                         val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
                         if (filtered.isEmpty()) {
                             Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -126,7 +142,7 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?) {
                                 Text(if (hosts.isEmpty()) "从第一台主机开始" else "没有匹配的主机", fontSize = 20.sp)
                                 Text(if (hosts.isEmpty()) "保存 Linux 主机，在远端运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。" else "试试其他名称或地址", color = Muted, modifier = Modifier.padding(16.dp), lineHeight = 23.sp)
                             }
-                        } else LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
+                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
                             items(filtered, key = { it.id }) { host -> HostCard(host, { connect(host) }, { editHost = host; editorOpen = true }, { deleteHost = host }) }
                         }
                     }
@@ -218,7 +234,7 @@ fun phaseLabel(phase: Phase) = when (phase) {
     val licenseText = remember { runCatching { context.assets.open("THIRD_PARTY_NOTICES.txt").bufferedReader().use { it.readText() } }.getOrDefault("许可文件请参阅源码中的 THIRD_PARTY_NOTICES.md。") }
     AlertDialog(onDismissRequest = dismiss, title = { Text(if (licenses) "第三方许可" else "iTermux 0.1.0") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(if (licenses) licenseText else "1. 添加主机；使用私钥时导入 OpenSSH 或 PEM 格式的 Ed25519/RSA 私钥。首次连接先核对 SHA-256 指纹。\n\n2. 连接后默认收起键盘。点击底部语音按钮打开编辑框和输入法，再点击微信输入法的麦克风。识别文字先留在编辑框，确认后发送。\n\n3. 键盘按钮用于手动输入；更多菜单中可展开编辑框、快捷键、粘贴或调整字号。发送文本与回车分开，长按终端可选择复制。\n\n4. 点击底部主机名称切换会话或返回主机列表。\n\n5. tmux 模式创建或附着 itermux 会话；断线后手动重连即可继续远端任务。通知栏可全部断开连接。")
+            Text(if (licenses) licenseText else "1. 添加主机；使用私钥时导入 OpenSSH 或 PEM 格式的 Ed25519/RSA 私钥。首次连接先核对 SHA-256 指纹。\n\n2. 连接后默认收起键盘。点击语音按钮或横屏侧栏的麦克风图标打开编辑框和输入法，再点击微信输入法的麦克风。识别文字先留在编辑框，确认后发送。\n\n3. 键盘按钮用于手动输入；更多菜单中可展开编辑框、快捷键、粘贴或调整字号。发送文本与回车分开，长按终端可选择复制。\n\n4. 点击底部主机名称或横屏侧栏顶部图标切换会话。连接页默认全屏，边缘滑动可临时显示系统栏。更多菜单可隐藏操作栏；点击右上角按钮或返回键恢复。\n\n5. tmux 模式创建或附着 itermux 会话；断线后手动重连即可继续远端任务。通知栏可全部断开连接。")
             TextButton(onClick = { licenses = !licenses }) { Text(if (licenses) "返回指南" else "查看第三方许可") }
         }
     }, confirmButton = { TextButton(onClick = dismiss) { Text("关闭") } })
