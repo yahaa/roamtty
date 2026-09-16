@@ -14,6 +14,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.text.Editable;
 import android.text.InputType;
+import android.text.Selection;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.ActionMode;
@@ -31,7 +32,11 @@ import android.view.autofill.AutofillManager;
 import android.view.autofill.AutofillValue;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.ExtractedText;
+import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.SurroundingText;
 import android.widget.Scroller;
 
 import androidx.annotation.Nullable;
@@ -40,6 +45,7 @@ import androidx.annotation.RequiresApi;
 import com.termux.terminal.KeyHandler;
 import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalSession;
+import com.termux.terminal.TerminalRow;
 import com.termux.view.textselection.TextSelectionCursorController;
 
 /** View displaying and interacting with a {@link TerminalSession}. */
@@ -79,6 +85,10 @@ public final class TerminalView extends View {
     private long mMouseStartDownTime = -1;
 
     final Scroller mScroller;
+    private final TranscriptScrollBar mTranscriptScrollBar;
+    private BaseInputConnection mInputConnection;
+    private final ImeBackspaceTracker mImeBackspace = new ImeBackspaceTracker();
+    private Integer mExtractedTextToken;
 
     /** What was left in from scrolling movement. */
     float mScrollRemainder;
@@ -135,6 +145,7 @@ public final class TerminalView extends View {
 
     public TerminalView(Context context, AttributeSet attributes) { // NO_UCD (unused code)
         super(context, attributes);
+        mTranscriptScrollBar = new TranscriptScrollBar(this);
         mGestureRecognizer = new GestureAndScaleRecognizer(context, new GestureAndScaleRecognizer.Listener() {
 
             boolean scrolledWithFinger;
@@ -292,6 +303,9 @@ public final class TerminalView extends View {
 
         mTermSession = session;
         mEmulator = null;
+        mInputConnection = null;
+        mImeBackspace.reset();
+        mExtractedTextToken = null;
         mCombiningAccent = 0;
 
         // The emulator's cached value will be read in `updateSize()` when emulator is set.
@@ -299,8 +313,8 @@ public final class TerminalView extends View {
 
         updateSize();
 
-        // Wait with enabling the scrollbar until we have a terminal to get scroll position from.
-        setVerticalScrollBarEnabled(true);
+        // Draw our own thumb so touch dragging also works with terminal gesture handling.
+        setVerticalScrollBarEnabled(false);
 
         return true;
     }
@@ -341,7 +355,63 @@ public final class TerminalView extends View {
         // keyboard on Android TV (see https://github.com/termux/termux-app/issues/221).
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;
 
-        return new BaseInputConnection(this, true) {
+        mImeBackspace.reset();
+        mExtractedTextToken = null;
+        ExtractedText initial = imeSnapshot(null);
+        outAttrs.initialSelStart = initial.selectionStart;
+        outAttrs.initialSelEnd = initial.selectionEnd;
+        if (Build.VERSION.SDK_INT >= 30) outAttrs.setInitialSurroundingText(initial.text);
+
+        return mInputConnection = new BaseInputConnection(this, true) {
+
+            @Override
+            public ExtractedText getExtractedText(ExtractedTextRequest request, int flags) {
+                if (request != null && (flags & GET_EXTRACTED_TEXT_MONITOR) != 0) mExtractedTextToken = request.token;
+                return imeSnapshot(getEditable());
+            }
+
+            @Override
+            public CharSequence getTextBeforeCursor(int length, int flags) {
+                ExtractedText snapshot = imeSnapshot(getEditable());
+                int end = Math.min(snapshot.selectionStart, snapshot.selectionEnd);
+                return snapshot.text.subSequence(Math.max(0, end - Math.max(0, length)), end);
+            }
+
+            @Override
+            public CharSequence getTextAfterCursor(int length, int flags) {
+                ExtractedText snapshot = imeSnapshot(getEditable());
+                int start = Math.max(snapshot.selectionStart, snapshot.selectionEnd);
+                return snapshot.text.subSequence(start, start + Math.min(snapshot.text.length() - start, Math.max(0, length)));
+            }
+
+            @RequiresApi(31)
+            @Override
+            public SurroundingText getSurroundingText(int beforeLength, int afterLength, int flags) {
+                ExtractedText snapshot = imeSnapshot(getEditable());
+                int start = Math.max(0, Math.min(snapshot.selectionStart, snapshot.selectionEnd) - Math.max(0, beforeLength));
+                int end = Math.max(snapshot.selectionStart, snapshot.selectionEnd);
+                end += Math.min(snapshot.text.length() - end, Math.max(0, afterLength));
+                return new SurroundingText(snapshot.text.subSequence(start, end), snapshot.selectionStart - start, snapshot.selectionEnd - start, start);
+            }
+
+            @Override
+            public boolean setComposingText(CharSequence text, int newCursorPosition) {
+                mImeBackspace.reset();
+                return super.setComposingText(text, newCursorPosition);
+            }
+
+            @Override
+            public boolean sendKeyEvent(KeyEvent event) {
+                if (event.getKeyCode() == KeyEvent.KEYCODE_DEL && event.hasNoModifiers()) {
+                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                        if (consumeImeBackspace()) return true;
+                        if (getEditable().length() > 0) return super.deleteSurroundingText(1, 0);
+                    }
+                } else if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    mImeBackspace.reset();
+                }
+                return super.sendKeyEvent(event);
+            }
 
             @Override
             public boolean finishComposingText() {
@@ -355,6 +425,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean commitText(CharSequence text, int newCursorPosition) {
+                mImeBackspace.reset();
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: commitText(\"" + text + "\", " + newCursorPosition + ")");
                 }
@@ -370,6 +441,12 @@ public final class TerminalView extends View {
 
             @Override
             public boolean deleteSurroundingText(int leftLength, int rightLength) {
+                if (leftLength < 0 || rightLength < 0) return false;
+                if (leftLength > 0 && rightLength == 0) {
+                    if (consumeImeBackspace()) return true;
+                } else {
+                    mImeBackspace.reset();
+                }
                 // iTermux: editing an uncommitted composition must not delete remote text.
                 if (getEditable().length() > 0) return super.deleteSurroundingText(leftLength, rightLength);
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
@@ -377,8 +454,22 @@ public final class TerminalView extends View {
                 }
                 // The stock Samsung keyboard with 'Auto check spelling' enabled sends leftLength > 1.
                 KeyEvent deleteKey = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL);
-                for (int i = 0; i < leftLength; i++) sendKeyEvent(deleteKey);
+                for (int i = 0; i < leftLength; i++) super.sendKeyEvent(deleteKey);
+                KeyEvent forwardDelete = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_FORWARD_DEL);
+                for (int i = 0; i < rightLength; i++) super.sendKeyEvent(forwardDelete);
                 return super.deleteSurroundingText(leftLength, rightLength);
+            }
+
+            @Override
+            public boolean deleteSurroundingTextInCodePoints(int leftLength, int rightLength) {
+                if (leftLength < 0 || rightLength < 0) return false;
+                if (getEditable().length() == 0) return deleteSurroundingText(leftLength, rightLength);
+                if (leftLength > 0 && rightLength == 0) {
+                    if (consumeImeBackspace()) return true;
+                } else {
+                    mImeBackspace.reset();
+                }
+                return super.deleteSurroundingTextInCodePoints(leftLength, rightLength);
             }
 
             void sendTextToTerminal(CharSequence text) {
@@ -440,6 +531,47 @@ public final class TerminalView extends View {
         };
     }
 
+    /** Only the cursor's wrapped line (bounded to eight rows), or the uncommitted composition. */
+    private ExtractedText imeSnapshot(@Nullable Editable composing) {
+        ExtractedText result = new ExtractedText();
+        result.partialStartOffset = result.partialEndOffset = -1;
+        if (composing != null && composing.length() > 0) {
+            result.text = composing.toString();
+            result.selectionStart = Math.max(0, Selection.getSelectionStart(composing));
+            result.selectionEnd = Math.max(0, Selection.getSelectionEnd(composing));
+        } else if (mEmulator != null) {
+            StringBuilder prefix = new StringBuilder();
+            int cursorRow = mEmulator.getCursorRow();
+            int startRow = cursorRow;
+            int firstAvailable = -mEmulator.getScreen().getActiveTranscriptRows();
+            while (startRow > firstAvailable && cursorRow - startRow < 7 && mEmulator.getScreen().getLineWrap(startRow - 1)) startRow--;
+            for (int y = startRow; y < cursorRow; y++) {
+                TerminalRow preceding = mEmulator.getScreen().allocateFullLineIfNecessary(mEmulator.getScreen().externalToInternalRow(y));
+                prefix.append(preceding.mText, 0, preceding.getSpaceUsed());
+            }
+            TerminalRow row = mEmulator.getScreen().allocateFullLineIfNecessary(
+                mEmulator.getScreen().externalToInternalRow(cursorRow));
+            int cursor = row.findStartOfColumn(mEmulator.getCursorCol());
+            int end = row.getSpaceUsed();
+            while (end > cursor && row.mText[end - 1] == ' ') end--;
+            result.selectionStart = result.selectionEnd = prefix.length() + cursor;
+            result.text = prefix.append(row.mText, 0, end).toString();
+        } else {
+            result.text = "";
+        }
+        return result;
+    }
+
+    private boolean consumeImeBackspace() {
+        ImeBackspaceTracker.Action action = mImeBackspace.onDelete(SystemClock.uptimeMillis());
+        if (action == ImeBackspaceTracker.Action.CLEAR) {
+            // Keep this connection and its latch alive until the repeat stream ends.
+            clearCurrentInput(false);
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        }
+        return action != ImeBackspaceTracker.Action.DELETE;
+    }
+
     @Override
     protected int computeVerticalScrollRange() {
         return mEmulator == null ? 1 : mEmulator.getScreen().getActiveRows();
@@ -485,20 +617,32 @@ public final class TerminalView extends View {
             }
         }
 
+        if (!isSelectingText() && !mEmulator.isAutoScrollDisabled() &&
+            (mTopRow < 0 || mTranscriptScrollBar.isDragging())) {
+            // Keep the same history in view when new remote output arrives.
+            setTopRow(Math.max(-rowsInHistory, mTopRow - mEmulator.getScrollCounter()));
+            skipScrolling = true;
+        }
+
         if (!skipScrolling && mTopRow != 0) {
             // Scroll down if not already there.
             if (mTopRow < -3) {
                 // Awaken scroll bars only if scrolling a noticeable amount
                 // - we do not want visible scroll bars during normal typing
                 // of one row at a time.
-                awakenScrollBars();
+                mTranscriptScrollBar.show();
             }
             setTopRow(0);
         }
 
+        if (mEmulator.getScrollCounter() > 0) mTranscriptScrollBar.show();
         mEmulator.clearScrollCounter();
 
         invalidate();
+        if (mExtractedTextToken != null && mInputConnection != null && hasFocus()) {
+            ((InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE))
+                .updateExtractedText(this, mExtractedTextToken, imeSnapshot(mInputConnection.getEditable()));
+        }
         if (mAccessibilityEnabled) setContentDescription(getText());
     }
 
@@ -587,7 +731,7 @@ public final class TerminalView extends View {
                 handleKeyCode(up ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN, 0);
             } else {
                 setTopRow(Math.min(0, Math.max(-(mEmulator.getScreen().getActiveTranscriptRows()), mTopRow + (up ? -1 : 1))));
-                if (!awakenScrollBars()) invalidate();
+                mTranscriptScrollBar.show();
             }
         }
     }
@@ -609,6 +753,7 @@ public final class TerminalView extends View {
     @TargetApi(23)
     public boolean onTouchEvent(MotionEvent event) {
         if (mEmulator == null) return true;
+        if (mTranscriptScrollBar.onTouch(event)) return true;
         final int action = event.getAction();
 
         if (isSelectingText()) {
@@ -889,6 +1034,7 @@ public final class TerminalView extends View {
         }
 
         if (codePoint > -1) {
+            scrollToBottom();
             // If not virtual or soft keyboard.
             if (eventSource > KEY_EVENT_SOURCE_SOFT_KEYBOARD) {
                 // Work around bluetooth keyboards sending funny unicode characters instead
@@ -924,6 +1070,7 @@ public final class TerminalView extends View {
         TerminalEmulator term = mTermSession.getEmulator();
         String code = KeyHandler.getCode(keyCode, keyMod, term.isCursorKeysApplicationMode(), term.isKeypadApplicationMode());
         if (code == null) return false;
+        scrollToBottom();
         mTermSession.write(code);
         return true;
     }
@@ -1036,6 +1183,7 @@ public final class TerminalView extends View {
 
             // render the text selection handles
             renderTextSelection();
+            mTranscriptScrollBar.draw(canvas);
         }
     }
 
@@ -1068,6 +1216,44 @@ public final class TerminalView extends View {
 
     public int getTopRow() {
         return mTopRow;
+    }
+
+    public void scrollToBottom() {
+        if (mTopRow != 0) {
+            mScroller.abortAnimation();
+            setTopRow(0);
+            mTranscriptScrollBar.show();
+        }
+    }
+
+    /** Finish a pending IME composition before moving/deleting in the remote input. */
+    public void sendInputControlKey(int keyCode) {
+        mImeBackspace.reset();
+        if (mEmulator == null) return;
+        if (mInputConnection != null && mInputConnection.getEditable().length() > 0) {
+            mInputConnection.finishComposingText();
+            ((InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE)).restartInput(this);
+        }
+        scrollToBottom();
+        handleKeyCode(keyCode, 0);
+    }
+
+    /** Discard uncommitted IME text and clear a Readline-style input without touching history. */
+    public void clearCurrentInput() {
+        mImeBackspace.reset();
+        clearCurrentInput(true);
+    }
+
+    private void clearCurrentInput(boolean restartIme) {
+        if (mEmulator == null) return;
+        if (mInputConnection != null) {
+            Editable editable = mInputConnection.getEditable();
+            editable.clear();
+            BaseInputConnection.removeComposingSpans(editable);
+            if (restartIme) ((InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE)).restartInput(this);
+        }
+        scrollToBottom();
+        mTermSession.write("\u0015\u000b");
     }
 
     public void setTopRow(int topRow) {

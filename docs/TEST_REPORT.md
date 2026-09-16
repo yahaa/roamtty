@@ -2,21 +2,76 @@
 
 首次验收：2026-09-14；界面优化复验：2026-09-15。应用 ID `io.itermux.app`，最低 Android 8 / API 26，compile/target SDK 36。此记录区分实际通过的检查、测试替身和需用户补验的项目。
 
-## 最终界面
+## 2026-09-16 输入法连续退格与默认交互
 
-连接页默认沉浸显示，隐藏状态栏和系统导航栏；边缘滑动可临时呼出。竖屏保留 48 dp 底栏，横屏改为 48 dp 右侧栏。菜单中的“隐藏操作栏”将终端扩展至整个可用区域；右上角悬浮按钮或返回键恢复操作栏。摄像头开孔和自由窗口标题栏仍会避让。回到主机页恢复系统栏。
+已保留数据覆盖安装到连接的一加 Turbo 6 / PLU110，安装包 SHA-256 与本次 `dist/iTermux-0.1.0-phone-test.apk` 一致：`c8a5e8dbb3af6b94b33a61c04078c79a02951d3082aec85457b253488613bae3`。Debug 与 Release 均沿用原证书。
 
-默认隐藏键盘，轻触终端不弹键盘。横屏编辑框与发送、回车等动作排列在同一行；编辑时收起快捷键，键盘打开时限制编辑框高度。主机页横屏合并标题和导航，搜索与添加按钮同排，列表按可用宽度自动分栏。
+- 操作栏默认隐藏，右上角 ⋯ 展开；显式固定偏好仍保留。点击终端输入区自动弹出输入法，返回键或键盘按钮可收起。
+- 终端收到间隔不超过 250 ms、持续 1000 ms 的输入法退格后，用 Ctrl+U、Ctrl+K 清空当前输入；同次长按只清空一次。支持普通 DEL 事件、`deleteSurroundingText` 和码点版本。点按正常删字符，操作栏删除按钮不参与持续退格推断。
+- 向输入法提供实际光标所在逻辑行的有限文字上下文，支持自动折行和 UTF-16 选区；未提交中文与远端文字分开处理。微信输入法的兼容依据来自此前在此手机对 3.5.3 的协议实测：长按产生约 100 ms 间隔的普通 DEL，没有有效长按标志，且需要 extracted text 响应。
+- 新增长按识别单元测试 **4 项通过**，覆盖初始长按延迟、一次清空、持续抑制、松开间隔及新输入重置。[记录](test-results/ime-backspace-unit.xml)。
+- Android 8：默认隐藏、点击弹键盘及完整横竖屏布局 **3 项通过**，[记录](test-results/ime-layout-android8.txt)。补充折行上下文后最终版本的三种退格协议、行中间清空、后续输入、中文组合、Activity 重建、草稿按钮和滚动条 **3 项通过**，[记录](test-results/ime-input-android8.txt)。
+- Debug、Release、仪器测试 APK 构建通过；lint 0 错误、12 条既有警告。
+- 手机解锁后，微信输入法 3.5.3 **真实触摸长按测试通过**：光标左侧 60 个字符、右侧 `RIGHT`，按住输入法删除键 2.4 秒，两侧均被清空；随后输入 `KEPT`，远端仅收到 `KEPT`，先前 `HISTORY_KEPT` 历史仍存在。测试还确认点击终端自动弹出输入法、操作栏保持隐藏。[测试记录](test-results/ime-hold-phone-physical.txt)、[结果截图](screenshots/ime-hold-phone-passed.png)。所有交互均在专用回环 SSH 账号执行，未向用户服务器发送测试命令。此前锁屏导致的未验项已完成补验。
+- 同一手机补充交互回归 **3 项通过**：三种退格协议、单次删除及清空后的输入、默认隐藏与反复打开/关闭键盘、左右光标和长按删除按钮、草稿中文与表情编辑、横竖屏切换、滚动条拖动和自动隐藏。[记录](test-results/ime-input-phone.txt)。手机实测与交互回归合计 **4 项通过**，APK 与交付文件的 SHA-256 再次核对一致。
 
-按用户选择，语音入口打开编辑框和当前输入法，需再点击微信输入法的麦克风。识别文字由输入法提交到草稿；发送文本和回车独立操作。应用未集成独立语音模型，也没有自动触发输入法内部麦克风。
+使用边界：连续退格是兼容推断，快速连续点按也可能触发。清空当前输入仍要求远端支持 Ctrl+U/Ctrl+K；未改写第三方输入法自身行为。下方保留此前版本记录，默认显示及键盘行为以本节为准。
 
-![横屏终端与侧栏](screenshots/terminal-landscape.png)
+## 2026-09-15 输入控制与自动隐藏滚动条
 
-![横屏编辑与系统键盘](screenshots/terminal-landscape-editor.png)
+新版已保留数据覆盖安装到连接的一加 Turbo 6 / PLU110（Android 16），手机安装包与 `dist/iTermux-0.1.0-phone-test.apk` 的 SHA-256 一致。Debug、Release 沿用各自原签名证书。
 
-竖屏完全展开见 [终端截图](screenshots/terminal-portrait-full.png)，横屏主机页见 [双栏列表](screenshots/hosts-landscape.png)。截图中的主机及终端输出来自隔离测试环境；只在测试中临时取消安全截图标记。
+- 操作栏与草稿框新增左右光标和删除按钮；删除点按删字符、长按清空当前输入，不清除终端历史。终端移动/删除前处理 IME 组合文字，清空时丢弃未提交文字，避免之后再次上屏。
+- 草稿按完整字符边界移动和删除，验证中文、表情、组合重音和家庭表情；旋转后保留草稿，编辑不自动写入 SSH。
+- 右侧本地历史滚动条可拖动；闲置 1.2 秒后淡出，隐藏后仍能拖动。验证上下边界、拖到底部恢复输出、查看旧内容时新输出保持阅读位置，以及自动隐藏后的像素恢复。
+- Android 8 模拟器：新增功能及键盘开关复验 **2 项通过**，[记录](test-results/input-controls-android8.txt)。完整横竖屏布局回归与初次新增功能测试 **2 项通过**，[记录](test-results/input-layout-android8.txt)。
+- 一加手机：新增功能和连续三次键盘开关复验 **2 项通过**，[记录](test-results/input-controls-phone.txt)。所有输入和输出来自隔离回环 SSH 测试账号，未向用户真实服务器发送测试命令。
+- Debug / Release / 仪器测试 APK 构建通过；lint 0 错误、12 条既有警告；149 项终端解析器单元测试通过。
 
-## 2026-09-15 界面优化复验
+使用边界：终端清空采用 Ctrl+U、Ctrl+K，远端程序需支持相应快捷键。滚动条反映本地历史，tmux/vim 等全屏程序的历史仍由远端滚动或复制模式处理。
+
+截图：[手机竖屏编辑](screenshots/input-controls-phone-portrait-editor.png)、[手机横屏编辑](screenshots/input-controls-phone-landscape-editor.png)、[手机历史滚动条](screenshots/input-controls-phone-scrollbar.png)。下方保留此前界面的验收记录，新增输入与滚动行为以本节为准。
+
+## 此前界面
+
+连接页横竖屏默认用满可用区域，隐藏状态栏和系统导航栏；边缘滑动可临时呼出。右侧悬浮操作栏默认展开，按钮沿终端滚动条方向竖排，轻触终端保持展开。菜单中的“固定操作栏”可固定为右侧 48 dp 栏，偏好持久保存；“隐藏操作栏”取消固定并隐藏按钮，右上角“⋯”用于恢复。终端内容延伸到摄像头开孔周围，仅操作按钮单独避让开孔；自由窗口的系统标题栏仍会避让。回到主机页恢复系统栏。
+
+默认隐藏键盘，轻触终端不弹键盘。键盘按钮第一次点击打开输入法，再次点击收起，输入法开关不移动按钮。快捷键入口、面板和 Ctrl 锁定状态已删除。横屏编辑框与发送、回车等动作排列在同一行；编辑时暂时收起操作栏，关闭编辑框后恢复。键盘打开时限制编辑框高度，关闭后重新应用沉浸显示。主机页横竖屏均合并搜索与添加按钮，竖屏移除重复的大标题，横屏合并标题和导航，列表按可用宽度自动分栏。
+
+2026-09-15 按用户要求移除语音按钮，改从更多菜单打开“编辑文本”，点击编辑框输入。文字先进入草稿；发送文本和回车独立操作。
+
+操作栏调整时的验证：Debug / Release APK 构建、Android 仪器测试 APK 编译、`lintDebug` 均通过。Android 8 和 Android 17 的布局回归均通过，覆盖默认展开、竖排、轻触保持展开、固定与重建、手动隐藏和恢复、编辑框开关，以及横竖屏浮动和固定状态各三次键盘开关（包含系统返回键）。触摸测试同时检查按钮位置稳定、键盘关闭后不反弹，以及没有快捷键面板和菜单项。记录：[Android 8](test-results/controls-android8.txt)、[Android 17](test-results/controls-android17.txt)。
+
+连接的 PLU110 手机使用微信输入法（`com.tencent.wetype`），键盘专项触摸测试通过：连续三次打开/收起（包含系统返回键），收起后轻触终端不重新弹出键盘，操作栏保持展开。记录：[手机键盘复验](test-results/controls-phone.txt)。新版已保留数据覆盖安装到手机；Debug / Release 交付 APK 均通过签名校验，证书与各自旧包一致，SHA-256 已更新。
+
+![横屏终端与默认展开的竖排操作栏](screenshots/controls-layout-landscape-floating.png)
+
+![竖屏终端与默认展开的竖排操作栏](screenshots/controls-layout-portrait-floating.png)
+
+尺寸记录：[Android 8](test-results/controls-measurements-android8.txt)、[Android 17](test-results/controls-measurements-android17.txt)。截图中的主机及终端输出来自隔离测试环境；只在测试中临时取消安全截图标记。以下章节保留较早版本的验收记录，相关操作栏、快捷键和语音行为以本节为准。
+
+## 2026-09-15 终端顶部留白修正
+
+PLU110 的窗口报告摄像头安全区域为顶部 141 px。此前终端根布局对整个页面应用 `displayCutout`，即使隐藏系统栏也会留下整条空白；现改为终端内容延伸到屏幕边缘，仅操作按钮避让开孔。布局断言改为检查终端顶部和左侧没有开孔边距。
+
+Debug / Release 构建、仪器测试编译及 `lintDebug` 通过。Android 17 启用模拟摄像头开孔后，完整布局和键盘回归通过：默认竖屏终端为 1080 × 1920，横屏为 1920 × 1080，与整个窗口尺寸一致；固定栏仅占右侧宽度。记录：[测试输出](test-results/fullscreen-cutout-android17.txt)、[尺寸记录](test-results/fullscreen-cutout-measurements.txt)、[竖屏截图](screenshots/fullscreen-cutout-layout-portrait-floating.png)、[横屏截图](screenshots/fullscreen-cutout-layout-landscape-floating.png)。
+
+交付 APK 已更新并通过原证书签名校验，新版已保留数据覆盖安装到手机。此次手机处于锁屏状态，未完成新版的真机界面复验；上方手机键盘结果属于此前操作栏修改版本。
+
+## 2026-09-15 悬浮操作栏与空间利用优化
+
+在 1080 × 1920、无开孔模拟器上，默认竖屏终端由 1080 × 1794 扩展为 1080 × 1920，横屏由 1794 × 1080 扩展为 1920 × 1080；相较原来的默认固定栏，终端面积增加约 7%。展开悬浮操作栏后终端尺寸保持不变，只有浮层所在的小块区域被遮挡。编辑时不再叠加操作栏，竖屏省下 48 dp 高度，横屏省下 48 dp 宽度。
+
+本次布局回归覆盖默认全屏、展开及轻触收起悬浮栏、固定及 Activity 重建、横竖屏切换、键盘缩放终端、中文多行草稿、收起编辑后恢复全屏、返回主机页恢复系统栏。既有回归继续覆盖真实 SSH、中文组合输入、远端 Codex 菜单及主机保存与搜索。测试为模拟器临时开启软键盘并关闭首次全屏教学浮层，结束后恢复原设置。
+
+- Debug、Release APK 构建通过；lint 0 错误，12 条警告（依赖版本提示及 SharedPreferences 的 KTX 风格建议）。
+- Android 8 与 Android 17 各通过 3 项界面回归：[Android 8 输出](test-results/floating-android8.txt)、[Android 17 输出](test-results/floating-android17.txt)。
+- Android 17 额外启用模拟打孔屏后，全套布局测试通过，确认只避让开孔所需边距：[打孔屏输出](test-results/floating-cutout-android17.txt)。
+- 完整尺寸记录：[Android 8](test-results/floating-measurements-android8.txt)、[Android 17](test-results/floating-measurements-android17.txt)、[模拟打孔屏](test-results/floating-measurements-cutout-android17.txt)。
+
+尺寸与窗口边距仍按 [Android 窗口边距说明](https://developer.android.com/develop/ui/compose/system/insets)避让开孔、窗口标题栏与输入法；第三方输入法和设备开孔会影响实际可用区域。本次未在已锁屏的 PLU110 上运行界面测试。
+
+## 2026-09-15 前一版固定操作栏复验
 
 - Debug、Release APK 构建通过；lint 0 错误、10 条既有警告。
 - Android 8 / API 26 和 Android 17 / API 37.1 均通过新增的全屏布局测试，覆盖横竖屏、终端尺寸与远端 PTY 更新、横屏键盘、中文多行草稿不自动发送、隐藏/恢复操作栏、旋转后保持隐藏状态、返回主机页恢复系统栏。

@@ -35,6 +35,7 @@ class TerminalLayoutTest {
     private val measurements = StringBuilder()
     private var previousImeSetting: String? = null
     private var previousImmersiveHint: String? = null
+    private var previousDockPinned: Boolean? = null
 
     private fun shell(command: String): String = instrumentation.uiAutomation.executeShellCommand(command).use {
         android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes().toString(Charsets.UTF_8).trim()
@@ -47,6 +48,9 @@ class TerminalLayoutTest {
         shell("settings put secure show_ime_with_hard_keyboard 1")
         // Keep Android's first-use education overlay from taking focus during keyboard assertions.
         shell("settings put secure immersive_mode_confirmations confirmed")
+        val prefs = instrumentation.targetContext.getSharedPreferences("terminal-settings", android.content.Context.MODE_PRIVATE)
+        previousDockPinned = if (prefs.contains("dockPinned")) prefs.getBoolean("dockPinned", false) else null
+        prefs.edit().remove("dockPinned").commit()
     }
 
     @After fun restoreEmulatorKeyboard() {
@@ -55,6 +59,11 @@ class TerminalLayoutTest {
         }
         previousImmersiveHint?.let {
             shell(if (it.isBlank() || it == "null") "settings delete secure immersive_mode_confirmations" else "settings put secure immersive_mode_confirmations $it")
+        }
+        if (Build.HARDWARE in listOf("ranchu", "goldfish")) {
+            instrumentation.targetContext.getSharedPreferences("terminal-settings", android.content.Context.MODE_PRIVATE).edit().apply {
+                previousDockPinned?.let { putBoolean("dockPinned", it) } ?: remove("dockPinned")
+            }.commit()
         }
     }
 
@@ -97,7 +106,49 @@ class TerminalLayoutTest {
         }
     }
 
-    private fun checkViewport(name: String, landscape: Boolean, hidden: Boolean = false) {
+    private fun checkDock() {
+        compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+        compose.onNodeWithTag("restore-dock").assertDoesNotExist()
+        compose.onNodeWithTag("terminal-keys").assertDoesNotExist()
+        val session = compose.onNodeWithTag("session-switcher").fetchSemanticsNode().boundsInRoot
+        val keyboard = compose.onNodeWithTag("keyboard-toggle").fetchSemanticsNode().boundsInRoot
+        val menu = compose.onNodeWithTag("terminal-menu").fetchSemanticsNode().boundsInRoot
+        assertEquals("Session and keyboard must align vertically", session.center.x, keyboard.center.x, 2f)
+        assertEquals("Keyboard and menu must align vertically", keyboard.center.x, menu.center.x, 2f)
+        assertTrue("Buttons must be arranged top to bottom", session.bottom <= keyboard.top + 1f && keyboard.bottom <= menu.top + 1f)
+    }
+
+    private suspend fun checkKeyboardToggle(name: String) {
+        checkDock()
+        val button = compose.onNodeWithTag("keyboard-toggle").fetchSemanticsNode().boundsInRoot
+        repeat(3) { attempt ->
+            // Use real touch events to cover native terminal / Compose focus handoff.
+            compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
+            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            delay(500)
+            compose.onNodeWithContentDescription("收起键盘").assertIsDisplayed()
+            checkDock()
+            val opened = compose.onNodeWithTag("keyboard-toggle").fetchSemanticsNode().boundsInRoot
+            assertEquals("Keyboard button must not move horizontally", button.center.x, opened.center.x, 2f)
+            assertEquals("Keyboard button must not move vertically", button.center.y, opened.center.y, 2f)
+            val workspace = compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot
+            val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
+            assertTrue("Keyboard must leave the terminal visible", terminal.height > workspace.height * 0.99f)
+            if (attempt == 0) capture("$name-keyboard")
+            if (attempt == 1) shell("input keyevent 4")
+            else compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
+            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+            delay(500)
+            compose.onNodeWithContentDescription("键盘", substring = false).assertIsDisplayed()
+            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            checkDock()
+            compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
+            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+        }
+    }
+
+    private fun checkViewport(name: String, reserved: Boolean = false) {
         compose.waitUntil(8000) {
             val decor = compose.activity.window.decorView
             ViewCompat.getRootWindowInsets(decor)?.let {
@@ -115,13 +166,16 @@ class TerminalLayoutTest {
         }
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
         val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
-        val widthRatio = terminal.width / root.width
-        val heightRatio = terminal.height / root.height
+        val insets = requireNotNull(ViewCompat.getRootWindowInsets(compose.activity.window.decorView))
+            .getInsets(WindowInsetsCompat.Type.captionBar())
+        val widthRatio = terminal.width / (root.width - insets.left - insets.right)
+        val heightRatio = terminal.height / (root.height - insets.top - insets.bottom)
         measurements.appendLine("$name: root=${root.width}x${root.height}, terminal=${terminal.width}x${terminal.height}, width=$widthRatio, height=$heightRatio")
-        assertTrue("No blank band above terminal: $terminal", terminal.top < 2f)
-        assertTrue("No blank band beside terminal: $terminal", terminal.left < 2f)
-        assertTrue("Terminal width: $widthRatio", widthRatio > if (hidden || !landscape) 0.99f else 0.90f)
-        assertTrue("Terminal height: $heightRatio", heightRatio > if (hidden || landscape) 0.99f else 0.90f)
+        assertEquals("A camera cutout must not leave a blank band above the terminal", insets.top.toFloat(), terminal.top, 2f)
+        assertEquals("A camera cutout must not leave a blank band beside the terminal", insets.left.toFloat(), terminal.left, 2f)
+        val dockWidth = if (reserved) 48 * compose.activity.resources.displayMetrics.density else 0f
+        assertEquals("Only a pinned side rail may reserve terminal width", root.width - insets.left - insets.right - dockWidth, terminal.width, 2f)
+        assertTrue("Terminal height: $heightRatio", heightRatio > 0.99f)
         compose.activityRule.scenario.onActivity {
             assertEquals("Compose must use full window height", it.window.decorView.height.toFloat(), root.height, 2f)
         }
@@ -152,27 +206,45 @@ class TerminalLayoutTest {
                 session.write("printf '\\033[2J\\033[H'; for i in $(seq 1 50); do printf '\\033[32m[%02d]\\033[0m iTermux / workspace / build completed\\n' \"${'$'}i\"; done\r")
             }
             delay(800)
-            checkViewport("layout-portrait", false)
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+            compose.onNodeWithTag("restore-dock").assertIsDisplayed()
+            checkViewport("layout-portrait-default-hidden")
+            compose.onNodeWithTag("restore-dock").performClick()
+            checkDock()
+            checkViewport("layout-portrait-floating")
+            val floating = compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot
+            assertTrue("Floating controls must not span the screen", floating.width < compose.onRoot().fetchSemanticsNode().boundsInRoot.width * 0.7f)
+            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            checkDock()
+            compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
+            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+            checkKeyboardToggle("layout-portrait-floating")
+            compose.onNodeWithTag("terminal-menu").performClick()
+            compose.onNodeWithText("快捷键", substring = true).assertDoesNotExist()
+            compose.onNodeWithText("固定操作栏").performClick()
+            checkViewport("layout-portrait-pinned", reserved = true)
+            checkKeyboardToggle("layout-portrait-pinned")
+            compose.activityRule.scenario.recreate()
+            foreground()
+            compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal-dock").fetchSemanticsNodes().isNotEmpty() }
+            checkViewport("layout-portrait-pinned-recreated", reserved = true)
             val portraitColumns = withContext(Dispatchers.Main) { session.getEmulator().mColumns }
             rotate(true)
-            checkViewport("layout-landscape", true)
+            checkViewport("layout-landscape-pinned", reserved = true)
             assertTrue(withContext(Dispatchers.Main) { session.getEmulator().mColumns } > portraitColumns)
-            val wideRows = withContext(Dispatchers.Main) { session.getEmulator().mRows }
+            checkKeyboardToggle("layout-landscape-pinned")
+            compose.onNodeWithTag("terminal-menu").performClick()
+            compose.onNodeWithText("取消固定操作栏").performClick()
+            checkViewport("layout-landscape-floating")
+            checkKeyboardToggle("layout-landscape-floating")
 
-            compose.onNodeWithContentDescription("键盘", substring = false).performClick()
-            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
-            compose.waitUntil(8000) { session.getEmulator().mRows < wideRows }
-            val workspace = compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot
-            val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
-            assertTrue("Keyboard must leave terminal visible", terminal.height > workspace.height * 0.5f)
-            compose.onNodeWithTag("terminal-menu").assertIsDisplayed()
-            capture("layout-landscape-keyboard")
-            compose.onNodeWithContentDescription("收起键盘").performClick()
-            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
-
-            compose.onNodeWithContentDescription("语音").performClick()
+            compose.onNodeWithTag("terminal-menu").performClick()
+            compose.onNodeWithText("编辑文本").performClick()
+            compose.onNodeWithTag("prompt-editor").performClick()
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
             compose.onNodeWithTag("prompt-editor").performTextInput("检查横屏布局\n保留终端空间")
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithText("发送文本").assertIsDisplayed()
             val editor = compose.onNodeWithTag("prompt-editor").fetchSemanticsNode().boundsInRoot
             val editingTerminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
@@ -185,12 +257,28 @@ class TerminalLayoutTest {
 
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("隐藏操作栏").performClick()
-            checkViewport("layout-landscape-full", true, hidden = true)
+            checkViewport("layout-landscape-full")
             rotate(false)
             compose.onNodeWithTag("restore-dock").assertIsDisplayed()
-            checkViewport("layout-portrait-full", false, hidden = true)
+            checkViewport("layout-portrait-full")
             compose.onNodeWithTag("restore-dock").performClick()
-            checkViewport("layout-portrait-restored", false)
+            checkViewport("layout-portrait-restored")
+            checkDock()
+            compose.onNodeWithTag("terminal-menu").performClick()
+            compose.onNodeWithText("编辑文本").performClick()
+            compose.onNodeWithTag("prompt-editor").performClick()
+            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            compose.onNodeWithTag("prompt-editor").performTextInput("竖屏草稿")
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+            compose.onNodeWithTag("terminal-keys").assertDoesNotExist()
+            compose.onNodeWithText("发送文本").assertIsDisplayed()
+            capture("layout-portrait-editor")
+            compose.onNodeWithText("收起", substring = false).performClick()
+            checkViewport("layout-portrait-editor-closed")
+            checkDock()
+            rotate(true)
+            checkViewport("layout-landscape-floating")
+            checkDock()
             assertEquals(Phase.CONNECTED, session.state.value.phase)
             compose.onNodeWithTag("session-switcher").performClick()
             compose.onNodeWithText("返回主机列表").performClick()

@@ -25,7 +25,6 @@ class TerminalConnection(
     var onScreenChanged: (() -> Unit)? = null
     var copyToClipboard: ((String) -> Unit)? = null
     var pasteFromClipboard: (() -> Unit)? = null
-    var ctrl = false
     private val parser = TerminalEmulator(this, 80, 24, 8, 16, 5000, SilentTerminalClient())
     private val ssh = JschSession(host.target(mode), credentials, pins, interaction = { prompt ->
         val request = PendingPrompt(prompt)
@@ -69,5 +68,5 @@ class TerminalConnection(
     override fun onPasteTextFromClipboard() { pasteFromClipboard?.invoke() }
     override fun onBell() = Unit
     override fun onColorsChanged() { onScreenChanged?.invoke() }
-    fun disconnect() { pending.value?.answer?.complete(null); ssh.disconnect(); job.cancel(); ctrl = false }
+    fun disconnect() { pending.value?.answer?.complete(null); ssh.disconnect(); job.cancel() }
 }

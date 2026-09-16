@@ -81,17 +81,32 @@ class TerminalUiTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     @get:Rule val serviceRule = ServiceTestRule()
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
-    private fun shell(command: String) {
-        instrumentation.uiAutomation.executeShellCommand(command).use {
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
-        }
+    private val previousEmulatorSettings = mutableMapOf<String, String>()
+    private fun shell(command: String): String = instrumentation.uiAutomation.executeShellCommand(command).use {
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes().toString(Charsets.UTF_8).trim()
     }
     private fun foreground() {
+        shell("input keyevent 224")
+        shell("wm dismiss-keyguard")
         shell("am start -W --activity-single-top -n io.itermux.app/.MainActivity")
         compose.waitUntil(10_000) { runCatching { compose.onAllNodes(isRoot()).fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
         compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
-    @Before fun keepTestVisible() = foreground()
+    @Before fun keepTestVisible() {
+        if (android.os.Build.HARDWARE in listOf("ranchu", "goldfish")) {
+            // The system's first-use fullscreen lesson takes focus away from the editor.
+            mapOf("show_ime_with_hard_keyboard" to "1", "immersive_mode_confirmations" to "confirmed").forEach { (key, value) ->
+                previousEmulatorSettings[key] = shell("settings get secure $key")
+                shell("settings put secure $key $value")
+            }
+        }
+        foreground()
+    }
+    @After fun restoreEmulatorSettings() {
+        previousEmulatorSettings.forEach { (key, value) ->
+            shell(if (value.isBlank() || value == "null") "settings delete secure $key" else "settings put secure $key $value")
+        }
+    }
     private fun capture(name: String) {
         compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
             java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
@@ -101,6 +116,305 @@ class TerminalUiTest {
         if (view is TerminalView) return view
         if (view is ViewGroup) for (i in 0 until view.childCount) terminal(view.getChildAt(i))?.let { return it }
         return null
+    }
+    private fun showControls() {
+        if (compose.onAllNodesWithTag("restore-dock").fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNodeWithTag("restore-dock").performClick()
+        }
+        compose.waitUntil(2000) { compose.onAllNodesWithTag("terminal-menu").fetchSemanticsNodes().isNotEmpty() }
+    }
+    @Test fun inputButtonsAndDraggableHistory() = runBlocking {
+        compose.activityRule.scenario.onActivity { it.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+        foreground()
+        val context = instrumentation.targetContext
+        val app = context.applicationContext as ItermuxApp
+        app.database.hosts().forgetPin("[127.0.0.1]:22228")
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val password = instrumentation.context.assets.open("test_password").bufferedReader().use { it.readText().trim() }
+        val host = Host(name = "输入与滚动验证", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "SHELL")
+        val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials(password.toByteArray())) }
+        val prompts = launch { session.pending.collect { it?.answer?.complete(if (it.prompt is Prompt.VerifyHost) listOf("trust") else listOf(password)) } }
+        suspend fun write(text: String) = withContext(Dispatchers.Main) { session.write(text) }
+        suspend fun outputContains(text: String) {
+            withTimeout(8000) {
+                while (!withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.contains(text) }) delay(40)
+            }
+        }
+        fun button(tag: String) = compose.onNodeWithTag(tag).performScrollTo()
+        try {
+            assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
+            compose.onNodeWithText("会话", substring = true).performClick()
+            compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
+            showControls()
+            write("IFS= read -er value; printf '\\nNAV_RESULT<%s>\\n' \"${'$'}value\"\r")
+            delay(400)
+            withContext(Dispatchers.Main) {
+                requireNotNull(terminal(compose.activity.window.decorView)).onCreateInputConnection(EditorInfo())!!.setComposingText("ABCD", 1)
+            }
+            delay(200)
+            button("terminal-left").performTouchInput { click() }
+            button("terminal-left").performTouchInput { click() }
+            write("x")
+            button("terminal-right").performTouchInput { click() }
+            button("terminal-delete").performTouchInput { click() }
+            write("\r")
+            outputContains("NAV_RESULT<ABxD>")
+
+            write("IFS= read -er value; printf '\\nCLEAR_RESULT<%s>\\n' \"${'$'}value\"\r")
+            delay(400)
+            write("REMOVE_ALL")
+            delay(200)
+            repeat(3) { button("terminal-left").performTouchInput { click() } }
+            val pendingComposition = withContext(Dispatchers.Main) {
+                requireNotNull(terminal(compose.activity.window.decorView)).onCreateInputConnection(EditorInfo())!!.also { it.setComposingText("UNCOMMITTED", 1) }
+            }
+            button("terminal-delete").performTouchInput { longClick() }
+            withContext(Dispatchers.Main) { pendingComposition.finishComposingText() }
+            write("KEPT\r")
+            outputContains("CLEAR_RESULT<KEPT>")
+            outputContains("NAV_RESULT<ABxD>")
+
+            button("terminal-menu").performClick()
+            compose.onNodeWithText("编辑文本").performClick()
+            compose.onNodeWithTag("prompt-editor").performClick().performTextInput("甲🙂乙")
+            compose.onNodeWithTag("draft-left").performTouchInput { click() }
+            compose.onNodeWithTag("draft-right").performTouchInput { click() }
+            compose.onNodeWithTag("draft-delete").performTouchInput { click() }
+            compose.onNodeWithTag("prompt-editor").assertTextContains("甲🙂", substring = false)
+            compose.onNodeWithTag("draft-left").performTouchInput { click() }
+            compose.onNodeWithTag("draft-delete").performTouchInput { click() }
+            compose.onNodeWithTag("prompt-editor").assertTextContains("🙂", substring = false)
+            compose.onNodeWithTag("draft-delete").performTouchInput { longClick() }
+            compose.onNodeWithTag("prompt-editor").assert(SemanticsMatcher.expectValue(
+                androidx.compose.ui.semantics.SemanticsProperties.EditableText, androidx.compose.ui.text.AnnotatedString("")))
+            assertEquals("", session.draft)
+            // Combining marks and emoji sequences are single editing units.
+            val complex = "甲e\u0301👨‍👩‍👧‍👦"
+            val afterEmoji = io.itermux.app.ui.deleteDraftCharacter(androidx.compose.ui.text.input.TextFieldValue(complex, androidx.compose.ui.text.TextRange(complex.length)))
+            assertEquals("甲e\u0301", afterEmoji.text)
+            assertEquals("甲", io.itermux.app.ui.deleteDraftCharacter(afterEmoji).text)
+            compose.onNodeWithTag("prompt-editor").performTextInput("草稿只留在本地")
+            compose.onNodeWithText("发送文本").assertIsDisplayed()
+            capture("input-controls-portrait-editor")
+            compose.activityRule.scenario.onActivity { it.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+            foreground()
+            compose.waitUntil(8000) { compose.onRoot().fetchSemanticsNode().boundsInRoot.let { it.width > it.height } }
+            compose.onNodeWithTag("prompt-editor").assertTextContains("草稿只留在本地")
+            compose.onNodeWithTag("draft-left").assertIsDisplayed()
+            compose.onNodeWithTag("draft-delete").assertIsDisplayed()
+            compose.onNodeWithText("发送文本").assertIsDisplayed()
+            capture("input-controls-landscape-editor")
+            assertFalse(withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.contains("草稿只留在本地") })
+            compose.onNodeWithText("收起", substring = false).performClick()
+            compose.waitUntil(8000) { keyboardHidden() }
+
+            write("for i in $(seq 1 160); do printf 'HISTORY %03d\\n' \"${'$'}i\"; done\r")
+            outputContains("HISTORY 160")
+            val view = withContext(Dispatchers.Main) { requireNotNull(terminal(compose.activity.window.decorView)) }
+            val density = context.resources.displayMetrics.density
+            compose.onNodeWithTag("terminal").performTouchInput {
+                down(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 12 * density))
+                moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, 8 * density), delayMillis = 400)
+                up()
+            }
+            assertTrue(withContext(Dispatchers.Main) { view.topRow < -20 })
+            fun edgePixel(): Int {
+                val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(android.graphics.Color.BLACK)
+                view.draw(android.graphics.Canvas(bitmap))
+                return bitmap.getPixel((view.width - 6 * density).toInt(), (16 * density).toInt()).also { bitmap.recycle() }
+            }
+            assertNotEquals("Scrollbar must be visible after dragging", android.graphics.Color.BLACK, withContext(Dispatchers.Main) { edgePixel() })
+            capture("input-controls-landscape-scrollbar")
+            val before = withContext(Dispatchers.Main) { session.getEmulator().screen.getSelectedText(0, view.topRow, 12, view.topRow) }
+            write("printf 'NEW_OUTPUT\\n'\r")
+            outputContains("NEW_OUTPUT")
+            delay(300)
+            assertEquals("New output must preserve the history being read", before,
+                withContext(Dispatchers.Main) { session.getEmulator().screen.getSelectedText(0, view.topRow, 12, view.topRow) })
+            delay(1800)
+            assertEquals("Scrollbar must automatically hide", android.graphics.Color.BLACK, withContext(Dispatchers.Main) { edgePixel() })
+            compose.onNodeWithTag("terminal").performTouchInput {
+                down(androidx.compose.ui.geometry.Offset(width - 6 * density, 8 * density))
+                moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, height.toFloat()), delayMillis = 400)
+                up()
+            }
+            assertEquals("Dragging the hidden scrollbar to the bottom resumes live output", 0, withContext(Dispatchers.Main) { view.topRow })
+            capture("input-controls-landscape-terminal")
+        } catch (failure: Throwable) {
+            java.io.File(context.getExternalFilesDir(null), "input-controls-failure.txt").writeText(compose.onRoot().printToString())
+            capture("input-controls-failure")
+            throw failure
+        } finally {
+            compose.activityRule.scenario.onActivity { it.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+            withContext(Dispatchers.Main) { service.close(session.id) }
+            prompts.cancel()
+        }
+    }
+    private fun keyboardHidden() = androidx.core.view.ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+        ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == false
+
+    @Test fun imeBackspaceHoldClearsCurrentLine() = verifyImeDeletion(false)
+
+    // Run explicitly while the external driver holds the real IME key; never touches a user server.
+    @Test fun physicalImeBackspaceHoldClearsCurrentLine() {
+        Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("physicalIme") == "true")
+        verifyImeDeletion(true)
+    }
+
+    private fun verifyImeDeletion(physical: Boolean) = runBlocking {
+        val context = instrumentation.targetContext
+        (context.applicationContext as ItermuxApp).database.hosts().forgetPin("[127.0.0.1]:22228")
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val password = instrumentation.context.assets.open("test_password").bufferedReader().use { it.readText().trim() }
+        val host = Host(name = "输入法长按验证", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "SHELL")
+        val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials(password.toByteArray())) }
+        val prompts = launch { session.pending.collect { it?.answer?.complete(if (it.prompt is Prompt.VerifyHost) listOf("trust") else listOf(password)) } }
+        suspend fun write(text: String) = withContext(Dispatchers.Main) { session.write(text) }
+        suspend fun outputContains(text: String) = withTimeout(8000) {
+            while (!withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.contains(text) }) delay(40)
+        }
+        try {
+            assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
+            compose.onNodeWithText("会话", substring = true).performClick()
+            compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
+            compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+            val view = withContext(Dispatchers.Main) { requireNotNull(terminal(compose.activity.window.decorView)) }
+            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            compose.waitUntil(8000) { !keyboardHidden() }
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+            write("printf 'HISTORY_%s\\n' 'KEPT'\r")
+            outputContains("HISTORY_KEPT")
+            for (protocol in if (physical) listOf("TOUCH") else listOf("KEY", "UTF16", "CODEPOINT")) {
+                write("IFS= read -erp 'HOLD> ' value; printf '\\n${protocol}_RESULT<%s>\\n' \"${'$'}value\"\r")
+                delay(400)
+                val ic = if (physical) null else withContext(Dispatchers.Main) { view.onCreateInputConnection(EditorInfo()) }
+                if (!physical) {
+                    withContext(Dispatchers.Main) { ic!!.commitText("甲🙂 乙", 1) }
+                    delay(250)
+                    withContext(Dispatchers.Main) {
+                        val text = ic!!.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+                        assertTrue(text.text.toString().endsWith("甲🙂 乙"))
+                        assertEquals(text.text.length, text.selectionStart)
+                        assertTrue(ic.getTextBeforeCursor(20, 0).toString().endsWith("甲🙂 乙"))
+                        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+                        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))
+                    }
+                    delay(350)
+                    write("\r")
+                    outputContains("${protocol}_RESULT<甲🙂 >")
+                    write("IFS= read -erp 'HOLD> ' value; printf '\\n${protocol}_CLEAR<%s>\\n' \"${'$'}value\"\r")
+                    delay(400)
+                }
+                write("x".repeat(60) + "RIGHT")
+                delay(300)
+                withContext(Dispatchers.Main) { repeat(5) { view.sendInputControlKey(KeyEvent.KEYCODE_DPAD_LEFT) } }
+                delay(300)
+                if (physical) {
+                    capture("ime-hold-ready")
+                    java.io.File(context.getExternalFilesDir(null), "ime-hold-state.txt").writeText("READY")
+                    withTimeout(60_000) {
+                        while (!withContext(Dispatchers.Main) {
+                            val em = session.getEmulator()
+                            em.screen.getSelectedText(0, em.cursorRow, em.mColumns, em.cursorRow).trimEnd() == "HOLD>"
+                        }) delay(100)
+                    }
+                    // Let the driver release the key before verifying the next input.
+                    delay(1500)
+                } else {
+                    withContext(Dispatchers.Main) {
+                        assertTrue("IME context must cross soft-wrapped rows", ic!!.getTextBeforeCursor(100, 0).toString().endsWith("x".repeat(60)))
+                    }
+                    repeat(22) {
+                        withContext(Dispatchers.Main) {
+                            when (protocol) {
+                                "KEY" -> {
+                                    ic!!.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+                                    ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))
+                                }
+                                "UTF16" -> ic!!.deleteSurroundingText(1, 0)
+                                else -> ic!!.deleteSurroundingTextInCodePoints(1, 0)
+                            }
+                        }
+                        delay(100)
+                    }
+                    // New input immediately after a hold must release the suppression latch.
+                    withContext(Dispatchers.Main) {
+                        ic!!.commitText("Q", 1)
+                        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+                        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))
+                    }
+                    delay(200)
+                }
+                write("KEPT\r")
+                outputContains("${protocol}_${if (physical) "RESULT" else "CLEAR"}<KEPT>")
+                outputContains("HISTORY_KEPT")
+                if (physical) {
+                    capture("ime-hold-passed")
+                    java.io.File(context.getExternalFilesDir(null), "ime-hold-state.txt").writeText("PASSED")
+                }
+            }
+        } finally {
+            withContext(Dispatchers.Main) { service.close(session.id) }
+            prompts.cancel()
+        }
+    }
+
+    @Test fun keyboardButtonRepeatedlyTogglesNativeTerminal() = runBlocking {
+        val context = instrumentation.targetContext
+        (context.applicationContext as ItermuxApp).database.hosts().forgetPin("[127.0.0.1]:22228")
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val password = instrumentation.context.assets.open("test_password").bufferedReader().use { it.readText().trim() }
+        val host = Host(name = "键盘交互验证", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "SHELL")
+        val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials(password.toByteArray())) }
+        val prompts = launch { session.pending.collect { it?.answer?.complete(if (it.prompt is Prompt.VerifyHost) listOf("trust") else listOf(password)) } }
+        fun keyboardVisible() = androidx.core.view.ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+            ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+        try {
+            assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
+            compose.onNodeWithText("会话", substring = true).performClick()
+            compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+            compose.onNodeWithTag("restore-dock").assertIsDisplayed()
+            compose.waitUntil(8000) { !keyboardVisible() }
+            delay(500)
+            val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+            val terminalBounds = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
+            val windowInsets = requireNotNull(androidx.core.view.ViewCompat.getRootWindowInsets(compose.activity.window.decorView))
+            val caption = windowInsets.getInsets(androidx.core.view.WindowInsetsCompat.Type.captionBar())
+            val cutout = windowInsets.getInsets(androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+            val measurements = "root=$root, terminal=$terminalBounds, caption=$caption, cutout=$cutout"
+            java.io.File(context.getExternalFilesDir(null), "fullscreen-measurements.txt").writeText(measurements)
+            assertEquals("No blank band above the terminal: $measurements", caption.top.toFloat(), terminalBounds.top, 2f)
+            assertEquals("No blank band beside the terminal: $measurements", caption.left.toFloat(), terminalBounds.left, 2f)
+            assertEquals("Terminal uses the full available height: $measurements", root.height - caption.top - caption.bottom, terminalBounds.height, 2f)
+            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            compose.waitUntil(8000) { keyboardVisible() }
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+            shell("input keyevent 4")
+            compose.waitUntil(8000) { !keyboardVisible() }
+            showControls()
+            repeat(3) { attempt ->
+                compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
+                compose.waitUntil(8000) { keyboardVisible() }
+                delay(500)
+                compose.onNodeWithContentDescription("收起键盘").assertIsDisplayed()
+                compose.onNodeWithTag("terminal-keys").assertDoesNotExist()
+                if (attempt == 1) shell("input keyevent 4")
+                else compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
+                compose.waitUntil(8000) { !keyboardVisible() }
+                delay(500)
+                compose.onNodeWithContentDescription("键盘", substring = false).assertIsDisplayed()
+                compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+                compose.waitUntil(8000) { keyboardVisible() }
+                compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+                compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
+                compose.waitUntil(8000) { !keyboardVisible() }
+            }
+        } finally {
+            withContext(Dispatchers.Main) { service.close(session.id) }
+            prompts.cancel()
+        }
     }
     @Test fun chineseCompositionTerminalEditingAndActivityRecreation() = runBlocking {
         val context = instrumentation.targetContext
@@ -173,6 +487,7 @@ class TerminalUiTest {
             }
             withTimeout(8000) { while (!withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }.contains("中文输入")) delay(30) }
             withContext(Dispatchers.Main) { session.write("\u0003"); session.write("stty echo\r") }
+            showControls()
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("编辑文本").performClick()
             compose.onNodeWithTag("prompt-editor").performTextInput("请帮我检查这段代码\n保留现有行为")
@@ -203,23 +518,32 @@ class TerminalUiTest {
             compose.onNodeWithText("收起", substring = false).performClick()
             compose.waitForIdle(); delay(500); capture("codex-terminal")
             withContext(Dispatchers.Main) { session.write("\u0003\u0003") }
-            // Text committed by the IME's voice feature must only stage a draft.
-            val voiceText = "语音测试 ${UUID.randomUUID().toString().take(6)}"
-            compose.onNodeWithText("语音", substring = false).performClick()
-            compose.waitUntil(8000) { compose.onAllNodesWithContentDescription("收起键盘").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("prompt-editor").performTextInput(voiceText)
-            compose.onNodeWithTag("prompt-editor").assertTextContains(voiceText, substring = true)
-            assertFalse(withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }.contains(voiceText))
+            // Text entered in the editor must only stage a draft.
+            val draftText = "草稿测试 ${UUID.randomUUID().toString().take(6)}"
+            showControls()
+            compose.onNodeWithTag("terminal-menu").performClick()
+            compose.onNodeWithText("编辑文本").performClick()
+            compose.onNodeWithTag("prompt-editor").assertExists()
+            compose.onNodeWithTag("prompt-editor").performClick()
+            compose.waitUntil(8000) { androidx.core.view.ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true }
+            compose.onNodeWithTag("prompt-editor").performTextInput(draftText)
+            compose.onNodeWithTag("prompt-editor").assertTextContains(draftText, substring = true)
+            assertFalse(withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }.contains(draftText))
             compose.onNodeWithText("收起", substring = false).performClick()
-            compose.waitUntil(8000) { compose.onAllNodesWithContentDescription("键盘", substring = false).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(8000) { androidx.core.view.ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == false }
             compose.onNodeWithTag("terminal").performTouchInput { click() }
-            compose.waitForIdle()
-            assertFalse("Keyboard must be hidden after speech", withContext(Dispatchers.Main) {
-                androidx.core.view.ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
-            })
+            compose.waitUntil(8000) { !keyboardHidden() }
+            shell("input keyevent 4")
+            compose.waitUntil(8000) { keyboardHidden() }
             val terminalBounds = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
             val rootBounds = compose.onRoot().fetchSemanticsNode().boundsInRoot
             assertTrue("Terminal should occupy at least 80% of the connected screen", terminalBounds.height / rootBounds.height > 0.8f)
+        } catch (failure: Throwable) {
+            java.io.File(context.getExternalFilesDir(null), "terminal-ui-failure.txt").writeText(compose.onRoot().printToString())
+            instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+                java.io.File(context.getExternalFilesDir(null), "terminal-ui-failure.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            }
+            throw failure
         } finally { withContext(Dispatchers.Main) { service.close(session.id) }; prompts.cancel() }
     }
     @Test fun hostEditorCreatesAndSearchesHost() = runBlocking {
