@@ -217,8 +217,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             if (dockReserved) dock()
         }
         if (floatingDock) {
+            // Offset (not end-padding) keeps the dock 24dp clear of the scrollbar hit strip
+            // without an invisible padded hit target covering that strip.
             Surface(
-                modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding().padding(start = 4.dp, top = 4.dp, end = 24.dp, bottom = 4.dp),
+                modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding().padding(4.dp).offset(x = (-20).dp),
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f),
                 shadowElevation = 4.dp
@@ -226,7 +228,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         } else if (!dockVisible && !editor) {
             FilledTonalIconButton(
                 onClick = { dockExpanded = true },
-                modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding().padding(start = 4.dp, top = 4.dp, end = 24.dp, bottom = 4.dp).size(48.dp).testTag("restore-dock"),
+                modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding().padding(4.dp).offset(x = (-20).dp).size(48.dp).testTag("restore-dock"),
                 shape = CircleShape,
                 colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
             ) { Text("⋯", fontSize = 26.sp, modifier = Modifier.semantics { contentDescription = "显示操作栏" }) }

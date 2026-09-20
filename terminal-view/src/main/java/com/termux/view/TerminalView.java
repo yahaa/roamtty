@@ -617,10 +617,16 @@ public final class TerminalView extends View {
             }
         }
 
-        if (!isSelectingText() && !mEmulator.isAutoScrollDisabled() &&
-            (mTopRow < 0 || mTranscriptScrollBar.isDragging())) {
+        if (!isSelectingText() && !mEmulator.isAutoScrollDisabled() && mTopRow < 0) {
             // Keep the same history in view when new remote output arrives.
+            // Only when actually scrolled into history — not merely because the thumb is held
+            // at the live edge (topRow == 0); applying the scroll counter there would pull
+            // the viewport back into history mid-drag.
             setTopRow(Math.max(-rowsInHistory, mTopRow - mEmulator.getScrollCounter()));
+            skipScrolling = true;
+        }
+        if (mTranscriptScrollBar.isDragging()) {
+            // Never snap to the live edge while the user is dragging the scrollbar thumb.
             skipScrolling = true;
         }
 
