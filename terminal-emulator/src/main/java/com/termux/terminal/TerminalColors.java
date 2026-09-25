@@ -5,8 +5,11 @@ import android.graphics.Color;
 /** Current terminal colors (if different from default). */
 public final class TerminalColors {
 
-    /** Static data - a bit ugly but ok for now. */
+    /** Shared defaults; current colors and remote overrides remain per session. */
     public static final TerminalColorScheme COLOR_SCHEME = new TerminalColorScheme();
+
+    private final int[] mThemeColors = COLOR_SCHEME.mDefaultColors.clone();
+    private boolean mLightTheme;
 
     /**
      * The current terminal colors, which are normally set from the color theme, but may be set dynamically with the OSC
@@ -19,14 +22,26 @@ public final class TerminalColors {
         reset();
     }
 
+    /** Switch the default palette for this session while keeping colors set by remote OSC sequences. */
+    public boolean setLightTheme(boolean light) {
+        if (mLightTheme == light) return false;
+        int[] previous = mThemeColors.clone();
+        COLOR_SCHEME.copyThemeColors(mThemeColors, light);
+        for (int i = 0; i < mCurrentColors.length; i++) {
+            if (mCurrentColors[i] == previous[i]) mCurrentColors[i] = mThemeColors[i];
+        }
+        mLightTheme = light;
+        return true;
+    }
+
     /** Reset a particular indexed color with the default color from the color theme. */
     public void reset(int index) {
-        mCurrentColors[index] = COLOR_SCHEME.mDefaultColors[index];
+        mCurrentColors[index] = mThemeColors[index];
     }
 
     /** Reset all indexed colors with the default color from the color theme. */
     public void reset() {
-        System.arraycopy(COLOR_SCHEME.mDefaultColors, 0, mCurrentColors, 0, TextStyle.NUM_INDEXED_COLORS);
+        System.arraycopy(mThemeColors, 0, mCurrentColors, 0, TextStyle.NUM_INDEXED_COLORS);
     }
 
     /**

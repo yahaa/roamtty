@@ -43,28 +43,29 @@ public class TranscriptScrollBarTest {
     @Test
     public void visibilityStaysOpaqueWhileDraggingEvenAfterIdle() {
         Assert.assertEquals(1f,
-            TranscriptScrollBar.visibilityAlpha(HIDE_PAST_FADE, true), 0f);
+            TranscriptScrollBar.visibilityAlpha(HIDE_PAST_FADE, true, false), 0f);
     }
 
     @Test
     public void visibilityFadesAfterIdleDelay() {
         Assert.assertEquals(1f,
-            TranscriptScrollBar.visibilityAlpha(0, false), 0f);
+            TranscriptScrollBar.visibilityAlpha(0, false, false), 0f);
         Assert.assertEquals(1f,
-            TranscriptScrollBar.visibilityAlpha(TranscriptScrollBar.HIDE_DELAY_MS, false), 0f);
+            TranscriptScrollBar.visibilityAlpha(TranscriptScrollBar.HIDE_DELAY_MS, false, false), 0f);
         Assert.assertEquals(0.5f,
             TranscriptScrollBar.visibilityAlpha(
-                TranscriptScrollBar.HIDE_DELAY_MS + TranscriptScrollBar.FADE_MS / 2, false), 0.01f);
+                TranscriptScrollBar.HIDE_DELAY_MS + TranscriptScrollBar.FADE_MS / 2, false, false), 0.01f);
         Assert.assertEquals(0f,
-            TranscriptScrollBar.visibilityAlpha(HIDE_PAST_FADE, false), 0f);
+            TranscriptScrollBar.visibilityAlpha(HIDE_PAST_FADE, false, false), 0f);
     }
 
     /** Fade must finish so a later drag can start from a fully-hidden bar. */
     @Test
     public void fullyFadedAlphaIsExactlyZero() {
         long elapsed = TranscriptScrollBar.HIDE_DELAY_MS + TranscriptScrollBar.FADE_MS;
-        Assert.assertEquals(0f, TranscriptScrollBar.visibilityAlpha(elapsed, false), 0f);
-        Assert.assertEquals(0f, TranscriptScrollBar.visibilityAlpha(elapsed + 10_000, false), 0f);
+        Assert.assertEquals(0f, TranscriptScrollBar.visibilityAlpha(elapsed, false, false), 0f);
+        Assert.assertEquals(0f, TranscriptScrollBar.visibilityAlpha(elapsed + 10_000, false, false), 0f);
+        Assert.assertEquals(0.38f, TranscriptScrollBar.visibilityAlpha(elapsed, false, true), 0f);
     }
 
     private static final long HIDE_PAST_FADE =

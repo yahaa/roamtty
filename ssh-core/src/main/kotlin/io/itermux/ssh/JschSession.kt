@@ -30,6 +30,7 @@ class JschSession(
     @Volatile private var channel: com.jcraft.jsch.Channel? = null
     @Volatile private var dimensions = intArrayOf(80, 24, 0, 0)
     @Volatile private var trustFailure: Exception? = null
+    private val tmuxHistoryController = TmuxHistoryController(::runTmux)
 
     private fun update(phase: Phase, message: String = "") {
         if (!stopped.get()) mutableState.value = ConnectionState(phase, message)
@@ -204,6 +205,41 @@ class JschSession(
     override fun resize(columns: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) {
         dimensions = intArrayOf(columns.coerceIn(2, 500), rows.coerceIn(2, 300), pixelWidth.coerceAtLeast(0), pixelHeight.coerceAtLeast(0))
         sizes.trySend(dimensions)
+    }
+
+    /** Query the active pane of this app's fixed tmux session over a separate SSH channel. */
+    suspend fun tmuxHistory(): TmuxHistory? = tmuxHistoryController.history()
+
+    suspend fun enterTmuxHistory(): TmuxHistory? = tmuxHistoryController.enter()
+
+    suspend fun moveTmuxHistoryTo(position: Int): TmuxHistory? = tmuxHistoryController.moveTo(position)
+
+    suspend fun exitTmuxHistory(): TmuxHistory? = tmuxHistoryController.exit()
+
+    private suspend fun runTmux(command: String): String? = withContext(Dispatchers.IO) {
+        val ssh = session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
+            ?: return@withContext null
+        val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
+        try {
+            exec.setCommand(command)
+            val output = exec.inputStream
+            exec.connect(5000)
+            val bytes = java.io.ByteArrayOutputStream()
+            withTimeout(5000) {
+                val buffer = ByteArray(256)
+                while (!exec.isClosed || output.available() > 0) {
+                    while (output.available() > 0) {
+                        val count = output.read(buffer)
+                        if (count < 0) break
+                        if (bytes.size() + count > 1024) return@withTimeout
+                        bytes.write(buffer, 0, count)
+                    }
+                    if (!exec.isClosed) delay(20)
+                }
+            }
+            if (exec.exitStatus == 0) bytes.toString(Charsets.UTF_8.name()) else null
+        } catch (_: Exception) { null }
+        finally { exec.disconnect() }
     }
 
     override fun disconnect() {

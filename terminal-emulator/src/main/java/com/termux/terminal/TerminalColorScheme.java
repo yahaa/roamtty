@@ -4,33 +4,33 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
- * Color scheme for a terminal with default colors, which may be overridden (and then reset) from the shell using
- * Operating System Control (OSC) sequences.
+ * Base terminal colors, optionally customized through properties. Session-specific OSC
+ * overrides are managed by {@link TerminalColors}.
  *
  * @see TerminalColors
  */
 public final class TerminalColorScheme {
 
-    /** http://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg, but with blue color brighter. */
+    /** ANSI colors followed by the xterm color cube, grayscale ramp, and default colors. */
     private static final int[] DEFAULT_COLORSCHEME = {
-        // 16 original colors. First 8 are dim.
-        0xff000000, // black
-        0xffcd0000, // dim red
-        0xff00cd00, // dim green
-        0xffcdcd00, // dim yellow
-        0xff6495ed, // dim blue
-        0xffcd00cd, // dim magenta
-        0xff00cdcd, // dim cyan
-        0xffe5e5e5, // dim white
+        // First 8 ANSI colors.
+        0xff202221, // black
+        0xffd97579, // red
+        0xff80c99a, // green
+        0xffd9bb76, // yellow
+        0xff7eadd8, // blue
+        0xffbd9bd5, // magenta
+        0xff79c4cd, // cyan
+        0xffd9d4cc, // white
         // Second 8 are bright:
-        0xff7f7f7f, // medium grey
-        0xffff0000, // bright red
-        0xff00ff00, // bright green
-        0xffffff00, // bright yellow
-        0xff5c5cff, // light blue
-        0xffff00ff, // bright magenta
-        0xff00ffff, // bright cyan
-        0xffffffff, // bright white
+        0xff777a75, // medium grey
+        0xfff18e92, // bright red
+        0xffa5dfb4, // bright green
+        0xffefd391, // bright yellow
+        0xffa6caeb, // bright blue
+        0xffd4b5e7, // bright magenta
+        0xffa1dee3, // bright cyan
+        0xfff5f1eb, // bright white
 
         // 216 color cube, six shades of each color:
         0xff000000, 0xff00005f, 0xff000087, 0xff0000af, 0xff0000d7, 0xff0000ff, 0xff005f00, 0xff005f5f, 0xff005f87, 0xff005faf, 0xff005fd7, 0xff005fff,
@@ -57,7 +57,14 @@ public final class TerminalColorScheme {
         0xff808080, 0xff8a8a8a, 0xff949494, 0xff9e9e9e, 0xffa8a8a8, 0xffb2b2b2, 0xffbcbcbc, 0xffc6c6c6, 0xffd0d0d0, 0xffdadada, 0xffe4e4e4, 0xffeeeeee,
 
         // COLOR_INDEX_DEFAULT_FOREGROUND, COLOR_INDEX_DEFAULT_BACKGROUND and COLOR_INDEX_DEFAULT_CURSOR:
-        0xffffffff, 0xff000000, 0xffffffff};
+        0xfff3f0ea, 0xff252728, 0xffefa783};
+
+    private static final int[] LIGHT_ANSI = {
+        0xff2b2a27, 0xffa33b49, 0xff277550, 0xff8a6317,
+        0xff285f9a, 0xff82539c, 0xff177986, 0xff837d74,
+        0xff6f6b64, 0xffbd4a56, 0xff31865b, 0xff9c7524,
+        0xff3977b7, 0xff9563ad, 0xff248d99, 0xff5f5b54
+    };
 
     public final int[] mDefaultColors = new int[TextStyle.NUM_INDEXED_COLORS];
 
@@ -67,6 +74,17 @@ public final class TerminalColorScheme {
 
     private void reset() {
         System.arraycopy(DEFAULT_COLORSCHEME, 0, mDefaultColors, 0, TextStyle.NUM_INDEXED_COLORS);
+    }
+
+    /** Copy this scheme's defaults, applying the app's light palette when requested. */
+    void copyThemeColors(int[] destination, boolean light) {
+        System.arraycopy(mDefaultColors, 0, destination, 0, TextStyle.NUM_INDEXED_COLORS);
+        if (light) {
+            System.arraycopy(LIGHT_ANSI, 0, destination, 0, LIGHT_ANSI.length);
+            destination[TextStyle.COLOR_INDEX_FOREGROUND] = 0xff2b2a27;
+            destination[TextStyle.COLOR_INDEX_BACKGROUND] = 0xfff7f5f1;
+            destination[TextStyle.COLOR_INDEX_CURSOR] = 0xff9e462c;
+        }
     }
 
     public void updateWith(Properties props) {

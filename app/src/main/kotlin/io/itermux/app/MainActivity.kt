@@ -17,6 +17,7 @@ class MainActivity : ComponentActivity() {
     private var service by mutableStateOf<SessionService?>(null)
     private var bound = false
     private var terminalVisible = false
+    private var lightTheme = false
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) { service = (binder as SessionService.LocalBinder).service }
         override fun onServiceDisconnected(name: ComponentName?) { service = null }
@@ -34,18 +35,26 @@ class MainActivity : ComponentActivity() {
         // Prevent system screenshots/recent-task snapshots from persisting credentials or terminal output.
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
-            ItermuxScreen(application as ItermuxApp, service) { visible ->
+            ItermuxScreen(application as ItermuxApp, service) { visible, light ->
                 terminalVisible = visible
+                lightTheme = light
                 updateSystemBars()
             }
         }
     }
     private fun updateSystemBars() {
+        @Suppress("DEPRECATION")
+        window.statusBarColor = if (lightTheme) 0xFFF7F5F1.toInt() else 0xFF252728.toInt()
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = if (lightTheme) 0xFFF7F5F1.toInt() else 0xFF252728.toInt()
         WindowCompat.getInsetsController(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            isAppearanceLightStatusBars = lightTheme
+            isAppearanceLightNavigationBars = lightTheme
             if (terminalVisible) hide(WindowInsetsCompat.Type.systemBars())
             else show(WindowInsetsCompat.Type.systemBars())
         }
+        window.decorView.setBackgroundColor(if (lightTheme) 0xFFF7F5F1.toInt() else 0xFF252728.toInt())
     }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)

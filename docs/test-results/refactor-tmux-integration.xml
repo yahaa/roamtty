@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.itermux.ssh.TmuxHistoryIntegrationTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:57:28" hostname="Mac" time="1.649">
+  <properties/>
+  <testcase name="remoteHistoryCanBeEnteredScrolledAndExited" classname="io.itermux.ssh.TmuxHistoryIntegrationTest" time="1.649"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

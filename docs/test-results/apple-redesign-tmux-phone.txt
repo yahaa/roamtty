@@ -1,0 +1,6 @@
+
+io.itermux.app.TmuxHistoryUiTest:.
+
+Time: 4.146
+
+OK (1 test)

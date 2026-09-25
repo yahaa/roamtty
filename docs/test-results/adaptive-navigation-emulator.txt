@@ -1,0 +1,6 @@
+
+io.itermux.app.NavigationThemeTest:.
+
+Time: 13.972
+
+OK (1 test)

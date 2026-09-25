@@ -1,7 +1,9 @@
 package io.itermux.app.ui
 
 import android.provider.OpenableColumns
+import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,32 +14,43 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.ViewModelProvider
 import io.itermux.app.ItermuxApp
 import io.itermux.app.data.Host
-import io.itermux.ssh.*
+import io.itermux.ssh.AuthMethod
+import io.itermux.ssh.SessionMode
+import io.itermux.ssh.Target
 import kotlinx.coroutines.*
-import java.util.UUID
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val id = remember { original?.id ?: UUID.randomUUID().toString() }
-    var name by remember { mutableStateOf(original?.name.orEmpty()) }
-    var address by remember { mutableStateOf(original?.address.orEmpty()) }
-    var port by remember { mutableStateOf(original?.port?.toString() ?: "22") }
-    var username by remember { mutableStateOf(original?.username.orEmpty()) }
-    var auth by remember { mutableStateOf(original?.auth ?: "PASSWORD") }
-    var mode by remember { mutableStateOf(original?.mode ?: "TMUX") }
-    var savePassword by remember { mutableStateOf(original?.encryptedPassword != null) }
-    var password by remember { mutableStateOf("") }
-    var imported by remember { mutableStateOf<ByteArray?>(null) }
-    var keyLabel by remember { mutableStateOf(original?.keyLabel) }
+    val activity = remember(context) {
+        generateSequence(context) { (it as? ContextWrapper)?.baseContext }
+            .filterIsInstance<ComponentActivity>().first()
+    }
+    val draft = remember(activity) { ViewModelProvider(activity)[HostEditorDraft::class.java] }
+    draft.open(original)
+    val id = draft.id
+    var name by draft.name
+    var address by draft.address
+    var port by draft.port
+    var username by draft.username
+    var auth by draft.auth
+    var mode by draft.mode
+    var os by draft.os
+    var savePassword by draft.savePassword
+    var password by draft.password
+    var imported by draft.imported
+    var keyLabel by draft.keyLabel
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val keyPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -69,12 +82,62 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
             finally { busy = false }
         }
     }
-    DisposableEffect(Unit) { onDispose { imported?.fill(0); password = "" } }
-    Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
+    val connectionSection: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("连接信息", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            OutlinedTextField(name, { name = it }, label = { Text("名称") }, placeholder = { Text("例如：开发工作站") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("host-name"))
+            OutlinedTextField(address, { address = it }, label = { Text("地址 / IP") }, placeholder = { Text("例如：dev.example.com") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("host-address"), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(username, { username = it }, label = { Text("用户名") }, singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) }, label = { Text("端口") }, singleLine = true, modifier = Modifier.width(100.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            }
+        }
+    }
+    val systemSection: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("远端系统", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("LINUX" to "Linux", "WINDOWS" to "Windows", "MACOS" to "macOS", "OTHER" to "其他").forEach { (value, label) ->
+                    FilterChip(os == value, { os = value }, label = { Text(label) })
+                }
+            }
+            if (os == "UNKNOWN") Text("旧主机尚未设置系统类型，请选择后保存。", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    val authenticationSection: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("认证方式", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("PASSWORD", "KEY", "INTERACTIVE").forEach { value ->
+                    FilterChip(auth == value, { auth = value }, label = { Text(authLabel(value)) })
+                }
+            }
+            if (auth == "PASSWORD") {
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(savePassword, { savePassword = it }, modifier = Modifier.testTag("save-password")); Text("在本机加密保存密码") }
+                if (savePassword) OutlinedTextField(password, { password = it }, label = { Text(if (original?.encryptedPassword != null) "新密码（留空保留原密码）" else "密码") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth().testTag("host-password"))
+                Text("默认每次连接时输入密码。", style = MaterialTheme.typography.bodySmall)
+            } else if (auth == "KEY") {
+                OutlinedButton(onClick = { keyPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Text(if (keyLabel == null) "导入 Ed25519 / RSA 私钥" else "更换私钥") }
+                keyLabel?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                Text("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅在连接时输入，不会保存。", style = MaterialTheme.typography.bodySmall)
+            } else Text("连接时显示服务器的认证问题，支持一次性验证码和多轮交互。", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    val modeSection: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("会话模式", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(mode == "TMUX", { mode = "TMUX" }, label = { Text("tmux · 推荐") })
+                FilterChip(mode == "SHELL", { mode = "SHELL" }, label = { Text("普通 SSH") })
+            }
+            Text(if (mode == "TMUX") "附着远端固定会话 itermux，适合 AI 编程长任务。服务器需要已安装 tmux。" else "直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    Dialog(onDismissRequest = { if (!busy) { draft.close(); onDismiss() } }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize().safeDrawingPadding().imePadding().testTag("host-editor")) {
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") }
+                    TextButton(onClick = { draft.close(); onDismiss() }, enabled = !busy) { Text("取消") }
                     Text(if (original == null) "添加主机" else "编辑主机", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).padding(start = 12.dp))
                     Button(enabled = !busy, onClick = {
                         scope.launch {
@@ -89,9 +152,9 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                                         if (password.isEmpty()) original?.encryptedPassword else password.toByteArray().let { bytes -> try { app.vault.encrypt(bytes, "$id:password") } finally { bytes.fill(0) } }
                                     } else null
                                     val encryptedKey = if (auth == "KEY") imported?.let { app.vault.encrypt(it, "$id:key") } ?: original?.encryptedKey else null
-                                    app.database.hosts().save(Host(id, name.trim(), target.address, target.port, target.username, auth, mode, encryptedPassword, encryptedKey, keyLabel.takeIf { auth == "KEY" }))
+                                    app.database.hosts().save(Host(id, name.trim(), target.address, target.port, target.username, auth, mode, encryptedPassword, encryptedKey, keyLabel.takeIf { auth == "KEY" }, os))
                                 }
-                                imported?.fill(0); password = ""
+                                draft.close()
                                 onSaved()
                             } catch (e: IllegalArgumentException) { error = e.message }
                             catch (e: Exception) { error = "保存失败，无法使用本机加密存储。请重试。" }
@@ -99,36 +162,29 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                         }
                     }) { Text(if (busy) "处理中" else "保存") }
                 }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text("连接信息", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    OutlinedTextField(name, { name = it }, label = { Text("名称") }, placeholder = { Text("例如：开发工作站") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(address, { address = it }, label = { Text("地址 / IP") }, placeholder = { Text("例如：dev.example.com") }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(username, { username = it }, label = { Text("用户名") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) }, label = { Text("端口") }, singleLine = true, modifier = Modifier.width(100.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                    val wide = maxWidth >= 600.dp
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                        if (wide) Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                                connectionSection()
+                                systemSection()
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                                authenticationSection()
+                                modeSection()
+                            }
+                        } else {
+                            connectionSection()
+                            systemSection()
+                            authenticationSection()
+                            HorizontalDivider()
+                            modeSection()
+                        }
+                        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text("认证方式", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("PASSWORD", "KEY", "INTERACTIVE").forEach { value -> FilterChip(auth == value, { auth = value }, label = { Text(authLabel(value)) }) }
-                    }
-                    if (auth == "PASSWORD") {
-                        Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(savePassword, { savePassword = it }); Text("在本机加密保存密码") }
-                        if (savePassword) OutlinedTextField(password, { password = it }, label = { Text(if (original?.encryptedPassword != null) "新密码（留空保留原密码）" else "密码") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                        Text("默认每次连接时输入密码。", style = MaterialTheme.typography.bodySmall)
-                    } else if (auth == "KEY") {
-                        OutlinedButton(onClick = { keyPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Text(if (keyLabel == null) "导入 Ed25519 / RSA 私钥" else "更换私钥") }
-                        keyLabel?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                        Text("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅在连接时输入，不会保存。", style = MaterialTheme.typography.bodySmall)
-                    } else Text("连接时显示服务器的认证问题，支持一次性验证码和多轮交互。", style = MaterialTheme.typography.bodySmall)
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Text("会话模式", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(mode == "TMUX", { mode = "TMUX" }, label = { Text("tmux · 推荐") })
-                        FilterChip(mode == "SHELL", { mode = "SHELL" }, label = { Text("普通 SSH") })
-                    }
-                    Text(if (mode == "TMUX") "附着远端固定会话 itermux，适合 AI 编程长任务。服务器需要已安装 tmux。" else "直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。", style = MaterialTheme.typography.bodySmall)
-                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             }
         }

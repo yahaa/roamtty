@@ -1,0 +1,17 @@
+> Task :ssh-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ssh-core:processResources NO-SOURCE
+> Task :ssh-core:processTestResources
+> Task :ssh-core:compileKotlin
+> Task :ssh-core:compileJava NO-SOURCE
+> Task :ssh-core:classes UP-TO-DATE
+> Task :ssh-core:jar
+> Task :ssh-core:compileTestKotlin
+> Task :ssh-core:compileTestJava NO-SOURCE
+> Task :ssh-core:testClasses
+
+> Task :ssh-core:test
+
+TmuxHistoryIntegrationTest > remoteHistoryCanBeEnteredScrolledAndExited PASSED
+
+BUILD SUCCESSFUL in 3s
+5 actionable tasks: 5 executed

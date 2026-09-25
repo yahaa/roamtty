@@ -1,0 +1,7 @@
+
+io.itermux.app.TerminalExtraKeysTest:.
+io.itermux.app.TerminalDraftTest:.
+
+Time: 9.337
+
+OK (2 tests)

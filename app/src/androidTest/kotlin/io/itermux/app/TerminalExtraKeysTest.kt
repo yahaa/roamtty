@@ -1,0 +1,279 @@
+package io.itermux.app
+
+import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.os.Build
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.ServiceTestRule
+import com.termux.view.TerminalView
+import io.itermux.app.data.Host
+import io.itermux.app.session.SessionService
+import io.itermux.ssh.Credentials
+import io.itermux.ssh.Phase
+import io.itermux.ssh.Prompt
+import io.itermux.ssh.SessionMode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.After
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
+
+@RunWith(AndroidJUnit4::class)
+class TerminalExtraKeysTest {
+    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val serviceRule = ServiceTestRule()
+    private var previousImeSetting: String? = null
+    private val emulator = Build.HARDWARE in listOf("ranchu", "goldfish")
+
+    private fun shell(command: String): String =
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command).use {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes().toString(Charsets.UTF_8).trim()
+        }
+
+    @Before fun showEmulatorIme() {
+        if (emulator) {
+            previousImeSetting = shell("settings get secure show_ime_with_hard_keyboard")
+            shell("settings put secure show_ime_with_hard_keyboard 1")
+        }
+    }
+
+    @After fun restoreEmulatorIme() {
+        previousImeSetting?.let { value ->
+            shell(if (value == "null") "settings delete secure show_ime_with_hard_keyboard"
+                else "settings put secure show_ime_with_hard_keyboard $value")
+        }
+    }
+
+    private fun terminal(view: View): TerminalView? {
+        if (view is TerminalView) return view
+        if (view is ViewGroup) for (index in 0 until view.childCount) {
+            terminal(view.getChildAt(index))?.let { return it }
+        }
+        return null
+    }
+
+    private fun imeVisible(): Boolean = ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+        ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+
+    private fun commitText(text: String) {
+        compose.activityRule.scenario.onActivity { activity ->
+            requireNotNull(terminal(activity.window.decorView))
+                .onCreateInputConnection(EditorInfo()).commitText(text, 1)
+        }
+    }
+
+    @Test fun extraKeysSendTerminalBytesAndCtrlAppliesOnce() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        (context.applicationContext as ItermuxApp).database.hosts().forgetPin("[127.0.0.1]:22228")
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val host = Host(name = "隔离按键验证", address = "127.0.0.1", port = 22228,
+            username = "itermux_test", mode = "SHELL")
+        val session = withContext(Dispatchers.Main) {
+            service.open(host, SessionMode.SHELL, Credentials("test-only".toByteArray()))
+        }
+        val prompts = launch {
+            session.pending.collect { request ->
+                request?.answer?.complete(if (request.prompt is Prompt.VerifyHost) listOf("trust") else listOf("test-only"))
+            }
+        }
+        suspend fun outputContains(marker: String) {
+            val found = withTimeoutOrNull(10_000) {
+                while (!withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.contains(marker) }) delay(40)
+                true
+            }
+            if (found != true) {
+                val transcript = withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.takeLast(500) }
+                val focus = shell("dumpsys window").lineSequence().firstOrNull { it.contains("mCurrentFocus") }
+                error("Missing $marker; transcript=$transcript; focus=$focus")
+            }
+        }
+        try {
+            assertEquals(Phase.CONNECTED,
+                withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
+            outputContains("KEY_ECHO_READY")
+            compose.waitUntil(8_000) { compose.onAllNodesWithText("会话  1").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("会话  1").performClick()
+            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.onNodeWithTag("restore-dock").performClick()
+            compose.onNodeWithTag("terminal-escape").assertIsDisplayed().performTouchInput { click() }
+            outputContains("KEY_1B")
+            compose.onNodeWithTag("terminal-tab").assertIsDisplayed().performTouchInput { click() }
+            outputContains("KEY_09")
+
+            compose.activityRule.scenario.onActivity {
+                // Capture only the isolated fixture, never the user's protected app.
+                it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+            compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
+                File(context.getExternalFilesDir(null), "extra-keys-compose.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
+                File(context.getExternalFilesDir(null), "extra-keys-phone.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+
+            compose.onNodeWithTag("terminal-control").assertIsDisplayed().performTouchInput { click() }
+            compose.onNodeWithTag("terminal-control").assert(
+                SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "已启用"))
+            compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
+                File(context.getExternalFilesDir(null), "extra-keys-ctrl-armed.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            if (emulator) shell("input text c") else commitText("c")
+            outputContains("KEY_03")
+            if (emulator) shell("input text d") else commitText("d")
+            outputContains("KEY_64")
+
+            compose.onNodeWithTag("terminal-control").performTouchInput { click() }
+            commitText("e")
+            commitText("f")
+            outputContains("KEY_05")
+            outputContains("KEY_66")
+
+            if (imeVisible()) {
+                if (emulator) shell("input keyevent 4")
+                else compose.onNodeWithTag("keyboard-toggle").performClick()
+                compose.waitUntil(8_000) { !imeVisible() }
+            }
+
+            withContext(Dispatchers.Main) { session.write("\u001e") }
+            outputContains("HISTORY_180")
+            val historyView = requireNotNull(terminal(compose.activity.window.decorView))
+            val density = context.resources.displayMetrics.density
+            compose.onNodeWithTag("terminal").performTouchInput {
+                down(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 12 * density))
+                moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, 9 * density), delayMillis = 400)
+                up()
+            }
+            assertTrue("Scrollbar should reach local SSH history", historyView.topRow < -20)
+            val readingRow = historyView.topRow
+            withContext(Dispatchers.Main) { session.write("x") }
+            outputContains("KEY_78")
+            assertTrue("New output must not jump out of history", historyView.topRow <= readingRow)
+            delay(1700)
+            val historyBitmap = Bitmap.createBitmap(historyView.width, historyView.height, Bitmap.Config.ARGB_8888)
+            historyView.draw(Canvas(historyBitmap))
+            File(context.getExternalFilesDir(null), "redesign-scrollbar.png").outputStream().use {
+                historyBitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+            historyBitmap.recycle()
+            compose.onNodeWithTag("terminal").performTouchInput {
+                down(androidx.compose.ui.geometry.Offset(width - 6 * density, 9 * density))
+                moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 8 * density), delayMillis = 400)
+                up()
+            }
+            assertEquals("Dragging the thumb to the live edge resumes output", 0, historyView.topRow)
+            compose.onNodeWithTag("collapse-dock").performClick()
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+            compose.onNodeWithTag("restore-dock").performClick()
+            compose.onNodeWithTag("collapse-dock").assertIsDisplayed()
+
+            compose.activityRule.scenario.onActivity {
+                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+            compose.waitUntil(10_000) {
+                compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            }
+            compose.waitUntil(10_000) { compose.onAllNodes(isRoot()).fetchSemanticsNodes().size == 1 }
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("terminal-escape").fetchSemanticsNodes().isNotEmpty()
+            }
+            listOf("terminal-escape", "terminal-tab", "terminal-control",
+                "terminal-left", "terminal-right", "terminal-delete").forEach { tag ->
+                compose.onNodeWithTag(tag).assertIsDisplayed()
+            }
+            compose.onNodeWithTag("session-switcher").assertIsDisplayed()
+            compose.onNodeWithTag("keyboard-toggle").assertIsDisplayed()
+            compose.onNodeWithTag("terminal-menu").assertIsDisplayed()
+            compose.activityRule.scenario.onActivity {
+                it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+            compose.waitForIdle()
+            delay(500)
+            val landscapeTags = listOf("terminal-workspace", "terminal-dock", "session-switcher",
+                "keyboard-toggle", "terminal-menu", "terminal-escape", "terminal-tab",
+                "terminal-control", "terminal-left", "terminal-right", "terminal-delete")
+            File(context.getExternalFilesDir(null), "extra-keys-landscape-bounds.txt").writeText(
+                landscapeTags.joinToString("\n") { tag ->
+                    "$tag: ${compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot}"
+                })
+            compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
+                File(context.getExternalFilesDir(null), "extra-keys-landscape.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            compose.activityRule.scenario.onActivity { activity ->
+                val root = activity.window.decorView
+                val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+                root.draw(Canvas(bitmap))
+                File(context.getExternalFilesDir(null), "extra-keys-landscape-view.png").outputStream().use {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
+                File(context.getExternalFilesDir(null), "extra-keys-landscape-display.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+
+            compose.onNodeWithTag("keyboard-toggle").performClick()
+            compose.waitUntil(8_000) { imeVisible() }
+            compose.waitUntil(8_000) {
+                compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot.width <=
+                    52 * compose.activity.resources.displayMetrics.density
+            }
+            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-delete",
+                "session-switcher").forEach { tag ->
+                compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
+            }
+            Unit
+        } finally {
+            compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+            withContext(Dispatchers.Main) { service.close(session.id) }
+            prompts.cancel()
+        }
+    }
+}

@@ -86,6 +86,8 @@ public final class TerminalView extends View {
 
     final Scroller mScroller;
     private final TranscriptScrollBar mTranscriptScrollBar;
+    public interface RemoteHistoryListener { void onPositionRequested(int position); }
+    private final RemoteHistoryState mRemoteHistory = new RemoteHistoryState();
     private BaseInputConnection mInputConnection;
     private final ImeBackspaceTracker mImeBackspace = new ImeBackspaceTracker();
     private Integer mExtractedTextToken;
@@ -211,8 +213,11 @@ public final class TerminalView extends View {
                 if (!mScroller.isFinished()) return true;
 
                 final boolean mouseTrackingAtStartOfFling = mEmulator.isMouseTrackingActive();
+                final boolean alternateBufferAtStartOfFling = mEmulator.isAlternateBufferActive();
+                final boolean remoteHistoryAtStartOfFling = mRemoteHistory.isActive();
+                final boolean remoteScrollingAtStartOfFling = remoteHistoryAtStartOfFling || mouseTrackingAtStartOfFling || alternateBufferAtStartOfFling;
                 float SCALE = 0.25f;
-                if (mouseTrackingAtStartOfFling) {
+                if (remoteScrollingAtStartOfFling) {
                     mScroller.fling(0, 0, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.mRows / 2, mEmulator.mRows / 2);
                 } else {
                     mScroller.fling(0, mTopRow, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.getScreen().getActiveTranscriptRows(), 0);
@@ -223,14 +228,16 @@ public final class TerminalView extends View {
 
                     @Override
                     public void run() {
-                        if (mouseTrackingAtStartOfFling != mEmulator.isMouseTrackingActive()) {
+                        if (remoteHistoryAtStartOfFling != mRemoteHistory.isActive() ||
+                            mouseTrackingAtStartOfFling != mEmulator.isMouseTrackingActive() ||
+                            alternateBufferAtStartOfFling != mEmulator.isAlternateBufferActive()) {
                             mScroller.abortAnimation();
                             return;
                         }
                         if (mScroller.isFinished()) return;
                         boolean more = mScroller.computeScrollOffset();
                         int newY = mScroller.getCurrY();
-                        int diff = mouseTrackingAtStartOfFling ? (newY - mLastY) : (newY - mTopRow);
+                        int diff = remoteScrollingAtStartOfFling ? (newY - mLastY) : (newY - mTopRow);
                         doScroll(e2, diff);
                         mLastY = newY;
                         if (more) post(this);
@@ -666,6 +673,7 @@ public final class TerminalView extends View {
      * @param textSize the new font size, in density-independent pixels.
      */
     public void setTextSize(int textSize) {
+        if (mRenderer != null && mRenderer.mTextSize == textSize) return;
         mRenderer = new TerminalRenderer(textSize, mRenderer == null ? Typeface.MONOSPACE : mRenderer.mTypeface);
         updateSize();
     }
@@ -726,6 +734,10 @@ public final class TerminalView extends View {
 
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */
     void doScroll(MotionEvent event, int rowsDown) {
+        if (mRemoteHistory.isActive()) {
+            requestRemoteHistoryPosition(mRemoteHistory.position() - rowsDown);
+            return;
+        }
         boolean up = rowsDown < 0;
         int amount = Math.abs(rowsDown);
         for (int i = 0; i < amount; i++) {
@@ -1177,7 +1189,7 @@ public final class TerminalView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         if (mEmulator == null) {
-            canvas.drawColor(0XFF000000);
+            canvas.drawColor(0XFF252728);
         } else {
             // render the terminal view and highlight any selected text
             int[] sel = mDefaultSelectors;
@@ -1223,6 +1235,23 @@ public final class TerminalView extends View {
     public int getTopRow() {
         return mTopRow;
     }
+
+    public void setRemoteHistory(int rows, int position, @Nullable RemoteHistoryListener listener) {
+        boolean changed = mRemoteHistory.update(rows, position,
+            listener == null ? null : listener::onPositionRequested,
+            mTranscriptScrollBar.isDragging());
+        if (changed) mTranscriptScrollBar.show();
+    }
+
+    boolean hasRemoteHistory() { return mRemoteHistory.isActive(); }
+    int getRemoteHistoryRows() { return mRemoteHistory.rows(); }
+    int getRemoteHistoryPosition() { return mRemoteHistory.position(); }
+
+    void requestRemoteHistoryPosition(int position) {
+        if (mRemoteHistory.requestPosition(position)) mTranscriptScrollBar.show();
+    }
+
+    void finishRemoteHistoryDrag() { mRemoteHistory.finishDrag(); }
 
     public void scrollToBottom() {
         if (mTopRow != 0) {

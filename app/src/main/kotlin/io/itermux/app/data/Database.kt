@@ -17,7 +17,8 @@ data class Host(
     val mode: String = SessionMode.TMUX.name,
     val encryptedPassword: ByteArray? = null,
     val encryptedKey: ByteArray? = null,
-    val keyLabel: String? = null
+    val keyLabel: String? = null,
+    @ColumnInfo(defaultValue = "'UNKNOWN'") val os: String = "UNKNOWN"
 ) {
     fun target(modeOverride: SessionMode? = null) = Target(address, port, username, AuthMethod.valueOf(auth), modeOverride ?: SessionMode.valueOf(mode))
 }
@@ -38,7 +39,7 @@ interface HostDao {
     @Query("DELETE FROM host_pins WHERE endpoint = :endpoint") suspend fun forgetPin(endpoint: String)
 }
 
-@Database(entities = [Host::class, StoredPin::class], version = 1, exportSchema = true)
+@Database(entities = [Host::class, StoredPin::class], version = 2, autoMigrations = [AutoMigration(from = 1, to = 2)], exportSchema = true)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun hosts(): HostDao
     companion object {

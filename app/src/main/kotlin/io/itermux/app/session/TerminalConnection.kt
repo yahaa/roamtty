@@ -32,14 +32,18 @@ class TerminalConnection(
         try { request.answer.await() } finally { pending.compareAndSet(request, null) }
     })
     val state = ssh.state
+    private val tmux = TmuxHistoryCoordinator(mode == SessionMode.TMUX, ssh, scope) { inputWarning.value = it }
+    val tmuxHistory = tmux.history
     private val job = scope.launch {
-        ssh.connect { bytes ->
-            withContext(Dispatchers.Main.immediate) {
-                parser.append(bytes, bytes.size)
-                revision.value++
-                onScreenChanged?.invoke()
+        try {
+            ssh.connect { bytes ->
+                withContext(Dispatchers.Main.immediate) {
+                    parser.append(bytes, bytes.size)
+                    revision.value++
+                    onScreenChanged?.invoke()
+                }
             }
-        }
+        } finally { tmux.onConnectionEnded() }
     }
     override fun getEmulator() = parser
     override fun updateSize(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {
@@ -62,11 +66,14 @@ class TerminalConnection(
         }
         parser.paste(text)
     }
+    fun enterTmuxHistory() = tmux.enter()
+    fun moveTmuxHistoryTo(position: Int) = tmux.moveTo(position)
+    fun exitTmuxHistory() = tmux.exit()
     override fun reset() { parser.reset(); onScreenChanged?.invoke() }
     override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
     override fun onCopyTextToClipboard(text: String) { copyToClipboard?.invoke(text) }
     override fun onPasteTextFromClipboard() { pasteFromClipboard?.invoke() }
     override fun onBell() = Unit
     override fun onColorsChanged() { onScreenChanged?.invoke() }
-    fun disconnect() { pending.value?.answer?.complete(null); ssh.disconnect(); job.cancel() }
+    fun disconnect() { pending.value?.answer?.complete(null); tmux.disconnect(); ssh.disconnect(); job.cancel() }
 }

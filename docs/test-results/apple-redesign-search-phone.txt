@@ -1,0 +1,6 @@
+
+io.itermux.app.TerminalUiTest:.
+
+Time: 5.07
+
+OK (1 test)
