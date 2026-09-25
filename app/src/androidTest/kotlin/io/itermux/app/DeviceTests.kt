@@ -88,7 +88,7 @@ class TerminalUiTest {
     private fun foreground() {
         shell("input keyevent 224")
         shell("wm dismiss-keyguard")
-        shell("am start -W --activity-single-top -n io.itermux.app/.MainActivity")
+        shell("am start -W --activity-single-top -n ${instrumentation.targetContext.packageName}/.MainActivity")
         compose.waitUntil(10_000) { runCatching { compose.onAllNodes(isRoot()).fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
         compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
@@ -144,6 +144,7 @@ class TerminalUiTest {
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             compose.onNodeWithText("会话", substring = true).performClick()
+            compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             showControls()
             write("IFS= read -er value; printf '\\nNAV_RESULT<%s>\\n' \"${'$'}value\"\r")
@@ -224,7 +225,7 @@ class TerminalUiTest {
                 view.draw(android.graphics.Canvas(bitmap))
                 return bitmap.getPixel((view.width - 6 * density).toInt(), (16 * density).toInt()).also { bitmap.recycle() }
             }
-            assertNotEquals("Scrollbar must be visible after dragging", android.graphics.Color.BLACK, withContext(Dispatchers.Main) { edgePixel() })
+            assertNotEquals("Scrollbar must be visible after dragging", 0xFF252728.toInt(), withContext(Dispatchers.Main) { edgePixel() })
             capture("input-controls-landscape-scrollbar")
             val before = withContext(Dispatchers.Main) { session.getEmulator().screen.getSelectedText(0, view.topRow, 12, view.topRow) }
             write("printf 'NEW_OUTPUT\\n'\r")
@@ -233,13 +234,15 @@ class TerminalUiTest {
             assertEquals("New output must preserve the history being read", before,
                 withContext(Dispatchers.Main) { session.getEmulator().screen.getSelectedText(0, view.topRow, 12, view.topRow) })
             delay(1800)
-            assertEquals("Scrollbar must automatically hide", android.graphics.Color.BLACK, withContext(Dispatchers.Main) { edgePixel() })
+            assertNotEquals("Reading history keeps a visible scrollbar handle", 0xFF252728.toInt(), withContext(Dispatchers.Main) { edgePixel() })
             compose.onNodeWithTag("terminal").performTouchInput {
                 down(androidx.compose.ui.geometry.Offset(width - 6 * density, 8 * density))
                 moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, height.toFloat()), delayMillis = 400)
                 up()
             }
-            assertEquals("Dragging the hidden scrollbar to the bottom resumes live output", 0, withContext(Dispatchers.Main) { view.topRow })
+            assertEquals("Dragging the scrollbar to the bottom resumes live output", 0, withContext(Dispatchers.Main) { view.topRow })
+            delay(1800)
+            assertEquals("Live edge scrollbar fades away", 0xFF252728.toInt(), withContext(Dispatchers.Main) { edgePixel() })
             capture("input-controls-landscape-terminal")
         } catch (failure: Throwable) {
             java.io.File(context.getExternalFilesDir(null), "input-controls-failure.txt").writeText(compose.onRoot().printToString())
@@ -277,6 +280,7 @@ class TerminalUiTest {
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             compose.onNodeWithText("会话", substring = true).performClick()
+            compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             val view = withContext(Dispatchers.Main) { requireNotNull(terminal(compose.activity.window.decorView)) }
@@ -373,6 +377,7 @@ class TerminalUiTest {
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             compose.onNodeWithText("会话", substring = true).performClick()
+            compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithTag("restore-dock").assertIsDisplayed()
@@ -440,6 +445,7 @@ class TerminalUiTest {
             foreground()
             compose.waitUntil(10_000) { runCatching { compose.onAllNodesWithText("会话", substring = true).fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
             compose.onNodeWithText("会话", substring = true).performClick()
+            compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitForIdle()
             if (android.os.Build.HARDWARE in listOf("ranchu", "goldfish")) {
                 // AndroidView measurement follows Compose idle on the next frame.
@@ -553,17 +559,23 @@ class TerminalUiTest {
             it.name.matches(Regex("UI 测试 [0-9a-f]{6}")) && it.address == "dev.example.com" && it.username == "developer"
         }.forEach { app.database.hosts().delete(it.id) }
         val label = "UI 测试 ${UUID.randomUUID().toString().take(6)}"
-        compose.onNodeWithText("搜索名称、地址或用户名").performTextClearance()
+        compose.onNodeWithTag("host-search").assertDoesNotExist()
+        compose.activity.runOnUiThread { compose.activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+        capture("hosts-compact")
         compose.onNodeWithText("＋ 主机").performClick()
         compose.onNodeWithText("名称").performTextInput(label)
         compose.onNodeWithText("地址 / IP").performTextInput("dev.example.com")
         compose.onNodeWithText("用户名").performTextInput("developer")
         compose.onNodeWithText("保存", useUnmergedTree = true).performClick()
         compose.waitUntil(8000) { compose.onAllNodesWithText("添加主机").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("搜索名称、地址或用户名").performTextInput(label)
+        compose.onNodeWithTag("search-toggle").performClick()
+        compose.onNodeWithTag("host-search").performTextInput(label)
         compose.waitUntil(8000) { compose.onAllNodes(hasText(label) and hasSetTextAction().not()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(hasText(label) and hasSetTextAction().not()).assertIsDisplayed()
-        compose.activity.runOnUiThread { compose.activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+        capture("hosts-search")
+        compose.onNodeWithTag("search-toggle").performClick()
+        compose.onNodeWithTag("host-search").assertDoesNotExist()
+        compose.onNodeWithText("已保存的主机").assertIsDisplayed()
         compose.activity.runOnUiThread { (compose.activity.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0) }
         compose.waitForIdle()
         capture("hosts")

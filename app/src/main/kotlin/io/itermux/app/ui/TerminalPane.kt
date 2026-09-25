@@ -1,10 +1,15 @@
 package io.itermux.app.ui
 
-import android.content.*
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.res.Configuration
-import android.view.*
+import android.view.KeyEvent
+import android.view.View
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
@@ -15,7 +20,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
@@ -25,33 +29,34 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.view.SoftwareKeyboardControllerCompat
+import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import com.termux.terminal.TerminalSession
-import com.termux.view.*
+import com.termux.view.TerminalView
 import io.itermux.app.session.*
 import io.itermux.app.R
-import io.itermux.ssh.*
+import io.itermux.ssh.Phase
+import io.itermux.ssh.SessionMode
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, onSelectSession: (String) -> Unit, onHosts: () -> Unit, onReconnect: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
+fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onSessions: () -> Unit, onHosts: () -> Unit, onReconnect: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
     val warning by session.inputWarning.collectAsStateWithLifecycle()
+    val tmuxHistory by session.tmuxHistory.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val prefs = remember { context.getSharedPreferences("terminal-settings", Context.MODE_PRIVATE) }
-    var fontSize by rememberSaveable { mutableIntStateOf(prefs.getInt("fontSize", 14)) }
+    var fontSize by rememberSaveable { mutableIntStateOf(prefs.getInt("fontSize", 13)) }
     var editor by rememberSaveable { mutableStateOf(false) }
     var draft by remember { mutableStateOf(TextFieldValue(session.draft, TextRange(session.draft.length))) }
     var terminal by remember { mutableStateOf<TerminalView?>(null) }
@@ -59,6 +64,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var closeConfirm by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var sessionMenu by remember { mutableStateOf(false) }
+    var ctrlArmed by remember { mutableStateOf(false) }
     var dockPinned by rememberSaveable { mutableStateOf(prefs.getBoolean("dockPinned", false)) }
     var dockExpanded by rememberSaveable { mutableStateOf(false) }
     val focus = LocalFocusManager.current
@@ -74,10 +80,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         session.draft = draft.text
     }
     fun terminalKey(keyCode: Int) {
+        ctrlArmed = false
         terminal?.sendInputControlKey(keyCode)
     }
     fun hideKeyboard() {
         // Clear Compose/native focus before hiding so focus transfer cannot reopen the IME.
+        ctrlArmed = false
         focus.clearFocus(force = true)
         terminal?.clearFocus()
         keyboard.hide()
@@ -90,8 +98,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.let {
             // Stage clipboard content in the editor; reading clipboard requires a user gesture.
-            val text = it.take(128 * 1024)
-            updateDraft(TextFieldValue(text, TextRange(text.length))); editor = true; hideKeyboard()
+            updateDraft(insertDraftText(draft, it, 128 * 1024)); editor = true; hideKeyboard()
         }
     }
     DisposableEffect(session) {
@@ -101,11 +108,22 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             session.onScreenChanged = null; session.copyToClipboard = null; session.pasteFromClipboard = null
         }
     }
-    LaunchedEffect(fontSize) { prefs.edit().putInt("fontSize", fontSize).apply() }
+    LaunchedEffect(fontSize) { prefs.edit { putInt("fontSize", fontSize) } }
     LaunchedEffect(session.id) { hideKeyboard() }
+    LaunchedEffect(state.phase) { if (state.phase != Phase.CONNECTED) ctrlArmed = false }
+    LaunchedEffect(imeVisible) { if (!imeVisible) ctrlArmed = false }
     BackHandler(editor || imeVisible) { editor = false; hideKeyboard() }
-    val dock: @Composable () -> Unit = {
-        TerminalDock(floatingDock, sessionControl = { sessionModifier ->
+    val dock: @Composable (Dp) -> Unit = { availableHeight ->
+        TerminalDock(floatingDock, availableHeight, landscape, imeVisible, collapseControl = {
+            IconButton(onClick = {
+                ctrlArmed = false
+                dockExpanded = false
+                dockPinned = false
+                prefs.edit { putBoolean("dockPinned", false) }
+            }, modifier = Modifier.testTag("collapse-dock")) {
+                Text("×", fontSize = 24.sp, modifier = Modifier.semantics { contentDescription = "收起操作栏" })
+            }
+        }, sessionControl = { sessionModifier ->
             Box(sessionModifier) {
                 TextButton(onClick = { hideKeyboard(); sessionMenu = true }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "切换会话：${session.host.name}" }.testTag("session-switcher"), contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Text("●", color = if (state.phase == Phase.CONNECTED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, fontSize = 9.sp)
@@ -113,6 +131,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     Text("▤", fontSize = 18.sp)
                 }
                 DropdownMenu(sessionMenu, { sessionMenu = false }) {
+                    DropdownMenuItem(text = { Text("返回会话列表") }, onClick = { sessionMenu = false; onSessions() })
                     DropdownMenuItem(text = { Text("返回主机列表") }, onClick = { sessionMenu = false; onHosts() })
                     HorizontalDivider()
                     sessions.forEach { other ->
@@ -121,7 +140,13 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     }
                 }
             }
-        }, controls = {
+        }, primaryControls = {
+            if (session.mode == SessionMode.TMUX) {
+                InputControlButton(if (tmuxHistory?.active == true) "实时" else "历史",
+                    if (tmuxHistory?.active == true) "返回 tmux 实时画面" else "浏览 tmux 历史",
+                    "tmux-history", enabled = state.phase == Phase.CONNECTED,
+                    onClick = { if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
+            }
             IconButton(onClick = {
                 // Query native window state at click time, including IMEs with no bottom inset.
                 val visible = ViewCompat.getRootWindowInsets(composeView)?.isVisible(WindowInsetsCompat.Type.ime()) ?: imeVisible
@@ -132,34 +157,51 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 }
             }, modifier = Modifier.testTag("keyboard-toggle")) { Icon(painterResource(R.drawable.ic_keyboard), contentDescription = if (imeVisible) "收起键盘" else "键盘", modifier = Modifier.size(22.dp)) }
             Box {
-                IconButton(onClick = { menu = true }, modifier = Modifier.semantics { contentDescription = "终端菜单" }.testTag("terminal-menu")) { Text("⋯", fontSize = 26.sp) }
+                IconButton(onClick = { ctrlArmed = false; menu = true }, modifier = Modifier.semantics { contentDescription = "终端菜单" }.testTag("terminal-menu")) { Text("⋯", fontSize = 26.sp) }
                 DropdownMenu(menu, { menu = false }) {
+                    if (session.mode == SessionMode.TMUX) DropdownMenuItem(
+                        text = { Text(if (tmuxHistory?.active == true) "返回 tmux 实时画面" else "浏览 tmux 历史") },
+                        onClick = { menu = false; if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
                     DropdownMenuItem(text = { Text("编辑文本") }, onClick = { menu = false; editor = true; hideKeyboard() })
                     DropdownMenuItem(text = { Text(if (dockPinned) "取消固定操作栏" else "固定操作栏") }, onClick = {
                         menu = false; dockPinned = !dockPinned; dockExpanded = true
-                        prefs.edit().putBoolean("dockPinned", dockPinned).apply()
+                        prefs.edit { putBoolean("dockPinned", dockPinned) }
                     })
                     DropdownMenuItem(text = { Text("隐藏操作栏") }, onClick = {
                         menu = false; dockPinned = false; dockExpanded = false; editor = false; hideKeyboard()
-                        prefs.edit().putBoolean("dockPinned", false).apply()
+                        prefs.edit { putBoolean("dockPinned", false) }
                     })
                     DropdownMenuItem(text = { Text("粘贴") }, onClick = { menu = false; showClipboard() })
                     HorizontalDivider()
-                    DropdownMenuItem(text = { Text("增大字号") }, onClick = { fontSize = (fontSize + 1).coerceAtMost(28) })
-                    DropdownMenuItem(text = { Text("减小字号") }, onClick = { fontSize = (fontSize - 1).coerceAtLeast(8) })
+                    DropdownMenuItem(text = { Text("增大字号 · ${fontSize} sp") }, onClick = { fontSize = (fontSize + 1).coerceAtMost(28); menu = false })
+                    DropdownMenuItem(text = { Text("减小字号 · ${fontSize} sp") }, onClick = { fontSize = (fontSize - 1).coerceAtLeast(8); menu = false })
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text("关闭连接") }, onClick = { menu = false; if (state.active) closeConfirm = true else onClose() })
                 }
             }
+        }, keyControls = {
+            InputControlButton("Esc", "发送 Esc", "terminal-escape", enabled = state.phase == Phase.CONNECTED,
+                onClick = { terminalKey(KeyEvent.KEYCODE_ESCAPE) })
+            InputControlButton("Tab", "发送 Tab", "terminal-tab", enabled = state.phase == Phase.CONNECTED,
+                onClick = { terminalKey(KeyEvent.KEYCODE_TAB) })
+            InputControlButton("Ctrl", "Ctrl，作用于下一次键盘字符", "terminal-control",
+                enabled = state.phase == Phase.CONNECTED, selected = ctrlArmed, onClick = {
+                    ctrlArmed = !ctrlArmed
+                    if (ctrlArmed) terminal?.let { view ->
+                        view.requestFocus()
+                        SoftwareKeyboardControllerCompat(view).show()
+                    }
+                })
             InputControlButton("←", "光标左移", "terminal-left", enabled = state.phase == Phase.CONNECTED,
                 onClick = { terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) })
             InputControlButton("→", "光标右移", "terminal-right", enabled = state.phase == Phase.CONNECTED,
                 onClick = { terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) })
             InputControlButton("⌫", "删除字符，长按清空当前输入", "terminal-delete", enabled = state.phase == Phase.CONNECTED,
-                onLongClick = { terminal?.clearCurrentInput() }, onClick = { terminalKey(KeyEvent.KEYCODE_DEL) })
+                onLongClick = { ctrlArmed = false; terminal?.clearCurrentInput() }, onClick = { terminalKey(KeyEvent.KEYCODE_DEL) })
         })
     }
-    Box(modifier.fillMaxWidth().testTag("terminal-workspace")) {
+    BoxWithConstraints(modifier.fillMaxWidth().testTag("terminal-workspace")) {
+        val workspaceHeight = maxHeight
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 if (state.phase != Phase.CONNECTED) {
@@ -175,17 +217,27 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         }
                     }
                 }
-                AndroidView(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds().background(Color.Black).testTag("terminal"), factory = { ctx ->
+                AndroidView(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.background).testTag("terminal"), factory = { ctx ->
                     TerminalView(ctx, null).apply {
+                        session.getEmulator().mColors.setLightTheme(lightTheme)
                         terminal = this
                         setTextSize((fontSize * ctx.resources.displayMetrics.scaledDensity).toInt())
-                        setTerminalViewClient(MobileTerminalClient(this, onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) }))
+                        setTerminalViewClient(MobileTerminalClient(this,
+                            onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
+                            controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false }))
                         attachSession(session)
+                        setRemoteHistory(0, 0, null)
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                         session.onScreenChanged = { onScreenUpdated() }
                         isFocusableInTouchMode = true
                     }
-                }, update = { view -> view.setTextSize((fontSize * view.resources.displayMetrics.scaledDensity).toInt()) })
+                }, update = { view ->
+                    if (session.getEmulator().mColors.setLightTheme(lightTheme)) view.onScreenUpdated()
+                    view.setTextSize((fontSize * view.resources.displayMetrics.scaledDensity).toInt())
+                    val history = tmuxHistory?.takeIf { it.active }
+                    view.setRemoteHistory(history?.rows ?: 0, history?.position ?: 0,
+                        if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
+                })
                 warning?.let { message -> Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                     Text(message, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.weight(1f))
                     TextButton(onClick = { session.inputWarning.value = null }) { Text("知道了") }
@@ -214,7 +266,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     }
                 }
             }
-            if (dockReserved) dock()
+            if (dockReserved) dock(workspaceHeight)
         }
         if (floatingDock) {
             // Offset (not end-padding) keeps the dock 24dp clear of the scrollbar hit strip
@@ -224,7 +276,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f),
                 shadowElevation = 4.dp
-            ) { dock() }
+            ) { dock(workspaceHeight) }
         } else if (!dockVisible && !editor) {
             FilledTonalIconButton(
                 onClick = { dockExpanded = true },
@@ -237,65 +289,4 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     pending?.let { request -> PromptDialog(request) }
     confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text("发送多行文本？") }, text = { Text("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。") }, confirmButton = { TextButton(onClick = { session.paste(text); confirmPaste = null }) { Text("发送") } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text("取消") } }) }
     if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text("关闭此连接？") }, text = { Text(if (session.mode == SessionMode.TMUX) "远端 tmux 会话会继续运行，可稍后重连。" else "普通 SSH shell 会结束；需要保留的任务请先放入 tmux。") }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text("关闭连接") } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text("取消") } })
-}
-
-@Composable private fun TerminalDock(
-    floating: Boolean,
-    sessionControl: @Composable (Modifier) -> Unit,
-    controls: @Composable () -> Unit
-) {
-    // Match the terminal's vertical scrollbar in both orientations.
-    Column(Modifier.width(48.dp).then(if (floating) Modifier else Modifier.fillMaxHeight().windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Vertical))).verticalScroll(rememberScrollState()).testTag("terminal-dock"),
-        horizontalAlignment = Alignment.CenterHorizontally) {
-        sessionControl(Modifier.size(48.dp))
-        controls()
-    }
-}
-
-@Composable private fun PromptDialog(request: PendingPrompt) {
-    val prompt = request.prompt
-    var answers by remember(request) { mutableStateOf<List<String>>(if (prompt is Prompt.Keyboard) List(prompt.labels.size) { "" } else emptyList()) }
-    AlertDialog(onDismissRequest = { request.answer.complete(null) }, title = { Text(if (prompt is Prompt.VerifyHost) "核对主机指纹" else "交互式认证") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            when (prompt) {
-                is Prompt.VerifyHost -> {
-                    Text("首次连接此地址。请通过可信渠道核对服务器的 SHA-256 指纹，再决定是否信任。")
-                    SelectionContainer { Text("${prompt.pin.endpoint}\n${prompt.pin.algorithm}\n\n${prompt.pin.fingerprint}", fontFamily = FontFamily.Monospace, fontSize = 13.sp) }
-                }
-                is Prompt.Keyboard -> {
-                    if (prompt.instruction.isNotBlank()) Text(prompt.instruction)
-                    prompt.labels.forEachIndexed { i, label -> OutlinedTextField(answers[i], { value -> answers = answers.toMutableList().also { it[i] = value } }, label = { Text(label.ifBlank { "认证输入 ${i + 1}" }) }, visualTransformation = if (prompt.echo.getOrElse(i) { false }) VisualTransformation.None else PasswordVisualTransformation(), singleLine = true) }
-                }
-            }
-        }
-    }, confirmButton = { TextButton(onClick = { request.answer.complete(if (prompt is Prompt.VerifyHost) listOf("trust") else answers) }) { Text(if (prompt is Prompt.VerifyHost) "信任并连接" else "提交") } }, dismissButton = { TextButton(onClick = { request.answer.complete(null) }) { Text("取消") } })
-}
-
-private class MobileTerminalClient(private val view: TerminalView, private val onScale: (Float) -> Unit) : TerminalViewClient {
-    override fun onScale(scale: Float): Float { if (scale < 0.9f || scale > 1.1f) onScale(scale); return 1f }
-    override fun onSingleTapUp(e: MotionEvent?) {
-        view.requestFocus()
-        SoftwareKeyboardControllerCompat(view).show()
-    }
-    override fun shouldBackButtonBeMappedToEscape() = false
-    override fun shouldEnforceCharBasedInput() = true
-    override fun shouldUseCtrlSpaceWorkaround() = false
-    override fun isTerminalViewSelected() = view.hasFocus()
-    override fun copyModeChanged(copyMode: Boolean) = Unit
-    override fun onKeyDown(keyCode: Int, e: KeyEvent?, session: TerminalSession?) = false
-    override fun onKeyUp(keyCode: Int, e: KeyEvent?) = false
-    override fun onLongPress(event: MotionEvent?) = false
-    override fun readControlKey() = false
-    override fun readAltKey() = false
-    override fun readShiftKey() = false
-    override fun readFnKey() = false
-    override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: TerminalSession?) = false
-    override fun onEmulatorSet() = Unit
-    override fun logError(tag: String?, message: String?) = Unit
-    override fun logWarn(tag: String?, message: String?) = Unit
-    override fun logInfo(tag: String?, message: String?) = Unit
-    override fun logDebug(tag: String?, message: String?) = Unit
-    override fun logVerbose(tag: String?, message: String?) = Unit
-    override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) = Unit
-    override fun logStackTrace(tag: String?, e: Exception?) = Unit
 }

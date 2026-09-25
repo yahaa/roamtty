@@ -1,0 +1,61 @@
+package io.itermux.app.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable internal fun TerminalDock(
+    floating: Boolean,
+    availableHeight: Dp,
+    landscape: Boolean,
+    imeVisible: Boolean,
+    collapseControl: @Composable () -> Unit,
+    sessionControl: @Composable (Modifier) -> Unit,
+    primaryControls: @Composable () -> Unit,
+    keyControls: @Composable () -> Unit
+) {
+    val twoColumns = landscape && !imeVisible && availableHeight >= 320.dp
+    val modifier = Modifier.width(if (twoColumns) 96.dp else 48.dp)
+        .then(if (floating) Modifier else Modifier.fillMaxHeight().windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Vertical)))
+        .testTag("terminal-dock")
+    if (twoColumns) {
+        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+            Row {
+                collapseControl()
+                sessionControl(Modifier.size(48.dp))
+            }
+            FlowRow(maxItemsInEachRow = 2) {
+                primaryControls()
+                keyControls()
+            }
+        }
+    } else if ((landscape && imeVisible) || availableHeight < 192.dp) {
+        // A short viewport needs the whole rail to scroll so extra keys retain full touch targets.
+        Column(modifier.verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            collapseControl()
+            sessionControl(Modifier.size(48.dp))
+            primaryControls()
+            keyControls()
+        }
+    } else {
+        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+            collapseControl()
+            sessionControl(Modifier.size(48.dp))
+            primaryControls()
+            val keyArea = if (floating) Modifier.heightIn(max = (availableHeight - 192.dp).coerceAtLeast(0.dp))
+                else Modifier.weight(1f)
+            Column(keyArea.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                keyControls()
+            }
+        }
+    }
+}

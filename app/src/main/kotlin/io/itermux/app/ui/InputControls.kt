@@ -2,6 +2,7 @@ package io.itermux.app.ui
 
 import android.icu.text.BreakIterator
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -13,10 +14,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
@@ -43,21 +46,39 @@ internal fun deleteDraftCharacter(value: TextFieldValue): TextFieldValue {
     return TextFieldValue(value.text.removeRange(start, end), TextRange(start))
 }
 
+internal fun insertDraftText(value: TextFieldValue, inserted: String, maxLength: Int): TextFieldValue {
+    if (inserted.isEmpty()) return value
+    val start = value.selection.min.coerceIn(0, value.text.length)
+    val end = value.selection.max.coerceIn(start, value.text.length)
+    val available = (maxLength - value.text.length + end - start).coerceAtLeast(0)
+    var clipped = inserted.take(available)
+    if (clipped.lastOrNull()?.isHighSurrogate() == true) clipped = clipped.dropLast(1)
+    if (clipped.isEmpty()) return value
+    return TextFieldValue(value.text.replaceRange(start, end, clipped), TextRange(start + clipped.length))
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun InputControlButton(
     symbol: String, description: String, tag: String, enabled: Boolean = true,
-    size: Dp = 48.dp, onLongClick: (() -> Unit)? = null, onClick: () -> Unit
+    size: Dp = 48.dp, selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null, onClick: () -> Unit
 ) {
     Box(
-        Modifier.size(size).clip(CircleShape).testTag(tag)
-            .semantics { contentDescription = description }
+        Modifier.size(size).clip(CircleShape)
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+            .testTag(tag)
+            .semantics {
+                contentDescription = description
+                if (selected) stateDescription = "已启用"
+            }
             .combinedClickable(enabled = enabled, role = Role.Button,
                 onLongClickLabel = if (onLongClick != null) "清空当前输入" else null,
                 onLongClick = onLongClick, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(symbol, fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f))
+        Text(symbol, fontSize = if (symbol.length > 1) 14.sp else 22.sp,
+            color = (if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface).copy(alpha = if (enabled) 1f else 0.38f))
     }
 }
 

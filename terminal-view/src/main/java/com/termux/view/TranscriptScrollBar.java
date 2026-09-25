@@ -5,13 +5,15 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.os.SystemClock;
 import android.view.MotionEvent;
+import com.termux.terminal.TerminalColors;
+import com.termux.terminal.TextStyle;
 
 /**
  * A draggable, fading scrollbar for local terminal history.
  *
- * Visual thumb is 6dp wide; the hit target is the rightmost 24dp. Idle 1200ms then
- * fade over 250ms. Hit-testing stays active after fade so the bar can be grabbed
- * while invisible; dragging never yields to the terminal gesture scroller.
+ * Visual thumb is 6dp wide; the hit target is the rightmost 24dp. The thumb
+ * remains faintly visible while reading history, so its position and hit area
+ * can be found after the interaction highlight fades.
  */
 final class TranscriptScrollBar {
     static final long HIDE_DELAY_MS = 1200;
@@ -61,14 +63,20 @@ final class TranscriptScrollBar {
         return Math.max(-historyRows, Math.min(0, -Math.round(historyRows * (1f - clamped))));
     }
 
-    /** Visibility multiplier: 1 while dragging / freshly shown, then linear fade to 0. */
-    static float visibilityAlpha(long elapsedMs, boolean dragging) {
+    /** Visibility multiplier: live edge fades out; history keeps a quiet location cue. */
+    static float visibilityAlpha(long elapsedMs, boolean dragging, boolean readingHistory) {
         if (dragging) return 1f;
-        return Math.max(0f, 1f - Math.max(0L, elapsedMs - HIDE_DELAY_MS) / (float) FADE_MS);
+        float fade = Math.max(0f, 1f - Math.max(0L, elapsedMs - HIDE_DELAY_MS) / (float) FADE_MS);
+        return readingHistory ? Math.max(0.38f, fade) : fade;
     }
 
     private int historyRows() {
-        return view.mEmulator == null ? 0 : view.mEmulator.getScreen().getActiveTranscriptRows();
+        return view.hasRemoteHistory() ? view.getRemoteHistoryRows()
+            : view.mEmulator == null ? 0 : view.mEmulator.getScreen().getActiveTranscriptRows();
+    }
+
+    private int topRow() {
+        return view.hasRemoteHistory() ? -view.getRemoteHistoryPosition() : view.getTopRow();
     }
 
     private boolean layoutThumb() {
@@ -77,7 +85,7 @@ final class TranscriptScrollBar {
         float track = view.getHeight() - 2 * TRACK_INSET_DP * density;
         float height = Math.min(track, Math.max(MIN_THUMB_DP * density,
             track * view.mEmulator.mRows / (float) (history + view.mEmulator.mRows)));
-        float fraction = scrollFraction(history, view.getTopRow());
+        float fraction = scrollFraction(history, topRow());
         float top = TRACK_INSET_DP * density + fraction * (track - height);
         float right = view.getWidth() - 3 * density;
         thumb.set(right - BAR_WIDTH_DP * density, top, right, top + height);
@@ -87,22 +95,30 @@ final class TranscriptScrollBar {
     void draw(Canvas canvas) {
         if (!layoutThumb()) return;
         long elapsed = SystemClock.uptimeMillis() - shownAt;
-        float alpha = visibilityAlpha(elapsed, isDragging());
+        float alpha = visibilityAlpha(elapsed, isDragging(), topRow() < 0);
         if (alpha == 0f) return;
-        paint.setColor(0xFF8FA9BC);
-        paint.setAlpha(Math.round(45 * alpha));
-        canvas.drawRoundRect(thumb.left, TRACK_INSET_DP * density, thumb.right,
-            view.getHeight() - TRACK_INSET_DP * density, 3 * density, 3 * density, paint);
+        int background = view.mEmulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND];
+        paint.setColor(TerminalColors.getPerceivedBrightnessOfColor(background) > 130 ? 0xFF567371 : 0xFF8FA9BC);
+        if (isDragging() || elapsed < HIDE_DELAY_MS + FADE_MS) {
+            paint.setAlpha(Math.round(45 * alpha));
+            canvas.drawRoundRect(thumb.left, TRACK_INSET_DP * density, thumb.right,
+                view.getHeight() - TRACK_INSET_DP * density, 3 * density, 3 * density, paint);
+        }
         paint.setAlpha(Math.round(230 * alpha));
         canvas.drawRoundRect(thumb, 3 * density, 3 * density, paint);
-        if (!isDragging() && elapsed >= HIDE_DELAY_MS) view.postInvalidateOnAnimation();
+        if (!isDragging() && elapsed >= HIDE_DELAY_MS && elapsed < HIDE_DELAY_MS + FADE_MS)
+            view.postInvalidateOnAnimation();
     }
 
     boolean onTouch(MotionEvent event) {
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
-            // Hit-test the 24dp strip whenever history exists — even after fade-out.
+            // Keep the handle draggable after it becomes quiet, without stealing taps
+            // in the rest of the edge strip once the active track has faded.
             if (event.getX() < view.getWidth() - HIT_WIDTH_DP * density || !layoutThumb()) return false;
+            if (visibilityAlpha(SystemClock.uptimeMillis() - shownAt, false, topRow() < 0) < 1f &&
+                (event.getY() < thumb.top - HIT_WIDTH_DP * density ||
+                    event.getY() > thumb.bottom + HIT_WIDTH_DP * density)) return false;
             view.mScroller.abortAnimation();
             if (view.isSelectingText()) view.stopTextSelectionMode();
             pointerId = event.getPointerId(0);
@@ -119,6 +135,7 @@ final class TranscriptScrollBar {
             (action == MotionEvent.ACTION_POINTER_UP && event.getPointerId(event.getActionIndex()) == pointerId)) {
             pointerId = -1;
             if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
+            view.finishRemoteHistoryDrag();
             show();
         }
         // Consume the rest of the gesture so TerminalView's gesture scroller cannot fight the thumb.
@@ -130,7 +147,9 @@ final class TranscriptScrollBar {
             float travel = view.getHeight() - 2 * TRACK_INSET_DP * density - thumb.height();
             float fraction = travel <= 0 ? 1f
                 : Math.max(0f, Math.min(1f, (y - dragOffset - TRACK_INSET_DP * density) / travel));
-            view.setTopRow(topRowForFraction(historyRows(), fraction));
+            int row = topRowForFraction(historyRows(), fraction);
+            if (view.hasRemoteHistory()) view.requestRemoteHistoryPosition(-row);
+            else view.setTopRow(row);
         }
         show();
     }

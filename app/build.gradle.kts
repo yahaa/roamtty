@@ -12,7 +12,7 @@ android {
     namespace = "io.itermux.app"
     compileSdk = 36
     defaultConfig {
-        applicationId = "io.itermux.app"
+        applicationId = providers.gradleProperty("itermuxApplicationId").orElse("io.itermux.app").get()
         minSdk = 26
         targetSdk = 36
         versionCode = providers.gradleProperty("itermuxVersionCode").orElse("1").get().toInt()

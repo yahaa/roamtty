@@ -107,20 +107,33 @@ class TerminalLayoutTest {
     }
 
     private fun checkDock() {
-        compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+        compose.onNodeWithTag("terminal-dock").assertExists()
         compose.onNodeWithTag("restore-dock").assertDoesNotExist()
         compose.onNodeWithTag("terminal-keys").assertDoesNotExist()
         val session = compose.onNodeWithTag("session-switcher").fetchSemanticsNode().boundsInRoot
         val keyboard = compose.onNodeWithTag("keyboard-toggle").fetchSemanticsNode().boundsInRoot
         val menu = compose.onNodeWithTag("terminal-menu").fetchSemanticsNode().boundsInRoot
-        assertEquals("Session and keyboard must align vertically", session.center.x, keyboard.center.x, 2f)
-        assertEquals("Keyboard and menu must align vertically", keyboard.center.x, menu.center.x, 2f)
-        assertTrue("Buttons must be arranged top to bottom", session.bottom <= keyboard.top + 1f && keyboard.bottom <= menu.top + 1f)
+        val dock = compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot
+        assertTrue("Operation rail must occupy visible space", dock.width > 0f && dock.height > 0f)
+        if (dock.width > 80 * compose.activity.resources.displayMetrics.density) {
+            assertTrue("Wide rail keeps the session above primary controls", session.bottom <= keyboard.top + 1f)
+            assertEquals("Wide rail pairs keyboard and menu", keyboard.center.y, menu.center.y, 2f)
+            assertTrue("Keyboard precedes menu in the wide rail", keyboard.right <= menu.left + 1f)
+        } else {
+            assertEquals("Session and keyboard must align vertically", session.center.x, keyboard.center.x, 2f)
+            assertTrue("Keyboard follows the session", session.bottom <= keyboard.top + 1f)
+            // The short rail scrolls while the IME is open; the menu may be outside the viewport.
+            if (menu.top >= dock.top && menu.bottom <= dock.bottom + 1f) {
+                assertEquals("Keyboard and menu must align vertically", keyboard.center.x, menu.center.x, 2f)
+                assertTrue("Menu follows the keyboard", keyboard.bottom <= menu.top + 1f)
+            }
+        }
     }
 
     private suspend fun checkKeyboardToggle(name: String) {
         checkDock()
         val button = compose.onNodeWithTag("keyboard-toggle").fetchSemanticsNode().boundsInRoot
+        val dockWidth = compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot.width
         repeat(3) { attempt ->
             // Use real touch events to cover native terminal / Compose focus handoff.
             compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
@@ -129,8 +142,11 @@ class TerminalLayoutTest {
             compose.onNodeWithContentDescription("收起键盘").assertIsDisplayed()
             checkDock()
             val opened = compose.onNodeWithTag("keyboard-toggle").fetchSemanticsNode().boundsInRoot
-            assertEquals("Keyboard button must not move horizontally", button.center.x, opened.center.x, 2f)
-            assertEquals("Keyboard button must not move vertically", button.center.y, opened.center.y, 2f)
+            val openedDockWidth = compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot.width
+            if (kotlin.math.abs(dockWidth - openedDockWidth) < 2f) {
+                assertEquals("Keyboard button must not move horizontally", button.center.x, opened.center.x, 2f)
+                assertEquals("Keyboard button must not move vertically", button.center.y, opened.center.y, 2f)
+            }
             val workspace = compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot
             val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
             assertTrue("Keyboard must leave the terminal visible", terminal.height > workspace.height * 0.99f)
@@ -145,10 +161,14 @@ class TerminalLayoutTest {
             checkDock()
             compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+            compose.waitUntil(8000) {
+                compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot.height >
+                    compose.onRoot().fetchSemanticsNode().boundsInRoot.height * 0.8f
+            }
         }
     }
 
-    private fun checkViewport(name: String, reserved: Boolean = false) {
+    private fun checkViewport(name: String, reservedWidthDp: Int = 0) {
         compose.waitUntil(8000) {
             val decor = compose.activity.window.decorView
             ViewCompat.getRootWindowInsets(decor)?.let {
@@ -173,7 +193,7 @@ class TerminalLayoutTest {
         measurements.appendLine("$name: root=${root.width}x${root.height}, terminal=${terminal.width}x${terminal.height}, width=$widthRatio, height=$heightRatio")
         assertEquals("A camera cutout must not leave a blank band above the terminal", insets.top.toFloat(), terminal.top, 2f)
         assertEquals("A camera cutout must not leave a blank band beside the terminal", insets.left.toFloat(), terminal.left, 2f)
-        val dockWidth = if (reserved) 48 * compose.activity.resources.displayMetrics.density else 0f
+        val dockWidth = reservedWidthDp * compose.activity.resources.displayMetrics.density
         assertEquals("Only a pinned side rail may reserve terminal width", root.width - insets.left - insets.right - dockWidth, terminal.width, 2f)
         assertTrue("Terminal height: $heightRatio", heightRatio > 0.99f)
         compose.activityRule.scenario.onActivity {
@@ -194,13 +214,16 @@ class TerminalLayoutTest {
         )
         app.database.hosts().forgetPin("[127.0.0.1]:22228")
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
-        val password = instrumentation.context.assets.open("test_password").bufferedReader().use { it.readText().trim() }
+        val password = runCatching {
+            instrumentation.context.assets.open("test_password").bufferedReader().use { it.readText().trim() }
+        }.getOrDefault("test-only")
         val host = Host(name = "布局验证工作站", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "SHELL")
         val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials(password.toByteArray())) }
         val prompts = launch { session.pending.collect { it?.answer?.complete(if (it.prompt is Prompt.VerifyHost) listOf("trust") else listOf(password)) } }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             compose.onNodeWithText("会话", substring = true).performClick()
+            compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             withContext(Dispatchers.Main) {
                 session.write("printf '\\033[2J\\033[H'; for i in $(seq 1 50); do printf '\\033[32m[%02d]\\033[0m iTermux / workspace / build completed\\n' \"${'$'}i\"; done\r")
@@ -209,6 +232,10 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithTag("restore-dock").assertIsDisplayed()
             checkViewport("layout-portrait-default-hidden")
+            compose.onNodeWithTag("restore-dock").performClick()
+            checkDock()
+            compose.onNodeWithTag("collapse-dock").performClick()
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithTag("restore-dock").performClick()
             checkDock()
             checkViewport("layout-portrait-floating")
@@ -223,15 +250,15 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("快捷键", substring = true).assertDoesNotExist()
             compose.onNodeWithText("固定操作栏").performClick()
-            checkViewport("layout-portrait-pinned", reserved = true)
+            checkViewport("layout-portrait-pinned", reservedWidthDp = 48)
             checkKeyboardToggle("layout-portrait-pinned")
             compose.activityRule.scenario.recreate()
             foreground()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal-dock").fetchSemanticsNodes().isNotEmpty() }
-            checkViewport("layout-portrait-pinned-recreated", reserved = true)
+            checkViewport("layout-portrait-pinned-recreated", reservedWidthDp = 48)
             val portraitColumns = withContext(Dispatchers.Main) { session.getEmulator().mColumns }
             rotate(true)
-            checkViewport("layout-landscape-pinned", reserved = true)
+            checkViewport("layout-landscape-pinned", reservedWidthDp = 96)
             assertTrue(withContext(Dispatchers.Main) { session.getEmulator().mColumns } > portraitColumns)
             checkKeyboardToggle("layout-landscape-pinned")
             compose.onNodeWithTag("terminal-menu").performClick()

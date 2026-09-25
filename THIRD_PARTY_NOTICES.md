@@ -7,6 +7,8 @@ iTermux's original code is copyright 2026 iTermux contributors, licensed under A
 | Termux terminal-emulator and terminal-view | `termux/termux-app@4584488513c099f2e98bcfcd00f006d213248729` | Apache-2.0 exception declared in upstream LICENSE.md; original copyright notices retained |
 | mwiede/JSch | 2.28.0 | BSD-3-Clause; embedded JZlib BSD and jBCrypt ISC notices included |
 | Bouncy Castle bcprov-jdk18on | 1.80 | MIT-style Bouncy Castle license |
+| Linux Tux icon | `devicons/devicon@7330accdbc47e2dc0c19789a48533c4a3c50fe58`, rendered from `icons/linux/linux-original.svg` at 192 px | Tux originally created by Larry Ewing with GIMP; Devicon vector copyright (c) 2015 konpa, MIT. Full text in `licenses/Devicon-MIT.txt` |
+| Windows and macOS icons | `devicons/devicon@7330accdbc47e2dc0c19789a48533c4a3c50fe58`, vector paths from `icons/windows11/windows11-original.svg` and `icons/apple/apple-original.svg`; Apple silhouette recolored with rainbow bands | Devicon vector copyright (c) 2015 konpa, MIT. Full text in `licenses/Devicon-MIT.txt` |
 | Kotlin and kotlinx.coroutines | 2.1.21 / 1.10.2 | Apache-2.0 |
 | AndroidX / Jetpack Compose / Room | Exact versions in Gradle build files | Apache-2.0 |
 | Gradle Wrapper | 8.11.1 | Apache-2.0 |
@@ -25,4 +27,4 @@ Local changes to the vendored libraries:
 
 Full license texts are in `licenses/` and LICENSE, and are bundled in the application's offline guide. Dependencies used only to build or test are not part of the release APK. The separately downloaded Codex Linux binary is used only to validate a real remote AI terminal tool and is not shipped in the app or source archive.
 
-Sources: https://github.com/termux/termux-app/blob/4584488513c099f2e98bcfcd00f006d213248729/LICENSE.md, https://github.com/mwiede/jsch/tree/jsch-2.28.0, https://github.com/bcgit/bc-java/tree/r1rv80.
+Sources: https://github.com/termux/termux-app/blob/4584488513c099f2e98bcfcd00f006d213248729/LICENSE.md, https://github.com/mwiede/jsch/tree/jsch-2.28.0, https://github.com/bcgit/bc-java/tree/r1rv80, https://github.com/devicons/devicon/blob/7330accdbc47e2dc0c19789a48533c4a3c50fe58/icons/linux/linux-original.svg, https://github.com/devicons/devicon/blob/7330accdbc47e2dc0c19789a48533c4a3c50fe58/icons/windows11/windows11-original.svg, https://github.com/devicons/devicon/blob/7330accdbc47e2dc0c19789a48533c4a3c50fe58/icons/apple/apple-original.svg, https://www.linuxfoundation.org/legal/the-linux-mark.

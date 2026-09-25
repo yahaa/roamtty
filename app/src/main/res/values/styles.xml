@@ -2,10 +2,10 @@
     <style name="Theme.ITermux" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:statusBarColor">#0B1118</item>
-        <item name="android:navigationBarColor">#0B1118</item>
+        <item name="android:statusBarColor">#252728</item>
+        <item name="android:navigationBarColor">#252728</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:colorAccent">#67E8C4</item>
-        <item name="android:windowBackground">#0B1118</item>
+        <item name="android:colorAccent">#D96C49</item>
+        <item name="android:windowBackground">#252728</item>
     </style>
 </resources>

@@ -32,13 +32,17 @@ Keystore 持有不可导出的 AES 密钥，AES-GCM 随机 IV 和 128 位认证�
 
 ## 生命周期
 
+当前源码的主机搜索只在用户点击标题栏入口时展开，收起时清除筛选。终端与 Material 界面使用同一深石墨色基底；终端默认 13 sp，已有字号偏好不覆盖。`TerminalView.setTextSize` 在字号不变时不再重复重新计算终端尺寸。操作栏顶部有显式收起按钮，固定和悬浮模式均可关闭。
+
 终端根布局仅应用 `WindowInsets.captionBar` 和输入法边距。摄像头的 `displayCutout` 不再作用于整个终端，避免隐藏状态栏后仍留下整条顶部或侧边空白；悬浮操作按钮单独避让开孔，固定侧栏仅在栏内避让顶部/底部开孔。主机列表仍使用 `safeDrawing`，保持系统栏和标题内容分开。
 
-连接页默认全屏，右侧操作栏默认隐藏，点击右上角 ⋯ 展开；显式固定的偏好仍保留。横竖屏按钮均沿终端滚动条方向竖排。仅显式固定时预留 48 dp 侧栏，输入法开关不改变操作栏位置；编辑框打开时暂时隐藏操作栏，关闭后恢复。快捷键面板及其 Ctrl 锁定状态已移除。默认隐藏输入法，轻触终端获取焦点并打开输入法。键盘按钮在点击时读取原生窗口的 IME 可见状态，通过 `SoftwareKeyboardControllerCompat` 控制原生终端输入；隐藏前先清除 Compose 和终端焦点。界面使用 `WindowInsets.isImeVisible` 跟随键盘状态。从更多菜单打开“编辑文本”，点击编辑框输入；编辑框中的文字先进入草稿，只有“发送文本”才写入 SSH，回车独立发送。
+连接页默认全屏，右侧操作栏默认隐藏，点击右上角 ⋯ 展开、栏顶 × 收起；显式固定的偏好仍保留。竖屏使用 48 dp 单列操作栏；横屏且键盘收起、空间足够时使用 96 dp 双列操作栏，键盘展开或高度不足时改为可滚动单列。仅显式固定时为操作栏预留宽度；编辑框打开时暂时隐藏操作栏，关闭后恢复。操作栏提供 Esc、Tab 和作用于下一次键盘字符的 Ctrl。默认隐藏输入法，轻触终端获取焦点并打开输入法。键盘按钮在点击时读取原生窗口的 IME 可见状态，通过 `SoftwareKeyboardControllerCompat` 控制原生终端输入；隐藏前先清除 Compose 和终端焦点。界面使用 `WindowInsets.isImeVisible` 跟随键盘状态。从更多菜单打开“编辑文本”，点击编辑框输入；编辑框中的文字先进入草稿，只有“发送文本”才写入 SSH，回车独立发送。
 
 用户主动打开连接时启动 `specialUse` 前台服务，并立即提供通知。Activity 只绑定服务和订阅 StateFlow，旋转和切换会话不负责维护底层 socket。关闭最后一个活动连接后停止前台状态并调用 stopSelf；若 Activity 仍绑定服务，可继续查看已断开的终端内容。服务使用 START_NOT_STICKY，不在系统重启后静默重连。
 
-tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec channel 执行固定命令 `exec tmux new-session -A -s 'itermux'`。普通 SSH 使用 shell channel。没有远端安装、端口转发、SFTP、文件同步或后台自动命令重放。
+tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec channel 执行固定命令 `exec tmux new-session -A -s 'itermux'`。普通 SSH 使用 shell channel。用户进入“历史”后，同一 SSH 连接的短时 exec channel 对固定会话运行 `copy-mode`、`display-message` 和 `send-keys -X`；命令在 Mutex 下串行，长距离定位先用 `history-top` / `history-bottom` 或翻页，避免逐行重绘。客户端只保存当前窗格的历史行数、滚动位置和浏览状态，并用它驱动右侧滑块；“实时”执行 `cancel` 后退出复制模式。没有远端安装、端口转发、SFTP、文件同步或后台自动命令重放。
+
+`ssh-core` 的 `TmuxHistoryController` 负责远端命令和状态解析，`app.session.TmuxHistoryCoordinator` 负责当前连接的轮询、请求失效与乐观滚动状态，`terminal-view.RemoteHistoryState` 只管理滑块位置和回调。断连会使等待中的历史请求失效；拖动期间收到的远端位置在松手时同步。
 
 ## 上游适配
 
@@ -48,7 +52,7 @@ tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec 
 
 输入控件：草稿以 `TextFieldValue` 保存选区，ICU `BreakIterator` 按字素边界移动和删除，内容仍只存于 `TerminalConnection.draft` 内存。终端方向键与退格经 `KeyHandler` 生成，与远端普通/应用光标模式一致；长按清空发送 Ctrl+U、Ctrl+K，不调用 emulator reset，也不清除滚动历史。
 
-`TranscriptScrollBar` 在 `TerminalView` 内绘制本地历史位置，6 dp 宽、24 dp 触摸区域，拖动直接映射到历史行。闲置 1200 ms 后用 250 ms 淡出，不预留终端宽度；悬浮操作栏距右边 24 dp 避开拖动区域。历史阅读时按 parser 的 scroll counter 平移 topRow，保留原内容位置；继续键入恢复到底部。无本地历史（含全屏程序的备用屏幕）不显示滚动条，原有远端鼠标/备用屏幕滚动处理不变。
+`TranscriptScrollBar` 在 `TerminalView` 内绘制历史位置，6 dp 宽、24 dp 触摸区域。普通 SSH 拖动映射本地 topRow；应用 tmux 模式进入历史后映射远端 `history_size` / `scroll_position`，手势与拖动都经独立 exec channel 控制 tmux。闲置 1200 ms 后用 250 ms 淡出；阅读旧内容时滑块保留低对比度提示，仅滑块附近捕获触摸，避免透明轨道误抢边缘手势。悬浮操作栏距右边 24 dp 避开拖动区域。本地历史阅读时按 parser 的 scroll counter 平移 topRow，保留原内容位置；继续键入恢复到底部。其他无本地历史的全屏程序仍按其自身滚动方式处理。
 
 固定 Termux commit：`4584488513c099f2e98bcfcd00f006d213248729`。只复制明确声明 Apache-2.0 例外的 terminal-emulator 和 terminal-view。TerminalSession 被改为接口，删除了 JNI/local-process 实现，不需要安装 Termux。IME 配置改成真正的文本输入类型；组合阶段只改本地 Editable，commit 才写入终端；组合输入期间的删除不回传远端。远端 OSC 52 不可写 Android 剪贴板，用户选择复制仍可用。粘贴的 bracketed 起止序列和内容以一次写入入队。
 

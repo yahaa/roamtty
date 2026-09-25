@@ -1,0 +1,116 @@
+package io.itermux.app.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.itermux.app.R
+import io.itermux.app.data.Host
+import io.itermux.app.session.TerminalConnection
+import io.itermux.ssh.Phase
+import io.itermux.ssh.SessionMode
+
+@Composable internal fun HostCard(host: Host, compact: Boolean, connect: () -> Unit, edit: () -> Unit, delete: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    val menuControl: @Composable () -> Unit = {
+        Box {
+            IconButton(onClick = { menu = true }, modifier = Modifier.testTag("host-menu-${host.id}")) {
+                Text("•••", modifier = Modifier.semantics { contentDescription = "主机选项：${host.name}" })
+            }
+            DropdownMenu(menu, { menu = false }) {
+                DropdownMenuItem(text = { Text("编辑主机") }, onClick = { menu = false; edit() })
+                DropdownMenuItem(text = { Text("删除主机") }, onClick = { menu = false; delete() })
+            }
+        }
+    }
+    Card(onClick = connect, colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
+        if (compact) Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            HostSystemIcon(host.os)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(host.name, fontWeight = FontWeight.SemiBold, fontSize = 17.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${host.username}@${host.address}:${host.port}", color = colors.onSurfaceVariant,
+                    fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${if (host.mode == "TMUX") "tmux · 可恢复" else "SSH · 普通会话"}  /  ${authLabel(host.auth)}",
+                    color = colors.primary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text("连接 →", color = colors.primary, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
+            menuControl()
+        } else Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                HostSystemIcon(host.os)
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text(host.name, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                    Text("${host.username}@${host.address}:${host.port}", color = colors.onSurfaceVariant, fontSize = 12.sp, maxLines = 2)
+                    if (host.os == "UNKNOWN") Text("系统未设置 · 编辑主机可选择", color = colors.onSurfaceVariant, fontSize = 11.sp)
+                }
+                menuControl()
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(if (host.mode == "TMUX") "tmux · 可恢复" else "SSH · 普通会话", fontSize = 11.sp, color = colors.primary)
+                Text("/", color = colors.onSurfaceVariant)
+                Text(authLabel(host.auth), fontSize = 11.sp, color = colors.onSurfaceVariant)
+                Spacer(Modifier.weight(1f))
+                Text("连接 →", fontSize = 13.sp, color = colors.primary)
+            }
+        }
+    }
+}
+
+@Composable internal fun SessionCard(session: TerminalConnection, onOpen: () -> Unit, onClose: () -> Unit) {
+    val state by session.state.collectAsStateWithLifecycle()
+    val colors = MaterialTheme.colorScheme
+    var confirmClose by remember { mutableStateOf(false) }
+    Card(onClick = onOpen, colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant), shape = RoundedCornerShape(18.dp), modifier = Modifier.testTag("session-${session.id}")) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            HostSystemIcon(session.host.os)
+            Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                Text(session.host.name, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                Text("${session.host.username}@${session.host.address}:${session.host.port}", color = colors.onSurfaceVariant, fontSize = 12.sp, maxLines = 1)
+                Text("${if (session.mode == SessionMode.TMUX) "tmux" else "SSH"} · ${phaseLabel(state.phase)}", color = if (state.phase == Phase.CONNECTED) colors.primary else colors.onSurfaceVariant, fontSize = 12.sp)
+            }
+            TextButton(onClick = { confirmClose = true }) { Text("关闭") }
+        }
+    }
+    if (confirmClose) AlertDialog(onDismissRequest = { confirmClose = false }, title = { Text("关闭 ${session.host.name}？") },
+        text = { Text(if (session.mode == SessionMode.TMUX) "远端 tmux 会话会继续运行。" else "普通 SSH shell 会结束。") },
+        confirmButton = { TextButton(onClick = { confirmClose = false; onClose() }) { Text("关闭连接") } },
+        dismissButton = { TextButton(onClick = { confirmClose = false }) { Text("取消") } })
+}
+
+@Composable private fun HostSystemIcon(os: String) {
+    val branded = os == "LINUX" || os == "WINDOWS" || os == "MACOS"
+    val inset = when (os) {
+        "LINUX" -> 3.dp
+        "WINDOWS" -> 6.dp
+        "MACOS" -> 4.dp
+        else -> 11.dp
+    }
+    val (icon, label) = when (os) {
+        "LINUX" -> R.drawable.ic_os_linux to "Linux"
+        "WINDOWS" -> R.drawable.ic_os_windows to "Windows"
+        "MACOS" -> R.drawable.ic_os_macos to "macOS"
+        "OTHER" -> R.drawable.ic_os_server to "其他系统"
+        else -> R.drawable.ic_os_server to "未知系统"
+    }
+    Surface(color = if (branded) Color(0xFFF0EBE2) else MaterialTheme.colorScheme.primaryContainer,
+        shape = RoundedCornerShape(12.dp)) {
+        Icon(painterResource(icon), contentDescription = label,
+            tint = if (branded) Color.Unspecified else MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(inset).size(49.dp - inset * 2))
+    }
+}
