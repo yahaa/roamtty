@@ -68,19 +68,27 @@ class NavigationThemeTest {
             compose.onAllNodesWithContentDescription("Linux").onFirst().assertExists()
             compose.onAllNodesWithContentDescription("macOS").onFirst().assertExists()
             compose.onNodeWithTag("brand-logo").assertIsDisplayed()
-            compose.onNodeWithText("使用指南").assertDoesNotExist()
+            compose.onNodeWithTag("brand-logo").performClick()
+            compose.onNodeWithTag("navigation-drawer").assertIsDisplayed()
+            compose.onNodeWithTag("drawer-guide").assertIsDisplayed()
+            capture("navigation-drawer")
+            compose.onNodeWithTag("drawer-sessions").performClick()
+            compose.onNodeWithText("会话列表").assertIsDisplayed()
+            compose.waitUntil(8_000) { !compose.onNodeWithTag("navigation-drawer").isDisplayed() }
+            compose.onNodeWithTag("hosts-tab").performClick()
+            compose.onNodeWithTag("drawer-guide").assertIsNotDisplayed()
             compose.onNodeWithTag("settings-toggle").performClick()
             compose.onNodeWithText("深色").performClick()
             compose.waitUntil(8_000) { prefs.getString("theme", null) == "DARK" }
             capture("navigation-dark-hosts")
-            compose.onNode(hasScrollAction()).performTouchInput { swipeUp() }
+            compose.onNodeWithTag("host-grid").performTouchInput { swipeUp() }
             capture("navigation-dark-os-icons")
             compose.onNodeWithTag("settings-toggle").performClick()
-            compose.onNodeWithText("使用指南").assertIsDisplayed()
+            compose.onNodeWithTag("settings-guide").assertIsDisplayed()
             compose.waitForIdle()
             Thread.sleep(250)
             captureWindow("navigation-settings-menu")
-            compose.onNodeWithText("使用指南").performClick()
+            compose.onNodeWithTag("settings-guide").performClick()
             compose.onNodeWithText("iTermux 0.1.0").assertIsDisplayed()
             compose.onNodeWithText("关闭").performClick()
             compose.onNodeWithTag("sessions-tab").performClick()
@@ -93,7 +101,7 @@ class NavigationThemeTest {
             capture("navigation-light-sessions")
             compose.onNodeWithTag("hosts-tab").performClick()
             capture("navigation-light-hosts")
-            compose.onNode(hasScrollAction()).performTouchInput { swipeUp() }
+            compose.onNodeWithTag("host-grid").performTouchInput { swipeUp() }
             capture("navigation-light-os-icons")
             compose.onNodeWithText("＋ 主机").performClick()
             compose.onNodeWithTag("host-name").performTextInput("旋转未保存")
@@ -120,7 +128,7 @@ class NavigationThemeTest {
             compose.waitUntil(8_000) { compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
             compose.waitUntil(8_000) { compose.onAllNodes(isRoot()).fetchSemanticsNodes().size == 1 }
             compose.onNodeWithTag("settings-toggle").performClick()
-            compose.onNodeWithText("使用指南").assertIsDisplayed()
+            compose.onNodeWithTag("settings-guide").assertIsDisplayed()
             compose.waitForIdle()
             Thread.sleep(250)
             captureWindow("navigation-light-settings-menu")

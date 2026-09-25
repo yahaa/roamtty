@@ -53,6 +53,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val pending by session.pending.collectAsStateWithLifecycle()
     val warning by session.inputWarning.collectAsStateWithLifecycle()
     val tmuxHistory by session.tmuxHistory.collectAsStateWithLifecycle()
+    val sessionTitle by session.title.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val prefs = remember { context.getSharedPreferences("terminal-settings", Context.MODE_PRIVATE) }
@@ -64,6 +65,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var closeConfirm by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var sessionMenu by remember { mutableStateOf(false) }
+    var shortcutMenu by remember { mutableStateOf(false) }
+    var fileMenu by remember { mutableStateOf(false) }
+    var fileAction by remember { mutableStateOf<FileAction?>(null) }
+    var editSessionTitle by remember { mutableStateOf(false) }
     var ctrlArmed by remember { mutableStateOf(false) }
     var dockPinned by rememberSaveable { mutableStateOf(prefs.getBoolean("dockPinned", false)) }
     var dockExpanded by rememberSaveable { mutableStateOf(false) }
@@ -125,7 +130,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             }
         }, sessionControl = { sessionModifier ->
             Box(sessionModifier) {
-                TextButton(onClick = { hideKeyboard(); sessionMenu = true }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "切换会话：${session.host.name}" }.testTag("session-switcher"), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                TextButton(onClick = { hideKeyboard(); sessionMenu = true }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "切换会话：${sessionTitle.ifBlank { session.host.name }}" }.testTag("session-switcher"), contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Text("●", color = if (state.phase == Phase.CONNECTED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, fontSize = 9.sp)
                     Spacer(Modifier.width(6.dp))
                     Text("▤", fontSize = 18.sp)
@@ -133,10 +138,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 DropdownMenu(sessionMenu, { sessionMenu = false }) {
                     DropdownMenuItem(text = { Text("返回会话列表") }, onClick = { sessionMenu = false; onSessions() })
                     DropdownMenuItem(text = { Text("返回主机列表") }, onClick = { sessionMenu = false; onHosts() })
+                    DropdownMenuItem(text = { Text("修改会话标题") }, onClick = { sessionMenu = false; editSessionTitle = true })
                     HorizontalDivider()
                     sessions.forEach { other ->
                         val otherState by other.state.collectAsStateWithLifecycle()
-                        DropdownMenuItem(text = { Text("${if (other.id == session.id) "✓ " else ""}${other.host.name} · ${phaseLabel(otherState.phase)}") }, onClick = { sessionMenu = false; onSelectSession(other.id) })
+                        val otherTitle by other.title.collectAsStateWithLifecycle()
+                        DropdownMenuItem(text = { Text("${if (other.id == session.id) "✓ " else ""}${otherTitle.ifBlank { other.host.name }} · ${phaseLabel(otherState.phase)}") }, onClick = { sessionMenu = false; onSelectSession(other.id) })
                     }
                 }
             }
@@ -156,6 +163,16 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     SoftwareKeyboardControllerCompat(view).show()
                 }
             }, modifier = Modifier.testTag("keyboard-toggle")) { Icon(painterResource(R.drawable.ic_keyboard), contentDescription = if (imeVisible) "收起键盘" else "键盘", modifier = Modifier.size(22.dp)) }
+            Box {
+                IconButton(onClick = { fileMenu = true }, enabled = state.phase == Phase.CONNECTED,
+                    modifier = Modifier.testTag("file-transfer")) {
+                    Text("⇅", fontSize = 24.sp, modifier = Modifier.semantics { contentDescription = "文件传输" })
+                }
+                DropdownMenu(fileMenu, { fileMenu = false }) {
+                    DropdownMenuItem(text = { Text("上传文件") }, onClick = { fileMenu = false; fileAction = FileAction.UPLOAD })
+                    DropdownMenuItem(text = { Text("下载文件") }, onClick = { fileMenu = false; fileAction = FileAction.DOWNLOAD })
+                }
+            }
             Box {
                 IconButton(onClick = { ctrlArmed = false; menu = true }, modifier = Modifier.semantics { contentDescription = "终端菜单" }.testTag("terminal-menu")) { Text("⋯", fontSize = 26.sp) }
                 DropdownMenu(menu, { menu = false }) {
@@ -180,24 +197,34 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 }
             }
         }, keyControls = {
-            InputControlButton("Esc", "发送 Esc", "terminal-escape", enabled = state.phase == Phase.CONNECTED,
-                onClick = { terminalKey(KeyEvent.KEYCODE_ESCAPE) })
-            InputControlButton("Tab", "发送 Tab", "terminal-tab", enabled = state.phase == Phase.CONNECTED,
-                onClick = { terminalKey(KeyEvent.KEYCODE_TAB) })
-            InputControlButton("Ctrl", "Ctrl，作用于下一次键盘字符", "terminal-control",
-                enabled = state.phase == Phase.CONNECTED, selected = ctrlArmed, onClick = {
-                    ctrlArmed = !ctrlArmed
-                    if (ctrlArmed) terminal?.let { view ->
-                        view.requestFocus()
-                        SoftwareKeyboardControllerCompat(view).show()
+            Box {
+                InputControlButton("⌘", "快捷键", "terminal-shortcuts", selected = ctrlArmed,
+                    onClick = { shortcutMenu = true })
+                DropdownMenu(shortcutMenu, { shortcutMenu = false }) {
+                    Row(Modifier.padding(horizontal = 8.dp)) {
+                        InputControlButton("Esc", "发送 Esc", "terminal-escape", enabled = state.phase == Phase.CONNECTED,
+                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_ESCAPE) })
+                        InputControlButton("Tab", "发送 Tab", "terminal-tab", enabled = state.phase == Phase.CONNECTED,
+                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_TAB) })
+                        InputControlButton("Ctrl", "Ctrl，作用于下一次键盘字符", "terminal-control",
+                            enabled = state.phase == Phase.CONNECTED, selected = ctrlArmed, onClick = {
+                                shortcutMenu = false
+                                ctrlArmed = !ctrlArmed
+                                if (ctrlArmed) terminal?.let { view ->
+                                    view.requestFocus()
+                                    SoftwareKeyboardControllerCompat(view).show()
+                                }
+                            })
+                        InputControlButton("←", "光标左移", "terminal-left", enabled = state.phase == Phase.CONNECTED,
+                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) })
+                        InputControlButton("→", "光标右移", "terminal-right", enabled = state.phase == Phase.CONNECTED,
+                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) })
+                        InputControlButton("⌫", "删除字符，长按清空当前输入", "terminal-delete", enabled = state.phase == Phase.CONNECTED,
+                            onLongClick = { shortcutMenu = false; ctrlArmed = false; terminal?.clearCurrentInput() },
+                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DEL) })
                     }
-                })
-            InputControlButton("←", "光标左移", "terminal-left", enabled = state.phase == Phase.CONNECTED,
-                onClick = { terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) })
-            InputControlButton("→", "光标右移", "terminal-right", enabled = state.phase == Phase.CONNECTED,
-                onClick = { terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) })
-            InputControlButton("⌫", "删除字符，长按清空当前输入", "terminal-delete", enabled = state.phase == Phase.CONNECTED,
-                onLongClick = { ctrlArmed = false; terminal?.clearCurrentInput() }, onClick = { terminalKey(KeyEvent.KEYCODE_DEL) })
+                }
+            }
         })
     }
     BoxWithConstraints(modifier.fillMaxWidth().testTag("terminal-workspace")) {
@@ -287,6 +314,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
     }
     pending?.let { request -> PromptDialog(request) }
+    if (editSessionTitle) SessionTitleDialog(session) { editSessionTitle = false }
+    FileTransferUi(session, fileAction) { fileAction = null }
     confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text("发送多行文本？") }, text = { Text("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。") }, confirmButton = { TextButton(onClick = { session.paste(text); confirmPaste = null }) { Text("发送") } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text("取消") } }) }
     if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text("关闭此连接？") }, text = { Text(if (session.mode == SessionMode.TMUX) "远端 tmux 会话会继续运行，可稍后重连。" else "普通 SSH shell 会结束；需要保留的任务请先放入 tmux。") }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text("关闭连接") } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text("取消") } })
 }

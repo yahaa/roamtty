@@ -7,9 +7,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.net.SocketTimeoutException
+import java.io.InputStream
+import java.io.OutputStream
+import java.nio.file.FileAlreadyExistsException
 import java.security.Security
 import java.util.Base64
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.coroutineContext
 
 /** SSH transport. Blocking socket work is confined to IO; output applies backpressure to the renderer. */
 class JschSession(
@@ -215,6 +220,65 @@ class JschSession(
     suspend fun moveTmuxHistoryTo(position: Int): TmuxHistory? = tmuxHistoryController.moveTo(position)
 
     suspend fun exitTmuxHistory(): TmuxHistory? = tmuxHistoryController.exit()
+
+    /** A separate SFTP channel shares the authenticated SSH connection without touching the PTY. */
+    suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = withSftp { sftp ->
+        val path = validTransferPath(remotePath)
+        if (sftp.exists(path)) throw FileAlreadyExistsException(path)
+        val temporary = "$path.itermux-${UUID.randomUUID()}.part"
+        try {
+            sftp.put(source, temporary, transferMonitor(coroutineContext[Job], onProgress))
+            coroutineContext.ensureActive()
+            if (sftp.exists(path)) throw FileAlreadyExistsException(path)
+            sftp.rename(temporary, path)
+        } catch (e: Exception) {
+            runCatching { sftp.rm(temporary) }
+            throw e
+        }
+    }
+
+    suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}) = withSftp { sftp ->
+        val path = validTransferPath(remotePath)
+        require(!sftp.stat(path).isDir) { "不能下载文件夹" }
+        sftp.get(path, destination, transferMonitor(coroutineContext[Job], onProgress))
+        coroutineContext.ensureActive()
+    }
+
+    private suspend fun <T> withSftp(block: suspend (ChannelSftp) -> T): T = withContext(Dispatchers.IO) {
+        val ssh = session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
+            ?: throw IllegalStateException("SSH 连接未就绪")
+        val sftp = ssh.openChannel("sftp") as ChannelSftp
+        try {
+            sftp.connect(connectTimeoutMs)
+            coroutineContext.ensureActive()
+            block(sftp)
+        } finally {
+            sftp.disconnect()
+        }
+    }
+
+    private fun transferMonitor(job: Job?, onProgress: (Long) -> Unit): SftpProgressMonitor = object : SftpProgressMonitor {
+        private var transferred = 0L
+        override fun init(op: Int, src: String?, dest: String?, max: Long) = Unit
+        override fun count(count: Long): Boolean {
+            transferred += count
+            onProgress(transferred)
+            return !stopped.get() && job?.isActive != false
+        }
+        override fun end() = Unit
+    }
+
+    private fun validTransferPath(path: String): String {
+        require(path.isNotBlank() && path.length <= 4096 && path.none { it == '\u0000' || it == '\n' || it == '\r' }) { "请输入有效的远端文件路径" }
+        return path
+    }
+
+    private fun ChannelSftp.exists(path: String): Boolean = try {
+        lstat(path)
+        true
+    } catch (e: SftpException) {
+        if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) false else throw e
+    }
 
     private suspend fun runTmux(command: String): String? = withContext(Dispatchers.IO) {
         val ssh = session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }

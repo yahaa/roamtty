@@ -5,9 +5,16 @@ import io.itermux.app.data.Host
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.UUID
 
 data class PendingPrompt(val prompt: Prompt, val answer: CompletableDeferred<List<String>?> = CompletableDeferred())
+
+internal fun clipSessionTitle(value: String): String = value.take(80).let {
+    if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it
+}
 
 /** Emulator access (append, resize, key generation, paste, drawing) is serialized on Main. */
 class TerminalConnection(
@@ -21,6 +28,10 @@ class TerminalConnection(
     val pending = MutableStateFlow<PendingPrompt?>(null)
     val inputWarning = MutableStateFlow<String?>(null)
     val revision = MutableStateFlow(0L)
+    private val mutableTitle = MutableStateFlow("")
+    val title = mutableTitle.asStateFlow()
+    val displayTitle: String get() = title.value.ifBlank { host.name }
+    fun rename(title: String) { mutableTitle.value = clipSessionTitle(title.trim()) }
     var draft: String = "" // Memory only; terminal text and prompt drafts are never saved to disk.
     var onScreenChanged: (() -> Unit)? = null
     var copyToClipboard: ((String) -> Unit)? = null
@@ -69,6 +80,8 @@ class TerminalConnection(
     fun enterTmuxHistory() = tmux.enter()
     fun moveTmuxHistoryTo(position: Int) = tmux.moveTo(position)
     fun exitTmuxHistory() = tmux.exit()
+    suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = ssh.upload(remotePath, source, onProgress)
+    suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}) = ssh.download(remotePath, destination, onProgress)
     override fun reset() { parser.reset(); onScreenChanged?.invoke() }
     override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
     override fun onCopyTextToClipboard(text: String) { copyToClipboard?.invoke(text) }

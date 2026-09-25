@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.session.TerminalConnection
+import io.itermux.app.session.clipSessionTitle
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
 
@@ -73,15 +74,22 @@ import io.itermux.ssh.SessionMode
 
 @Composable internal fun SessionCard(session: TerminalConnection, onOpen: () -> Unit, onClose: () -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
+    val title by session.title.collectAsStateWithLifecycle()
     val colors = MaterialTheme.colorScheme
     var confirmClose by remember { mutableStateOf(false) }
+    var editTitle by remember { mutableStateOf(false) }
     Card(onClick = onOpen, colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant), shape = RoundedCornerShape(18.dp), modifier = Modifier.testTag("session-${session.id}")) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             HostSystemIcon(session.host.os)
             Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                Text(session.host.name, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                Text(title.ifBlank { session.host.name }, fontWeight = FontWeight.SemiBold, fontSize = 18.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${session.host.username}@${session.host.address}:${session.host.port}", color = colors.onSurfaceVariant, fontSize = 12.sp, maxLines = 1)
-                Text("${if (session.mode == SessionMode.TMUX) "tmux" else "SSH"} · ${phaseLabel(state.phase)}", color = if (state.phase == Phase.CONNECTED) colors.primary else colors.onSurfaceVariant, fontSize = 12.sp)
+                Text("${if (title.isBlank()) "" else "${session.host.name} · "}${if (session.mode == SessionMode.TMUX) "tmux" else "SSH"} · ${phaseLabel(state.phase)}", color = if (state.phase == Phase.CONNECTED) colors.primary else colors.onSurfaceVariant, fontSize = 12.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            IconButton(onClick = { editTitle = true }, modifier = Modifier.testTag("rename-session-${session.id}")) {
+                Text("✎", modifier = Modifier.semantics { contentDescription = "修改会话标题" })
             }
             TextButton(onClick = { confirmClose = true }) { Text("关闭") }
         }
@@ -90,6 +98,20 @@ import io.itermux.ssh.SessionMode
         text = { Text(if (session.mode == SessionMode.TMUX) "远端 tmux 会话会继续运行。" else "普通 SSH shell 会结束。") },
         confirmButton = { TextButton(onClick = { confirmClose = false; onClose() }) { Text("关闭连接") } },
         dismissButton = { TextButton(onClick = { confirmClose = false }) { Text("取消") } })
+    if (editTitle) SessionTitleDialog(session) { editTitle = false }
+}
+
+@Composable internal fun SessionTitleDialog(session: TerminalConnection, onDismiss: () -> Unit) {
+    var title by remember(session.id) { mutableStateOf(session.title.value) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("修改会话标题") },
+        text = { Column {
+            Text("用标题标记这个会话正在处理的任务。留空则显示主机名。")
+            OutlinedTextField(title, { title = clipSessionTitle(it) }, label = { Text("会话标题") },
+                placeholder = { Text(session.host.name) }, singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("session-title-input"))
+        } },
+        confirmButton = { TextButton(onClick = { session.rename(title); onDismiss() }) { Text("保存") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
 
 @Composable private fun HostSystemIcon(os: String) {

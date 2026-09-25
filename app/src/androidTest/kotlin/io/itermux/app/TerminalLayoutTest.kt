@@ -222,7 +222,7 @@ class TerminalLayoutTest {
         val prompts = launch { session.pending.collect { it?.answer?.complete(if (it.prompt is Prompt.VerifyHost) listOf("trust") else listOf(password)) } }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            compose.onNodeWithText("会话", substring = true).performClick()
+            compose.onNodeWithTag("sessions-tab").performClick()
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             withContext(Dispatchers.Main) {

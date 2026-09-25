@@ -60,12 +60,14 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
     val prefs = remember(context) { context.getSharedPreferences("app-settings", Context.MODE_PRIVATE) }
     var theme by remember { mutableStateOf(AppTheme.from(prefs.getString("theme", null))) }
     var settingsMenu by remember { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val lightTheme = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
     val terminalVisible = page == "terminal" && sessions.isNotEmpty()
     // Older IMEs reveal system bars without changing window focus. Restore immersive mode on close.
     LaunchedEffect(terminalVisible, imeVisible, lightTheme) { onChromeChange(terminalVisible, lightTheme) }
     BackHandler(page == "terminal") { page = "sessions" }
     BackHandler(page == "sessions") { page = "hosts" }
+    BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(service, sessions, selected, page) {
         if (service != null && page == "terminal" && service.sessions.value.none { it.id == selected }) page = "sessions"
@@ -105,6 +107,7 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                     )
                 }
                 val session = bound.open(request.host, request.mode, credentials)
+                session.rename(request.title)
                 selected = session.id
                 page = "terminal"
             } catch (e: Exception) {
@@ -113,8 +116,8 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
             }
         }
     }
-    fun connect(host: Host, mode: SessionMode = SessionMode.valueOf(host.mode)) {
-        val request = ConnectRequest(host, mode)
+    fun connect(host: Host, mode: SessionMode = SessionMode.valueOf(host.mode), title: String = "") {
+        val request = ConnectRequest(host, mode, title)
         if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null)) connectRequest = request
         else start(request)
     }
@@ -122,14 +125,29 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
     LaunchedEffect(searchExpanded) { if (searchExpanded) searchFocus.requestFocus() }
     MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors) {
         val colors = MaterialTheme.colorScheme
+        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible,
+            drawerContent = {
+                ItermuxDrawer(page, sessions,
+                    onHosts = { page = "hosts"; scope.launch { drawerState.close() } },
+                    onSessions = { page = "sessions"; scope.launch { drawerState.close() } },
+                    onOpenSession = { selected = it; page = "terminal"; scope.launch { drawerState.close() } },
+                    onGuide = { scope.launch { drawerState.close() }; showAbout = true },
+                    onClose = { scope.launch { drawerState.close() } })
+            }) {
         Surface(Modifier.fillMaxSize(), color = colors.background) {
             // The terminal fills the display, including the area beside a camera cutout.
             // Only desktop window chrome reserves a whole edge; terminal controls avoid cutouts locally.
             val contentInsets = if (terminalVisible) WindowInsets.captionBar else WindowInsets.safeDrawing
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).imePadding()) {
                 if ((!imeVisible || searchExpanded) && !terminalVisible) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (landscape) 0.dp else 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(painterResource(R.drawable.ic_terminal), contentDescription = "iTermux",
-                        tint = Color.Unspecified, modifier = Modifier.size(36.dp).testTag("brand-logo"))
+                    IconButton(onClick = {
+                        focusManager.clearFocus(force = true)
+                        keyboardController?.hide()
+                        scope.launch { drawerState.open() }
+                    }, modifier = Modifier.size(48.dp).testTag("brand-logo")) {
+                        Icon(painterResource(R.drawable.ic_terminal), contentDescription = "打开导航",
+                            tint = Color.Unspecified, modifier = Modifier.size(40.dp))
+                    }
                     if (landscape && configuration.screenWidthDp >= 700) {
                         Text(if (page == "hosts") {
                             if (search.isBlank()) "已保存的主机" else "搜索结果"
@@ -173,7 +191,8 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                                 })
                             }
                             HorizontalDivider()
-                            DropdownMenuItem(text = { Text("使用指南") }, onClick = { settingsMenu = false; showAbout = true })
+                            DropdownMenuItem(text = { Text("使用指南") }, onClick = { settingsMenu = false; showAbout = true },
+                                modifier = Modifier.testTag("settings-guide"))
                         }
                     }
                 }
@@ -204,7 +223,7 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                                 Text(if (hosts.isEmpty()) "从第一台主机开始" else "没有匹配的主机", fontSize = 20.sp)
                                 Text(if (hosts.isEmpty()) "保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。" else "试试其他名称或地址", color = colors.onSurfaceVariant, modifier = Modifier.padding(16.dp), lineHeight = 23.sp)
                             }
-                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = if (landscape) 8.dp else 0.dp, bottom = 12.dp)) {
+                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = if (landscape) 8.dp else 0.dp, bottom = 12.dp)) {
                             items(filtered, key = { it.id }) { host -> HostCard(host, landscape, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }) }
                         }
                     }
@@ -235,12 +254,13 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
                             onSessions = { page = "sessions" }, onHosts = { page = "hosts" },
-                            onReconnect = { service?.close(active.id); connect(active.host, active.mode) },
-                            onShell = { service?.close(active.id); connect(active.host, SessionMode.SHELL) },
+                            onReconnect = { service?.close(active.id); connect(active.host, active.mode, active.title.value) },
+                            onShell = { service?.close(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active }, onClose = { service?.close(active.id) })
                     }
                 }
             }
+        }
         }
         if (editorOpen) {
             val editHost = editHostId?.let { id -> hosts.firstOrNull { it.id == id } }

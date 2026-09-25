@@ -4,7 +4,7 @@ import io.itermux.app.data.Host
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
 
-internal data class ConnectRequest(val host: Host, val mode: SessionMode)
+internal data class ConnectRequest(val host: Host, val mode: SessionMode, val title: String = "")
 
 internal fun authLabel(auth: String) = when (auth) {
     "KEY" -> "私钥"
