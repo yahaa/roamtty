@@ -15,6 +15,8 @@ import paramiko
 HOST_KEY = paramiko.RSAKey.generate(2048)
 SFTP_ROOT = Path(__file__).resolve().parent.parent / ".local" / "sftp-fixture"
 SFTP_ROOT.mkdir(parents=True, exist_ok=True)
+for name in ("phone-a", "phone-b"):
+    (SFTP_ROOT / name).mkdir(exist_ok=True)
 
 
 class FixtureSftp(paramiko.SFTPServerInterface):
@@ -33,6 +35,13 @@ class FixtureSftp(paramiko.SFTPServerInterface):
     def lstat(self, path):
         try:
             return paramiko.SFTPAttributes.from_stat(self.local_path(path).lstat())
+        except OSError as error:
+            return paramiko.SFTPServer.convert_errno(error.errno)
+
+    def list_folder(self, path):
+        try:
+            return [paramiko.SFTPAttributes.from_stat(entry.stat(), entry.name)
+                    for entry in self.local_path(path).iterdir()]
         except OSError as error:
             return paramiko.SFTPServer.convert_errno(error.errno)
 

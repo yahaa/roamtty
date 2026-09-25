@@ -38,8 +38,23 @@ class FileTransferDeviceTest {
             assertEquals(Phase.CONNECTED,
                 withTimeout(20_000) { ssh.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             val remote = "android-$id.bin"
-            resolver.openInputStream(source)!!.use { ssh.upload(remote, it) }
-            resolver.openOutputStream(destination, "w")!!.use { ssh.download(remote, it) }
+            val first = "phone-a/$remote"
+            val second = "phone-b/$remote"
+            var uploaded = 0L
+            resolver.openInputStream(source)!!.use { ssh.upload(first, it) { bytes -> uploaded = bytes } }
+            assertEquals(expected.size.toLong(), uploaded)
+            resolver.openInputStream(source)!!.use { ssh.upload(second, it) }
+            var downloaded = 0L
+            var total = -1L
+            resolver.openOutputStream(destination, "w")!!.use {
+                ssh.download(second, it, { bytes -> downloaded = bytes }, { size -> total = size })
+            }
+            assertEquals(expected.size.toLong(), downloaded)
+            assertEquals(expected.size.toLong(), total)
+            try {
+                resolver.openInputStream(source)!!.use { ssh.upload(first, it) }
+                org.junit.Assert.fail("A duplicate in the same directory must be rejected")
+            } catch (_: java.nio.file.FileAlreadyExistsException) { }
             assertArrayEquals(expected, resolver.openInputStream(destination)!!.use { it.readBytes() })
         } finally {
             ssh.disconnect()

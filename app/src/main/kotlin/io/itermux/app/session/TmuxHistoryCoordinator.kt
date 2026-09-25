@@ -1,5 +1,7 @@
 package io.itermux.app.session
 
+import io.itermux.app.tr
+
 import android.os.SystemClock
 import io.itermux.ssh.JschSession
 import io.itermux.ssh.Phase
@@ -34,7 +36,7 @@ internal class TmuxHistoryCoordinator(
             if (position == latestPosition) {
                 positionPending = false
                 if (requested) {
-                    if (result == null) warn("无法滚动 tmux 历史，请检查远端会话。")
+                    if (result == null) warn(tr("无法滚动 tmux 历史，请检查远端会话。"))
                     else history.value = result
                 }
             }
@@ -47,7 +49,7 @@ internal class TmuxHistoryCoordinator(
         scope.launch {
             val result = ssh.enterTmuxHistory()
             if (generation != requestGeneration) return@launch
-            if (result == null) warn("无法打开 tmux 历史，请检查远端会话。")
+            if (result == null) warn(tr("无法打开 tmux 历史，请检查远端会话。"))
             else {
                 requested = true
                 latestPosition = result.position
@@ -87,7 +89,7 @@ internal class TmuxHistoryCoordinator(
         scope.launch {
             val result = ssh.exitTmuxHistory()
             if (generation != requestGeneration) return@launch
-            if (result == null) warn("无法返回 tmux 实时画面，请检查远端会话。")
+            if (result == null) warn(tr("无法返回 tmux 实时画面，请检查远端会话。"))
             else history.value = null
         }
     }

@@ -1,6 +1,8 @@
 package io.itermux.app
 
 import android.content.Intent
+import android.content.Context
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -8,6 +10,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextClearance
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
@@ -46,6 +49,23 @@ class SessionTitleUiTest {
             compose.onNodeWithText("保存").performClick()
             assertEquals("修复登录流程", session.title.value)
             compose.onNodeWithTag("session-${session.id}").assertIsDisplayed()
+            compose.waitUntil(8_000) { compose.onAllNodesWithTag("search-toggle").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("search-toggle").performClick()
+            compose.onNodeWithTag("session-search").performTextInput("修复登录流程")
+            compose.onNodeWithTag("session-${session.id}").assertIsDisplayed()
+            compose.onNodeWithTag("session-search").performTextClearance()
+            compose.onNodeWithTag("session-search").performTextInput("找不到的任务")
+            compose.onNodeWithText("没有匹配的会话").assertIsDisplayed()
+            compose.onNodeWithTag("search-toggle").performClick()
+            compose.onNodeWithTag("session-${session.id}").assertIsDisplayed()
+            compose.activityRule.scenario.onActivity { activity ->
+                (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .hideSoftInputFromWindow(activity.window.decorView.windowToken, 0)
+                activity.currentFocus?.clearFocus()
+            }
+            compose.waitUntil(8_000) {
+                compose.onAllNodesWithTag("brand-logo").fetchSemanticsNodes().isNotEmpty()
+            }
             compose.onNodeWithTag("brand-logo").performClick()
             compose.onNodeWithTag("drawer-session-${session.id}").assertIsDisplayed().performClick()
             compose.onNodeWithTag("restore-dock").performClick()

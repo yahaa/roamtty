@@ -1,5 +1,7 @@
 package io.itermux.app.ui
 
+import io.itermux.app.tr
+
 import android.icu.text.BreakIterator
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -70,10 +72,10 @@ internal fun InputControlButton(
             .testTag(tag)
             .semantics {
                 contentDescription = description
-                if (selected) stateDescription = "已启用"
+                if (selected) stateDescription = tr("已启用")
             }
             .combinedClickable(enabled = enabled, role = Role.Button,
-                onLongClickLabel = if (onLongClick != null) "清空当前输入" else null,
+                onLongClickLabel = if (onLongClick != null) tr("清空当前输入") else null,
                 onLongClick = onLongClick, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -85,11 +87,11 @@ internal fun InputControlButton(
 @Composable
 internal fun DraftInputControls(value: TextFieldValue, onChange: (TextFieldValue) -> Unit) {
     Row {
-        InputControlButton("←", "光标左移", "draft-left", size = 40.dp,
+        InputControlButton("←", tr("光标左移"), "draft-left", size = 40.dp,
             onClick = { onChange(moveDraftCursor(value, true)) })
-        InputControlButton("→", "光标右移", "draft-right", size = 40.dp,
+        InputControlButton("→", tr("光标右移"), "draft-right", size = 40.dp,
             onClick = { onChange(moveDraftCursor(value, false)) })
-        InputControlButton("⌫", "删除字符，长按清空当前输入", "draft-delete", size = 40.dp,
+        InputControlButton("⌫", tr("删除字符，长按清空当前输入"), "draft-delete", size = 40.dp,
             onLongClick = { onChange(TextFieldValue()) }, onClick = { onChange(deleteDraftCharacter(value)) })
     }
 }

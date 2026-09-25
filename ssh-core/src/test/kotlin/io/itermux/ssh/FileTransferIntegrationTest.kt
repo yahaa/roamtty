@@ -26,6 +26,39 @@ class FileTransferIntegrationTest {
             var uploaded = 0L
             ssh.upload(remote, ByteArrayInputStream(content)) { uploaded = it }
             assertEquals(content.size.toLong(), uploaded)
+            val directory = ssh.listRemoteDirectory()
+            assertTrue(directory.path.startsWith("/"))
+            assertTrue(directory.entries.none { it.name.isBlank() })
+            assertTrue(directory.entries.any { it.name == remote && !it.isDirectory })
+            val folder = File(System.getProperty("itermux.root"), ".local/sftp-fixture/browse-${UUID.randomUUID()}")
+            assertTrue(folder.mkdir())
+            val otherFolder = File(System.getProperty("itermux.root"), ".local/sftp-fixture/browse-${UUID.randomUUID()}")
+            assertTrue(otherFolder.mkdir())
+            try {
+                assertTrue(ssh.listRemoteDirectory().entries.any { it.name == folder.name && it.isDirectory })
+                val nested = ssh.listRemoteDirectory("${directory.path.trimEnd('/')}/${folder.name}")
+                assertTrue(nested.path.endsWith("/${folder.name}"))
+                assertTrue(nested.entries.isEmpty())
+                val firstPath = "${nested.path}/same-name.bin"
+                val secondPath = "${directory.path.trimEnd('/')}/${otherFolder.name}/same-name.bin"
+                ssh.upload(firstPath, ByteArrayInputStream(content))
+                ssh.upload(secondPath, ByteArrayInputStream("second directory".toByteArray()))
+                val secondCopy = ByteArrayOutputStream()
+                ssh.download(secondPath, secondCopy)
+                assertEquals("second directory", secondCopy.toString(Charsets.UTF_8.name()))
+                try {
+                    ssh.upload(firstPath, ByteArrayInputStream("replacement".toByteArray()))
+                    fail("The same target file must still reject overwrite")
+                } catch (_: java.nio.file.FileAlreadyExistsException) { }
+                var downloadSize = -1L
+                ssh.download(firstPath, ByteArrayOutputStream(), onSize = { downloadSize = it })
+                assertEquals(content.size.toLong(), downloadSize)
+                assertTrue(File(folder, "same-name.bin").delete())
+                assertTrue(File(otherFolder, "same-name.bin").delete())
+            } finally {
+                assertTrue(folder.delete())
+                assertTrue(otherFolder.delete())
+            }
             val downloaded = ByteArrayOutputStream()
             var received = 0L
             ssh.download(remote, downloaded) { received = it }

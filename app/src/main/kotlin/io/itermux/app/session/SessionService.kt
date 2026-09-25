@@ -1,5 +1,8 @@
 package io.itermux.app.session
 
+import io.itermux.app.tr
+import io.itermux.app.trf
+
 import android.app.*
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -25,12 +28,16 @@ class SessionService : Service() {
     override fun onBind(intent: Intent?) = binder
     override fun onCreate() {
         super.onCreate()
+        refreshLanguage()
+    }
+    fun refreshLanguage() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL, "SSH 会话", NotificationManager.IMPORTANCE_LOW).apply { description = "保持主动打开的 SSH 连接" }
+            NotificationChannel(CHANNEL, tr("SSH 会话"), NotificationManager.IMPORTANCE_LOW).apply { description = tr("保持主动打开的 SSH 连接") }
         )
+        if (foreground) refreshNotification()
     }
     fun open(host: Host, mode: SessionMode, credentials: Credentials): TerminalConnection {
-        check(mutableSessions.value.size < 8) { "最多保留 8 个会话，请先关闭旧会话" }
+        check(mutableSessions.value.size < 8) { tr("最多保留 8 个会话，请先关闭旧会话") }
         ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
         val connection = TerminalConnection(host, mode, credentials, (application as ItermuxApp).pins, scope)
         mutableSessions.value += connection
@@ -57,11 +64,11 @@ class SessionService : Service() {
         val close = PendingIntent.getService(this, 1, Intent(this, SessionService::class.java).setAction(DISCONNECT_ALL), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val active = sessions.value.count { it.state.value.active }
         return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification).setContentTitle("iTermux · $active 个 SSH 会话")
-            .setContentText("轻触返回终端 · 长任务建议使用 tmux")
+            .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("iTermux · %d 个 SSH 会话", active))
+            .setContentText(tr("轻触返回终端 · 长任务建议使用 tmux"))
             .setOngoing(true).setSilent(true).setContentIntent(launch)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .addAction(0, "全部断开", close).build()
+            .addAction(0, tr("全部断开"), close).build()
     }
     private fun refreshNotification() {
         if (sessions.value.none { it.state.value.active }) {

@@ -1,5 +1,7 @@
 package io.itermux.app.session
 
+import io.itermux.app.tr
+
 import com.termux.terminal.*
 import io.itermux.app.data.Host
 import io.itermux.ssh.*
@@ -64,7 +66,7 @@ class TerminalConnection(
         ssh.resize(cols, lines, cols * cellWidthPixels, lines * cellHeightPixels)
     }
     override fun write(data: ByteArray, offset: Int, count: Int) {
-        if (!ssh.write(data.copyOfRange(offset, offset + count))) inputWarning.value = "未发送：连接未就绪或输入队列已满。"
+        if (!ssh.write(data.copyOfRange(offset, offset + count))) inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
     }
     override fun writeCodePoint(prependEscape: Boolean, codePoint: Int) {
         if (!Character.isValidCodePoint(codePoint)) return
@@ -72,7 +74,7 @@ class TerminalConnection(
     }
     fun paste(text: String) {
         if (text.toByteArray(Charsets.UTF_8).size > 128 * 1024) {
-            inputWarning.value = "单次发送上限为 128 KiB，请分段发送。"
+            inputWarning.value = tr("单次发送上限为 128 KiB，请分段发送。")
             return
         }
         parser.paste(text)
@@ -81,7 +83,8 @@ class TerminalConnection(
     fun moveTmuxHistoryTo(position: Int) = tmux.moveTo(position)
     fun exitTmuxHistory() = tmux.exit()
     suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = ssh.upload(remotePath, source, onProgress)
-    suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}) = ssh.download(remotePath, destination, onProgress)
+    suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}, onSize: (Long) -> Unit = {}) = ssh.download(remotePath, destination, onProgress, onSize)
+    suspend fun listRemoteDirectory(remotePath: String = "") = ssh.listRemoteDirectory(remotePath)
     override fun reset() { parser.reset(); onScreenChanged?.invoke() }
     override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
     override fun onCopyTextToClipboard(text: String) { copyToClipboard?.invoke(text) }

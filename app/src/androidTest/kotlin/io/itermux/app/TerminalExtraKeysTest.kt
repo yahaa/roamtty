@@ -15,6 +15,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -234,9 +235,24 @@ class TerminalExtraKeysTest {
             compose.onNodeWithTag("session-switcher").assertIsDisplayed()
             compose.onNodeWithTag("keyboard-toggle").assertIsDisplayed()
             compose.onNodeWithTag("file-transfer").assertIsDisplayed()
+            compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.onNodeWithTag("file-transfer").performClick()
             compose.onNodeWithText("下载文件").performClick()
             compose.onNodeWithTag("download-remote-path").assertIsDisplayed()
+            compose.onNodeWithTag("remote-path-dropdown").performClick()
+            compose.waitUntil(8_000) {
+                compose.onAllNodesWithTag("remote-use-directory").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.waitForIdle()
+            delay(250)
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
+                File(context.getExternalFilesDir(null), "remote-path-menu.png").outputStream().use {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+            compose.onNodeWithTag("remote-use-directory").performClick()
+            compose.onNodeWithTag("download-remote-path").assertTextContains("/")
             compose.onNodeWithText("取消").performClick()
             compose.onNodeWithTag("terminal-menu").assertIsDisplayed()
             compose.activityRule.scenario.onActivity {
@@ -284,6 +300,7 @@ class TerminalExtraKeysTest {
             }
             Unit
         } finally {
+            compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
             withContext(Dispatchers.Main) { service.close(session.id) }
             prompts.cancel()

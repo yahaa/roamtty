@@ -16,6 +16,9 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
 
+data class RemoteDirectory(val path: String, val entries: List<RemoteEntry>)
+data class RemoteEntry(val name: String, val isDirectory: Boolean)
+
 /** SSH transport. Blocking socket work is confined to IO; output applies backpressure to the renderer. */
 class JschSession(
     private val target: Target,
@@ -224,7 +227,10 @@ class JschSession(
     /** A separate SFTP channel shares the authenticated SSH connection without touching the PTY. */
     suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = withSftp { sftp ->
         val path = validTransferPath(remotePath)
-        if (sftp.exists(path)) throw FileAlreadyExistsException(path)
+        if (sftp.exists(path)) {
+            require(!sftp.lstat(path).isDir) { "目标是目录，请选择目录并指定文件名" }
+            throw FileAlreadyExistsException(path)
+        }
         val temporary = "$path.itermux-${UUID.randomUUID()}.part"
         try {
             sftp.put(source, temporary, transferMonitor(coroutineContext[Job], onProgress))
@@ -237,11 +243,25 @@ class JschSession(
         }
     }
 
-    suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}) = withSftp { sftp ->
+    suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}, onSize: (Long) -> Unit = {}) = withSftp { sftp ->
         val path = validTransferPath(remotePath)
-        require(!sftp.stat(path).isDir) { "不能下载文件夹" }
+        val attributes = sftp.stat(path)
+        require(!attributes.isDir) { "不能下载文件夹" }
+        onSize(attributes.size)
         sftp.get(path, destination, transferMonitor(coroutineContext[Job], onProgress))
         coroutineContext.ensureActive()
+    }
+
+    /** List a remote SFTP directory for the file picker. An empty path opens the SFTP home. */
+    suspend fun listRemoteDirectory(remotePath: String = ""): RemoteDirectory = withSftp { sftp ->
+        val path = if (remotePath.isBlank()) sftp.pwd() else validTransferPath(remotePath)
+        val entries = sftp.ls(path).mapNotNull { item ->
+            val entry = item as ChannelSftp.LsEntry
+            entry.filename.takeUnless { it.isBlank() || it == "." || it == ".." }?.let {
+                RemoteEntry(it, entry.attrs.isDir)
+            }
+        }.sortedWith(compareByDescending<RemoteEntry> { it.isDirectory }.thenBy { it.name.lowercase() })
+        RemoteDirectory(sftp.realpath(path), entries)
     }
 
     private suspend fun <T> withSftp(block: suspend (ChannelSftp) -> T): T = withContext(Dispatchers.IO) {
