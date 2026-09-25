@@ -15,11 +15,13 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -126,6 +128,10 @@ class TerminalExtraKeysTest {
                 error("Missing $marker; transcript=$transcript; focus=$focus")
             }
         }
+        fun shortcut(tag: String) {
+            compose.onNodeWithTag("terminal-shortcuts").assertIsDisplayed().performTouchInput { click() }
+            compose.onNodeWithTag(tag).assertIsDisplayed().performTouchInput { click() }
+        }
         try {
             assertEquals(Phase.CONNECTED,
                 withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
@@ -134,9 +140,9 @@ class TerminalExtraKeysTest {
             compose.onNodeWithText("会话  1").performClick()
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.onNodeWithTag("restore-dock").performClick()
-            compose.onNodeWithTag("terminal-escape").assertIsDisplayed().performTouchInput { click() }
+            shortcut("terminal-escape")
             outputContains("KEY_1B")
-            compose.onNodeWithTag("terminal-tab").assertIsDisplayed().performTouchInput { click() }
+            shortcut("terminal-tab")
             outputContains("KEY_09")
 
             compose.activityRule.scenario.onActivity {
@@ -154,8 +160,8 @@ class TerminalExtraKeysTest {
                 }
             }
 
-            compose.onNodeWithTag("terminal-control").assertIsDisplayed().performTouchInput { click() }
-            compose.onNodeWithTag("terminal-control").assert(
+            shortcut("terminal-control")
+            compose.onNodeWithTag("terminal-shortcuts").assert(
                 SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "已启用"))
             compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
                 File(context.getExternalFilesDir(null), "extra-keys-ctrl-armed.png").outputStream().use {
@@ -167,7 +173,7 @@ class TerminalExtraKeysTest {
             if (emulator) shell("input text d") else commitText("d")
             outputContains("KEY_64")
 
-            compose.onNodeWithTag("terminal-control").performTouchInput { click() }
+            shortcut("terminal-control")
             commitText("e")
             commitText("f")
             outputContains("KEY_05")
@@ -201,7 +207,8 @@ class TerminalExtraKeysTest {
             }
             historyBitmap.recycle()
             compose.onNodeWithTag("terminal").performTouchInput {
-                down(androidx.compose.ui.geometry.Offset(width - 6 * density, 9 * density))
+                // After scrolling up, grab the visible thumb rather than the empty track above it.
+                down(androidx.compose.ui.geometry.Offset(width - 6 * density, height * 0.2f))
                 moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 8 * density), delayMillis = 400)
                 up()
             }
@@ -218,15 +225,35 @@ class TerminalExtraKeysTest {
                 compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             }
             compose.waitUntil(10_000) { compose.onAllNodes(isRoot()).fetchSemanticsNodes().size == 1 }
-            compose.waitUntil(10_000) {
-                compose.onAllNodesWithTag("terminal-escape").fetchSemanticsNodes().isNotEmpty()
-            }
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("terminal-shortcuts").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("terminal-shortcuts").assertIsDisplayed().performTouchInput { click() }
             listOf("terminal-escape", "terminal-tab", "terminal-control",
                 "terminal-left", "terminal-right", "terminal-delete").forEach { tag ->
                 compose.onNodeWithTag(tag).assertIsDisplayed()
             }
+            compose.onNodeWithTag("terminal-escape").performTouchInput { click() }
             compose.onNodeWithTag("session-switcher").assertIsDisplayed()
             compose.onNodeWithTag("keyboard-toggle").assertIsDisplayed()
+            compose.onNodeWithTag("file-transfer").assertIsDisplayed()
+            compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+            compose.onNodeWithTag("file-transfer").performClick()
+            compose.onNodeWithText("下载文件").performClick()
+            compose.onNodeWithTag("download-remote-path").assertIsDisplayed()
+            compose.onNodeWithTag("remote-path-dropdown").performClick()
+            compose.waitUntil(8_000) {
+                compose.onAllNodesWithTag("remote-use-directory").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.waitForIdle()
+            delay(250)
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
+                File(context.getExternalFilesDir(null), "remote-path-menu.png").outputStream().use {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+            compose.onNodeWithTag("remote-use-directory").performClick()
+            compose.onNodeWithTag("download-remote-path").assertTextContains("/")
+            compose.onNodeWithText("取消").performClick()
             compose.onNodeWithTag("terminal-menu").assertIsDisplayed()
             compose.activityRule.scenario.onActivity {
                 it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -234,8 +261,7 @@ class TerminalExtraKeysTest {
             compose.waitForIdle()
             delay(500)
             val landscapeTags = listOf("terminal-workspace", "terminal-dock", "session-switcher",
-                "keyboard-toggle", "terminal-menu", "terminal-escape", "terminal-tab",
-                "terminal-control", "terminal-left", "terminal-right", "terminal-delete")
+                "keyboard-toggle", "file-transfer", "terminal-menu", "terminal-shortcuts")
             File(context.getExternalFilesDir(null), "extra-keys-landscape-bounds.txt").writeText(
                 landscapeTags.joinToString("\n") { tag ->
                     "$tag: ${compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot}"
@@ -265,12 +291,16 @@ class TerminalExtraKeysTest {
                 compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot.width <=
                     52 * compose.activity.resources.displayMetrics.density
             }
-            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-delete",
-                "session-switcher").forEach { tag ->
+            listOf("session-switcher", "terminal-shortcuts").forEach { tag ->
                 compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
+            }
+            compose.onNodeWithTag("terminal-shortcuts").performTouchInput { click() }
+            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-delete").forEach { tag ->
+                compose.onNodeWithTag(tag).assertIsDisplayed()
             }
             Unit
         } finally {
+            compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
             withContext(Dispatchers.Main) { service.close(session.id) }
             prompts.cancel()

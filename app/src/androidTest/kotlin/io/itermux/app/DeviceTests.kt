@@ -140,10 +140,13 @@ class TerminalUiTest {
                 while (!withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.contains(text) }) delay(40)
             }
         }
-        fun button(tag: String) = compose.onNodeWithTag(tag).performScrollTo()
+        fun button(tag: String): androidx.compose.ui.test.SemanticsNodeInteraction {
+            compose.onNodeWithTag("terminal-shortcuts").performClick()
+            return compose.onNodeWithTag(tag)
+        }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            compose.onNodeWithText("会话", substring = true).performClick()
+            compose.onNodeWithTag("sessions-tab").performClick()
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             showControls()
@@ -279,7 +282,7 @@ class TerminalUiTest {
         }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            compose.onNodeWithText("会话", substring = true).performClick()
+            compose.onNodeWithTag("sessions-tab").performClick()
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
@@ -376,7 +379,7 @@ class TerminalUiTest {
             ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            compose.onNodeWithText("会话", substring = true).performClick()
+            compose.onNodeWithTag("sessions-tab").performClick()
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
@@ -444,7 +447,7 @@ class TerminalUiTest {
             // Some OEMs block ActivityScenario's background app launch on resume.
             foreground()
             compose.waitUntil(10_000) { runCatching { compose.onAllNodesWithText("会话", substring = true).fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
-            compose.onNodeWithText("会话", substring = true).performClick()
+            compose.onNodeWithTag("sessions-tab").performClick()
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitForIdle()
             if (android.os.Build.HARDWARE in listOf("ranchu", "goldfish")) {

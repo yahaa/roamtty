@@ -1,5 +1,13 @@
 # iTermux 0.1.0 测试与交付记录
 
+## 2026-09-25 传输进度、目录与双语界面
+
+- 本机隔离 SFTP 夹具验证同名文件上传到两个不同目录、同一目标拒绝覆盖、下载大小与字节数匹配；上传目录菜单在进入另一目录时立即更新目标路径。
+- 模拟器通过语言切换与 Activity 重建、传输进度弹窗、远端目录菜单和 Android 文档流往返 4 项专项测试；原有导航、会话标题、终端快捷键 3 项回归也通过。已目视检查[英文设置](screenshots/language-settings-en-emulator.png)及[上传进度](screenshots/transfer-progress-en-emulator.png)截图。
+- App、SSH、终端模块共 180 项单测通过，11 项外部环境相关测试跳过，0 失败；Debug、AndroidTest 构建通过；lint 0 错误、10 条版本及既有界面建议警告。
+- PLU110 的现装包与本轮 Debug 包证书一致；已保留数据覆盖安装最新 `io.itermux.app`，安装包拉回后与本机构建逐字节相同。解锁后在真机上运行上述 4 项专项测试，全部通过：[真机记录](test-results/transfer-i18n-phone.txt)、[英文设置截图](screenshots/language-settings-en-phone.png)、[传输进度截图](screenshots/transfer-progress-en-phone.png)。测试只连接本机隔离 SFTP 夹具；主机数据未清除。
+
+
 首次验收：2026-09-14；界面优化复验：2026-09-15。应用 ID `io.itermux.app`，最低 Android 8 / API 26，compile/target SDK 36。此记录区分实际通过的检查、测试替身和需用户补验的项目。
 
 ## 2026-09-25 重构与最新验证

@@ -6,11 +6,68 @@ installing paramiko into `.local/py-deps`, then `adb reverse tcp:22228 tcp:22228
 
 import socket
 import threading
+import os
+from pathlib import Path
 
 import paramiko
 
 
 HOST_KEY = paramiko.RSAKey.generate(2048)
+SFTP_ROOT = Path(__file__).resolve().parent.parent / ".local" / "sftp-fixture"
+SFTP_ROOT.mkdir(parents=True, exist_ok=True)
+for name in ("phone-a", "phone-b"):
+    (SFTP_ROOT / name).mkdir(exist_ok=True)
+
+
+class FixtureSftp(paramiko.SFTPServerInterface):
+    def local_path(self, path):
+        candidate = (SFTP_ROOT / path.lstrip("/")).resolve()
+        if not candidate.is_relative_to(SFTP_ROOT):
+            raise PermissionError(path)
+        return candidate
+
+    def stat(self, path):
+        try:
+            return paramiko.SFTPAttributes.from_stat(self.local_path(path).stat())
+        except OSError as error:
+            return paramiko.SFTPServer.convert_errno(error.errno)
+
+    def lstat(self, path):
+        try:
+            return paramiko.SFTPAttributes.from_stat(self.local_path(path).lstat())
+        except OSError as error:
+            return paramiko.SFTPServer.convert_errno(error.errno)
+
+    def list_folder(self, path):
+        try:
+            return [paramiko.SFTPAttributes.from_stat(entry.stat(), entry.name)
+                    for entry in self.local_path(path).iterdir()]
+        except OSError as error:
+            return paramiko.SFTPServer.convert_errno(error.errno)
+
+    def open(self, path, flags, attr):
+        try:
+            descriptor = os.open(self.local_path(path), flags, 0o600)
+            handle = paramiko.SFTPHandle(flags)
+            mode = "r+b" if flags & os.O_RDWR else "wb" if flags & os.O_WRONLY else "rb"
+            handle.readfile = handle.writefile = os.fdopen(descriptor, mode)
+            return handle
+        except OSError as error:
+            return paramiko.SFTPServer.convert_errno(error.errno)
+
+    def remove(self, path):
+        try:
+            self.local_path(path).unlink()
+            return paramiko.SFTP_OK
+        except OSError as error:
+            return paramiko.SFTPServer.convert_errno(error.errno)
+
+    def rename(self, oldpath, newpath):
+        try:
+            self.local_path(oldpath).rename(self.local_path(newpath))
+            return paramiko.SFTP_OK
+        except OSError as error:
+            return paramiko.SFTPServer.convert_errno(error.errno)
 
 
 class TestServer(paramiko.ServerInterface):
@@ -42,6 +99,7 @@ class TestServer(paramiko.ServerInterface):
 def serve(client):
     transport = paramiko.Transport(client)
     transport.add_server_key(HOST_KEY)
+    transport.set_subsystem_handler("sftp", paramiko.SFTPServer, FixtureSftp)
     server = TestServer()
     try:
         transport.start_server(server=server)
