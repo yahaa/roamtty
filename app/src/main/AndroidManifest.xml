@@ -7,7 +7,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application android:name=".ItermuxApp" android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules" android:dataExtractionRules="@xml/data_extraction_rules"
-        android:label="iTermux" android:icon="@drawable/ic_terminal" android:theme="@style/Theme.ITermux"
+        android:label="iTermux" android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher" android:theme="@style/Theme.ITermux"
         android:supportsRtl="true" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize|stateAlwaysHidden">
             <intent-filter>
