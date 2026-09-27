@@ -32,13 +32,20 @@ Keystore 持有不可导出的 AES 密钥，AES-GCM 随机 IV 和 128 位认证�
 
 ## 生命周期
 
-当前源码的主机搜索只在用户点击标题栏入口时展开，收起时清除筛选。左上圆形 Logo 打开左侧导航面板，面板显示主机、会话、当前连接的标题和使用指南；标题由 `TerminalConnection` 的内存 StateFlow 持有。终端与 Material 界面使用同一深石墨色基底；终端默认 13 sp，已有字号偏好不覆盖。`TerminalView.setTextSize` 在字号不变时不再重复重新计算终端尺寸。操作栏顶部有显式收起按钮，固定和悬浮模式均可关闭。
+当前源码的主机搜索只在用户点击标题栏入口时展开，收起时清除筛选。左上圆形 Logo 打开左侧导航面板，面板显示主机、会话、当前连接的标题和使用指南；标题由 `TerminalConnection` 的 StateFlow 持有，并随会话引用写入私有 `SessionJournal`。终端与 Material 界面使用同一深石墨色基底；终端默认 13 sp，已有字号偏好不覆盖。`TerminalView.setTextSize` 在字号不变时不再重复重新计算终端尺寸。操作栏顶部有显式收起按钮，固定和悬浮模式均可关闭。
 
 终端根布局仅应用 `WindowInsets.captionBar` 和输入法边距。摄像头的 `displayCutout` 不再作用于整个终端，避免隐藏状态栏后仍留下整条顶部或侧边空白；悬浮操作按钮单独避让开孔，固定侧栏仅在栏内避让顶部/底部开孔。主机列表仍使用 `safeDrawing`，保持系统栏和标题内容分开。
 
 连接页默认全屏，右侧操作栏默认隐藏，点击右上角 ⋯ 展开、栏顶 × 收起；显式固定的偏好仍保留。竖屏使用 48 dp 单列操作栏；横屏且键盘收起、空间足够时使用 96 dp 双列操作栏，键盘展开或高度不足时改为可滚动单列。仅显式固定时为操作栏预留宽度；编辑框打开时暂时隐藏操作栏，关闭后恢复。操作栏的“⌘”菜单提供 Esc、Tab、方向、删除和作用于下一次键盘字符的 Ctrl，“⇅”菜单提供文件传输。默认隐藏输入法，轻触终端获取焦点并打开输入法。键盘按钮在点击时读取原生窗口的 IME 可见状态，通过 `SoftwareKeyboardControllerCompat` 控制原生终端输入；隐藏前先清除 Compose 和终端焦点。界面使用 `WindowInsets.isImeVisible` 跟随键盘状态。从更多菜单打开“编辑文本”，点击编辑框输入；编辑框中的文字先进入草稿，只有“发送文本”才写入 SSH，回车独立发送。
 
 用户主动打开连接时启动 `specialUse` 前台服务，并立即提供通知。Activity 只绑定服务和订阅 StateFlow，旋转和切换会话不负责维护底层 socket。关闭最后一个活动连接后停止前台状态并调用 stopSelf；若 Activity 仍绑定服务，可继续查看已断开的终端内容。服务使用 START_NOT_STICKY，不在系统重启后静默重连。
+
+`SessionJournal` 只保存最多 8 条会话的 ID、Room 主机 ID、模式与标题。服务重新创建时读取对应主机并创建无凭据、无连接任务的已断开条目；已删除主机的记录不恢复。新建连接等待恢复完成，避免覆盖已有列表。断开保留记录，主动关闭移除记录，终端输出、输入队列和编辑草稿不会写盘。
+
+活动连接持有 `PARTIAL_WAKE_LOCK`，所有连接非活动或服务销毁时释放。锁的寿命与用户打开的连接一致，没有会导致长连接再次休眠的固定到期时间。前台服务与唤醒锁仍受深度 Doze 限制；设置页提供系统电池优化管理入口，由用户选择豁免，不申请自动豁免权限。[Android 唤醒锁](https://developer.android.com/develop/background-work/background-tasks/awake/wakelock)、[Doze 限制](https://developer.android.com/training/monitoring-device-state/doze-standby)。
+
+`FileTransferController` 由 `TerminalConnection` 持有，使用服务作用域与 StateFlow 管理任务/进度，Activity 只展示状态。SAF 下载失败或取消在 `NonCancellable + IO` 中删除文档；文档 URI 使用 `DocumentsContract.deleteDocument`，删除失败显式反馈。SFTP 操作统一转义字面路径中的 `\`、`*`、`?`（JSch `realpath` 例外，接受原始路径）；上传使用同目录固定长度随机临时文件名，避免合法目标文件名因追加后缀超长。
+
 
 tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec channel 执行固定命令 `exec tmux new-session -A -s 'itermux'`。普通 SSH 使用 shell channel。用户进入“历史”后，同一 SSH 连接的短时 exec channel 对固定会话运行 `copy-mode`、`display-message` 和 `send-keys -X`；命令在 Mutex 下串行，长距离定位先用 `history-top` / `history-bottom` 或翻页，避免逐行重绘。客户端只保存当前窗格的历史行数、滚动位置和浏览状态，并用它驱动右侧滑块；“实时”执行 `cancel` 后退出复制模式。文件传输使用相同已认证 SSH 连接上的独立 SFTP channel，Android SAF 提供手机侧输入输出流；上传先写远端临时文件，确认目标不存在后改名。没有远端安装、端口转发、文件同步或后台自动命令重放。
 

@@ -4,6 +4,7 @@ import io.itermux.app.tr
 import io.itermux.app.trf
 
 import android.app.*
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.*
@@ -23,12 +24,26 @@ class SessionService : Service() {
     val sessions = mutableSessions.asStateFlow()
     private val binder = LocalBinder()
     private var foreground = false
+    private lateinit var journal: SessionJournal
+    private lateinit var restoration: Job
+    private lateinit var wakeLock: PowerManager.WakeLock
     private val stateWatchers = mutableMapOf<String, Job>()
     inner class LocalBinder : Binder() { val service get() = this@SessionService }
     override fun onBind(intent: Intent?) = binder
     override fun onCreate() {
         super.onCreate()
+        journal = SessionJournal(this)
+        wakeLock = getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "iTermux:SSH").apply { setReferenceCounted(false) }
         refreshLanguage()
+        restoration = scope.launch {
+            val app = application as ItermuxApp
+            mutableSessions.value = journal.read().mapNotNull { entry ->
+                app.database.hosts().find(entry.hostId)?.let { host ->
+                    TerminalConnection(host, entry.mode, null, app.pins, scope, entry.id, entry.title, ::saveSessions)
+                }
+            }
+        }
     }
     fun refreshLanguage() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -36,11 +51,15 @@ class SessionService : Service() {
         )
         if (foreground) refreshNotification()
     }
-    fun open(host: Host, mode: SessionMode, credentials: Credentials): TerminalConnection {
+    suspend fun awaitRestoration() { restoration.join() }
+    private fun saveSessions() = journal.save(mutableSessions.value)
+    suspend fun open(host: Host, mode: SessionMode, credentials: Credentials): TerminalConnection {
+        awaitRestoration()
         check(mutableSessions.value.size < 8) { tr("最多保留 8 个会话，请先关闭旧会话") }
         ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
-        val connection = TerminalConnection(host, mode, credentials, (application as ItermuxApp).pins, scope)
+        val connection = TerminalConnection(host, mode, credentials, (application as ItermuxApp).pins, scope, onRename = ::saveSessions)
         mutableSessions.value += connection
+        saveSessions()
         stateWatchers[connection.id] = scope.launch { connection.state.collect { refreshNotification() } }
         return connection
     }
@@ -48,6 +67,7 @@ class SessionService : Service() {
         stateWatchers.remove(id)?.cancel()
         mutableSessions.value.find { it.id == id }?.disconnect()
         mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+        saveSessions()
         refreshNotification()
     }
     fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; refreshNotification() }
@@ -70,13 +90,25 @@ class SessionService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .addAction(0, tr("全部断开"), close).build()
     }
+    // This is a user-controlled SSH session, not a fixed-duration job. A timer would silently
+    // break long connections again. Every inactive state, explicit disconnect and onDestroy release it.
+    @SuppressLint("WakelockTimeout")
     private fun refreshNotification() {
-        if (sessions.value.none { it.state.value.active }) {
+        val active = sessions.value.any { it.state.value.active }
+        // A foreground notification alone does not keep the CPU running with the screen off.
+        if (active && !wakeLock.isHeld) wakeLock.acquire()
+        if (!active && wakeLock.isHeld) wakeLock.release()
+        if (!active) {
             if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false }
             stopSelf()
         } else if (foreground) getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification())
     }
-    override fun onDestroy() { mutableSessions.value.forEach { it.disconnect() }; scope.cancel(); super.onDestroy() }
+    override fun onDestroy() {
+        mutableSessions.value.forEach { it.disconnect() }
+        scope.cancel()
+        if (wakeLock.isHeld) wakeLock.release()
+        super.onDestroy()
+    }
     companion object {
         private const val CHANNEL = "ssh-sessions"
         private const val NOTIFICATION = 20

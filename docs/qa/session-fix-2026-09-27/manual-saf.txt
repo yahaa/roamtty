@@ -1,0 +1,16 @@
+Android 16 / API 36 emulator-5580, real Downloads DocumentsProvider, installed source-built debug APK.
+
+Cancel:
+Selected /qa-large.bin (1 GiB), saved using ACTION_CREATE_DOCUMENT as qa-fixed-cancel.bin.
+During transfer: adb shell stat reported 140584460 bytes.
+Tapped 取消传输. UI displayed 传输已取消.
+adb shell ls /sdcard/Download/qa-fixed-cancel.bin: No such file or directory.
+Screenshot: fixed-saf-cancel.png.
+
+Literal filename:
+Used the remote file picker to select report\1.txt alongside report1.txt.
+Saved using ACTION_CREATE_DOCUMENT as qa-fixed-literal.txt.
+UI displayed 下载 /report\1.txt and 传输完成.
+adb exec-out cat /sdcard/Download/qa-fixed-literal.txt: chosen file
+The sibling report1.txt contains WRONG file.
+Screenshot: fixed-literal-download.png.

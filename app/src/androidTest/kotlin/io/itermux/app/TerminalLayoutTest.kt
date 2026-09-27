@@ -117,13 +117,14 @@ class TerminalLayoutTest {
         assertTrue("Operation rail must occupy visible space", dock.width > 0f && dock.height > 0f)
         if (dock.width > 80 * compose.activity.resources.displayMetrics.density) {
             assertTrue("Wide rail keeps the session above primary controls", session.bottom <= keyboard.top + 1f)
-            assertEquals("Wide rail pairs keyboard and menu", keyboard.center.y, menu.center.y, 2f)
-            assertTrue("Keyboard precedes menu in the wide rail", keyboard.right <= menu.left + 1f)
+            val transfer = compose.onNodeWithTag("file-transfer").fetchSemanticsNode().boundsInRoot
+            assertEquals("Wide rail pairs keyboard and file transfer", keyboard.center.y, transfer.center.y, 2f)
+            assertTrue("Keyboard precedes file transfer in the wide rail", keyboard.right <= transfer.left + 1f)
         } else {
             assertEquals("Session and keyboard must align vertically", session.center.x, keyboard.center.x, 2f)
             assertTrue("Keyboard follows the session", session.bottom <= keyboard.top + 1f)
             // The short rail scrolls while the IME is open; the menu may be outside the viewport.
-            if (menu.top >= dock.top && menu.bottom <= dock.bottom + 1f) {
+            if (menu.width > 0f && menu.height > 0f && menu.top >= dock.top && menu.bottom <= dock.bottom + 1f) {
                 assertEquals("Keyboard and menu must align vertically", keyboard.center.x, menu.center.x, 2f)
                 assertTrue("Menu follows the keyboard", keyboard.bottom <= menu.top + 1f)
             }

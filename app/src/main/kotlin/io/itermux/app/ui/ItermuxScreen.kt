@@ -77,6 +77,7 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(service, sessions, selected, page) {
+        service?.awaitRestoration()
         if (service != null && page == "terminal" && service.sessions.value.none { it.id == selected }) page = "sessions"
     }
     var search by rememberSaveable { mutableStateOf("") }
@@ -91,7 +92,8 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
     val searchFocus = remember { FocusRequester() }
     BackHandler(navigationVisible && searchExpanded && !imeVisible && !drawerState.isOpen) {
         searchExpanded = false
-        if (page == "hosts") search = "" else sessionSearch = ""
+        search = ""
+        sessionSearch = ""
     }
     var editorOpen by rememberSaveable { mutableStateOf(false) }
     var editHostId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -178,7 +180,8 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                     if (navigationVisible) {
                         IconButton(onClick = {
                             if (searchExpanded) {
-                                if (page == "hosts") search = "" else sessionSearch = ""
+                                search = ""
+                                sessionSearch = ""
                                 focusManager.clearFocus(force = true)
                                 keyboardController?.hide()
                             }

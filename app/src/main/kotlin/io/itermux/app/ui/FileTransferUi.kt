@@ -31,7 +31,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -44,63 +43,22 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.RemoteDirectory
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.IOException
 
 internal enum class FileAction { UPLOAD, DOWNLOAD }
 
 @Composable
 internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, onConsumed: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var uploadUri by remember { mutableStateOf<Uri?>(null) }
-    var uploadName by remember { mutableStateOf("") }
-    var uploadPath by remember { mutableStateOf("") }
-    var downloadDialog by remember { mutableStateOf(false) }
-    var downloadPath by remember { mutableStateOf("") }
-    var transferName by remember { mutableStateOf("") }
-    var transferred by remember { mutableLongStateOf(0L) }
-    var totalBytes by remember { mutableLongStateOf(-1L) }
-    var transferring by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<String?>(null) }
-    var transferJob by remember { mutableStateOf<Job?>(null) }
-
-    fun startTransfer(name: String, total: Long = -1L, operation: suspend ((Long) -> Unit) -> Unit) {
-        transferName = name
-        transferred = 0
-        totalBytes = total
-        result = null
-        transferring = true
-        transferJob = scope.launch {
-            var lastReported = 0L
-            try {
-                operation { bytes ->
-                    if (bytes - lastReported >= 256 * 1024) {
-                        transferred = bytes
-                        lastReported = bytes
-                    }
-                }
-                if (totalBytes >= 0) transferred = totalBytes
-                result = tr("传输完成")
-            } catch (_: CancellationException) {
-                result = tr("传输已取消")
-            } catch (e: Exception) {
-                result = when (e) {
-                    is java.nio.file.FileAlreadyExistsException -> trf("远端文件已存在：%s", e.file ?: uploadPath)
-                    else -> trf("传输失败：%s", tr(e.message ?: "请检查路径和 SFTP 服务"))
-                }
-            } finally {
-                transferring = false
-                transferJob = null
-            }
-        }
-    }
+    val transfer = session.transfers
+    val status by transfer.status.collectAsStateWithLifecycle()
+    var uploadUri by transfer::uploadUri
+    var uploadName by transfer::uploadName
+    var uploadPath by transfer::uploadPath
+    var downloadDialog by transfer::downloadDialog
+    var downloadPath by transfer::downloadPath
 
     val uploadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -116,17 +74,7 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
     val downloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) {
             val path = downloadPath.trim()
-            startTransfer(trf("下载 %s", path)) { progress ->
-                try {
-                    withContext(Dispatchers.IO) {
-                        val output = context.contentResolver.openOutputStream(uri, "w") ?: throw IOException(tr("无法打开本地文件"))
-                        output.use { session.download(path, it, progress) { size -> totalBytes = size } }
-                    }
-                } catch (e: Exception) {
-                    runCatching { context.contentResolver.delete(uri, null, null) }
-                    throw e
-                }
-            }
+            transfer.download(context, session, uri, path)
         }
     }
     LaunchedEffect(action) {
@@ -154,12 +102,7 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
                     if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else -1L
                 }
             }.getOrNull() ?: -1L
-            startTransfer(trf("上传 %s", uploadName), size) { progress ->
-                withContext(Dispatchers.IO) {
-                    val input = context.contentResolver.openInputStream(uri) ?: throw IOException(tr("无法打开本地文件"))
-                    input.use { session.upload(path, it, progress) }
-                }
-            }
+            transfer.upload(context, session, uri, path, uploadName, size)
         }, enabled = uploadPath.isNotBlank()) { Text(tr("上传")) } },
         dismissButton = { TextButton(onClick = { uploadUri = null }) { Text(tr("取消")) } }) }
 
@@ -178,8 +121,8 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
         }, enabled = downloadPath.isNotBlank() && !downloadPath.trim().endsWith('/')) { Text(tr("选择保存位置")) } },
         dismissButton = { TextButton(onClick = { downloadDialog = false }) { Text(tr("取消")) } })
 
-    if (transferring || result != null) TransferStatusDialog(transferName, transferred, totalBytes,
-        transferring, result, onCancel = { transferJob?.cancel() }, onDismiss = { result = null })
+    if (status.running || status.result != null) TransferStatusDialog(status.name, status.bytes, status.total,
+        status.running, status.result, onCancel = transfer::cancel, onDismiss = transfer::dismiss)
 }
 
 @Composable
