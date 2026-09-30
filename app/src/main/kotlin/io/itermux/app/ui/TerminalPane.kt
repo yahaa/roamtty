@@ -44,6 +44,7 @@ import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.termux.view.TerminalView
+import io.itermux.app.TerminalFonts
 import io.itermux.app.session.*
 import io.itermux.app.R
 import io.itermux.ssh.Phase
@@ -61,6 +62,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val prefs = remember { context.getSharedPreferences("terminal-settings", Context.MODE_PRIVATE) }
     var fontSize by rememberSaveable { mutableIntStateOf(prefs.getInt("fontSize", 13)) }
+    // Snapshot reads: changing font in Settings recomposes this pane and AndroidView.update.
+    val terminalFontKey = TerminalFonts.selection to TerminalFonts.revision
     var editor by rememberSaveable { mutableStateOf(false) }
     var draft by remember { mutableStateOf(TextFieldValue(session.draft, TextRange(session.draft.length))) }
     var terminal by remember { mutableStateOf<TerminalView?>(null) }
@@ -289,6 +292,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         session.getEmulator().mColors.setLightTheme(lightTheme)
                         terminal = this
                         setTextSize((fontSize * ctx.resources.displayMetrics.scaledDensity).toInt())
+                        setTypeface(TerminalFonts.resolveTypeface(ctx))
                         setTerminalViewClient(MobileTerminalClient(this,
                             onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
@@ -305,6 +309,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     session.onScreenChanged = { view.onScreenUpdated() }
                     if (session.getEmulator().mColors.setLightTheme(lightTheme)) view.onScreenUpdated()
                     view.setTextSize((fontSize * view.resources.displayMetrics.scaledDensity).toInt())
+                    view.setTypeface(TerminalFonts.resolveTypeface(view.context))
+                    checkNotNull(terminalFontKey)
                     val history = tmuxHistory?.takeIf { it.active }
                     view.setRemoteHistory(history?.rows ?: 0, history?.position ?: 0,
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
