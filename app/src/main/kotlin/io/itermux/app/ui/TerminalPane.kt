@@ -206,6 +206,13 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     DropdownMenuItem(text = { Text(tr("下载文件")) }, onClick = { fileMenu = false; fileAction = FileAction.DOWNLOAD })
                 }
             }
+            IconButton(
+                onClick = { commonCommandsOpen = true },
+                enabled = state.phase == Phase.CONNECTED,
+                modifier = Modifier.testTag("common-commands")
+            ) {
+                Text("$", fontSize = 22.sp, modifier = Modifier.semantics { contentDescription = tr("常用命令") })
+            }
             Box {
                 IconButton(onClick = { ctrlArmed = false; shiftArmed = false; menu = true }, modifier = Modifier.semantics { contentDescription = tr("终端菜单") }.testTag("terminal-menu")) { Text("⋯", fontSize = 26.sp) }
                 DropdownMenu(menu, { menu = false }) {
@@ -222,12 +229,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         prefs.edit { putBoolean("dockPinned", false) }
                     })
                     DropdownMenuItem(text = { Text(tr("粘贴")) }, onClick = { menu = false; showClipboard() })
-                    DropdownMenuItem(
-                        text = { Text(tr("常用命令")) },
-                        onClick = { menu = false; commonCommandsOpen = true },
-                        enabled = state.phase == Phase.CONNECTED,
-                        modifier = Modifier.testTag("common-commands")
-                    )
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text(trf("增大字号 · %d sp", fontSize)) }, onClick = { fontSize = (fontSize + 1).coerceAtMost(28); menu = false })
                     DropdownMenuItem(text = { Text(trf("减小字号 · %d sp", fontSize)) }, onClick = { fontSize = (fontSize - 1).coerceAtLeast(8); menu = false })
