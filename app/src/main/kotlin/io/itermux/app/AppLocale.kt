@@ -324,9 +324,9 @@ private object EnglishText {
         "新文件名" to "New file name",
         "重命名失败：%s" to "Rename failed: %s",
         "删除失败：%s" to "Delete failed: %s",
-        "本批不支持删目录" to "Deleting directories is not supported in this release",
-        "无法删除" to "Cannot delete",
         "将永久删除远端文件，此操作不可撤销。" to "This permanently deletes the remote file and cannot be undone.",
+        "将永久删除远端目录及其全部内容，此操作不可撤销。" to "This permanently deletes the remote directory and all of its contents and cannot be undone.",
+        "无效的删除路径" to "Invalid path to delete",
         "目录" to "Directory",
         "文件" to "File"
     )

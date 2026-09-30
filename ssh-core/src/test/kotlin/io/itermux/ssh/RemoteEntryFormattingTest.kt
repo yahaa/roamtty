@@ -45,4 +45,27 @@ class RemoteEntryFormattingTest {
         assertEquals("", formatRemoteMtime(-1))
         assertTrue(formatRemoteMtime(1_700_000_000L).matches(Regex("""\d{4}-\d{2}-\d{2} \d{2}:\d{2}""")))
     }
+    @Test fun isSafeRemoteEntryNameRejectsDotsAndSeparators() {
+        assertTrue(isSafeRemoteEntryName("file.txt"))
+        assertTrue(isSafeRemoteEntryName("my-dir"))
+        assertFalse(isSafeRemoteEntryName(""))
+        assertFalse(isSafeRemoteEntryName("."))
+        assertFalse(isSafeRemoteEntryName(".."))
+        assertFalse(isSafeRemoteEntryName("a/b"))
+        assertFalse(isSafeRemoteEntryName("a\\b"))
+    }
+
+    @Test fun isSafeRemoteDeletePathRejectsRootAndDotSegments() {
+        assertTrue(isSafeRemoteDeletePath("/home/user/file.txt"))
+        assertTrue(isSafeRemoteDeletePath("/home/user/subdir"))
+        assertTrue(isSafeRemoteDeletePath("relative/file"))
+        assertFalse(isSafeRemoteDeletePath(""))
+        assertFalse(isSafeRemoteDeletePath("/"))
+        assertFalse(isSafeRemoteDeletePath("//"))
+        assertFalse(isSafeRemoteDeletePath("."))
+        assertFalse(isSafeRemoteDeletePath(".."))
+        assertFalse(isSafeRemoteDeletePath("/home/../etc"))
+        assertFalse(isSafeRemoteDeletePath("/home/user/."))
+        assertFalse(isSafeRemoteDeletePath("/home/user/.."))
+    }
 }

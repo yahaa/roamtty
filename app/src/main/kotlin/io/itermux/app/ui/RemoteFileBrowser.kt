@@ -36,7 +36,7 @@ import io.itermux.ssh.parentRemotePath
 import kotlinx.coroutines.launch
 
 /**
- * Batch-1 remote SFTP browser: list / enter dirs / download / rename / delete file.
+ * Remote SFTP browser: list / enter dirs / download / rename / delete file or directory.
  * Move and mkdir are deferred to a later batch.
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -298,12 +298,12 @@ internal fun RemoteFileBrowserPage(
                             renameDraft = entry.name
                             renameEntry = entry
                         }, modifier = Modifier.testTag("files-action-rename")) { Text(tr("重命名")) }
-                        TextButton(onClick = {
-                            menuEntry = null
-                            deleteEntry = entry
-                        }, modifier = Modifier.testTag("files-action-delete")) {
-                            Text(tr("删除"), color = MaterialTheme.colorScheme.error)
-                        }
+                    }
+                    TextButton(onClick = {
+                        menuEntry = null
+                        deleteEntry = entry
+                    }, modifier = Modifier.testTag("files-action-delete")) {
+                        Text(tr("删除"), color = MaterialTheme.colorScheme.error)
                     }
                     TextButton(onClick = { menuEntry = null }) { Text(tr("取消")) }
                 }
@@ -358,52 +358,43 @@ internal fun RemoteFileBrowserPage(
 
     deleteEntry?.let { entry ->
         val currentPath = listing?.path
-        if (entry.isDirectory) {
-            AlertDialog(
-                onDismissRequest = { deleteEntry = null },
-                title = { Text(tr("无法删除")) },
-                text = { Text(tr("本批不支持删目录")) },
-                confirmButton = {
-                    TextButton(onClick = { deleteEntry = null }) { Text(tr("知道了")) }
-                }
-            )
-        } else {
-            AlertDialog(
-                onDismissRequest = { if (!actionBusy) deleteEntry = null },
-                title = { Text(trf("删除 %s？", entry.name)) },
-                text = { Text(tr("将永久删除远端文件，此操作不可撤销。")) },
-                confirmButton = {
-                    TextButton(
-                        enabled = !actionBusy,
-                        onClick = {
-                            if (currentPath == null) return@TextButton
-                            val path = joinRemotePath(currentPath, entry.name)
-                            actionBusy = true
-                            scope.launch {
-                                try {
-                                    session.deleteRemoteFile(path)
-                                    deleteEntry = null
-                                    reload()
-                                } catch (e: Exception) {
-                                    val message = e.message ?: "请检查路径和 SFTP 服务"
-                                    toast(
-                                        if (message == "本批不支持删目录") tr("本批不支持删目录")
-                                        else trf("删除失败：%s", tr(message))
-                                    )
-                                    deleteEntry = null
-                                } finally {
-                                    actionBusy = false
-                                }
+        AlertDialog(
+            onDismissRequest = { if (!actionBusy) deleteEntry = null },
+            title = { Text(trf("删除 %s？", entry.name)) },
+            text = {
+                Text(
+                    if (entry.isDirectory) tr("将永久删除远端目录及其全部内容，此操作不可撤销。")
+                    else tr("将永久删除远端文件，此操作不可撤销。")
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !actionBusy,
+                    onClick = {
+                        if (currentPath == null) return@TextButton
+                        val path = joinRemotePath(currentPath, entry.name)
+                        actionBusy = true
+                        scope.launch {
+                            try {
+                                session.deleteRemoteFile(path)
+                                deleteEntry = null
+                                reload()
+                            } catch (e: Exception) {
+                                val message = e.message ?: "请检查路径和 SFTP 服务"
+                                toast(trf("删除失败：%s", tr(message)))
+                                deleteEntry = null
+                            } finally {
+                                actionBusy = false
                             }
-                        },
-                        modifier = Modifier.testTag("files-delete-confirm")
-                    ) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { deleteEntry = null }, enabled = !actionBusy) { Text(tr("取消")) }
-                }
-            )
-        }
+                        }
+                    },
+                    modifier = Modifier.testTag("files-delete-confirm")
+                ) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteEntry = null }, enabled = !actionBusy) { Text(tr("取消")) }
+            }
+        )
     }
 
     if (transferStatus.running || transferStatus.result != null) {
@@ -449,10 +440,8 @@ private fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onLongPress: (
             }
         },
         trailingContent = {
-            if (!entry.isDirectory) {
-                TextButton(onClick = onLongPress, modifier = Modifier.testTag("files-row-menu-${entry.name}")) {
-                    Text("⋯")
-                }
+            TextButton(onClick = onLongPress, modifier = Modifier.testTag("files-row-menu-${entry.name}")) {
+                Text("⋯")
             }
         },
         modifier = Modifier

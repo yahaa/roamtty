@@ -51,6 +51,27 @@ fun parentRemotePath(path: String): String {
     return parent.ifEmpty { "/" }
 }
 
+/** True when [name] is a single path segment safe to delete or rename (not `.`/`..`, no separators). */
+fun isSafeRemoteEntryName(name: String): Boolean =
+    name.isNotEmpty() &&
+        name != "." &&
+        name != ".." &&
+        '/' !in name &&
+        '\\' !in name &&
+        name.none { it == '\u0000' || it == '\n' || it == '\r' }
+
+/**
+ * True when [path] is a non-root remote path safe to delete: no blank/control chars,
+ * no `.`/`..` segments, and not the filesystem root.
+ */
+fun isSafeRemoteDeletePath(path: String): Boolean {
+    if (path.isBlank() || path.length > 4096) return false
+    if (path.any { it == '\u0000' || it == '\n' || it == '\r' }) return false
+    val trimmed = path.trimEnd('/')
+    if (trimmed.isEmpty() || trimmed == "/") return false
+    return trimmed.split('/').none { it == "." || it == ".." }
+}
+
 fun formatRemoteSize(bytes: Long): String = when {
     bytes < 0L -> ""
     bytes < 1024L -> "$bytes B"
@@ -440,14 +461,50 @@ class JschSession(
     }
 
     /**
-     * Delete a remote regular file. Directories are refused (batch 1 has no recursive delete).
-     * @throws IllegalArgumentException with message 「本批不支持删目录」 when [path] is a directory.
+     * Delete a remote file or directory. Directories are removed recursively
+     * (contents first, then rmdir). Empty directories are removed directly.
+     * Refuses `.`/`..`/root/unsafe paths. On partial failure, aborts with a clear error.
      */
     suspend fun deleteFile(path: String) = withSftp { sftp ->
-        val remote = literalSftpPath(validTransferPath(path))
-        val attrs = sftp.lstat(remote)
-        require(!attrs.isDir) { "本批不支持删目录" }
-        sftp.rm(remote)
+        require(isSafeRemoteDeletePath(path)) { "无效的删除路径" }
+        deleteRemoteRecursive(sftp, validTransferPath(path))
+    }
+
+    private fun deleteRemoteRecursive(sftp: ChannelSftp, path: String) {
+        val remote = literalSftpPath(path)
+        val attrs = try {
+            sftp.lstat(remote)
+        } catch (e: SftpException) {
+            throw IllegalStateException("无法删除：$path（${e.message}）", e)
+        }
+        if (attrs.isDir) {
+            @Suppress("UNCHECKED_CAST")
+            val listing = try {
+                sftp.ls(remote) as java.util.Vector<ChannelSftp.LsEntry>
+            } catch (e: SftpException) {
+                throw IllegalStateException("无法列出目录：$path（${e.message}）", e)
+            }
+            for (item in listing) {
+                val name = item.filename ?: continue
+                if (name.isEmpty() || name == "." || name == "..") continue
+                if (!isSafeRemoteEntryName(name)) {
+                    throw IllegalArgumentException("目录含有不安全的名称，已中止删除：$name")
+                }
+                val child = joinRemotePath(path, name)
+                deleteRemoteRecursive(sftp, child)
+            }
+            try {
+                sftp.rmdir(remote)
+            } catch (e: SftpException) {
+                throw IllegalStateException("无法删除目录：$path（${e.message}）", e)
+            }
+        } else {
+            try {
+                sftp.rm(remote)
+            } catch (e: SftpException) {
+                throw IllegalStateException("无法删除文件：$path（${e.message}）", e)
+            }
+        }
     }
 
     private suspend fun <T> withSftp(block: suspend (ChannelSftp) -> T): T = withContext(Dispatchers.IO) {
