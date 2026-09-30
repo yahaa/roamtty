@@ -2,7 +2,6 @@ package io.itermux.ssh
 
 import com.jcraft.jsch.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel as Queue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.bouncycastle.jce.provider.BouncyCastleProvider
@@ -35,8 +34,7 @@ class JschSession(
     override val state = mutableState.asStateFlow()
     private val stopped = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
-    private val input = Queue<ByteArray>(64)
-    private val sizes = Queue<IntArray>(Queue.CONFLATED)
+    private val queues = SessionQueues()
     private val interactionJob = SupervisorJob()
     @Volatile private var session: Session? = null
     @Volatile private var channel: com.jcraft.jsch.Channel? = null
@@ -61,7 +59,7 @@ class JschSession(
         try {
             while (!stopped.get()) {
                 // Discard stale input before each attempt; never replay it after reattachment.
-                reopenQueues()
+                queues.reopen()
                 when (runAttempt(onOutput, reattaching = attempt > 0)) {
                     AttemptOutcome.STOPPED -> break
                     AttemptOutcome.FATAL -> break
@@ -87,18 +85,12 @@ class JschSession(
                 }
             }
         } finally {
+            queues.setAccepting(false)
             closeTransport()
             credentials.clear()
             interactionJob.cancel()
-            input.close(); sizes.close()
-            while (true) (input.tryReceive().getOrNull() ?: break).fill(0)
+            queues.close()
         }
-    }
-
-    private fun reopenQueues() {
-        // Queues are only closed after the outer connect finishes; each attempt reuses open queues.
-        while (true) (input.tryReceive().getOrNull() ?: break).fill(0)
-        while (true) sizes.tryReceive().getOrNull() ?: break
     }
 
     private fun tcpKeepaliveFactory() = object : SocketFactory {
@@ -194,35 +186,42 @@ class JschSession(
             val stdout = terminal.inputStream
             val stdin = terminal.outputStream
             terminal.connect(connectTimeoutMs)
+            // Accept input only while the PTY writer is live — not during post-EOF exit-status grace.
+            queues.setAccepting(true)
             update(Phase.CONNECTED)
             reachedConnected = true
-            coroutineScope {
-                val writer = launch(Dispatchers.IO) {
-                    try {
-                        for (bytes in input) {
-                            try { if (!stopped.get() && terminal.isConnected) { stdin.write(bytes); stdin.flush() } }
-                            finally { bytes.fill(0) }
-                        }
-                    } catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { terminal.disconnect() }
-                }
-                val resizer = launch(Dispatchers.IO) {
-                    try {
-                        for (d in sizes) when (terminal) {
-                            is ChannelShell -> terminal.setPtySize(d[0], d[1], d[2], d[3])
-                            is ChannelExec -> terminal.setPtySize(d[0], d[1], d[2], d[3])
-                        }
-                    } catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { terminal.disconnect() }
-                }
-                try {
-                    val buffer = ByteArray(8192)
-                    while (isActive && !stopped.get()) {
-                        val count = stdout.read(buffer)
-                        if (count < 0) break
-                        if (count > 0) onOutput(buffer.copyOf(count))
+            try {
+                coroutineScope {
+                    val writer = launch(Dispatchers.IO) {
+                        try {
+                            for (bytes in queues.currentInput()) {
+                                try { if (!stopped.get() && terminal.isConnected) { stdin.write(bytes); stdin.flush() } }
+                                finally { bytes.fill(0) }
+                            }
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { terminal.disconnect() }
                     }
-                } finally { writer.cancel(); resizer.cancel() }
+                    val resizer = launch(Dispatchers.IO) {
+                        try {
+                            for (d in queues.currentSizes()) when (terminal) {
+                                is ChannelShell -> terminal.setPtySize(d[0], d[1], d[2], d[3])
+                                is ChannelExec -> terminal.setPtySize(d[0], d[1], d[2], d[3])
+                            }
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { terminal.disconnect() }
+                    }
+                    try {
+                        val buffer = ByteArray(8192)
+                        while (isActive && !stopped.get()) {
+                            val count = stdout.read(buffer)
+                            if (count < 0) break
+                            if (count > 0) onOutput(buffer.copyOf(count))
+                        }
+                    } finally { writer.cancel(); resizer.cancel() }
+                }
+            } finally {
+                // Stop accepting before the exit-status grace wait so UI CONNECTED cannot queue dead writes.
+                queues.setAccepting(false)
             }
             // EOF/closed channels can precede exit-status or JSch's transport disconnect flag.
             // Even a closed channel needs this grace period when no exit status has arrived.
@@ -231,7 +230,11 @@ class JschSession(
             }
             return when {
                 stopped.get() -> AttemptOutcome.STOPPED
-                terminal.exitStatus != -1 || ssh.isConnected -> AttemptOutcome.REMOTE_EXIT
+                // Normal shell/tmux end — exit-status arrived.
+                terminal.exitStatus != -1 -> AttemptOutcome.REMOTE_EXIT
+                // Transport dead, or channel EOF with no exit status while SSH still up:
+                // prefer TRANSPORT_ENDED so TMUX can auto-reattach. Do not treat bare
+                // ssh.isConnected as REMOTE_EXIT.
                 else -> AttemptOutcome.TRANSPORT_ENDED
             }
         } catch (e: Exception) {
@@ -293,18 +296,11 @@ class JschSession(
         override fun getHostKey(host: String?, type: String?): Array<HostKey> = emptyArray()
     }
 
-    override fun write(bytes: ByteArray): Boolean {
-        if (bytes.isEmpty()) return true
-        if (bytes.size > 256 * 1024 || stopped.get() || state.value.phase != Phase.CONNECTED) return false
-        val copy = bytes.copyOf()
-        if (input.trySend(copy).isSuccess) return true
-        copy.fill(0)
-        return false
-    }
+    override fun write(bytes: ByteArray): Boolean = queues.write(bytes, stopped.get())
 
     override fun resize(columns: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) {
         dimensions = intArrayOf(columns.coerceIn(2, 500), rows.coerceIn(2, 300), pixelWidth.coerceAtLeast(0), pixelHeight.coerceAtLeast(0))
-        sizes.trySend(dimensions)
+        queues.trySendSize(dimensions)
     }
 
     /** Query the active pane of this connection's tmux session over a separate SSH channel. */
@@ -429,12 +425,13 @@ class JschSession(
 
     override fun disconnect() {
         stopped.set(true)
+        queues.setAccepting(false)
         credentials.clear()
         mutableState.value = ConnectionState(Phase.DISCONNECTED, "连接已关闭")
         interactionJob.cancel()
         // JSch's close can block behind an in-flight packet. Never call it on the UI thread.
         Thread({ closeTransport() }, "ssh-close").apply { isDaemon = true }.start()
-        input.close(); sizes.close()
+        queues.close()
     }
     private fun closeTransport() { channel?.disconnect(); session?.disconnect() }
 

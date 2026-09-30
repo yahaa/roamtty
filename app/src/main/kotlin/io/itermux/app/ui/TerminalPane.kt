@@ -130,7 +130,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }
     LaunchedEffect(fontSize) { prefs.edit { putInt("fontSize", fontSize) } }
     LaunchedEffect(session.id) { hideKeyboard() }
-    LaunchedEffect(state.phase) { if (state.phase != Phase.CONNECTED) { ctrlArmed = false; shiftArmed = false } }
+    LaunchedEffect(state.phase) {
+        if (state.phase != Phase.CONNECTED) { ctrlArmed = false; shiftArmed = false }
+        else session.inputWarning.value = null
+    }
     LaunchedEffect(imeVisible) { if (!imeVisible) { ctrlArmed = false; shiftArmed = false } }
     BackHandler(editor || imeVisible) { editor = false; hideKeyboard() }
     val dock: @Composable (Dp) -> Unit = { availableHeight ->
@@ -292,6 +295,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         isFocusableInTouchMode = true
                     }
                 }, update = { view ->
+                    // Harden against Compose reuse: always rebind session + screen callback (factory alone is not enough).
+                    view.attachSession(session)
+                    session.onScreenChanged = { view.onScreenUpdated() }
                     if (session.getEmulator().mColors.setLightTheme(lightTheme)) view.onScreenUpdated()
                     view.setTextSize((fontSize * view.resources.displayMetrics.scaledDensity).toInt())
                     val history = tmuxHistory?.takeIf { it.active }

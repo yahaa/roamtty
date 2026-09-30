@@ -57,7 +57,9 @@ class ReattachIntegrationTest {
     @Test fun successfulRemoteExitEndsConnection() = exitsWithoutReattachment("exit")
     @Test fun failedRemoteCommandEndsConnection() = exitsWithoutReattachment("exit-error")
     @Test fun eofBeforeExitStatusEndsConnection() = exitsWithoutReattachment("exit-delayed")
-    @Test fun channelCloseWithoutExitStatusOnLiveTransportEndsConnection() = exitsWithoutReattachment("exit-no-status")
+    // Channel EOF with no exit-status while SSH stays up is TRANSPORT_ENDED (reattachable for TMUX),
+    // not REMOTE_EXIT — bare ssh.isConnected must not classify as a clean remote exit.
+    @Test fun channelCloseWithoutExitStatusOnLiveTransportReattaches() = recovers("exit-no-status")
 
     private fun recovers(mode: String) = scenario(mode) { ssh, worker, output ->
         withTimeout(3_000) { ssh.state.first { it.phase == Phase.CONNECTING } }

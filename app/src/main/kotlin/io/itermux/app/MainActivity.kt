@@ -32,8 +32,6 @@ class MainActivity : ComponentActivity() {
                 else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
-        // Prevent system screenshots/recent-task snapshots from persisting credentials or terminal output.
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
             ItermuxScreen(application as ItermuxApp, service) { visible, light ->
                 terminalVisible = visible
