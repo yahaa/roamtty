@@ -226,16 +226,17 @@ class JschSession(
 
     /** A separate SFTP channel shares the authenticated SSH connection without touching the PTY. */
     suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = withSftp { sftp ->
-        val path = validTransferPath(remotePath)
+        val path = literalSftpPath(validTransferPath(remotePath))
         if (sftp.exists(path)) {
             require(!sftp.lstat(path).isDir) { "目标是目录，请选择目录并指定文件名" }
-            throw FileAlreadyExistsException(path)
+            throw FileAlreadyExistsException(remotePath)
         }
-        val temporary = "$path.itermux-${UUID.randomUUID()}.part"
+        val directory = remotePath.substringBeforeLast('/', "")
+        val temporary = literalSftpPath((if ('/' in remotePath) "$directory/" else "") + ".itermux-${UUID.randomUUID()}.part")
         try {
             sftp.put(source, temporary, transferMonitor(coroutineContext[Job], onProgress))
             coroutineContext.ensureActive()
-            if (sftp.exists(path)) throw FileAlreadyExistsException(path)
+            if (sftp.exists(path)) throw FileAlreadyExistsException(remotePath)
             sftp.rename(temporary, path)
         } catch (e: Exception) {
             runCatching { sftp.rm(temporary) }
@@ -244,7 +245,7 @@ class JschSession(
     }
 
     suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}, onSize: (Long) -> Unit = {}) = withSftp { sftp ->
-        val path = validTransferPath(remotePath)
+        val path = literalSftpPath(validTransferPath(remotePath))
         val attributes = sftp.stat(path)
         require(!attributes.isDir) { "不能下载文件夹" }
         onSize(attributes.size)
@@ -255,7 +256,7 @@ class JschSession(
     /** List a remote SFTP directory for the file picker. An empty path opens the SFTP home. */
     suspend fun listRemoteDirectory(remotePath: String = ""): RemoteDirectory = withSftp { sftp ->
         val path = if (remotePath.isBlank()) sftp.pwd() else validTransferPath(remotePath)
-        val entries = sftp.ls(path).mapNotNull { item ->
+        val entries = sftp.ls(literalSftpPath(path)).mapNotNull { item ->
             val entry = item as ChannelSftp.LsEntry
             entry.filename.takeUnless { it.isBlank() || it == "." || it == ".." }?.let {
                 RemoteEntry(it, entry.attrs.isDir)
@@ -291,6 +292,14 @@ class JschSession(
     private fun validTransferPath(path: String): String {
         require(path.isNotBlank() && path.length <= 4096 && path.none { it == '\u0000' || it == '\n' || it == '\r' }) { "请输入有效的远端文件路径" }
         return path
+    }
+
+    // JSch's high-level operations interpret glob patterns; realpath alone takes a raw path.
+    private fun literalSftpPath(path: String): String = buildString {
+        path.forEach { char ->
+            if (char == '\\' || char == '*' || char == '?') append('\\')
+            append(char)
+        }
     }
 
     private fun ChannelSftp.exists(path: String): Boolean = try {

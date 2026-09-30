@@ -27,6 +27,6 @@ $resultCode = $LASTEXITCODE
 $result | Add-Content -LiteralPath $report -Encoding UTF8
 $result
 if ($resultCode -ne 0 -or !(($result -join "`n") -match 'OK \(1 test\)')) { throw 'Process-death recovery test failed' }
-$summary = 'PASS: no stale sessions after process death, persisted Room/Keystore data, explicit tmux reattachment.'
+$summary = 'PASS: disconnected session entries and titles restored after process death, persisted Room/Keystore data, explicit tmux reattachment.'
 $summary | Add-Content -LiteralPath $report -Encoding UTF8
 $summary

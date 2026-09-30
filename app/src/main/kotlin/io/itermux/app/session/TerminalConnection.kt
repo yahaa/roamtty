@@ -22,32 +22,35 @@ internal fun clipSessionTitle(value: String): String = value.take(80).let {
 class TerminalConnection(
     val host: Host,
     val mode: SessionMode,
-    credentials: Credentials,
+    credentials: Credentials?,
     pins: PinStore,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    val id: String = UUID.randomUUID().toString(),
+    initialTitle: String = "",
+    private val onRename: () -> Unit = {}
 ) : TerminalOutput(), TerminalSession {
-    val id: String = UUID.randomUUID().toString()
     val pending = MutableStateFlow<PendingPrompt?>(null)
     val inputWarning = MutableStateFlow<String?>(null)
     val revision = MutableStateFlow(0L)
-    private val mutableTitle = MutableStateFlow("")
+    private val mutableTitle = MutableStateFlow(initialTitle)
     val title = mutableTitle.asStateFlow()
     val displayTitle: String get() = title.value.ifBlank { host.name }
-    fun rename(title: String) { mutableTitle.value = clipSessionTitle(title.trim()) }
+    fun rename(title: String) { mutableTitle.value = clipSessionTitle(title.trim()); onRename() }
     var draft: String = "" // Memory only; terminal text and prompt drafts are never saved to disk.
     var onScreenChanged: (() -> Unit)? = null
     var copyToClipboard: ((String) -> Unit)? = null
     var pasteFromClipboard: (() -> Unit)? = null
     private val parser = TerminalEmulator(this, 80, 24, 8, 16, 5000, SilentTerminalClient())
-    private val ssh = JschSession(host.target(mode), credentials, pins, interaction = { prompt ->
+    private val ssh = JschSession(host.target(mode), credentials ?: Credentials(), pins, interaction = { prompt ->
         val request = PendingPrompt(prompt)
         pending.value = request
         try { request.answer.await() } finally { pending.compareAndSet(request, null) }
     })
-    val state = ssh.state
-    private val tmux = TmuxHistoryCoordinator(mode == SessionMode.TMUX, ssh, scope) { inputWarning.value = it }
+    val state = if (credentials != null) ssh.state else MutableStateFlow(ConnectionState(
+        Phase.DISCONNECTED, "连接已中断，请手动重连。会话记录已恢复，未发送的输入不会重发。" )).asStateFlow()
+    private val tmux = TmuxHistoryCoordinator(credentials != null && mode == SessionMode.TMUX, ssh, scope) { inputWarning.value = it }
     val tmuxHistory = tmux.history
-    private val job = scope.launch {
+    private val job = if (credentials == null) null else scope.launch {
         try {
             ssh.connect { bytes ->
                 withContext(Dispatchers.Main.immediate) {
@@ -91,5 +94,6 @@ class TerminalConnection(
     override fun onPasteTextFromClipboard() { pasteFromClipboard?.invoke() }
     override fun onBell() = Unit
     override fun onColorsChanged() { onScreenChanged?.invoke() }
-    fun disconnect() { pending.value?.answer?.complete(null); tmux.disconnect(); ssh.disconnect(); job.cancel() }
+    val transfers = FileTransferController(scope)
+    fun disconnect() { transfers.cancel(); pending.value?.answer?.complete(null); tmux.disconnect(); ssh.disconnect(); job?.cancel() }
 }

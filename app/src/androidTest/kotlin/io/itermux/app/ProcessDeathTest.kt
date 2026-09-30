@@ -42,12 +42,17 @@ class ProcessDeathTest {
             val service = service()
             val password = instrumentation.context.assets.open("test_password").bufferedReader().use { it.readText().trim() }
             val host = Host(id = "itermux-lifecycle-test-host", name = "Lifecycle fixture", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "TMUX")
+            app.database.hosts().forgetPin(host.target().endpoint)
             app.database.hosts().save(host.copy(encryptedPassword = app.vault.encrypt(password.toByteArray(), "${host.id}:password")))
             val shell = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials(password.toByteArray())) }
             val tmux = withContext(Dispatchers.Main) { service.open(host, SessionMode.TMUX, Credentials(password.toByteArray())) }
             val prompts = listOf(answer(shell, password), answer(tmux, password))
             try {
                 connected(shell); connected(tmux)
+                withContext(Dispatchers.Main) {
+                    shell.rename("Preserved shell"); tmux.rename("Preserved tmux")
+                    shell.draft = "NEVER_REPLAY_AFTER_DEATH"
+                }
                 withContext(Dispatchers.Main) { tmux.write("export ITERMUX_PROCESS_RESTORE=restored_567; printf '\\nPROCESS_%s\\n' 'READY'; sleep 60\r") }
                 awaitText(tmux, "PROCESS_READY")
                 java.io.File(context.getExternalFilesDir(null), "lifecycle-ready.txt").writeText(android.os.Process.myPid().toString())
@@ -60,7 +65,17 @@ class ProcessDeathTest {
         requireStage("recover")
         ActivityScenario.launch(MainActivity::class.java).use {
             val service = service()
-            assertTrue("A fresh process must not present stale SSH sessions", service.sessions.value.isEmpty())
+            service.awaitRestoration()
+            val restored = service.sessions.value.filter { it.host.id == "itermux-lifecycle-test-host" }
+            assertEquals(2, restored.size)
+            assertEquals(setOf("Preserved shell", "Preserved tmux"), restored.map { it.title.value }.toSet())
+            assertEquals(setOf(SessionMode.SHELL, SessionMode.TMUX), restored.map { it.mode }.toSet())
+            restored.forEach {
+                assertEquals("Never pretend a dead socket is connected", Phase.DISCONNECTED, it.state.value.phase)
+                assertEquals("", it.draft)
+                assertFalse(it.getEmulator().screen.transcriptText.contains("PROCESS_READY"))
+            }
+            withContext(Dispatchers.Main) { restored.forEach { service.close(it.id) } }
             val host = requireNotNull(app.database.hosts().find("itermux-lifecycle-test-host"))
             val password = app.vault.decrypt(requireNotNull(host.encryptedPassword), "${host.id}:password").toString(Charsets.UTF_8)
             val tmux = withContext(Dispatchers.Main) { service.open(host, SessionMode.TMUX, Credentials(password.toByteArray())) }

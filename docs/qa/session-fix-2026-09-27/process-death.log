@@ -1,0 +1,9 @@
+
+io.itermux.app.ProcessDeathTest:.
+
+Time: 1.785
+
+OK (1 test)
+
+
+PASS: disconnected entries/titles restored, no input replay, explicit tmux reattachment.
