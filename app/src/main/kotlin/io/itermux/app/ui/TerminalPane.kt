@@ -194,6 +194,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 }
                 DropdownMenu(fileMenu, { fileMenu = false }) {
                     DropdownMenuItem(text = { Text(tr("上传文件")) }, onClick = { fileMenu = false; fileAction = FileAction.UPLOAD })
+                    DropdownMenuItem(
+                        text = { Text(tr("选择图片")) },
+                        onClick = { fileMenu = false; fileAction = FileAction.SELECT_IMAGE },
+                        modifier = Modifier.testTag("select-image")
+                    )
                     DropdownMenuItem(text = { Text(tr("下载文件")) }, onClick = { fileMenu = false; fileAction = FileAction.DOWNLOAD })
                 }
             }

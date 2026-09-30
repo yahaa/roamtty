@@ -2,6 +2,7 @@ package io.itermux.app.session
 
 import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import android.provider.DocumentsContract
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,20 +33,25 @@ class FileTransferController(private val scope: CoroutineScope) {
     fun cancel() { job?.cancel() }
     fun dismiss() { if (!mutableStatus.value.running) mutableStatus.update { it.copy(result = null) } }
 
-    private fun start(name: String, total: Long = -1, operation: suspend ((Long) -> Unit) -> Unit) {
+    /**
+     * @param operation returns an optional success message; null keeps the default 「传输完成」.
+     */
+    private fun start(name: String, total: Long = -1, operation: suspend ((Long) -> Unit) -> String?) {
         check(job == null) { "A transfer is already running" }
         mutableStatus.value = TransferStatus(name = name, total = total, running = true)
         job = scope.launch {
             var reported = 0L
             try {
-                operation { bytes ->
+                val customResult = operation { bytes ->
                     if (bytes - reported >= 256 * 1024) {
                         mutableStatus.update { it.copy(bytes = bytes) }
                         reported = bytes
                     }
                 }
                 ensureActive()
-                mutableStatus.update { it.copy(bytes = if (it.total >= 0) it.total else it.bytes, result = tr("传输完成")) }
+                mutableStatus.update {
+                    it.copy(bytes = if (it.total >= 0) it.total else it.bytes, result = customResult ?: tr("传输完成"))
+                }
             } catch (_: CancellationException) {
                 mutableStatus.update { it.copy(result = tr("传输已取消")) }
             } catch (e: Exception) {
@@ -69,6 +75,40 @@ class FileTransferController(private val scope: CoroutineScope) {
                 val input = resolver.openInputStream(uri) ?: throw IOException(tr("无法打开本地文件"))
                 input.use { session.upload(path, it, progress) }
             }
+            null
+        }
+    }
+
+    /**
+     * Independent of [upload]: convert to PNG, SFTP to a unique `/tmp/itermux-img-*.png`,
+     * then bracketed-paste the path only when Codex/Grok appears on the current PTY.
+     */
+    fun uploadImageForCli(context: Context, session: TerminalConnection, uri: Uri) {
+        if (job != null || mutableStatus.value.running) {
+            Toast.makeText(context.applicationContext, tr("已有传输进行中，请稍后再试"), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val application = context.applicationContext
+        val remotePath = CodexImageAttach.newRemotePngPath()
+        start(tr("上传图片…"), -1) { progress ->
+            val png = withContext(Dispatchers.IO) {
+                CodexImageAttach.convertToPngFile(application, uri)
+            }
+            try {
+                withContext(Dispatchers.IO) {
+                    png.inputStream().use { session.upload(remotePath, it, progress) }
+                }
+            } finally {
+                png.delete()
+            }
+            withContext(Dispatchers.Main.immediate) {
+                if (CodexImageAttach.looksLikeCodexOrGrokCli(session.getEmulator())) {
+                    session.paste(remotePath)
+                    trf("已上传并粘贴路径：%s", remotePath)
+                } else {
+                    trf("已上传到 %s（未检测到 Codex/Grok，未自动粘贴）", remotePath)
+                }
+            }
         }
     }
 
@@ -91,6 +131,7 @@ class FileTransferController(private val scope: CoroutineScope) {
                 if (!deleted) throw IncompleteDownload(e)
                 throw e
             }
+            null
         }
     }
 

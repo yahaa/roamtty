@@ -6,7 +6,9 @@ import io.itermux.app.trf
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.content.res.Configuration
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +49,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.RemoteDirectory
 
-internal enum class FileAction { UPLOAD, DOWNLOAD }
+internal enum class FileAction { UPLOAD, DOWNLOAD, SELECT_IMAGE }
 
 @Composable
 internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, onConsumed: () -> Unit) {
@@ -77,10 +79,18 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
             transfer.download(context, session, uri, path)
         }
     }
+    // Independent of OpenDocument upload: Photo Picker / gallery images only.
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) transfer.uploadImageForCli(context, session, uri)
+    }
     LaunchedEffect(action) {
         when (action) {
             FileAction.UPLOAD -> { onConsumed(); uploadPicker.launch(arrayOf("*/*")) }
             FileAction.DOWNLOAD -> { onConsumed(); downloadDialog = true }
+            FileAction.SELECT_IMAGE -> {
+                onConsumed()
+                imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
             null -> Unit
         }
     }
@@ -120,6 +130,13 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
             downloadPicker.launch(name)
         }, enabled = downloadPath.isNotBlank() && !downloadPath.trim().endsWith('/')) { Text(tr("选择保存位置")) } },
         dismissButton = { TextButton(onClick = { downloadDialog = false }) { Text(tr("取消")) } })
+
+    LaunchedEffect(status.result) {
+        val result = status.result ?: return@LaunchedEffect
+        if ("itermux-img-" in result) {
+            Toast.makeText(context, result, Toast.LENGTH_LONG).show()
+        }
+    }
 
     if (status.running || status.result != null) TransferStatusDialog(status.name, status.bytes, status.total,
         status.running, status.result, onCancel = transfer::cancel, onDismiss = transfer::dismiss)
