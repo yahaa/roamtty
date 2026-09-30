@@ -9,6 +9,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,7 +21,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -231,8 +238,40 @@ internal fun RemoteFileBrowserPage(
                                 bindCount = minOf(bindCount + REMOTE_LIST_BIND_CHUNK, allEntries.size)
                             }
                         }
+                        val density = LocalDensity.current
+                        val currentPathForSwipe = current?.path
+                        val parentSwipeEnabled = RemoteBrowserSwipeNav.canNavigateToParent(currentPathForSwipe)
                         LazyColumn(
-                            Modifier.weight(1f),
+                            Modifier
+                                .weight(1f)
+                                .pointerInput(currentPathForSwipe, parentSwipeEnabled) {
+                                    if (!parentSwipeEnabled || currentPathForSwipe == null) return@pointerInput
+                                    val edgeWidthPx = with(density) {
+                                        RemoteBrowserSwipeNav.EDGE_WIDTH_DP.dp.toPx()
+                                    }
+                                    val minDxPx = with(density) {
+                                        RemoteBrowserSwipeNav.MIN_RIGHT_DX_DP.dp.toPx()
+                                    }
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                        if (!RemoteBrowserSwipeNav.isLeftEdgeStart(down.position.x, edgeWidthPx)) {
+                                            return@awaitEachGesture
+                                        }
+                                        var totalDx = 0f
+                                        val slopPointer = awaitHorizontalTouchSlopOrCancellation(down.id) { change, overSlop ->
+                                            totalDx += overSlop
+                                            change.consume()
+                                        } ?: return@awaitEachGesture
+                                        horizontalDrag(slopPointer.id) { change ->
+                                            totalDx += change.positionChange().x
+                                            change.consume()
+                                        }
+                                        if (RemoteBrowserSwipeNav.shouldGoToParent(totalDx, minDxPx)) {
+                                            directory = parentRemotePath(currentPathForSwipe)
+                                        }
+                                    }
+                                }
+                                .testTag("files-parent-swipe"),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {

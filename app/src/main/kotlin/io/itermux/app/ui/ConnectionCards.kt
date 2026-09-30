@@ -38,7 +38,7 @@ import io.itermux.ssh.SessionMode
             }
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem(text = { Text(tr("编辑主机")) }, onClick = { menu = false; edit() })
-                DropdownMenuItem(text = { Text(tr("查看服务器文件")) }, onClick = { menu = false; browseFiles() },
+                DropdownMenuItem(text = { Text(tr("查看文件")) }, onClick = { menu = false; browseFiles() },
                     modifier = Modifier.testTag("host-browse-files-${host.id}"))
                 DropdownMenuItem(text = { Text(tr("删除主机")) }, onClick = { menu = false; delete() })
             }

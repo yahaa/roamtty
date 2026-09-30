@@ -315,7 +315,7 @@ private object EnglishText {
         "认证输入 %d" to "Authentication input %d",
         "会话不存在" to "Session not found",
         "iTermux · %d 个 SSH 会话" to "iTermux · %d SSH sessions",
-        "查看服务器文件" to "Browse server files",
+        "查看文件" to "View files",
         "服务器文件" to "Server files",
         "此目录为空" to "This directory is empty",
         "打开" to "Open",
