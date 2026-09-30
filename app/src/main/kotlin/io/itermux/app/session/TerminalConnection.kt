@@ -58,6 +58,9 @@ class TerminalConnection(
         Phase.DISCONNECTED, "连接已中断，请手动重连。会话记录已恢复，未发送的输入不会重发。" )).asStateFlow()
     private val tmux = TmuxHistoryCoordinator(credentials != null && mode == SessionMode.TMUX, ssh, scope) { inputWarning.value = it }
     val tmuxHistory = tmux.history
+    private val mutableCommonCommands = MutableStateFlow<CommonCommandsState>(CommonCommandsState.Idle)
+    val commonCommands = mutableCommonCommands.asStateFlow()
+    private var commonCommandsJob: Job? = null
     private val job = if (credentials == null) null else scope.launch {
         try {
             ssh.connect { bytes ->
@@ -68,6 +71,14 @@ class TerminalConnection(
                 }
             }
         } finally { tmux.onConnectionEnded() }
+    }
+    private val commonCommandsWatcher = if (credentials == null) null else scope.launch {
+        var wasConnected = false
+        ssh.state.collect { connection ->
+            val connected = connection.phase == Phase.CONNECTED
+            if (connected && !wasConnected) refreshCommonCommands()
+            wasConnected = connected
+        }
     }
     override fun getEmulator() = parser
     override fun updateSize(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {
@@ -96,6 +107,51 @@ class TerminalConnection(
     suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = ssh.upload(remotePath, source, onProgress)
     suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}, onSize: (Long) -> Unit = {}) = ssh.download(remotePath, destination, onProgress, onSize)
     suspend fun listRemoteDirectory(remotePath: String = "") = ssh.listRemoteDirectory(remotePath)
+
+    fun refreshCommonCommands() {
+        commonCommandsJob?.cancel()
+        commonCommandsJob = scope.launch {
+            mutableCommonCommands.value = CommonCommandsState.Loading
+            try {
+                mutableCommonCommands.value = withContext(Dispatchers.IO) { loadCommonCommands() }
+            } catch (_: CancellationException) {
+                // superseded refresh or disconnect
+            } catch (_: Exception) {
+                mutableCommonCommands.value = CommonCommandsState.Unavailable("无法读取 shell 历史")
+            }
+        }
+    }
+
+    /** Inject command text into the PTY and send CR (execute), not bracketed paste. */
+    fun executeCommonCommand(command: String) {
+        if (command.isEmpty()) return
+        write(command + "\r")
+    }
+
+    private suspend fun loadCommonCommands(): CommonCommandsState {
+        val bash = runCatching { ssh.readRemoteText(".bash_history") }.getOrElse { throw it }
+        if (bash != null) {
+            val (raw, truncated) = bash
+            if (raw.isNotBlank()) {
+                val ranked = ShellHistoryCommands.rankByFrequencyThenRecency(
+                    ShellHistoryCommands.extractCommands(raw, zshStyle = false, skipFirstLine = truncated)
+                )
+                if (ranked.isNotEmpty()) return CommonCommandsState.Ready(ranked, "~/.bash_history")
+            }
+        }
+        val zsh = ssh.readRemoteText(".zsh_history")
+        if (zsh != null) {
+            val (raw, truncated) = zsh
+            if (raw.isNotBlank()) {
+                val ranked = ShellHistoryCommands.rankByFrequencyThenRecency(
+                    ShellHistoryCommands.extractCommands(raw, zshStyle = true, skipFirstLine = truncated)
+                )
+                if (ranked.isNotEmpty()) return CommonCommandsState.Ready(ranked, "~/.zsh_history")
+            }
+        }
+        return CommonCommandsState.Unavailable("未找到 ~/.bash_history 或 ~/.zsh_history，或历史为空")
+    }
+
     override fun reset() { parser.reset(); onScreenChanged?.invoke() }
     override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
     override fun onCopyTextToClipboard(text: String) { copyToClipboard?.invoke(text) }
@@ -103,5 +159,13 @@ class TerminalConnection(
     override fun onBell() = Unit
     override fun onColorsChanged() { onScreenChanged?.invoke() }
     val transfers = FileTransferController(scope)
-    fun disconnect() { transfers.cancel(); pending.value?.answer?.complete(null); tmux.disconnect(); ssh.disconnect(); job?.cancel() }
+    fun disconnect() {
+        transfers.cancel()
+        commonCommandsJob?.cancel()
+        commonCommandsWatcher?.cancel()
+        pending.value?.answer?.complete(null)
+        tmux.disconnect()
+        ssh.disconnect()
+        job?.cancel()
+    }
 }

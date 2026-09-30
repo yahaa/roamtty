@@ -341,6 +341,32 @@ class JschSession(
         coroutineContext.ensureActive()
     }
 
+    /**
+     * Read a remote text file (home-relative or absolute) without upload-path overwrite rules.
+     * Returns null if missing. If larger than [maxBytes], keeps only the trailing bytes
+     * (caller should skip the first partial line).
+     */
+    suspend fun readRemoteText(remotePath: String, maxBytes: Int = 512 * 1024): Pair<String, Boolean>? = withSftp { sftp ->
+        require(remotePath.isNotBlank() && remotePath.length <= 4096 &&
+            remotePath.none { it == '\u0000' || it == '\n' || it == '\r' }) {
+            "请输入有效的远端文件路径"
+        }
+        val path = literalSftpPath(remotePath)
+        val attributes = try {
+            sftp.stat(path)
+        } catch (e: SftpException) {
+            if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return@withSftp null else throw e
+        }
+        if (attributes.isDir) return@withSftp null
+        val out = java.io.ByteArrayOutputStream()
+        sftp.get(path, out)
+        coroutineContext.ensureActive()
+        val bytes = out.toByteArray()
+        val truncated = bytes.size > maxBytes
+        val slice = if (truncated) bytes.copyOfRange(bytes.size - maxBytes, bytes.size) else bytes
+        String(slice, Charsets.UTF_8) to truncated
+    }
+
     /** List a remote SFTP directory for the file picker. An empty path opens the SFTP home. */
     suspend fun listRemoteDirectory(remotePath: String = ""): RemoteDirectory = withSftp { sftp ->
         val path = if (remotePath.isBlank()) sftp.pwd() else validTransferPath(remotePath)
