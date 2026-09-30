@@ -107,6 +107,9 @@ class TerminalConnection(
     suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = ssh.upload(remotePath, source, onProgress)
     suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}, onSize: (Long) -> Unit = {}) = ssh.download(remotePath, destination, onProgress, onSize)
     suspend fun listRemoteDirectory(remotePath: String = "") = ssh.listRemoteDirectory(remotePath)
+    /** Rename a remote path; distinct from [rename] which only changes the local session title. */
+    suspend fun renameRemoteFile(oldPath: String, newPath: String) = ssh.rename(oldPath, newPath)
+    suspend fun deleteRemoteFile(path: String) = ssh.deleteFile(path)
 
     fun refreshCommonCommands() {
         commonCommandsJob?.cancel()

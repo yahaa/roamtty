@@ -314,6 +314,20 @@ private object EnglishText {
         "会话  %d" to "Sessions  %d",
         "认证输入 %d" to "Authentication input %d",
         "会话不存在" to "Session not found",
-        "iTermux · %d 个 SSH 会话" to "iTermux · %d SSH sessions"
+        "iTermux · %d 个 SSH 会话" to "iTermux · %d SSH sessions",
+        "查看服务器文件" to "Browse server files",
+        "服务器文件" to "Server files",
+        "此目录为空" to "This directory is empty",
+        "打开" to "Open",
+        "下载" to "Download",
+        "重命名" to "Rename",
+        "新文件名" to "New file name",
+        "重命名失败：%s" to "Rename failed: %s",
+        "删除失败：%s" to "Delete failed: %s",
+        "本批不支持删目录" to "Deleting directories is not supported in this release",
+        "无法删除" to "Cannot delete",
+        "将永久删除远端文件，此操作不可撤销。" to "This permanently deletes the remote file and cannot be undone.",
+        "目录" to "Directory",
+        "文件" to "File"
     )
 }

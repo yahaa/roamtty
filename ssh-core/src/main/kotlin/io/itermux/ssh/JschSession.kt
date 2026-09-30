@@ -18,7 +18,53 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
 
 data class RemoteDirectory(val path: String, val entries: List<RemoteEntry>)
-data class RemoteEntry(val name: String, val isDirectory: Boolean)
+
+/**
+ * One SFTP directory entry. Extra metadata fields default so existing callers
+ * that only need [name]/[isDirectory] stay source-compatible.
+ */
+data class RemoteEntry(
+    val name: String,
+    val isDirectory: Boolean,
+    val size: Long = 0L,
+    /** Unix epoch seconds from SftpATTRS.mTime; 0 when unknown. */
+    val mtimeSeconds: Long = 0L,
+    /** Formatted mode from SftpATTRS.getPermissionsString(), e.g. "-rw-r--r--". */
+    val permissions: String = ""
+)
+
+/** Join an SFTP directory and child name into a single path. */
+fun joinRemotePath(directory: String, name: String): String {
+    if (name.isEmpty()) {
+        val base = directory.trimEnd('/')
+        return if (base.isEmpty()) "/" else "$base/"
+    }
+    val base = directory.trimEnd('/')
+    return if (base.isEmpty()) "/$name" else "$base/$name"
+}
+
+/** Parent of an absolute (or home-relative) remote path; root stays "/". */
+fun parentRemotePath(path: String): String {
+    val trimmed = path.trimEnd('/')
+    if (trimmed.isEmpty() || trimmed == "/") return "/"
+    val parent = trimmed.substringBeforeLast('/', missingDelimiterValue = "")
+    return parent.ifEmpty { "/" }
+}
+
+fun formatRemoteSize(bytes: Long): String = when {
+    bytes < 0L -> ""
+    bytes < 1024L -> "$bytes B"
+    bytes < 1024L * 1024L -> "${bytes / 1024L} KiB"
+    bytes < 1024L * 1024L * 1024L -> String.format(java.util.Locale.US, "%.1f MiB", bytes / (1024.0 * 1024.0))
+    else -> String.format(java.util.Locale.US, "%.1f GiB", bytes / (1024.0 * 1024.0 * 1024.0))
+}
+
+fun formatRemoteMtime(epochSeconds: Long): String {
+    if (epochSeconds <= 0L) return ""
+    val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+        .withZone(java.time.ZoneId.systemDefault())
+    return formatter.format(java.time.Instant.ofEpochSecond(epochSeconds))
+}
 
 /** SSH transport. Blocking socket work is confined to IO; output applies backpressure to the renderer. */
 class JschSession(
@@ -372,11 +418,36 @@ class JschSession(
         val path = if (remotePath.isBlank()) sftp.pwd() else validTransferPath(remotePath)
         val entries = sftp.ls(literalSftpPath(path)).mapNotNull { item ->
             val entry = item as ChannelSftp.LsEntry
-            entry.filename.takeUnless { it.isBlank() || it == "." || it == ".." }?.let {
-                RemoteEntry(it, entry.attrs.isDir)
+            entry.filename.takeUnless { it.isBlank() || it == "." || it == ".." }?.let { name ->
+                val attrs = entry.attrs
+                RemoteEntry(
+                    name = name,
+                    isDirectory = attrs.isDir,
+                    size = attrs.size,
+                    mtimeSeconds = attrs.mTime.toLong() and 0xFFFFFFFFL,
+                    permissions = attrs.permissionsString
+                )
             }
         }.sortedWith(compareByDescending<RemoteEntry> { it.isDirectory }.thenBy { it.name.lowercase() })
         RemoteDirectory(sftp.realpath(path), entries)
+    }
+
+    /** Rename a remote file or directory. Paths follow the same validation as transfers. */
+    suspend fun rename(oldPath: String, newPath: String) = withSftp { sftp ->
+        val from = literalSftpPath(validTransferPath(oldPath))
+        val to = literalSftpPath(validTransferPath(newPath))
+        sftp.rename(from, to)
+    }
+
+    /**
+     * Delete a remote regular file. Directories are refused (batch 1 has no recursive delete).
+     * @throws IllegalArgumentException with message 「本批不支持删目录」 when [path] is a directory.
+     */
+    suspend fun deleteFile(path: String) = withSftp { sftp ->
+        val remote = literalSftpPath(validTransferPath(path))
+        val attrs = sftp.lstat(remote)
+        require(!attrs.isDir) { "本批不支持删目录" }
+        sftp.rm(remote)
     }
 
     private suspend fun <T> withSftp(block: suspend (ChannelSftp) -> T): T = withContext(Dispatchers.IO) {

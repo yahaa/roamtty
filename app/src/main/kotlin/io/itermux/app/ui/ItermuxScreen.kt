@@ -73,12 +73,14 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
     LaunchedEffect(terminalVisible, imeVisible, lightTheme) { onChromeChange(terminalVisible, lightTheme) }
     BackHandler(page == "terminal") { page = "sessions" }
     BackHandler(page == "sessions") { page = "hosts" }
+    BackHandler(page == "files") { page = "hosts" }
     BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(service, sessions, selected, page) {
         service?.awaitRestoration()
         if (service != null && page == "terminal" && service.sessions.value.none { it.id == selected }) page = "sessions"
+        if (service != null && page == "files" && service.sessions.value.none { it.id == selected }) page = "hosts"
     }
     var search by rememberSaveable { mutableStateOf("") }
     var sessionSearch by rememberSaveable { mutableStateOf("") }
@@ -126,17 +128,34 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                 }
                 if (request.title.isNotBlank()) session.rename(request.title)
                 selected = session.id
-                page = "terminal"
+                page = if (request.openFilesAfterConnect) "files" else "terminal"
             } catch (e: Exception) {
                 credentials?.clear()
                 toast(if (e is IllegalStateException) tr("最多保留 8 个会话，请先关闭旧会话") else tr("无法读取凭据，请重新导入密钥或保存密码。"))
             }
         }
     }
-    fun connect(host: Host, mode: SessionMode = SessionMode.valueOf(host.mode), title: String = "", reuseSessionId: String? = null) {
-        val request = ConnectRequest(host, mode, title, reuseSessionId)
+    fun connect(host: Host, mode: SessionMode = SessionMode.valueOf(host.mode), title: String = "", reuseSessionId: String? = null, openFilesAfterConnect: Boolean = false) {
+        val request = ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect)
         if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null)) connectRequest = request
         else start(request)
+    }
+
+    /** Open the SFTP browser: reuse a CONNECTED session for this host, else connect a SHELL session. */
+    fun browseFiles(host: Host) {
+        val bound = service
+        if (bound == null) {
+            toast(tr("会话服务尚未就绪，请稍后重试"))
+            return
+        }
+        val existing = sessions.firstOrNull { it.host.id == host.id && it.state.value.phase == Phase.CONNECTED }
+        if (existing != null) {
+            selected = existing.id
+            page = "files"
+            return
+        }
+        // Prefer a short-lived SHELL session so browsing does not create a remote tmux session.
+        connect(host, SessionMode.SHELL, openFilesAfterConnect = true)
     }
 
     LaunchedEffect(searchExpanded, page) { if (searchExpanded && navigationVisible) searchFocus.requestFocus() }
@@ -161,7 +180,7 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
             // Only desktop window chrome reserves a whole edge; terminal controls avoid cutouts locally.
             val contentInsets = if (terminalVisible) WindowInsets.captionBar else WindowInsets.safeDrawing
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).imePadding()) {
-                if ((!imeVisible || searchExpanded) && !terminalVisible) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (landscape) 0.dp else 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files") Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (landscape) 0.dp else 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = {
                         focusManager.clearFocus(force = true)
                         keyboardController?.hide()
@@ -173,7 +192,9 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                     if (landscape && configuration.screenWidthDp >= 700) {
                         Text(if (page == "hosts") {
                             if (search.isBlank()) tr("已保存的主机") else tr("搜索结果")
-                        } else if (page == "sessions") tr("会话列表") else tr("设置"),
+                        } else if (page == "sessions") tr("会话列表")
+                        else if (page == "files") tr("服务器文件")
+                        else tr("设置"),
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(start = 16.dp), maxLines = 1)
                     }
@@ -233,7 +254,7 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                                 Text(if (hosts.isEmpty()) tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。") else tr("试试其他名称或地址"), color = colors.onSurfaceVariant, modifier = Modifier.padding(16.dp), lineHeight = 23.sp)
                             }
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = if (landscape) 8.dp else 0.dp, bottom = 12.dp)) {
-                            items(filtered, key = { it.id }) { host -> HostCard(host, landscape, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }) }
+                            items(filtered, key = { it.id }) { host -> HostCard(host, landscape, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }) }
                         }
                     }
                 } else if (page == "sessions") {
@@ -261,6 +282,18 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                             items(filteredSessions, key = { it.id }) { session ->
                                 SessionCard(session, onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) })
                             }
+                        }
+                    }
+                } else if (page == "files") {
+                    val filesSession = sessions.find { it.id == selected }
+                    if (filesSession != null) {
+                        key(filesSession) {
+                            RemoteFileBrowserPage(filesSession, onBack = { page = "hosts" }, Modifier.weight(1f))
+                        }
+                    } else {
+                        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(tr("会话不存在"), fontSize = 18.sp)
+                            Button(onClick = { page = "hosts" }, modifier = Modifier.padding(top = 16.dp)) { Text(tr("返回主机列表")) }
                         }
                     }
                 } else if (page == "settings") {
