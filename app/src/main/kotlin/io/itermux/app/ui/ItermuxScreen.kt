@@ -276,7 +276,8 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                     }
                 } else {
                     val active = sessions.find { it.id == selected }
-                    if (active != null) key(active.id) {
+                    // Manual reconnect preserves the journal id but replaces the transport and emulator.
+                    if (active != null) key(active) {
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
                             onSessions = { page = "sessions" }, onHosts = { page = "hosts" },

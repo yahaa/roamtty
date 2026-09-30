@@ -53,18 +53,22 @@ class JschSession(
         withTimeout(120_000) { interaction(prompt) }
     }
 
-    private enum class AttemptOutcome { TRANSPORT_ENDED, FATAL, STOPPED }
+    private enum class AttemptOutcome { TRANSPORT_ENDED, REMOTE_EXIT, FATAL, STOPPED }
 
     override suspend fun connect(onOutput: suspend (ByteArray) -> Unit): Unit = withContext(Dispatchers.IO) {
         check(started.compareAndSet(false, true)) { "A connection attempt cannot be reused" }
         var attempt = 0
         try {
             while (!stopped.get()) {
-                // Fresh queues each attempt so a prior disconnect cannot leave a closed channel behind.
+                // Discard stale input before each attempt; never replay it after reattachment.
                 reopenQueues()
-                when (runAttempt(onOutput)) {
+                when (runAttempt(onOutput, reattaching = attempt > 0)) {
                     AttemptOutcome.STOPPED -> break
                     AttemptOutcome.FATAL -> break
+                    AttemptOutcome.REMOTE_EXIT -> {
+                        update(Phase.DISCONNECTED, "连接已关闭")
+                        break
+                    }
                     AttemptOutcome.TRANSPORT_ENDED -> {
                         if (stopped.get()) break
                         // Prefer keepalive to prevent idle drops; only auto-reattach tmux after transient death.
@@ -100,16 +104,21 @@ class JschSession(
     private fun tcpKeepaliveFactory() = object : SocketFactory {
         override fun createSocket(host: String, port: Int): Socket {
             val socket = Socket()
-            socket.keepAlive = true
-            socket.tcpNoDelay = true
-            socket.connect(InetSocketAddress(host, port), connectTimeoutMs)
-            return socket
+            try {
+                socket.keepAlive = true
+                socket.tcpNoDelay = true
+                socket.connect(InetSocketAddress(host, port), connectTimeoutMs)
+                return socket
+            } catch (e: Exception) {
+                socket.close()
+                throw e
+            }
         }
         override fun getInputStream(socket: Socket) = socket.getInputStream()
         override fun getOutputStream(socket: Socket) = socket.getOutputStream()
     }
 
-    private suspend fun runAttempt(onOutput: suspend (ByteArray) -> Unit): AttemptOutcome {
+    private suspend fun runAttempt(onOutput: suspend (ByteArray) -> Unit, reattaching: Boolean): AttemptOutcome {
         val jsch = JSch()
         trustFailure = null
         var reachedConnected = false
@@ -194,7 +203,8 @@ class JschSession(
                             try { if (!stopped.get() && terminal.isConnected) { stdin.write(bytes); stdin.flush() } }
                             finally { bytes.fill(0) }
                         }
-                    } catch (e: Exception) { terminal.disconnect() }
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { terminal.disconnect() }
                 }
                 val resizer = launch(Dispatchers.IO) {
                     try {
@@ -202,7 +212,8 @@ class JschSession(
                             is ChannelShell -> terminal.setPtySize(d[0], d[1], d[2], d[3])
                             is ChannelExec -> terminal.setPtySize(d[0], d[1], d[2], d[3])
                         }
-                    } catch (e: Exception) { terminal.disconnect() }
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { terminal.disconnect() }
                 }
                 try {
                     val buffer = ByteArray(8192)
@@ -213,16 +224,31 @@ class JschSession(
                     }
                 } finally { writer.cancel(); resizer.cancel() }
             }
-            return if (stopped.get()) AttemptOutcome.STOPPED else AttemptOutcome.TRANSPORT_ENDED
+            // EOF/closed channels can precede exit-status or JSch's transport disconnect flag.
+            // Even a closed channel needs this grace period when no exit status has arrived.
+            withTimeoutOrNull(1_000) {
+                while (!stopped.get() && ssh.isConnected && terminal.exitStatus == -1) delay(10)
+            }
+            return when {
+                stopped.get() -> AttemptOutcome.STOPPED
+                terminal.exitStatus != -1 || ssh.isConnected -> AttemptOutcome.REMOTE_EXIT
+                else -> AttemptOutcome.TRANSPORT_ENDED
+            }
         } catch (e: Exception) {
             val failure = trustFailure ?: e
             if (stopped.get()) return AttemptOutcome.STOPPED
-            // After a live PTY, treat I/O death as reattachable for tmux; do not invent a new auth failure.
-            if (reachedConnected) return AttemptOutcome.TRANSPORT_ENDED
+            if (e is CancellationException) {
+                update(Phase.DISCONNECTED, "连接已取消或验证等待超时")
+                throw e
+            }
+            // A lost network can fail before the next PTY exists. Keep the remaining retry budget,
+            // but never retry rejected credentials, host keys, or local configuration failures.
+            if (trustFailure == null && (reachedConnected || reattaching) && isRetryableTransportFailure(e)) {
+                return AttemptOutcome.TRANSPORT_ENDED
+            }
             mutableState.value = when {
                 failure is HostKeyChanged -> ConnectionState(Phase.HOST_KEY_CHANGED, "主机指纹发生变化，连接已阻止。请通过可信渠道核验。", failure.old.fingerprint, failure.received.fingerprint)
                 failure is HostKeyRejected -> ConnectionState(Phase.DISCONNECTED, "未信任此主机")
-                e is CancellationException -> ConnectionState(Phase.DISCONNECTED, "连接已取消或验证等待超时")
                 e.message?.contains("Auth", ignoreCase = true) == true -> ConnectionState(Phase.AUTH_FAILED, "认证失败，请检查用户名、凭据或服务器认证配置。")
                 e is SocketTimeoutException || e.message?.contains("timeout", true) == true -> ConnectionState(Phase.FAILED, "连接超时，请检查网络、VPN 和主机端口。")
                 else -> ConnectionState(Phase.FAILED, "连接失败，请检查网络、地址、密钥格式及服务器算法支持。")
