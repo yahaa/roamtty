@@ -43,6 +43,10 @@ public final class TerminalRenderer {
 
         mTextPaint.setTypeface(typeface);
         mTextPaint.setAntiAlias(true);
+        // Subpixel (ClearType-like) AA looks soft/colored on many phone OLED panels and when
+        // glyphs are later horizontally scaled to a monospace cell. Prefer grayscale AA + hinting.
+        mTextPaint.setSubpixelText(false);
+        mTextPaint.setHinting(Paint.HINTING_ON);
         mTextPaint.setTextSize(textSize);
 
         mFontLineSpacing = (int) Math.ceil(mTextPaint.getFontSpacing());

@@ -712,7 +712,10 @@ public final class TerminalView extends View {
     }
 
     public void setTypeface(Typeface newTypeface) {
-        mRenderer = new TerminalRenderer(mRenderer.mTextSize, newTypeface);
+        if (newTypeface == null) newTypeface = Typeface.MONOSPACE;
+        if (mRenderer != null && mRenderer.mTypeface == newTypeface) return;
+        // Prefer calling setTextSize first so metrics exist; keep prior size when swapping faces.
+        mRenderer = new TerminalRenderer(mRenderer == null ? 12 : mRenderer.mTextSize, newTypeface);
         updateSize();
         invalidate();
     }
