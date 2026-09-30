@@ -380,25 +380,36 @@ public final class TerminalView extends View {
             @Override
             public CharSequence getTextBeforeCursor(int length, int flags) {
                 ExtractedText snapshot = imeSnapshot(getEditable());
-                int end = Math.min(snapshot.selectionStart, snapshot.selectionEnd);
-                return snapshot.text.subSequence(Math.max(0, end - Math.max(0, length)), end);
+                int textLen = snapshot.text.length();
+                int end = ImeDeleteGuard.clampIndex(Math.min(snapshot.selectionStart, snapshot.selectionEnd), textLen);
+                int start = ImeDeleteGuard.clampIndex(end - Math.max(0, length), textLen);
+                return snapshot.text.subSequence(start, end);
             }
 
             @Override
             public CharSequence getTextAfterCursor(int length, int flags) {
                 ExtractedText snapshot = imeSnapshot(getEditable());
-                int start = Math.max(snapshot.selectionStart, snapshot.selectionEnd);
-                return snapshot.text.subSequence(start, start + Math.min(snapshot.text.length() - start, Math.max(0, length)));
+                int textLen = snapshot.text.length();
+                int start = ImeDeleteGuard.clampIndex(Math.max(snapshot.selectionStart, snapshot.selectionEnd), textLen);
+                int end = start + ImeDeleteGuard.clampLength(Math.max(0, length), textLen - start);
+                return snapshot.text.subSequence(start, end);
             }
 
             @RequiresApi(31)
             @Override
             public SurroundingText getSurroundingText(int beforeLength, int afterLength, int flags) {
                 ExtractedText snapshot = imeSnapshot(getEditable());
-                int start = Math.max(0, Math.min(snapshot.selectionStart, snapshot.selectionEnd) - Math.max(0, beforeLength));
-                int end = Math.max(snapshot.selectionStart, snapshot.selectionEnd);
-                end += Math.min(snapshot.text.length() - end, Math.max(0, afterLength));
-                return new SurroundingText(snapshot.text.subSequence(start, end), snapshot.selectionStart - start, snapshot.selectionEnd - start, start);
+                int textLen = snapshot.text.length();
+                int selStart = ImeDeleteGuard.clampIndex(snapshot.selectionStart, textLen);
+                int selEnd = ImeDeleteGuard.clampIndex(snapshot.selectionEnd, textLen);
+                if (selEnd < selStart) {
+                    int tmp = selStart;
+                    selStart = selEnd;
+                    selEnd = tmp;
+                }
+                int start = ImeDeleteGuard.clampIndex(selStart - Math.max(0, beforeLength), textLen);
+                int end = selEnd + ImeDeleteGuard.clampLength(Math.max(0, afterLength), textLen - selEnd);
+                return new SurroundingText(snapshot.text.subSequence(start, end), selStart - start, selEnd - start, start);
             }
 
             @Override
@@ -448,35 +459,51 @@ public final class TerminalView extends View {
 
             @Override
             public boolean deleteSurroundingText(int leftLength, int rightLength) {
-                if (leftLength < 0 || rightLength < 0) return false;
+                ImeDeleteGuard.Plan plan = ImeDeleteGuard.plan(leftLength, rightLength);
+                if (plan == ImeDeleteGuard.Plan.REJECT) return false;
+                // WeChat IME "一键删除" / clear-all often sends Integer.MAX_VALUE (one or both sides).
+                if (plan == ImeDeleteGuard.Plan.CLEAR_ALL) {
+                    mImeBackspace.reset();
+                    clearCurrentInput(false);
+                    return true;
+                }
                 if (leftLength > 0 && rightLength == 0) {
                     if (consumeImeBackspace()) return true;
                 } else {
                     mImeBackspace.reset();
                 }
+                int emitLeft = ImeDeleteGuard.clampEmit(leftLength);
+                int emitRight = ImeDeleteGuard.clampEmit(rightLength);
                 // iTermux: editing an uncommitted composition must not delete remote text.
-                if (getEditable().length() > 0) return super.deleteSurroundingText(leftLength, rightLength);
+                if (getEditable().length() > 0) return super.deleteSurroundingText(emitLeft, emitRight);
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: deleteSurroundingText(" + leftLength + ", " + rightLength + ")");
                 }
                 // The stock Samsung keyboard with 'Auto check spelling' enabled sends leftLength > 1.
                 KeyEvent deleteKey = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL);
-                for (int i = 0; i < leftLength; i++) super.sendKeyEvent(deleteKey);
+                for (int i = 0; i < emitLeft; i++) super.sendKeyEvent(deleteKey);
                 KeyEvent forwardDelete = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_FORWARD_DEL);
-                for (int i = 0; i < rightLength; i++) super.sendKeyEvent(forwardDelete);
-                return super.deleteSurroundingText(leftLength, rightLength);
+                for (int i = 0; i < emitRight; i++) super.sendKeyEvent(forwardDelete);
+                return super.deleteSurroundingText(emitLeft, emitRight);
             }
 
             @Override
             public boolean deleteSurroundingTextInCodePoints(int leftLength, int rightLength) {
-                if (leftLength < 0 || rightLength < 0) return false;
+                ImeDeleteGuard.Plan plan = ImeDeleteGuard.plan(leftLength, rightLength);
+                if (plan == ImeDeleteGuard.Plan.REJECT) return false;
+                if (plan == ImeDeleteGuard.Plan.CLEAR_ALL) {
+                    mImeBackspace.reset();
+                    clearCurrentInput(false);
+                    return true;
+                }
                 if (getEditable().length() == 0) return deleteSurroundingText(leftLength, rightLength);
                 if (leftLength > 0 && rightLength == 0) {
                     if (consumeImeBackspace()) return true;
                 } else {
                     mImeBackspace.reset();
                 }
-                return super.deleteSurroundingTextInCodePoints(leftLength, rightLength);
+                return super.deleteSurroundingTextInCodePoints(
+                    ImeDeleteGuard.clampEmit(leftLength), ImeDeleteGuard.clampEmit(rightLength));
             }
 
             void sendTextToTerminal(CharSequence text) {
@@ -544,8 +571,9 @@ public final class TerminalView extends View {
         result.partialStartOffset = result.partialEndOffset = -1;
         if (composing != null && composing.length() > 0) {
             result.text = composing.toString();
-            result.selectionStart = Math.max(0, Selection.getSelectionStart(composing));
-            result.selectionEnd = Math.max(0, Selection.getSelectionEnd(composing));
+            int len = result.text.length();
+            result.selectionStart = ImeDeleteGuard.clampIndex(Selection.getSelectionStart(composing), len);
+            result.selectionEnd = ImeDeleteGuard.clampIndex(Selection.getSelectionEnd(composing), len);
         } else if (mEmulator != null) {
             StringBuilder prefix = new StringBuilder();
             int cursorRow = mEmulator.getCursorRow();
@@ -554,17 +582,22 @@ public final class TerminalView extends View {
             while (startRow > firstAvailable && cursorRow - startRow < 7 && mEmulator.getScreen().getLineWrap(startRow - 1)) startRow--;
             for (int y = startRow; y < cursorRow; y++) {
                 TerminalRow preceding = mEmulator.getScreen().allocateFullLineIfNecessary(mEmulator.getScreen().externalToInternalRow(y));
-                prefix.append(preceding.mText, 0, preceding.getSpaceUsed());
+                int used = Math.min(preceding.getSpaceUsed(), preceding.mText.length);
+                prefix.append(preceding.mText, 0, used);
             }
             TerminalRow row = mEmulator.getScreen().allocateFullLineIfNecessary(
                 mEmulator.getScreen().externalToInternalRow(cursorRow));
-            int cursor = row.findStartOfColumn(mEmulator.getCursorCol());
-            int end = row.getSpaceUsed();
+            int cursor = Math.max(0, Math.min(row.findStartOfColumn(mEmulator.getCursorCol()), row.mText.length));
+            int end = Math.max(0, Math.min(row.getSpaceUsed(), row.mText.length));
             while (end > cursor && row.mText[end - 1] == ' ') end--;
-            result.selectionStart = result.selectionEnd = prefix.length() + cursor;
+            // Keep selection inside the returned text (never past trimmed trailing spaces).
+            int prefixLen = prefix.length();
+            int cursorInText = Math.min(cursor, end);
+            result.selectionStart = result.selectionEnd = prefixLen + cursorInText;
             result.text = prefix.append(row.mText, 0, end).toString();
         } else {
             result.text = "";
+            result.selectionStart = result.selectionEnd = 0;
         }
         return result;
     }
@@ -1286,15 +1319,17 @@ public final class TerminalView extends View {
     }
 
     private void clearCurrentInput(boolean restartIme) {
-        if (mEmulator == null) return;
+        if (mEmulator == null || mTermSession == null) return;
         if (mInputConnection != null) {
             Editable editable = mInputConnection.getEditable();
-            editable.clear();
-            BaseInputConnection.removeComposingSpans(editable);
+            if (editable != null) {
+                editable.clear();
+                BaseInputConnection.removeComposingSpans(editable);
+            }
             if (restartIme) ((InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE)).restartInput(this);
         }
         scrollToBottom();
-        mTermSession.write("\u0015\u000b");
+        mTermSession.write("");
     }
 
     public void setTopRow(int topRow) {
