@@ -80,12 +80,20 @@ fun formatRemoteSize(bytes: Long): String = when {
     else -> String.format(java.util.Locale.US, "%.1f GiB", bytes / (1024.0 * 1024.0 * 1024.0))
 }
 
+private val remoteMtimeFormatter = ThreadLocal.withInitial {
+    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+        .withZone(java.time.ZoneId.systemDefault())
+}
+
 fun formatRemoteMtime(epochSeconds: Long): String {
     if (epochSeconds <= 0L) return ""
-    val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-        .withZone(java.time.ZoneId.systemDefault())
-    return formatter.format(java.time.Instant.ofEpochSecond(epochSeconds))
+    return remoteMtimeFormatter.get().format(java.time.Instant.ofEpochSecond(epochSeconds))
 }
+
+/** Directory-first, case-insensitive name order used by SFTP listings. */
+fun remoteEntryListComparator(): Comparator<RemoteEntry> =
+    compareByDescending<RemoteEntry> { it.isDirectory }
+        .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
 
 /** SSH transport. Blocking socket work is confined to IO; output applies backpressure to the renderer. */
 class JschSession(
@@ -437,10 +445,18 @@ class JschSession(
     /** List a remote SFTP directory for the file picker. An empty path opens the SFTP home. */
     suspend fun listRemoteDirectory(remotePath: String = ""): RemoteDirectory = withSftp { sftp ->
         val path = if (remotePath.isBlank()) sftp.pwd() else validTransferPath(remotePath)
-        val entries = sftp.ls(literalSftpPath(path)).mapNotNull { item ->
-            val entry = item as ChannelSftp.LsEntry
-            entry.filename.takeUnless { it.isBlank() || it == "." || it == ".." }?.let { name ->
-                val attrs = entry.attrs
+        // Collect via selector to avoid an intermediate Vector copy and to honor cancellation
+        // mid-listing (BREAK). Attrs come from LsEntry — no per-entry stat.
+        val entries = ArrayList<RemoteEntry>(256)
+        val job = coroutineContext[Job]
+        sftp.ls(literalSftpPath(path), ChannelSftp.LsEntrySelector { entry ->
+            if (job?.isActive == false) return@LsEntrySelector ChannelSftp.LsEntrySelector.BREAK
+            val name = entry.filename
+            if (name.isNullOrBlank() || name == "." || name == "..") {
+                return@LsEntrySelector ChannelSftp.LsEntrySelector.CONTINUE
+            }
+            val attrs = entry.attrs
+            entries.add(
                 RemoteEntry(
                     name = name,
                     isDirectory = attrs.isDir,
@@ -448,9 +464,15 @@ class JschSession(
                     mtimeSeconds = attrs.mTime.toLong() and 0xFFFFFFFFL,
                     permissions = attrs.permissionsString
                 )
-            }
-        }.sortedWith(compareByDescending<RemoteEntry> { it.isDirectory }.thenBy { it.name.lowercase() })
-        RemoteDirectory(sftp.realpath(path), entries)
+            )
+            ChannelSftp.LsEntrySelector.CONTINUE
+        })
+        coroutineContext.ensureActive()
+        entries.sortWith(remoteEntryListComparator())
+        // Skip realpath RTT when we already have an absolute path (pwd / navigated).
+        // Relative paths still need realpath for a stable breadcrumb.
+        val resolved = if (path.startsWith("/")) path else sftp.realpath(literalSftpPath(path))
+        RemoteDirectory(resolved, entries)
     }
 
     /** Rename a remote file or directory. Paths follow the same validation as transfers. */

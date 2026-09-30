@@ -68,4 +68,16 @@ class RemoteEntryFormattingTest {
         assertFalse(isSafeRemoteDeletePath("/home/user/."))
         assertFalse(isSafeRemoteDeletePath("/home/user/.."))
     }
+
+    @Test fun remoteEntryListComparatorDirsFirstThenCaseInsensitiveName() {
+        val entries = mutableListOf(
+            RemoteEntry("b.txt", false),
+            RemoteEntry("A-dir", true),
+            RemoteEntry("a.txt", false),
+            RemoteEntry("B-dir", true),
+            RemoteEntry("m.txt", false)
+        )
+        entries.sortWith(remoteEntryListComparator())
+        assertEquals(listOf("A-dir", "B-dir", "a.txt", "b.txt", "m.txt"), entries.map { it.name })
+    }
 }

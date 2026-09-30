@@ -33,7 +33,9 @@ import io.itermux.ssh.formatRemoteMtime
 import io.itermux.ssh.formatRemoteSize
 import io.itermux.ssh.joinRemotePath
 import io.itermux.ssh.parentRemotePath
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 
 /**
  * Remote SFTP browser: list / enter dirs / download / rename / delete file or directory.
@@ -80,22 +82,45 @@ internal fun RemoteFileBrowserPage(
 
     fun reload() { refreshKey++ }
 
+    // Track which path the current listing belongs to so refresh keeps content,
+    // while navigation clears immediately for a skeleton/first-paint feel.
+    var listingPath by remember(session.id) { mutableStateOf<String?>(null) }
+
     LaunchedEffect(session.id, directory, refreshKey, connection.phase) {
         if (connection.phase != Phase.CONNECTED) {
             listing = null
+            listingPath = null
             error = null
             loading = false
             return@LaunchedEffect
         }
+        val requestDirectory = directory
+        val requestRefresh = refreshKey
         loading = true
         error = null
-        try {
-            listing = session.listRemoteDirectory(directory)
-        } catch (e: Exception) {
+        // Drop stale rows when navigating to another directory (not on same-path refresh).
+        if (listingPath != null && listingPath != requestDirectory) {
             listing = null
-            error = e.message ?: tr("无法读取目录")
+        }
+        try {
+            val result = session.listRemoteDirectory(requestDirectory)
+            if (directory == requestDirectory && refreshKey == requestRefresh) {
+                listing = result
+                listingPath = requestDirectory
+                error = null
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (directory == requestDirectory && refreshKey == requestRefresh) {
+                listing = null
+                listingPath = null
+                error = e.message ?: tr("无法读取目录")
+            }
         } finally {
-            loading = false
+            if (directory == requestDirectory && refreshKey == requestRefresh) {
+                loading = false
+            }
         }
     }
 
@@ -107,14 +132,24 @@ internal fun RemoteFileBrowserPage(
             TextButton(onClick = onBack, modifier = Modifier.testTag("files-back")) {
                 Text(tr("返回主机列表"))
             }
-            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                Text(tr("服务器文件"), fontWeight = FontWeight.SemiBold, fontSize = 17.sp, maxLines = 1)
+            Row(
+                Modifier.weight(1f).padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    tr("服务器文件"),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 17.sp,
+                    maxLines = 1
+                )
+                Spacer(Modifier.width(8.dp))
                 Text(
                     session.host.name,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).testTag("files-host-subtitle")
                 )
             }
             TextButton(
@@ -183,11 +218,29 @@ internal fun RemoteFileBrowserPage(
                         }
                     }
                     else -> {
+                        val allEntries = current?.entries.orEmpty()
+                        // Bind the first screen immediately; append the rest in chunks so huge
+                        // dirs (cargo registry, node_modules) paint the first page sooner.
+                        var bindCount by remember(current?.path, allEntries) {
+                            mutableIntStateOf(minOf(REMOTE_LIST_INITIAL_BIND, allEntries.size))
+                        }
+                        LaunchedEffect(current?.path, allEntries) {
+                            bindCount = minOf(REMOTE_LIST_INITIAL_BIND, allEntries.size)
+                            while (bindCount < allEntries.size) {
+                                yield()
+                                bindCount = minOf(bindCount + REMOTE_LIST_BIND_CHUNK, allEntries.size)
+                            }
+                        }
                         LazyColumn(
                             Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
+                            if (loading && current != null) {
+                                item(key = "_loading") {
+                                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp))
+                                }
+                            }
                             if (current != null && current.path != "/") {
                                 item(key = "..") {
                                     ListItem(
@@ -202,7 +255,11 @@ internal fun RemoteFileBrowserPage(
                                     HorizontalDivider()
                                 }
                             }
-                            items(current?.entries.orEmpty(), key = { it.name }) { entry ->
+                            items(
+                                count = bindCount,
+                                key = { index -> allEntries[index].name }
+                            ) { index ->
+                                val entry = allEntries[index]
                                 RemoteFileRow(
                                     entry = entry,
                                     onOpen = {
@@ -214,7 +271,7 @@ internal fun RemoteFileBrowserPage(
                                 )
                                 HorizontalDivider()
                             }
-                            if (current != null && current.entries.isEmpty()) {
+                            if (current != null && current.entries.isEmpty() && !loading) {
                                 item {
                                     Text(
                                         tr("此目录为空"),
@@ -410,19 +467,25 @@ internal fun RemoteFileBrowserPage(
     }
 }
 
+private const val REMOTE_LIST_INITIAL_BIND = 64
+private const val REMOTE_LIST_BIND_CHUNK = 128
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onLongPress: () -> Unit) {
-    val meta = buildString {
-        if (entry.permissions.isNotBlank()) append(entry.permissions)
-        if (!entry.isDirectory) {
-            if (isNotEmpty()) append("  ·  ")
-            append(formatRemoteSize(entry.size))
-        }
-        val mtime = formatRemoteMtime(entry.mtimeSeconds)
-        if (mtime.isNotEmpty()) {
-            if (isNotEmpty()) append("  ·  ")
-            append(mtime)
+    // Defer/caches heavy-ish formatting so LazyColumn scrapes stay cheap on recompose.
+    val meta = remember(entry.name, entry.isDirectory, entry.size, entry.mtimeSeconds, entry.permissions) {
+        buildString {
+            if (entry.permissions.isNotBlank()) append(entry.permissions)
+            if (!entry.isDirectory) {
+                if (isNotEmpty()) append("  ·  ")
+                append(formatRemoteSize(entry.size))
+            }
+            val mtime = formatRemoteMtime(entry.mtimeSeconds)
+            if (mtime.isNotEmpty()) {
+                if (isNotEmpty()) append("  ·  ")
+                append(mtime)
+            }
         }
     }
     ListItem(
