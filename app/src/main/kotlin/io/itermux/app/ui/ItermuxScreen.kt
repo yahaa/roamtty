@@ -3,6 +3,7 @@ package io.itermux.app.ui
 import io.itermux.app.tr
 
 import android.Manifest
+import android.net.Uri
 import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
@@ -46,11 +47,18 @@ import io.itermux.app.data.Host
 import io.itermux.app.session.*
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Boolean, Boolean) -> Unit) {
+fun ItermuxScreen(
+    app: ItermuxApp,
+    service: SessionService?,
+    pendingShareImages: List<Uri> = emptyList(),
+    onShareImagesConsumed: () -> Unit = {},
+    onChromeChange: (Boolean, Boolean) -> Unit,
+) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -158,6 +166,47 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
         connect(host, SessionMode.SHELL, openFilesAfterConnect = true)
     }
 
+    // System share sheet → SFTP upload (+ Codex/Grok paste) on a connected session.
+    var shareSessionChoices by remember { mutableStateOf<List<TerminalConnection>?>(null) }
+    var shareUrisPending by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    fun uploadSharedImages(session: TerminalConnection, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        selected = session.id
+        page = "terminal"
+        if (uris.size > 1) toast(trf("共 %d 张图片，将依次上传", uris.size))
+        scope.launch {
+            for (uri in uris) {
+                session.transfers.status.first { !it.running }
+                if (session.transfers.status.value.result != null) session.transfers.dismiss()
+                session.transfers.uploadImageForCli(context, session, uri)
+                if (!session.transfers.status.value.running) break
+                session.transfers.status.first { !it.running }
+            }
+        }
+    }
+    fun routeSharedImages(uris: List<Uri>, available: List<TerminalConnection>) {
+        if (uris.isEmpty()) return
+        val connected = available.filter { it.state.value.phase == Phase.CONNECTED }
+        when {
+            connected.isEmpty() -> {
+                toast(tr("请先连接一台主机后再分享图片"))
+                page = if (available.isNotEmpty()) "sessions" else "hosts"
+            }
+            connected.any { it.id == selected } -> uploadSharedImages(connected.first { it.id == selected }, uris)
+            connected.size == 1 -> uploadSharedImages(connected.first(), uris)
+            else -> {
+                shareUrisPending = uris
+                shareSessionChoices = connected
+            }
+        }
+    }
+    LaunchedEffect(pendingShareImages, service) {
+        if (pendingShareImages.isEmpty() || service == null) return@LaunchedEffect
+        service.awaitRestoration()
+        val uris = pendingShareImages.toList()
+        onShareImagesConsumed()
+        routeSharedImages(uris, service.sessions.value)
+    }
     LaunchedEffect(searchExpanded, page) { if (searchExpanded && navigationVisible) searchFocus.requestFocus() }
     MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors) {
         val colors = MaterialTheme.colorScheme
@@ -341,6 +390,33 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                 reverify = null
                 connect(session.host, session.mode)
             } }) { Text(tr("移除旧记录并重连")) } }, dismissButton = { TextButton(onClick = { reverify = null }) { Text(tr("取消")) } }) }
+        shareSessionChoices?.let { choices ->
+            AlertDialog(
+                onDismissRequest = { shareSessionChoices = null; shareUrisPending = emptyList() },
+                title = { Text(tr("选择会话以上传图片")) },
+                text = {
+                    Column {
+                        Text(tr("有多个已连接会话，请选择要接收图片的会话。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        choices.forEach { session ->
+                            TextButton(
+                                onClick = {
+                                    val uris = shareUrisPending
+                                    shareSessionChoices = null
+                                    shareUrisPending = emptyList()
+                                    uploadSharedImages(session, uris)
+                                },
+                                modifier = Modifier.fillMaxWidth().testTag("share-session-${session.id}")
+                            ) {
+                                Text(session.displayTitle, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { shareSessionChoices = null; shareUrisPending = emptyList() }) { Text(tr("取消")) }
+                },
+            )
+        }
         if (showAbout) AboutDialog(context) { showAbout = false }
     }
 }

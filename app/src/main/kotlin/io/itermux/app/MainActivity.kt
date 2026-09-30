@@ -1,6 +1,7 @@
 package io.itermux.app
 
 import android.content.*
+import android.net.Uri
 import android.os.*
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -18,6 +19,7 @@ class MainActivity : ComponentActivity() {
     private var bound = false
     private var terminalVisible = false
     private var lightTheme = false
+    private var pendingShareImages by mutableStateOf<List<Uri>>(emptyList())
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) { service = (binder as SessionService.LocalBinder).service }
         override fun onServiceDisconnected(name: ComponentName?) { service = null }
@@ -32,13 +34,24 @@ class MainActivity : ComponentActivity() {
                 else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
+        pendingShareImages = ShareImageIntents.takeImageUris(intent)
         setContent {
-            ItermuxScreen(application as ItermuxApp, service) { visible, light ->
+            ItermuxScreen(
+                application as ItermuxApp,
+                service,
+                pendingShareImages = pendingShareImages,
+                onShareImagesConsumed = { pendingShareImages = emptyList() },
+            ) { visible, light ->
                 terminalVisible = visible
                 lightTheme = light
                 updateSystemBars()
             }
         }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingShareImages = ShareImageIntents.takeImageUris(intent)
     }
     private fun updateSystemBars() {
         @Suppress("DEPRECATION")
