@@ -51,7 +51,7 @@ import io.itermux.ssh.SessionMode
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onSessions: () -> Unit, onHosts: () -> Unit, onReconnect: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
+fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onSessions: () -> Unit, onHosts: () -> Unit, onReconnect: () -> Unit, onNewSession: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
     val warning by session.inputWarning.collectAsStateWithLifecycle()
@@ -73,6 +73,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var fileAction by remember { mutableStateOf<FileAction?>(null) }
     var editSessionTitle by remember { mutableStateOf(false) }
     var ctrlArmed by remember { mutableStateOf(false) }
+    var shiftArmed by remember { mutableStateOf(false) }
     var dockPinned by rememberSaveable { mutableStateOf(prefs.getBoolean("dockPinned", false)) }
     var dockExpanded by rememberSaveable { mutableStateOf(false) }
     val focus = LocalFocusManager.current
@@ -88,12 +89,23 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         session.draft = draft.text
     }
     fun terminalKey(keyCode: Int) {
-        ctrlArmed = false
+        val arrow = keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ||
+            keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+        // Sticky Shift applies to arrows (e.g. Shift+Left → CSI ESC[1;2D); Ctrl stays keyboard-only.
+        if (!arrow) {
+            ctrlArmed = false
+            shiftArmed = false
+        }
         terminal?.sendInputControlKey(keyCode)
+        if (arrow) {
+            shiftArmed = false
+            ctrlArmed = false
+        }
     }
     fun hideKeyboard() {
         // Clear Compose/native focus before hiding so focus transfer cannot reopen the IME.
         ctrlArmed = false
+        shiftArmed = false
         focus.clearFocus(force = true)
         terminal?.clearFocus()
         keyboard.hide()
@@ -118,13 +130,14 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }
     LaunchedEffect(fontSize) { prefs.edit { putInt("fontSize", fontSize) } }
     LaunchedEffect(session.id) { hideKeyboard() }
-    LaunchedEffect(state.phase) { if (state.phase != Phase.CONNECTED) ctrlArmed = false }
-    LaunchedEffect(imeVisible) { if (!imeVisible) ctrlArmed = false }
+    LaunchedEffect(state.phase) { if (state.phase != Phase.CONNECTED) { ctrlArmed = false; shiftArmed = false } }
+    LaunchedEffect(imeVisible) { if (!imeVisible) { ctrlArmed = false; shiftArmed = false } }
     BackHandler(editor || imeVisible) { editor = false; hideKeyboard() }
     val dock: @Composable (Dp) -> Unit = { availableHeight ->
         TerminalDock(floatingDock, availableHeight, landscape, imeVisible, collapseControl = {
             IconButton(onClick = {
                 ctrlArmed = false
+                shiftArmed = false
                 dockExpanded = false
                 dockPinned = false
                 prefs.edit { putBoolean("dockPinned", false) }
@@ -142,6 +155,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     DropdownMenuItem(text = { Text(tr("返回会话列表")) }, onClick = { sessionMenu = false; onSessions() })
                     DropdownMenuItem(text = { Text(tr("返回主机列表")) }, onClick = { sessionMenu = false; onHosts() })
                     DropdownMenuItem(text = { Text(tr("修改会话标题")) }, onClick = { sessionMenu = false; editSessionTitle = true })
+                    if (session.mode == SessionMode.TMUX) DropdownMenuItem(
+                        text = { Text(tr("新会话")) },
+                        onClick = { sessionMenu = false; onNewSession() },
+                        modifier = Modifier.testTag("new-session")
+                    )
                     HorizontalDivider()
                     sessions.forEach { other ->
                         val otherState by other.state.collectAsStateWithLifecycle()
@@ -177,7 +195,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 }
             }
             Box {
-                IconButton(onClick = { ctrlArmed = false; menu = true }, modifier = Modifier.semantics { contentDescription = tr("终端菜单") }.testTag("terminal-menu")) { Text("⋯", fontSize = 26.sp) }
+                IconButton(onClick = { ctrlArmed = false; shiftArmed = false; menu = true }, modifier = Modifier.semantics { contentDescription = tr("终端菜单") }.testTag("terminal-menu")) { Text("⋯", fontSize = 26.sp) }
                 DropdownMenu(menu, { menu = false }) {
                     if (session.mode == SessionMode.TMUX) DropdownMenuItem(
                         text = { Text(if (tmuxHistory?.active == true) tr("返回 tmux 实时画面") else tr("浏览 tmux 历史")) },
@@ -201,7 +219,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             }
         }, keyControls = {
             Box {
-                InputControlButton("⌘", tr("快捷键"), "terminal-shortcuts", selected = ctrlArmed,
+                InputControlButton("⌘", tr("快捷键"), "terminal-shortcuts", selected = ctrlArmed || shiftArmed,
                     onClick = { shortcutMenu = true })
                 DropdownMenu(shortcutMenu, { shortcutMenu = false }) {
                     Row(Modifier.padding(horizontal = 8.dp)) {
@@ -212,8 +230,19 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         InputControlButton("Ctrl", tr("Ctrl，作用于下一次键盘字符"), "terminal-control",
                             enabled = state.phase == Phase.CONNECTED, selected = ctrlArmed, onClick = {
                                 shortcutMenu = false
+                                shiftArmed = false
                                 ctrlArmed = !ctrlArmed
                                 if (ctrlArmed) terminal?.let { view ->
+                                    view.requestFocus()
+                                    SoftwareKeyboardControllerCompat(view).show()
+                                }
+                            })
+                        InputControlButton("Shift", tr("Shift，与方向键组合发送；也可作用于下一次键盘字符"), "terminal-shift",
+                            enabled = state.phase == Phase.CONNECTED, selected = shiftArmed, onClick = {
+                                shortcutMenu = false
+                                ctrlArmed = false
+                                shiftArmed = !shiftArmed
+                                if (shiftArmed) terminal?.let { view ->
                                     view.requestFocus()
                                     SoftwareKeyboardControllerCompat(view).show()
                                 }
@@ -223,7 +252,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         InputControlButton("→", tr("光标右移"), "terminal-right", enabled = state.phase == Phase.CONNECTED,
                             onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) })
                         InputControlButton("⌫", tr("删除字符，长按清空当前输入"), "terminal-delete", enabled = state.phase == Phase.CONNECTED,
-                            onLongClick = { shortcutMenu = false; ctrlArmed = false; terminal?.clearCurrentInput() },
+                            onLongClick = { shortcutMenu = false; ctrlArmed = false; shiftArmed = false; terminal?.clearCurrentInput() },
                             onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DEL) })
                     }
                 }
@@ -254,7 +283,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         setTextSize((fontSize * ctx.resources.displayMetrics.scaledDensity).toInt())
                         setTerminalViewClient(MobileTerminalClient(this,
                             onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
-                            controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false }))
+                            controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
+                            shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false }))
                         attachSession(session)
                         setRemoteHistory(0, 0, null)
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS

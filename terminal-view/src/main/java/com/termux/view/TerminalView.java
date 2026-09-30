@@ -1270,7 +1270,13 @@ public final class TerminalView extends View {
             ((InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE)).restartInput(this);
         }
         scrollToBottom();
-        handleKeyCode(keyCode, 0);
+        int keyMod = 0;
+        if (mClient != null) {
+            if (mClient.readControlKey()) keyMod |= KeyHandler.KEYMOD_CTRL;
+            if (mClient.readAltKey()) keyMod |= KeyHandler.KEYMOD_ALT;
+            if (mClient.readShiftKey()) keyMod |= KeyHandler.KEYMOD_SHIFT;
+        }
+        handleKeyCode(keyCode, keyMod);
     }
 
     /** Discard uncommitted IME text and clear a Readline-style input without touching history. */

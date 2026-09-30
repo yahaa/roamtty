@@ -40,6 +40,7 @@ private object EnglishText {
         "返回会话列表" to "Back to sessions",
         "返回主机列表" to "Back to hosts",
         "修改会话标题" to "Edit session title",
+        "新会话" to "New session",
         "实时" to "Live",
         "历史" to "History",
         "返回 tmux 实时画面" to "Return to live tmux view",
@@ -60,6 +61,7 @@ private object EnglishText {
         "发送 Esc" to "Send Esc",
         "发送 Tab" to "Send Tab",
         "Ctrl，作用于下一次键盘字符" to "Ctrl applies to the next keyboard character",
+        "Shift，与方向键组合发送；也可作用于下一次键盘字符" to "Shift combines with arrow keys; also applies to the next keyboard character",
         "光标左移" to "Move cursor left",
         "光标右移" to "Move cursor right",
         "删除字符，长按清空当前输入" to "Delete character; hold to clear input",
@@ -212,7 +214,7 @@ private object EnglishText {
         "会话模式" to "Session mode",
         "tmux · 推荐" to "tmux · Recommended",
         "普通 SSH" to "Plain SSH",
-        "附着远端固定会话 itermux，适合 AI 编程长任务。服务器需要已安装 tmux。" to "Attach to the fixed remote itermux session for long AI coding tasks. tmux must already be installed on the server.",
+        "每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux。" to "Each connection creates its own remote tmux session so you can open several at once. Reconnect reattaches that session. tmux must already be installed on the server.",
         "直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。" to "Open a remote shell directly. After a disconnect, reconnect manually; the original shell will not be restored.",
         "添加主机" to "Add host",
         "名称需为 1–80 个字符" to "Name must be 1–80 characters",
@@ -240,6 +242,7 @@ private object EnglishText {
         "等待认证输入" to "Waiting for authentication input",
         "服务器未找到 tmux，可改用普通 SSH；不会自动安装软件。" to "tmux was not found on the server. You can use plain SSH; the app will not install software.",
         "SSH 已断开，请手动重连。未发送的输入已丢弃。" to "SSH disconnected. Reconnect manually. Unsent input was discarded.",
+        "连接中断，正在自动重连…" to "Connection interrupted; reconnecting automatically…",
         "主机指纹发生变化，连接已阻止。请通过可信渠道核验。" to "The host fingerprint changed. The connection was blocked. Verify it through a trusted channel.",
         "未信任此主机" to "This host was not trusted",
         "连接已取消或验证等待超时" to "Connection canceled or verification timed out",
@@ -277,6 +280,7 @@ private object EnglishText {
         "主机  %d" to "Hosts  %d",
         "会话  %d" to "Sessions  %d",
         "认证输入 %d" to "Authentication input %d",
+        "会话不存在" to "Session not found",
         "iTermux · %d 个 SSH 会话" to "iTermux · %d SSH sessions"
     )
 }

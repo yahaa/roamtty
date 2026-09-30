@@ -10,7 +10,7 @@ import org.junit.Test
 class TmuxHistoryControllerTest {
     @Test fun historyCanMoveAcrossLargeRangesAndReturnToLivePane() = runBlocking {
         val remote = FakeTmux()
-        val history = TmuxHistoryController(remote::execute)
+        val history = TmuxHistoryController(Tmux.LEGACY_SESSION, remote::execute)
 
         assertEquals(TmuxHistory(120, 0, false, 24), history.history())
         assertTrue(requireNotNull(history.moveTo(37)).active)
@@ -23,12 +23,25 @@ class TmuxHistoryControllerTest {
 
     @Test fun malformedRemoteStateDoesNotIssueHistoryCommands() = runBlocking {
         val commands = mutableListOf<String>()
-        val history = TmuxHistoryController { command -> commands += command; "not tmux state" }
+        val history = TmuxHistoryController(Tmux.LEGACY_SESSION) { command -> commands += command; "not tmux state" }
 
         assertNull(history.enter())
         assertNull(history.moveTo(20))
         assertNull(history.exit())
         assertTrue(commands.all { it.contains("display-message") })
+    }
+
+
+    @Test fun customSessionNameIsTargeted() = runBlocking {
+        val commands = mutableListOf<String>()
+        val history = TmuxHistoryController("itermux-custom1") { command ->
+            commands += command
+            if (command.contains("display-message")) "10:0:0:24" else ""
+        }
+        assertEquals(TmuxHistory(10, 0, false, 24), history.history())
+        history.enter()
+        assertTrue(commands.any { it.contains("-t 'itermux-custom1'") })
+        assertFalse(commands.any { it.contains("-t 'itermux'") && "custom1" !in it })
     }
 
     private class FakeTmux {

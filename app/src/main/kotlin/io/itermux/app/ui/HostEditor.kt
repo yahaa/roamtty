@@ -132,7 +132,7 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                 FilterChip(mode == "TMUX", { mode = "TMUX" }, label = { Text(tr("tmux · 推荐")) })
                 FilterChip(mode == "SHELL", { mode = "SHELL" }, label = { Text(tr("普通 SSH")) })
             }
-            Text(if (mode == "TMUX") tr("附着远端固定会话 itermux，适合 AI 编程长任务。服务器需要已安装 tmux。") else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。"), style = MaterialTheme.typography.bodySmall)
+            Text(if (mode == "TMUX") tr("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux。") else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。"), style = MaterialTheme.typography.bodySmall)
         }
     }
     Dialog(onDismissRequest = { if (!busy) { draft.close(); onDismiss() } }, properties = DialogProperties(usePlatformDefaultWidth = false)) {

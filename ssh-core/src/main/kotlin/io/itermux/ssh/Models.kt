@@ -3,6 +3,7 @@ package io.itermux.ssh
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.Locale
+import java.util.UUID
 
 enum class AuthMethod { PASSWORD, KEY, INTERACTIVE }
 enum class SessionMode { SHELL, TMUX }
@@ -21,9 +22,10 @@ data class Target(val address: String, val port: Int, val username: String, val 
     val endpoint: String get() = "[${hostname.lowercase(Locale.ROOT).removeSuffix(".")}]:$port"
 }
 
-/** Owned by a single connection attempt. Caller transfers ownership and must not reuse it. */
+/** Owned by a connection. Prefer [copy] before handing a working copy to transport code that may clear it. */
 class Credentials(val password: ByteArray? = null, val privateKey: ByteArray? = null, val passphrase: ByteArray? = null) {
     fun clear() { password?.fill(0); privateKey?.fill(0); passphrase?.fill(0) }
+    fun copy() = Credentials(password?.copyOf(), privateKey?.copyOf(), passphrase?.copyOf())
 }
 data class HostPin(val endpoint: String, val algorithm: String, val key: String) {
     val fingerprint: String get() = fingerprint(Base64.getDecoder().decode(key))
@@ -68,7 +70,21 @@ class TrustPolicy(private val store: PinStore) {
 }
 
 object Tmux {
-    const val SESSION = "itermux"
+    /** Legacy fixed remote name used by journal entries created before multi-session support. */
+    const val LEGACY_SESSION = "itermux"
+    @Deprecated("Use LEGACY_SESSION or a per-connection name", ReplaceWith("LEGACY_SESSION"))
+    const val SESSION = LEGACY_SESSION
     const val PROBE = "command -v tmux >/dev/null 2>&1"
-    const val ATTACH = "exec tmux new-session -A -s '$SESSION'"
+    @Deprecated("Use attachCommand(sessionName)", ReplaceWith("attachCommand(LEGACY_SESSION)"))
+    const val ATTACH = "exec tmux new-session -A -s '$LEGACY_SESSION'"
+
+    fun sanitizeSessionName(name: String): String =
+        name.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.take(64).ifEmpty { LEGACY_SESSION }
+
+    fun newSessionName(): String = "itermux-${UUID.randomUUID().toString().replace("-", "").take(12)}"
+
+    fun attachCommand(sessionName: String): String =
+        "exec tmux new-session -A -s '${sanitizeSessionName(sessionName)}'"
+
+    fun targetFlag(sessionName: String): String = "'${sanitizeSessionName(sessionName)}'"
 }

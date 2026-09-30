@@ -27,6 +27,8 @@ class TerminalConnection(
     private val scope: CoroutineScope,
     val id: String = UUID.randomUUID().toString(),
     initialTitle: String = "",
+    /** Unique remote tmux session for this local entry; legacy restorations use [Tmux.LEGACY_SESSION]. */
+    val remoteSessionName: String = if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION,
     private val onRename: () -> Unit = {}
 ) : TerminalOutput(), TerminalSession {
     val pending = MutableStateFlow<PendingPrompt?>(null)
@@ -41,11 +43,17 @@ class TerminalConnection(
     var copyToClipboard: ((String) -> Unit)? = null
     var pasteFromClipboard: (() -> Unit)? = null
     private val parser = TerminalEmulator(this, 80, 24, 8, 16, 5000, SilentTerminalClient())
-    private val ssh = JschSession(host.target(mode), credentials ?: Credentials(), pins, interaction = { prompt ->
-        val request = PendingPrompt(prompt)
-        pending.value = request
-        try { request.answer.await() } finally { pending.compareAndSet(request, null) }
-    })
+    private val ssh = JschSession(
+        host.target(mode),
+        credentials ?: Credentials(),
+        pins,
+        interaction = { prompt ->
+            val request = PendingPrompt(prompt)
+            pending.value = request
+            try { request.answer.await() } finally { pending.compareAndSet(request, null) }
+        },
+        remoteSessionName = remoteSessionName
+    )
     val state = if (credentials != null) ssh.state else MutableStateFlow(ConnectionState(
         Phase.DISCONNECTED, "连接已中断，请手动重连。会话记录已恢复，未发送的输入不会重发。" )).asStateFlow()
     private val tmux = TmuxHistoryCoordinator(credentials != null && mode == SessionMode.TMUX, ssh, scope) { inputWarning.value = it }

@@ -119,8 +119,12 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                         passphrase = passphrase.takeIf { it.isNotEmpty() }?.toByteArray()
                     )
                 }
-                val session = bound.open(request.host, request.mode, credentials)
-                session.rename(request.title)
+                val session = if (request.reuseSessionId != null) {
+                    bound.reconnect(request.reuseSessionId, credentials)
+                } else {
+                    bound.open(request.host, request.mode, credentials)
+                }
+                if (request.title.isNotBlank()) session.rename(request.title)
                 selected = session.id
                 page = "terminal"
             } catch (e: Exception) {
@@ -129,8 +133,8 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
             }
         }
     }
-    fun connect(host: Host, mode: SessionMode = SessionMode.valueOf(host.mode), title: String = "") {
-        val request = ConnectRequest(host, mode, title)
+    fun connect(host: Host, mode: SessionMode = SessionMode.valueOf(host.mode), title: String = "", reuseSessionId: String? = null) {
+        val request = ConnectRequest(host, mode, title, reuseSessionId)
         if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null)) connectRequest = request
         else start(request)
     }
@@ -276,7 +280,8 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
                             onSessions = { page = "sessions" }, onHosts = { page = "hosts" },
-                            onReconnect = { service?.close(active.id); connect(active.host, active.mode, active.title.value) },
+                            onReconnect = { connect(active.host, active.mode, active.title.value, reuseSessionId = active.id) },
+                            onNewSession = { connect(active.host, active.mode) },
                             onShell = { service?.close(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active }, onClose = { service?.close(active.id) })
                     }

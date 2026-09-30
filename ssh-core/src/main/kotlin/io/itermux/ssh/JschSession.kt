@@ -6,6 +6,8 @@ import kotlinx.coroutines.channels.Channel as Queue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.SocketTimeoutException
 import java.io.InputStream
 import java.io.OutputStream
@@ -25,7 +27,9 @@ class JschSession(
     private val credentials: Credentials,
     private val pins: PinStore,
     private val interaction: suspend (Prompt) -> List<String>?,
-    private val connectTimeoutMs: Int = 20_000
+    private val connectTimeoutMs: Int = 20_000,
+    /** Remote tmux session name; ignored for SHELL mode. Legacy journal entries use [Tmux.LEGACY_SESSION]. */
+    val remoteSessionName: String = Tmux.LEGACY_SESSION
 ) : SshSession {
     private val mutableState = MutableStateFlow(ConnectionState(Phase.CONNECTING))
     override val state = mutableState.asStateFlow()
@@ -38,7 +42,8 @@ class JschSession(
     @Volatile private var channel: com.jcraft.jsch.Channel? = null
     @Volatile private var dimensions = intArrayOf(80, 24, 0, 0)
     @Volatile private var trustFailure: Exception? = null
-    private val tmuxHistoryController = TmuxHistoryController(::runTmux)
+    private val tmuxName = Tmux.sanitizeSessionName(remoteSessionName)
+    private val tmuxHistoryController = TmuxHistoryController(tmuxName, ::runTmux)
 
     private fun update(phase: Phase, message: String = "") {
         if (!stopped.get()) mutableState.value = ConnectionState(phase, message)
@@ -48,16 +53,74 @@ class JschSession(
         withTimeout(120_000) { interaction(prompt) }
     }
 
+    private enum class AttemptOutcome { TRANSPORT_ENDED, FATAL, STOPPED }
+
     override suspend fun connect(onOutput: suspend (ByteArray) -> Unit): Unit = withContext(Dispatchers.IO) {
         check(started.compareAndSet(false, true)) { "A connection attempt cannot be reused" }
-        val jsch = JSch()
+        var attempt = 0
         try {
-            ensureActive()
-            if (stopped.get()) return@withContext
+            while (!stopped.get()) {
+                // Fresh queues each attempt so a prior disconnect cannot leave a closed channel behind.
+                reopenQueues()
+                when (runAttempt(onOutput)) {
+                    AttemptOutcome.STOPPED -> break
+                    AttemptOutcome.FATAL -> break
+                    AttemptOutcome.TRANSPORT_ENDED -> {
+                        if (stopped.get()) break
+                        // Prefer keepalive to prevent idle drops; only auto-reattach tmux after transient death.
+                        if (target.mode != SessionMode.TMUX) {
+                            if (!stopped.get()) update(Phase.DISCONNECTED, "SSH 已断开，请手动重连。未发送的输入已丢弃。")
+                            break
+                        }
+                        attempt++
+                        if (attempt > 10) {
+                            update(Phase.DISCONNECTED, "SSH 已断开，请手动重连。未发送的输入已丢弃。")
+                            break
+                        }
+                        update(Phase.CONNECTING, "连接中断，正在自动重连…")
+                        delay((1_000L * attempt * attempt).coerceAtMost(30_000L))
+                    }
+                }
+            }
+        } finally {
+            closeTransport()
+            credentials.clear()
+            interactionJob.cancel()
+            input.close(); sizes.close()
+            while (true) (input.tryReceive().getOrNull() ?: break).fill(0)
+        }
+    }
+
+    private fun reopenQueues() {
+        // Queues are only closed after the outer connect finishes; each attempt reuses open queues.
+        while (true) (input.tryReceive().getOrNull() ?: break).fill(0)
+        while (true) sizes.tryReceive().getOrNull() ?: break
+    }
+
+    private fun tcpKeepaliveFactory() = object : SocketFactory {
+        override fun createSocket(host: String, port: Int): Socket {
+            val socket = Socket()
+            socket.keepAlive = true
+            socket.tcpNoDelay = true
+            socket.connect(InetSocketAddress(host, port), connectTimeoutMs)
+            return socket
+        }
+        override fun getInputStream(socket: Socket) = socket.getInputStream()
+        override fun getOutputStream(socket: Socket) = socket.getOutputStream()
+    }
+
+    private suspend fun runAttempt(onOutput: suspend (ByteArray) -> Unit): AttemptOutcome {
+        val jsch = JSch()
+        trustFailure = null
+        var reachedConnected = false
+        try {
+            coroutineContext.ensureActive()
+            if (stopped.get()) return AttemptOutcome.STOPPED
             configureCrypto()
             jsch.hostKeyRepository = repository()
             val ssh = jsch.getSession(target.username, target.hostname, target.port)
             session = ssh
+            ssh.setSocketFactory(tcpKeepaliveFactory())
             ssh.setConfig("StrictHostKeyChecking", "yes")
             ssh.setConfig("PreferredAuthentications", when (target.auth) {
                 AuthMethod.PASSWORD -> "password,keyboard-interactive"
@@ -83,28 +146,30 @@ class JschSession(
             }
             if (target.auth == AuthMethod.KEY) {
                 val key = requireNotNull(credentials.privateKey) { "Missing key" }
-                jsch.addIdentity("session-key", key, null, credentials.passphrase)
-                credentials.privateKey.fill(0)
-                credentials.passphrase?.fill(0)
+                // Keep originals for tmux auto-reattach; JSch receives copies.
+                jsch.addIdentity("session-key", key.copyOf(), null, credentials.passphrase?.copyOf())
             } else if (target.auth == AuthMethod.PASSWORD) {
-                ssh.setPassword(credentials.password)
+                ssh.setPassword(credentials.password?.copyOf())
             }
+            // SSH-level keepalive (~15s × 4 ≈ 1 min of silence before drop).
             ssh.setServerAliveInterval(15_000)
-            ssh.setServerAliveCountMax(3)
-            if (stopped.get()) return@withContext
+            ssh.setServerAliveCountMax(4)
+            if (stopped.get()) return AttemptOutcome.STOPPED
             ssh.connect(connectTimeoutMs)
-            // Secrets no longer needed after authentication; reconnect always creates a new attempt.
-            credentials.clear()
-            jsch.removeAllIdentity()
-            ensureActive()
-            if (stopped.get()) return@withContext
+            // Drop secrets for plain shell once authenticated; tmux may need them to reattach.
+            if (target.mode != SessionMode.TMUX) {
+                credentials.clear()
+                jsch.removeAllIdentity()
+            }
+            coroutineContext.ensureActive()
+            if (stopped.get()) return AttemptOutcome.STOPPED
             if (target.mode == SessionMode.TMUX && !hasTmux(ssh)) {
                 update(Phase.TMUX_MISSING, "服务器未找到 tmux，可改用普通 SSH；不会自动安装软件。")
-                return@withContext
+                return AttemptOutcome.FATAL
             }
             val terminal: com.jcraft.jsch.Channel = if (target.mode == SessionMode.TMUX) {
                 (ssh.openChannel("exec") as ChannelExec).apply {
-                    setCommand(Tmux.ATTACH)
+                    setCommand(Tmux.attachCommand(tmuxName))
                     setPty(true)
                     val d = dimensions
                     setPtyType("xterm-256color", d[0], d[1], d[2], d[3])
@@ -121,6 +186,7 @@ class JschSession(
             val stdin = terminal.outputStream
             terminal.connect(connectTimeoutMs)
             update(Phase.CONNECTED)
+            reachedConnected = true
             coroutineScope {
                 val writer = launch(Dispatchers.IO) {
                     try {
@@ -147,10 +213,13 @@ class JschSession(
                     }
                 } finally { writer.cancel(); resizer.cancel() }
             }
-            update(Phase.DISCONNECTED, "SSH 已断开，请手动重连。未发送的输入已丢弃。")
+            return if (stopped.get()) AttemptOutcome.STOPPED else AttemptOutcome.TRANSPORT_ENDED
         } catch (e: Exception) {
             val failure = trustFailure ?: e
-            if (!stopped.get()) mutableState.value = when {
+            if (stopped.get()) return AttemptOutcome.STOPPED
+            // After a live PTY, treat I/O death as reattachable for tmux; do not invent a new auth failure.
+            if (reachedConnected) return AttemptOutcome.TRANSPORT_ENDED
+            mutableState.value = when {
                 failure is HostKeyChanged -> ConnectionState(Phase.HOST_KEY_CHANGED, "主机指纹发生变化，连接已阻止。请通过可信渠道核验。", failure.old.fingerprint, failure.received.fingerprint)
                 failure is HostKeyRejected -> ConnectionState(Phase.DISCONNECTED, "未信任此主机")
                 e is CancellationException -> ConnectionState(Phase.DISCONNECTED, "连接已取消或验证等待超时")
@@ -158,13 +227,10 @@ class JschSession(
                 e is SocketTimeoutException || e.message?.contains("timeout", true) == true -> ConnectionState(Phase.FAILED, "连接超时，请检查网络、VPN 和主机端口。")
                 else -> ConnectionState(Phase.FAILED, "连接失败，请检查网络、地址、密钥格式及服务器算法支持。")
             }
+            return AttemptOutcome.FATAL
         } finally {
             closeTransport()
-            credentials.clear()
             jsch.removeAllIdentity()
-            interactionJob.cancel()
-            input.close(); sizes.close()
-            while (true) (input.tryReceive().getOrNull() ?: break).fill(0)
         }
     }
 
@@ -215,7 +281,7 @@ class JschSession(
         sizes.trySend(dimensions)
     }
 
-    /** Query the active pane of this app's fixed tmux session over a separate SSH channel. */
+    /** Query the active pane of this connection's tmux session over a separate SSH channel. */
     suspend fun tmuxHistory(): TmuxHistory? = tmuxHistoryController.history()
 
     suspend fun enterTmuxHistory(): TmuxHistory? = tmuxHistoryController.enter()
