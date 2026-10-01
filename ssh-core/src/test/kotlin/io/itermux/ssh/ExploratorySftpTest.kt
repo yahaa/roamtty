@@ -82,4 +82,17 @@ class ExploratorySftpTest {
         assertEquals(listOf(name), directory.list()!!.toList())
     }
 
+    @Test fun specialRelativeDirectoryResolvesToUsablePathForAllFileOperations() = probe { ssh, folder ->
+        val directory = File(folder, "dir\\?*").apply { mkdir() }
+        File(directory, "history?.txt").writeText("old\nlatest\n")
+        val resolved = ssh.listRemoteDirectory("${folder.name}/${directory.name}").path
+        assertEquals(listOf("history?.txt"), ssh.listRemoteDirectory(resolved).entries.map { it.name })
+        assertEquals("latest\n" to true, ssh.readRemoteText("$resolved/history?.txt", 7))
+        ssh.rename("$resolved/history?.txt", "$resolved/renamed*.txt")
+        assertEquals("old\nlatest\n" to false, ssh.readRemoteText("$resolved/renamed*.txt"))
+        ssh.deleteFile("$resolved/renamed*.txt")
+        assertNull(ssh.readRemoteText("$resolved/renamed*.txt"))
+        assertTrue(ssh.listRemoteDirectory(resolved).entries.isEmpty())
+    }
+
 }

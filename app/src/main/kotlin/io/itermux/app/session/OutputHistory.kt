@@ -1,55 +1,6 @@
 package io.itermux.app.session
 
 import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TerminalRow
-import com.termux.terminal.TextStyle
-import com.termux.terminal.WcWidth
-
-/** A physical terminal row, including its cell styles. Never reflow this as a paragraph. */
-internal class OutputHistoryLine(val text: String, val columns: Int, private val styles: LongArray, val wrapped: Boolean) {
-    val cost get() = text.length + 1
-    val blank get() = text.isBlank() && styles.all { it == TextStyle.NORMAL }
-
-    fun copyTo(target: TerminalRow) {
-        var column = 0
-        var lastColumn = 0
-        var index = 0
-        while (index < text.length) {
-            val codePoint = text.codePointAt(index)
-            val width = WcWidth.width(codePoint)
-            val at = if (width > 0) column else lastColumn
-            target.setChar(at, codePoint, styles[at])
-            if (width > 0) { lastColumn = column; column += width }
-            index += Character.charCount(codePoint)
-        }
-    }
-
-    override fun equals(other: Any?) = other is OutputHistoryLine && columns == other.columns &&
-        wrapped == other.wrapped && text == other.text && styles.contentEquals(other.styles)
-    override fun hashCode() = 31 * (31 * text.hashCode() + columns) + styles.contentHashCode()
-
-    companion object {
-        fun capture(emulator: TerminalEmulator, row: Int): OutputHistoryLine {
-            val source = emulator.screen.allocateFullLineIfNecessary(emulator.screen.externalToInternalRow(row))
-            val styles = LongArray(emulator.mColumns) { column ->
-                val style = source.getStyle(column)
-                if (TextStyle.isTerminalBitmap(style)) TextStyle.NORMAL else {
-                    var effect = TextStyle.decodeEffect(style)
-                    var foreground = TextStyle.decodeForeColor(style)
-                    val background = TextStyle.decodeBackColor(style)
-                    if (foreground in 0..7 && effect and (TextStyle.CHARACTER_ATTRIBUTE_BOLD or TextStyle.CHARACTER_ATTRIBUTE_BLINK) != 0)
-                        foreground += 8
-                    if (emulator.isReverseVideo) effect = effect xor TextStyle.CHARACTER_ATTRIBUTE_INVERSE
-                    // Freeze remote OSC overrides; the standard ANSI palette still follows the app theme.
-                    TextStyle.encode(emulator.mColors.snapshotColor(foreground),
-                        emulator.mColors.snapshotColor(background), effect)
-                }
-            }
-            return OutputHistoryLine(String(source.mText, 0, source.spaceUsed), emulator.mColumns, styles,
-                emulator.screen.getLineWrap(row))
-        }
-    }
-}
 
 /** In-memory output only. Keep overwritten TUI rows without relying on application key bindings. */
 internal class OutputHistory(private val maxChars: Int = 2 * 1024 * 1024, private val maxLines: Int = 50_000) {
@@ -58,19 +9,22 @@ internal class OutputHistory(private val maxChars: Int = 2 * 1024 * 1024, privat
     private var chars = 0
 
     fun capture(emulator: TerminalEmulator) {
-        val next = (0 until emulator.mRows).map { OutputHistoryLine.capture(emulator, it) }
-            .dropLastWhile { it.blank }
+        val next = ArrayList<OutputHistoryLine>(emulator.mRows)
+        for (row in 0 until emulator.mRows) next.add(OutputHistoryLine.capture(emulator, row))
+        while (next.lastOrNull()?.blank == true) next.removeAt(next.lastIndex)
         if (next == previous || next.isEmpty()) return
-        val overlap = (minOf(previous.size, next.size) downTo 1).firstOrNull { count ->
-            previous.takeLast(count) == next.take(count)
-        } ?: 0
-        val added = if (overlap > 0) next.drop(overlap) else {
-            val prefix = previous.zip(next).takeWhile { (a, b) -> a == b }.size
-            val suffix = previous.drop(prefix).asReversed().zip(next.drop(prefix).asReversed())
-                .takeWhile { (a, b) -> a == b }.size
-            next.subList(prefix, next.size - suffix)
+        val overlap = longestHistoryOverlap(previous, next)
+        var start = overlap
+        var end = next.size
+        if (overlap == 0) {
+            val commonSize = minOf(previous.size, next.size)
+            while (start < commonSize && previous[start] == next[start]) start++
+            var suffix = 0
+            while (suffix < commonSize - start && previous[previous.lastIndex - suffix] == next[next.lastIndex - suffix]) suffix++
+            end -= suffix
         }
-        for (line in added) {
+        for (index in start until end) {
+            val line = next[index]
             if (line.cost > maxChars) continue // Keep complete rows, never cut a wide/combining character.
             lines.addLast(line)
             chars += line.cost
@@ -80,4 +34,24 @@ internal class OutputHistory(private val maxChars: Int = 2 * 1024 * 1024, privat
     }
 
     fun snapshot(): List<OutputHistoryLine> = lines.toList()
+}
+
+/** Longest old suffix matching the new prefix, in linear comparisons even for repeated rows. */
+internal fun <T> longestHistoryOverlap(previous: List<T>, next: List<T>): Int {
+    val limit = minOf(previous.size, next.size)
+    if (limit == 0) return 0
+    // KMP failure links let a partial match fall back without rescanning or copying rows.
+    val fallback = IntArray(limit)
+    var matched = 0
+    for (index in 1 until limit) {
+        while (matched > 0 && next[index] != next[matched]) matched = fallback[matched - 1]
+        if (next[index] == next[matched]) matched++
+        fallback[index] = matched
+    }
+    matched = 0
+    for (index in previous.size - limit until previous.size) {
+        while (matched > 0 && previous[index] != next[matched]) matched = fallback[matched - 1]
+        if (previous[index] == next[matched]) matched++
+    }
+    return matched
 }

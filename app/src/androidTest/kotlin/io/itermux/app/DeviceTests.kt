@@ -88,7 +88,9 @@ class TerminalUiTest {
     private fun foreground() {
         shell("input keyevent 224")
         shell("wm dismiss-keyguard")
-        shell("am start -W --activity-single-top -n ${instrumentation.targetContext.packageName}/.MainActivity")
+        // Keep the ActivityScenario-owned instance. A shell launch can replace its intent/instance,
+        // leaving the rule waiting for a lifecycle transition from an Activity it no longer owns.
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
         compose.waitUntil(10_000) { runCatching { compose.onAllNodes(isRoot()).fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
         compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }

@@ -6,6 +6,56 @@ import org.junit.Test
 import java.io.IOException
 
 class DownloadQueueTest {
+    @Test fun publishedSnapshotsNeverChangeAsLaterFilesProgress() = runBlocking {
+        val snapshots = mutableListOf<List<DownloadItem>>()
+        val frozen = mutableListOf<List<DownloadItem>>()
+        val input = listOf(DownloadItem("one"), DownloadItem("two"))
+        val result = runDownloadQueue(input, { items, _ ->
+            snapshots += items
+            frozen += items.map { it.copy() }
+        }) { _, progress ->
+            progress(0, 10)
+            progress(10, 10)
+        }
+        assertEquals(frozen, snapshots)
+        assertEquals(listOf(DownloadPhase.RUNNING, DownloadPhase.WAITING), snapshots.first().map { it.phase })
+        assertTrue(result.all { it.phase == DownloadPhase.COMPLETE })
+        assertTrue(input.all { it.phase == DownloadPhase.WAITING && it.bytes == 0L })
+    }
+
+    @Test fun failedTransferRetainsLastUnpublishedProgress() = runBlocking {
+        val result = runDownloadQueue(listOf(DownloadItem("partial")), { _, _ -> }) { _, progress ->
+            progress(7, -1)
+            throw IOException("interrupted")
+        }
+        assertEquals(7L, result.single().bytes)
+        assertEquals(DownloadPhase.FAILED, result.single().phase)
+    }
+
+    @Test fun duplicateNamingMatchesOriginalWithCaseAndSuffixCollisions() {
+        val random = kotlin.random.Random(515)
+        repeat(100) {
+            val files = List(100) { index -> DownloadItem("/$index/" +
+                listOf("a.txt", "A.TXT", "a (2).txt", "a (3).txt", ".env", "archive.tar.gz")[random.nextInt(6)]) }
+            val reserved = files.map { it.name.lowercase(java.util.Locale.ROOT) }.toMutableSet()
+            val used = mutableSetOf<String>()
+            val expected = files.associate { file ->
+                var name = file.name
+                if (!used.add(name.lowercase(java.util.Locale.ROOT))) {
+                    val dot = name.lastIndexOf('.').takeIf { it > 0 } ?: name.length
+                    val stem = name.substring(0, dot)
+                    val extension = name.substring(dot)
+                    var number = 2
+                    do { name = "$stem (${number++})$extension" }
+                    while (!reserved.add(name.lowercase(java.util.Locale.ROOT)))
+                    used.add(name.lowercase(java.util.Locale.ROOT))
+                }
+                file.path to name
+            }
+            assertEquals(expected, downloadNames(files))
+        }
+    }
+
     @Test fun duplicateBasenamesKeepTheirExtensionsAndAvoidReservedNames() {
         val files = listOf("/a/report.pdf", "/b/report.pdf", "/c/report (2).pdf", "/d/REPORT.PDF", "/e/.env", "/f/.env")
             .map { DownloadItem(it) }
