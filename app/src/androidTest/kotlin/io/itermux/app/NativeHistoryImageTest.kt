@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.provider.MediaStore
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -71,11 +72,13 @@ class NativeHistoryImageTest {
         withFixture("codex") { session ->
             compose.onNodeWithTag("tmux-history").performClick()
             withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
-            compose.onNodeWithTag("output-history-top").performClick()
+            compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
+            compose.onNodeWithTag("output-history-top").assertDoesNotExist()
+            compose.onNodeWithTag("output-history-live").assertDoesNotExist()
             compose.onNodeWithTag("output-history-lines").performScrollToNode(hasText("OUTPUT_000"))
             compose.onNodeWithText("OUTPUT_000").assertIsDisplayed()
             awaitScreen(session, "CLI_LIVE")
-            compose.onNodeWithTag("output-history-live").performClick()
+            compose.onNodeWithTag("tmux-history").performClick()
             awaitScreen(session, "SUBMITTED=0 NAVKEYS=0")
 
             val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -138,6 +141,13 @@ class NativeHistoryImageTest {
             compose.onNodeWithText("OUTPUT_000").assertIsDisplayed()
             compose.activityRule.scenario.recreate()
             compose.onNodeWithTag("output-history").assertIsDisplayed()
+            compose.onNodeWithText("OUTPUT_000").assertIsDisplayed()
+            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            withTimeout(8000) { while (session.tmuxHistory.value != null) delay(50) }
+            compose.onNodeWithTag("output-history").assertDoesNotExist()
+            awaitScreen(session, "SUBMITTED=0 NAVKEYS=0")
+            compose.onNodeWithTag("tmux-history").performClick()
+            withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
             withContext(Dispatchers.Main) { session.executeHistoryCommand("SHOULD_NOT_SUBMIT") }.join()
             awaitScreen(session, "SUBMITTED=0 NAVKEYS=0")
             assertNotNull(session.inputWarning.value)

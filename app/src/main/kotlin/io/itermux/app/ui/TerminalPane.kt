@@ -138,6 +138,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }
     LaunchedEffect(fontSize) { prefs.edit { putInt("fontSize", fontSize) } }
     LaunchedEffect(session.id) { hideKeyboard() }
+    LaunchedEffect(showingOutput) { if (showingOutput) { editor = false; hideKeyboard() } }
     LaunchedEffect(state.phase) {
         if (state.phase != Phase.CONNECTED) { ctrlArmed = false; shiftArmed = false }
         else session.inputWarning.value = null
@@ -185,8 +186,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             if (session.mode == SessionMode.TMUX) {
                 InputControlButton(if (tmuxHistory?.active == true) tr("实时") else tr("历史"),
                     if (tmuxHistory?.active == true) tr("返回实时画面") else tr("浏览历史记录"),
-                    "tmux-history", enabled = state.phase == Phase.CONNECTED,
-                    onClick = { if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
+                    "tmux-history", enabled = state.phase == Phase.CONNECTED, selected = tmuxHistory?.active == true,
+                    onClick = { hideKeyboard(); if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
             }
             IconButton(onClick = {
                 // Query native window state at click time, including IMEs with no bottom inset.
@@ -222,9 +223,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             Box {
                 IconButton(onClick = { ctrlArmed = false; shiftArmed = false; menu = true }, modifier = Modifier.semantics { contentDescription = tr("终端菜单") }.testTag("terminal-menu")) { Text("⋯", fontSize = 26.sp) }
                 DropdownMenu(menu, { menu = false }) {
-                    if (session.mode == SessionMode.TMUX) DropdownMenuItem(
-                        text = { Text(if (tmuxHistory?.active == true) tr("返回实时画面") else tr("浏览历史记录")) },
-                        onClick = { menu = false; if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
                     DropdownMenuItem(text = { Text(tr("编辑文本")) }, onClick = { menu = false; editor = true; hideKeyboard() })
                     DropdownMenuItem(text = { Text(if (dockPinned) tr("取消固定操作栏") else tr("固定操作栏")) }, onClick = {
                         menu = false; dockPinned = !dockPinned; dockExpanded = true
@@ -329,7 +327,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     view.setRemoteHistory(history?.rows ?: 0, history?.position ?: 0,
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
-                if (showingOutput) OutputHistoryView(recordedOutput, fontSize, session::exitTmuxHistory)
+                if (showingOutput) OutputHistoryView(recordedOutput, fontSize)
                 }
                 warning?.let { message -> Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                     Text(tr(message), color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.weight(1f))
