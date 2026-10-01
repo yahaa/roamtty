@@ -22,6 +22,12 @@ public final class TerminalColors {
         reset();
     }
 
+    /** Freeze explicit colors for a captured cell, but keep theme defaults switchable. */
+    public int snapshotColor(int color) {
+        if (color < 0 || color >= mCurrentColors.length) return color; // Already true color.
+        return mCurrentColors[color] != mThemeColors[color] ? mCurrentColors[color] : color;
+    }
+
     /** Switch the default palette for this session while keeping colors set by remote OSC sequences. */
     public boolean setLightTheme(boolean light) {
         if (mLightTheme == light) return false;

@@ -75,8 +75,8 @@ class NativeHistoryImageTest {
             compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
             compose.onNodeWithTag("output-history-top").assertDoesNotExist()
             compose.onNodeWithTag("output-history-live").assertDoesNotExist()
-            compose.onNodeWithTag("output-history-lines").performScrollToNode(hasText("OUTPUT_000"))
-            compose.onNodeWithText("OUTPUT_000").assertIsDisplayed()
+            compose.onNodeWithTag("output-history-lines").performScrollToIndex(session.outputHistorySnapshot().indexOfFirst { it.text.trim() == "OUTPUT_000" })
+            compose.onNodeWithTag("output-history-lines").assertTextContains("OUTPUT_000", substring = true)
             awaitScreen(session, "CLI_LIVE")
             compose.onNodeWithTag("tmux-history").performClick()
             awaitScreen(session, "SUBMITTED=0 NAVKEYS=0")
@@ -137,11 +137,11 @@ class NativeHistoryImageTest {
         withFixture("grok") { session ->
             compose.onNodeWithTag("tmux-history").performClick()
             withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
-            compose.onNodeWithTag("output-history-lines").performScrollToNode(hasText("OUTPUT_000"))
-            compose.onNodeWithText("OUTPUT_000").assertIsDisplayed()
+            compose.onNodeWithTag("output-history-lines").performScrollToIndex(session.outputHistorySnapshot().indexOfFirst { it.text.trim() == "OUTPUT_000" })
+            compose.onNodeWithTag("output-history-lines").assertTextContains("OUTPUT_000", substring = true)
             compose.activityRule.scenario.recreate()
             compose.onNodeWithTag("output-history").assertIsDisplayed()
-            compose.onNodeWithText("OUTPUT_000").assertIsDisplayed()
+            compose.onNodeWithTag("output-history-lines").assertTextContains("OUTPUT_000", substring = true)
             compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             withTimeout(8000) { while (session.tmuxHistory.value != null) delay(50) }
             compose.onNodeWithTag("output-history").assertDoesNotExist()

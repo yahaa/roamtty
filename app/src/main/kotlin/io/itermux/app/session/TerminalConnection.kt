@@ -48,12 +48,12 @@ class TerminalConnection(
     var pasteFromClipboard: (() -> Unit)? = null
     private val parser = TerminalEmulator(this, 80, 24, 8, 16, 50000, SilentTerminalClient())
     private val outputHistory = OutputHistory()
-    internal fun outputHistorySnapshot(): List<String> = outputHistory.snapshot()
+    internal fun outputHistorySnapshot(): List<OutputHistoryLine> = outputHistory.snapshot()
     override fun onBeforeScreenChange() = captureOutput()
     private fun captureOutput() {
         // Browsing remote copy-mode redraws old text; it is not new application output.
         if (mode == SessionMode.TMUX && tmuxHistory.value?.source != HistorySource.TMUX)
-            outputHistory.capture(parser.screen.getSelectedText(0, 0, parser.mColumns, parser.mRows - 1))
+            outputHistory.capture(parser)
     }
     private val ssh = JschSession(
         host.target(mode),

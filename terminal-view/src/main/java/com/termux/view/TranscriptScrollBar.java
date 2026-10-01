@@ -3,6 +3,7 @@ package com.termux.view;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Rect;
 import android.os.SystemClock;
 import android.view.MotionEvent;
 import com.termux.terminal.TerminalColors;
@@ -26,6 +27,7 @@ final class TranscriptScrollBar {
     private final TerminalView view;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF thumb = new RectF();
+    private final Rect visibleBounds = new Rect();
     private final float density;
     private final Runnable hideTick;
     private long shownAt = -HIDE_DELAY_MS - FADE_MS;
@@ -87,15 +89,18 @@ final class TranscriptScrollBar {
             track * view.mEmulator.mRows / (float) (history + view.mEmulator.mRows)));
         float fraction = scrollFraction(history, topRow());
         float top = TRACK_INSET_DP * density + fraction * (track - height);
-        float right = view.getWidth() - 3 * density;
-        thumb.set(right - BAR_WIDTH_DP * density, top, right, top + height);
+        // A captured terminal grid can be wider than its viewport. Keep the handle at the visible edge.
+        view.getLocalVisibleRect(visibleBounds);
+        float right = visibleBounds.right - 3 * density;
+        float width = view.getCurrentSession().isReadOnly() ? 3f : BAR_WIDTH_DP;
+        thumb.set(right - width * density, top, right, top + height);
         return true;
     }
 
     void draw(Canvas canvas) {
         if (!layoutThumb()) return;
         long elapsed = SystemClock.uptimeMillis() - shownAt;
-        float alpha = visibilityAlpha(elapsed, isDragging(), topRow() < 0);
+        float alpha = visibilityAlpha(elapsed, isDragging(), topRow() < 0 || view.getCurrentSession().isReadOnly());
         if (alpha == 0f) return;
         int background = view.mEmulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND];
         paint.setColor(TerminalColors.getPerceivedBrightnessOfColor(background) > 130 ? 0xFF567371 : 0xFF8FA9BC);
@@ -115,7 +120,7 @@ final class TranscriptScrollBar {
         if (action == MotionEvent.ACTION_DOWN) {
             // Keep the handle draggable after it becomes quiet, without stealing taps
             // in the rest of the edge strip once the active track has faded.
-            if (event.getX() < view.getWidth() - HIT_WIDTH_DP * density || !layoutThumb()) return false;
+            if (!layoutThumb() || event.getX() < visibleBounds.right - HIT_WIDTH_DP * density) return false;
             if (visibilityAlpha(SystemClock.uptimeMillis() - shownAt, false, topRow() < 0) < 1f &&
                 (event.getY() < thumb.top - HIT_WIDTH_DP * density ||
                     event.getY() > thumb.bottom + HIT_WIDTH_DP * density)) return false;

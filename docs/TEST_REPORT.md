@@ -1,5 +1,14 @@
 # iTermux 0.1.0 测试与交付记录
 
+## 2026-10-01 历史终端网格与样式修复
+
+- 定位：旧采集调用用于复制的 `getSelectedText`，合并自动折行并丢失每列样式；历史页再用普通 Compose `Text` 排版，额外左右留白、文本行距及字体回退宽度与原终端网格不同，导致满宽边框二次折行、竖线断开。Grok 的边框较多，因此同一问题比 Codex 更明显。
+- 采集改为保留物理行、列数、空格、折行标志和每列样式。独立只读 `OutputHistorySession` 只装载可见行，复用实时画面的 `TerminalView` / `TerminalRenderer`。宽记录左右拖动，标准 ANSI 颜色随主题切换，远端 OSC 覆盖冻结为真彩色；不把终端网格重新排成段落。
+- 本轮 JVM：app 46、terminal-emulator 150、terminal-view 18，合计 **214 项通过、0 失败**。新增检查覆盖样式变化、中文/emoji/组合字符、物理折行、远端调色板、带背景色空行及只读快照。
+- API 36 隔离包基础回归 **9 项通过**，覆盖深浅主题下与实时绘制器逐像素一致、5,000 行拖动、140 列横向浏览和可见边缘滑块、短/空记录、横竖屏、Grok/Codex 通用历史与原入口返回、会话重建及原 tmux 历史。[回归记录](test-results/history-grid-device.txt)。全屏程序使用回环 SSH/PTY 夹具，没有调用真实模型服务或在用户手机上复测。
+- 后续补强原生长按复制用例，修正只读视图的选区焦点；用 Espresso 的真实长按与浮动工具栏执行 Copy，验证剪贴板内容并恢复原剪贴板，独立复验通过。[逐像素与复制复验](test-results/history-grid-copy-device.txt)、[深色网格](screenshots/history-grid-dark.png)、[浅色网格](screenshots/history-grid-light.png)。组件宿主使用与终端一致的沉浸模式，避免边缘手势拉出模拟器通知栏抢占焦点。
+- 默认包名 Debug APK、AndroidTest 构建通过，Lint **0 错误、14 警告和 1 提示**。安装包：`.local/builds/iTermux-history-grid-debug.apk`。下方保留之前界面版本的记录。
+
 ## 2026-10-01 历史界面简化
 
 - 移除记录页的“最早 / 最新 / 返回实时画面”三个按钮及更多菜单中的重复入口；仅通过原操作栏的“历史 / 实时”按钮和系统返回键退出。进入记录页收起键盘，阅读内容沿用终端字体与主题。

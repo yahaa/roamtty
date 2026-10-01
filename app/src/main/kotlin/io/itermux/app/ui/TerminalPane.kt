@@ -327,7 +327,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     view.setRemoteHistory(history?.rows ?: 0, history?.position ?: 0,
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
-                if (showingOutput) OutputHistoryView(recordedOutput, fontSize)
+                if (showingOutput) OutputHistoryView(recordedOutput, fontSize, lightTheme)
                 }
                 warning?.let { message -> Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                     Text(tr(message), color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.weight(1f))
