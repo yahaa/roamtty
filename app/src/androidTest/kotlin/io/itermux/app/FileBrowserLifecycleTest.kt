@@ -46,7 +46,9 @@ class FileBrowserLifecycleTest {
             compose.onNode(hasText("File browser task", substring = true) and
                 hasAnyAncestor(hasTestTag("remote-file-browser"))).assertDoesNotExist()
             compose.onNodeWithTag("files-entry-phone-a").performClick()
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("files-entry-design-notes.md").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("files-list").fetchSemanticsNodes().isNotEmpty() }
+            // Other SFTP tests leave files in this directory; the target may be outside the lazy viewport.
+            compose.onNodeWithTag("files-list").performScrollToNode(hasTestTag("files-entry-design-notes.md"))
             compose.onNodeWithTag("files-host-title").assertTextEquals(host.name)
             compose.onNodeWithTag("files-breadcrumb").assertTextEquals("/phone-a")
             compose.onNodeWithTag("files-row-menu-design-notes.md").performClick()

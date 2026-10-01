@@ -76,10 +76,12 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
         finally { loading = false }
     }
     val selected = transfer.selectedDownloads
-    val selectedPaths = selected.map { it.path }.toSet()
+    val selectedPaths = remember(selected) { selected.mapTo(HashSet()) { it.path } }
     val currentPath = listing?.path ?: transfer.downloadDirectory
-    val entries = listing?.entries.orEmpty().filter {
-        (options.showHiddenFiles || !it.name.startsWith('.')) && it.name.contains(query, ignoreCase = true)
+    val entries = remember(listing, options.showHiddenFiles, query) {
+        listing?.entries.orEmpty().filter {
+            (options.showHiddenFiles || !it.name.startsWith('.')) && it.name.contains(query, ignoreCase = true)
+        }
     }
     LaunchedEffect(currentPath, query, selectedOnly, options.showHiddenFiles) { listState.scrollToItem(0) }
     fun toggle(file: DownloadItem) {

@@ -141,7 +141,7 @@ class TerminalConnection(
         commonCommandsJob = scope.launch {
             mutableCommonCommands.value = CommonCommandsState.Loading
             try {
-                savedCommands = withContext(Dispatchers.IO) { loadCommonCommands() }
+                savedCommands = withContext(Dispatchers.IO) { loadCommonCommands { ssh.readRemoteText(it) } }
                 publishCommonCommands()
             } catch (_: CancellationException) {
                 // superseded refresh or disconnect
@@ -177,30 +177,6 @@ class TerminalConnection(
         mutableCommonCommands.value = if (recentCommands.isEmpty() && saved == null) savedCommands
         else CommonCommandsState.Ready(ShellHistoryCommands.mergeRecent(recentCommands, saved?.commands.orEmpty()),
             saved?.source.orEmpty())
-    }
-
-    private suspend fun loadCommonCommands(): CommonCommandsState {
-        val bash = runCatching { ssh.readRemoteText(".bash_history") }.getOrElse { throw it }
-        if (bash != null) {
-            val (raw, truncated) = bash
-            if (raw.isNotBlank()) {
-                val ranked = ShellHistoryCommands.rankByRecency(
-                    ShellHistoryCommands.extractCommands(raw, zshStyle = false, skipFirstLine = truncated)
-                )
-                if (ranked.isNotEmpty()) return CommonCommandsState.Ready(ranked, "~/.bash_history")
-            }
-        }
-        val zsh = ssh.readRemoteText(".zsh_history")
-        if (zsh != null) {
-            val (raw, truncated) = zsh
-            if (raw.isNotBlank()) {
-                val ranked = ShellHistoryCommands.rankByRecency(
-                    ShellHistoryCommands.extractCommands(raw, zshStyle = true, skipFirstLine = truncated)
-                )
-                if (ranked.isNotEmpty()) return CommonCommandsState.Ready(ranked, "~/.zsh_history")
-            }
-        }
-        return CommonCommandsState.Unavailable("未找到 ~/.bash_history 或 ~/.zsh_history，或历史为空")
     }
 
     override fun reset() { parser.reset(); onScreenChanged?.invoke() }

@@ -115,6 +115,9 @@ class DownloadDestinationTest {
             // Back first navigates out of a nested folder before dismissing DocumentsUI.
             if (packageName?.contains("documentsui") == true) {
                 automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                // Global back is asynchronous. Wait for the window transition before another back,
+                // otherwise a stale DocumentsUI root can cause us to close the test Activity too.
+                automation.waitForIdle(500, 3_000)
             }
             SystemClock.sleep(250)
         }

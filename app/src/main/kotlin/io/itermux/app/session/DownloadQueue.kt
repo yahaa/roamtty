@@ -16,15 +16,18 @@ internal data class DownloadItem(val path: String, val total: Long = -1, val byt
 internal fun downloadNames(files: List<DownloadItem>): Map<String, String> {
     val reserved = files.map { it.name.lowercase(java.util.Locale.ROOT) }.toMutableSet()
     val used = mutableSetOf<String>()
+    val nextSuffix = mutableMapOf<String, Int>()
     return files.associate { file ->
         var name = file.name
         if (!used.add(name.lowercase(java.util.Locale.ROOT))) {
             val dot = name.lastIndexOf('.').takeIf { it > 0 } ?: name.length
             val stem = name.substring(0, dot)
             val extension = name.substring(dot)
-            var number = 2
+            val key = name.lowercase(java.util.Locale.ROOT)
+            var number = nextSuffix[key] ?: 2
             do { name = "$stem (${number++})$extension" }
             while (!reserved.add(name.lowercase(java.util.Locale.ROOT)))
+            nextSuffix[key] = number
             used.add(name.lowercase(java.util.Locale.ROOT))
         }
         file.path to name
@@ -37,42 +40,43 @@ internal suspend fun runDownloadQueue(
     onUpdate: (List<DownloadItem>, Double) -> Unit,
     download: suspend (DownloadItem, (Long, Long) -> Unit) -> Unit
 ): List<DownloadItem> {
-    var items = files.map { it.copy(bytes = 0, phase = DownloadPhase.WAITING, error = null, localPath = null) }
+    val items = files.map { it.copy(bytes = 0, phase = DownloadPhase.WAITING, error = null, localPath = null) }.toMutableList()
+    // Mutate only the private queue. Observers receive a frozen snapshot at publication time.
+    fun publish(speed: Double = 0.0) = onUpdate(items.toList(), speed)
     try {
         for (index in items.indices) {
             currentCoroutineContext().ensureActive()
-            items = items.toMutableList().apply { this[index] = this[index].copy(phase = DownloadPhase.RUNNING) }
-            onUpdate(items, 0.0)
+            items[index] = items[index].copy(phase = DownloadPhase.RUNNING)
+            publish()
             val started = System.nanoTime()
             var lastReport = started
             try {
                 download(items[index]) { bytes, total ->
-                    items = items.toMutableList().apply { this[index] = this[index].copy(bytes = bytes, total = total) }
+                    items[index] = items[index].copy(bytes = bytes, total = total)
                     val now = System.nanoTime()
                     if (now - lastReport >= 100_000_000L || bytes == total || bytes == 0L) {
-                        onUpdate(items, bytes / ((now - started) / 1e9).coerceAtLeast(0.001))
+                        publish(bytes / ((now - started) / 1e9).coerceAtLeast(0.001))
                         lastReport = now
                     }
                 }
                 currentCoroutineContext().ensureActive()
-                items = items.toMutableList().apply { this[index] = this[index].copy(phase = DownloadPhase.COMPLETE) }
+                items[index] = items[index].copy(phase = DownloadPhase.COMPLETE)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
-                items = items.toMutableList().apply {
-                    this[index] = this[index].copy(phase = DownloadPhase.FAILED, error = e.message)
-                }
+                items[index] = items[index].copy(phase = DownloadPhase.FAILED, error = e.message)
             }
-            onUpdate(items, 0.0)
+            publish()
         }
     } catch (e: CancellationException) {
-        items = items.map {
-            if (it.phase == DownloadPhase.RUNNING || it.phase == DownloadPhase.WAITING)
-                it.copy(phase = DownloadPhase.CANCELLED) else it
+        for (index in items.indices) {
+            val item = items[index]
+            if (item.phase == DownloadPhase.RUNNING || item.phase == DownloadPhase.WAITING)
+                items[index] = item.copy(phase = DownloadPhase.CANCELLED)
         }
-        onUpdate(items, 0.0)
+        publish()
         throw e
     }
-    return items
+    return items.toList()
 }

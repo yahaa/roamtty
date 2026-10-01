@@ -1,10 +1,36 @@
 package io.itermux.app.session
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShellHistoryCommandsTest {
+    @Test fun bashSourceWinsWithoutFetchingZsh() = runBlocking {
+        val paths = mutableListOf<String>()
+        val result = loadCommonCommands { path ->
+            paths += path
+            "pwd\nls\npwd" to false
+        }
+        assertEquals(listOf(".bash_history"), paths)
+        assertEquals(CommonCommandsState.Ready(listOf("pwd", "ls"), "~/.bash_history"), result)
+    }
+
+    @Test fun emptyBashFallsBackToZshAndTruncatedFirstLineIsSkipped() = runBlocking {
+        val result = loadCommonCommands { path ->
+            if (path == ".bash_history") "#1234\n\n" to false
+            else "partial\n: 1234:0;pwd\n: 1235:0;ls" to true
+        }
+        assertEquals(CommonCommandsState.Ready(listOf("ls", "pwd"), "~/.zsh_history"), result)
+        assertTrue(loadCommonCommands { null } is CommonCommandsState.Unavailable)
+    }
+
+    @Test(expected = kotlinx.coroutines.CancellationException::class)
+    fun cancellingHistoryReadDoesNotFetchAnotherSource() = runBlocking {
+        loadCommonCommands { throw kotlinx.coroutines.CancellationException("disconnected") }
+        Unit
+    }
+
     @Test fun bashRanksByLastUseRegardlessOfFrequency() {
         val raw = """
             ls

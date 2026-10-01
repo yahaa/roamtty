@@ -5,6 +5,82 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OutputHistoryTest {
+    @Test fun overlapMatchesReferenceForRepeatedRowsAndUnequalFrameSizes() {
+        val random = kotlin.random.Random(318)
+        repeat(10_000) {
+            val previous = List(random.nextInt(40)) { random.nextInt(3) }
+            val next = List(random.nextInt(40)) { random.nextInt(3) }
+            val expected = (minOf(previous.size, next.size) downTo 1).firstOrNull {
+                previous.takeLast(it) == next.take(it)
+            } ?: 0
+            assertEquals("$previous -> $next", expected, longestHistoryOverlap(previous, next))
+        }
+    }
+
+    @Test fun repeatedRowsRequireOnlyLinearComparisons() {
+        var comparisons = 0
+        class Row(val value: Int) {
+            override fun equals(other: Any?): Boolean { comparisons++; return other is Row && value == other.value }
+            override fun hashCode() = value
+        }
+        val previous = List(300) { Row(0) }
+        val next = List(300) { Row(if (it == 299) 1 else 0) }
+        assertEquals(299, longestHistoryOverlap(previous, next))
+        assertTrue("Comparisons: $comparisons", comparisons < 6 * previous.size)
+    }
+
+    @Test fun randomFrameEditsMatchOriginalHistoryIncludingBlankFramesAndBounds() {
+        val random = kotlin.random.Random(812)
+        val history = OutputHistory(maxChars = 300, maxLines = 12)
+        val expected = ArrayDeque<OutputHistoryLine>()
+        var previous = emptyList<OutputHistoryLine>()
+        repeat(1500) {
+            val source = screen(List(random.nextInt(5)) {
+                listOf("A", "B", "", "中 e\u0301", "\u001b[31mred\u001b[0m")[random.nextInt(5)]
+            }.joinToString("\n"), columns = if (random.nextBoolean()) 16 else 20)
+            val next = (0 until source.mRows).map { OutputHistoryLine.capture(source, it) }.dropLastWhile { it.blank }
+            if (next != previous && next.isNotEmpty()) {
+                val overlap = (minOf(previous.size, next.size) downTo 1).firstOrNull {
+                    previous.takeLast(it) == next.take(it)
+                } ?: 0
+                val added = if (overlap > 0) next.drop(overlap) else {
+                    val prefix = previous.zip(next).takeWhile { (a, b) -> a == b }.size
+                    val suffix = previous.drop(prefix).asReversed().zip(next.drop(prefix).asReversed())
+                        .takeWhile { (a, b) -> a == b }.size
+                    next.subList(prefix, next.size - suffix)
+                }
+                for (line in added) {
+                    expected.addLast(line)
+                    while (expected.size > 12 || expected.sumOf { it.cost } > 300) expected.removeFirst()
+                }
+                previous = next
+            }
+            history.capture(source)
+            assertEquals(expected.toList(), history.snapshot())
+        }
+    }
+
+    @Test fun mixedCellStylesAndReverseVideoSurviveDetachedRendering() {
+        val source = screen("\u001b[?5h\u001b[31mred\u001b[0m normal \u001b[44m中", 20)
+        val history = OutputHistory()
+        history.capture(source)
+        val snapshot = OutputHistorySession(history.snapshot(), 0)
+        snapshot.updateSize(20, 4, 8, 16)
+        var column = 0
+        // The renderer reads the leading cell's style for a wide glyph; its continuation has no glyph.
+        for (codePoint in history.snapshot().first().text.codePoints().toArray()) {
+            val width = WcWidth.width(codePoint)
+            if (width <= 0) continue
+            val original = source.screen.getStyleAt(0, column)
+            val restored = snapshot.emulator.screen.getStyleAt(0, column)
+            assertEquals(TextStyle.decodeForeColor(original), TextStyle.decodeForeColor(restored))
+            assertEquals(TextStyle.decodeBackColor(original), TextStyle.decodeBackColor(restored))
+            assertEquals("column $column, reverse=${source.isReverseVideo}",
+                TextStyle.decodeEffect(original) xor TextStyle.CHARACTER_ATTRIBUTE_INVERSE, TextStyle.decodeEffect(restored))
+            column += width
+        }
+    }
+
     private fun screen(text: String, columns: Int = 16, rows: Int = 4): TerminalEmulator {
         val output = object : TerminalOutput() {
             override fun write(data: ByteArray, offset: Int, count: Int) = Unit

@@ -18,6 +18,12 @@ flowchart LR
 
 `ssh-core` 是可在 JVM 上独立测试的 Kotlin 模块。Target、Credentials、PinStore、Prompt 和 SshSession 与 Android 无关。mwiede/JSch 负责 SSH 协议与认证，不自制密码学。Bouncy Castle 为 Android 提供现代密钥算法支持，保留 JSch 的算法默认策略，不自动启用 ssh-rsa/SHA-1 等旧算法。
 
+`JschSession` 管理认证、传输、重连与 PTY，保留原有文件操作入口并委托给内部 `SftpOperations`。后者通过回调取得当前活动连接，独立管理短生命周期 SFTP 通道、字面路径、传输、目录操作及清理；不会持有跨重连的旧 SSH 连接。远端文件模型、路径与显示格式函数集中在 `RemoteFiles.kt`。JSch 的通配操作使用转义路径，`realpath` 使用原始路径。
+
+历史记录由 `OutputHistoryLine` 负责冻结物理行、字符和样式，`OutputHistory` 负责帧合并与容量限制。单样式行只保存一个样式值，混合样式行才分配逐列数组；连续相同样式只转换一次。帧重叠使用 KMP 前缀回退进行线性次数的行比较，局部重绘使用索引比较公共前后缀，避免反复复制列表。行列、颜色、折行、宽字符、快照隔离以及 50,000 行 / 2 Mi 字符上限不变；该字符上限不是总堆内存字节上限。
+
+下载队列内部更新单项数据，仅在节流发布或状态转换时复制列表，保证 UI 收到的历史快照不会被后续进度修改。重名分配预留所有原始文件名，并按不区分大小写的名称记录下一候选编号，保持原有扩展名和冲突处理规则。shell 历史的来源选择、截断处理与排序集中在 `ShellHistoryCommands.kt`，通过注入读取函数独立测试，终端连接只负责触发加载及发送输入。
+
 `JschSession.connect` 在 IO dispatcher 执行握手和读取。输出按最多 8192 字节逐段交给挂起回调，回调等待主线程完成解析后才读下一段，因此 UI 慢时不会积压无界输出。所有终端 append、resize、paste、按键生成和绘制均在主线程串行执行。历史上限 50000 行；每个终端有独立的解析器和缓冲区。
 
 输入有界队列容量 64，单次原始写入上限 256 KiB，编辑/粘贴上限 128 KiB。断开关闭队列并清空剩余数据；每次重连创建新的 transport 和终端，不重放旧输入。PTY resize 使用合并队列，只发送最新尺寸，网络写入不阻塞 UI。SSH keepalive 间隔 15 秒，最多 3 次未响应后断开。

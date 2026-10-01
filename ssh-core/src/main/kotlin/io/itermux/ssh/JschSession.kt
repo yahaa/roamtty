@@ -10,90 +10,10 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.io.InputStream
 import java.io.OutputStream
-import java.nio.file.FileAlreadyExistsException
 import java.security.Security
 import java.util.Base64
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
-
-data class RemoteDirectory(val path: String, val entries: List<RemoteEntry>)
-
-/**
- * One SFTP directory entry. Extra metadata fields default so existing callers
- * that only need [name]/[isDirectory] stay source-compatible.
- */
-data class RemoteEntry(
-    val name: String,
-    val isDirectory: Boolean,
-    val size: Long = 0L,
-    /** Unix epoch seconds from SftpATTRS.mTime; 0 when unknown. */
-    val mtimeSeconds: Long = 0L,
-    /** Formatted mode from SftpATTRS.getPermissionsString(), e.g. "-rw-r--r--". */
-    val permissions: String = ""
-)
-
-/** Join an SFTP directory and child name into a single path. */
-fun joinRemotePath(directory: String, name: String): String {
-    if (name.isEmpty()) {
-        val base = directory.trimEnd('/')
-        return if (base.isEmpty()) "/" else "$base/"
-    }
-    val base = directory.trimEnd('/')
-    return if (base.isEmpty()) "/$name" else "$base/$name"
-}
-
-/** Parent of an absolute (or home-relative) remote path; root stays "/". */
-fun parentRemotePath(path: String): String {
-    val trimmed = path.trimEnd('/')
-    if (trimmed.isEmpty() || trimmed == "/") return "/"
-    val parent = trimmed.substringBeforeLast('/', missingDelimiterValue = "")
-    return parent.ifEmpty { "/" }
-}
-
-/** True when [name] is a single path segment safe to delete or rename (not `.`/`..`, no separators). */
-fun isSafeRemoteEntryName(name: String): Boolean =
-    name.isNotEmpty() &&
-        name != "." &&
-        name != ".." &&
-        '/' !in name &&
-        '\\' !in name &&
-        name.none { it == '\u0000' || it == '\n' || it == '\r' }
-
-/**
- * True when [path] is a non-root remote path safe to delete: no blank/control chars,
- * no `.`/`..` segments, and not the filesystem root.
- */
-fun isSafeRemoteDeletePath(path: String): Boolean {
-    if (path.isBlank() || path.length > 4096) return false
-    if (path.any { it == '\u0000' || it == '\n' || it == '\r' }) return false
-    val trimmed = path.trimEnd('/')
-    if (trimmed.isEmpty() || trimmed == "/") return false
-    return trimmed.split('/').none { it == "." || it == ".." }
-}
-
-fun formatRemoteSize(bytes: Long): String = when {
-    bytes < 0L -> ""
-    bytes < 1024L -> "$bytes B"
-    bytes < 1024L * 1024L -> "${bytes / 1024L} KiB"
-    bytes < 1024L * 1024L * 1024L -> String.format(java.util.Locale.US, "%.1f MiB", bytes / (1024.0 * 1024.0))
-    else -> String.format(java.util.Locale.US, "%.1f GiB", bytes / (1024.0 * 1024.0 * 1024.0))
-}
-
-private val remoteMtimeFormatter = ThreadLocal.withInitial {
-    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-        .withZone(java.time.ZoneId.systemDefault())
-}
-
-fun formatRemoteMtime(epochSeconds: Long): String {
-    if (epochSeconds <= 0L) return ""
-    return remoteMtimeFormatter.get().format(java.time.Instant.ofEpochSecond(epochSeconds))
-}
-
-/** Directory-first, case-insensitive name order used by SFTP listings. */
-fun remoteEntryListComparator(): Comparator<RemoteEntry> =
-    compareByDescending<RemoteEntry> { it.isDirectory }
-        .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
 
 /** SSH transport. Blocking socket work is confined to IO; output applies backpressure to the renderer. */
 class JschSession(
@@ -389,205 +309,27 @@ class JschSession(
 
     override suspend fun exitTmuxHistory(): TmuxHistory? = tmuxHistoryController.exit()
 
-    /** A separate SFTP channel shares the authenticated SSH connection without touching the PTY. */
-    suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = withSftp { sftp ->
-        val path = literalSftpPath(validTransferPath(remotePath))
-        if (sftp.exists(path)) {
-            require(!sftp.lstat(path).isDir) { "目标是目录，请选择目录并指定文件名" }
-            throw FileAlreadyExistsException(remotePath)
-        }
-        val directory = remotePath.substringBeforeLast('/', "")
-        val temporary = literalSftpPath((if ('/' in remotePath) "$directory/" else "") + ".itermux-${UUID.randomUUID()}.part")
-        try {
-            sftp.put(source, temporary, transferMonitor(coroutineContext[Job], onProgress))
-            coroutineContext.ensureActive()
-            if (sftp.exists(path)) throw FileAlreadyExistsException(remotePath)
-            sftp.rename(temporary, path)
-        } catch (e: Exception) {
-            runCatching { sftp.rm(temporary) }
-            throw e
-        }
-    }
+    private val files = SftpOperations(
+        connectedSession = {
+            session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
+                ?: throw IllegalStateException("SSH 连接未就绪")
+        },
+        isStopped = stopped::get,
+        connectTimeoutMs = connectTimeoutMs
+    )
 
-    suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}, onSize: (Long) -> Unit = {}) = withSftp { sftp ->
-        val path = literalSftpPath(validTransferPath(remotePath))
-        val attributes = sftp.stat(path)
-        require(!attributes.isDir) { "不能下载文件夹" }
-        onSize(attributes.size)
-        sftp.get(path, destination, transferMonitor(coroutineContext[Job], onProgress))
-        coroutineContext.ensureActive()
-    }
+    suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) =
+        files.upload(remotePath, source, onProgress)
 
-    /**
-     * Read a remote text file (home-relative or absolute) without upload-path overwrite rules.
-     * Returns null if missing. If larger than [maxBytes], keeps only the trailing bytes
-     * (caller should skip the first partial line).
-     */
-    suspend fun readRemoteText(remotePath: String, maxBytes: Int = 512 * 1024): Pair<String, Boolean>? = withSftp { sftp ->
-        require(maxBytes in 1..512 * 1024)
-        require(remotePath.isNotBlank() && remotePath.length <= 4096 &&
-            remotePath.none { it == '\u0000' || it == '\n' || it == '\r' }) {
-            "请输入有效的远端文件路径"
-        }
-        val path = literalSftpPath(remotePath)
-        val attributes = try {
-            sftp.stat(path)
-        } catch (e: SftpException) {
-            if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return@withSftp null else throw e
-        }
-        if (attributes.isDir) return@withSftp null
-        val offset = (attributes.size - maxBytes).coerceAtLeast(0)
-        val out = java.io.ByteArrayOutputStream(maxBytes)
-        // Bound both network reads and allocation even if the file grows after stat.
-        sftp.get(path, transferMonitor(coroutineContext[Job]) {}, offset).use { input ->
-            var remaining = maxBytes
-            val buffer = ByteArray(8192)
-            while (remaining > 0) {
-                coroutineContext.ensureActive()
-                val count = input.read(buffer, 0, minOf(buffer.size, remaining))
-                if (count < 0) break
-                out.write(buffer, 0, count)
-                remaining -= count
-            }
-        }
-        coroutineContext.ensureActive()
-        val bytes = out.toByteArray()
-        String(bytes, Charsets.UTF_8) to (offset > 0)
-    }
+    suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {},
+        onSize: (Long) -> Unit = {}) = files.download(remotePath, destination, onProgress, onSize)
 
-    /** List a remote SFTP directory for the file picker. An empty path opens the SFTP home. */
-    suspend fun listRemoteDirectory(remotePath: String = ""): RemoteDirectory = withSftp { sftp ->
-        val path = if (remotePath.isBlank()) sftp.pwd() else validTransferPath(remotePath)
-        // Collect via selector to avoid an intermediate Vector copy and to honor cancellation
-        // mid-listing (BREAK). Attrs come from LsEntry — no per-entry stat.
-        val entries = ArrayList<RemoteEntry>(256)
-        val job = coroutineContext[Job]
-        sftp.ls(literalSftpPath(path), ChannelSftp.LsEntrySelector { entry ->
-            if (job?.isActive == false) return@LsEntrySelector ChannelSftp.LsEntrySelector.BREAK
-            val name = entry.filename
-            if (name.isNullOrBlank() || name == "." || name == "..") {
-                return@LsEntrySelector ChannelSftp.LsEntrySelector.CONTINUE
-            }
-            val attrs = entry.attrs
-            entries.add(
-                RemoteEntry(
-                    name = name,
-                    isDirectory = attrs.isDir,
-                    size = attrs.size,
-                    mtimeSeconds = attrs.mTime.toLong() and 0xFFFFFFFFL,
-                    permissions = attrs.permissionsString
-                )
-            )
-            ChannelSftp.LsEntrySelector.CONTINUE
-        })
-        coroutineContext.ensureActive()
-        entries.sortWith(remoteEntryListComparator())
-        // Skip realpath RTT when we already have an absolute path (pwd / navigated).
-        // Relative paths still need realpath for a stable breadcrumb.
-        val resolved = if (path.startsWith("/")) path else sftp.realpath(literalSftpPath(path))
-        RemoteDirectory(resolved, entries)
-    }
+    suspend fun readRemoteText(remotePath: String, maxBytes: Int = 512 * 1024): Pair<String, Boolean>? =
+        files.readRemoteText(remotePath, maxBytes)
 
-    /** Rename a remote file or directory. Paths follow the same validation as transfers. */
-    suspend fun rename(oldPath: String, newPath: String) = withSftp { sftp ->
-        val from = literalSftpPath(validTransferPath(oldPath))
-        val to = literalSftpPath(validTransferPath(newPath))
-        sftp.rename(from, to)
-    }
-
-    /**
-     * Delete a remote file or directory. Directories are removed recursively
-     * (contents first, then rmdir). Empty directories are removed directly.
-     * Refuses `.`/`..`/root/unsafe paths. On partial failure, aborts with a clear error.
-     */
-    suspend fun deleteFile(path: String) = withSftp { sftp ->
-        require(isSafeRemoteDeletePath(path)) { "无效的删除路径" }
-        deleteRemoteRecursive(sftp, validTransferPath(path))
-    }
-
-    private suspend fun deleteRemoteRecursive(sftp: ChannelSftp, path: String) {
-        coroutineContext.ensureActive()
-        val remote = literalSftpPath(path)
-        val attrs = try {
-            sftp.lstat(remote)
-        } catch (e: SftpException) {
-            throw IllegalStateException("无法删除：$path（${e.message}）", e)
-        }
-        if (attrs.isDir) {
-            @Suppress("UNCHECKED_CAST")
-            val listing = try {
-                sftp.ls(remote) as java.util.Vector<ChannelSftp.LsEntry>
-            } catch (e: SftpException) {
-                throw IllegalStateException("无法列出目录：$path（${e.message}）", e)
-            }
-            for (item in listing) {
-                val name = item.filename ?: continue
-                if (name.isEmpty() || name == "." || name == "..") continue
-                if (!isSafeRemoteEntryName(name)) {
-                    throw IllegalArgumentException("目录含有不安全的名称，已中止删除：$name")
-                }
-                val child = joinRemotePath(path, name)
-                deleteRemoteRecursive(sftp, child)
-            }
-            try {
-                coroutineContext.ensureActive()
-                sftp.rmdir(remote)
-            } catch (e: SftpException) {
-                throw IllegalStateException("无法删除目录：$path（${e.message}）", e)
-            }
-        } else {
-            try {
-                coroutineContext.ensureActive()
-                sftp.rm(remote)
-            } catch (e: SftpException) {
-                throw IllegalStateException("无法删除文件：$path（${e.message}）", e)
-            }
-        }
-    }
-
-    private suspend fun <T> withSftp(block: suspend (ChannelSftp) -> T): T = withContext(Dispatchers.IO) {
-        val ssh = session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
-            ?: throw IllegalStateException("SSH 连接未就绪")
-        val sftp = ssh.openChannel("sftp") as ChannelSftp
-        try {
-            sftp.connect(connectTimeoutMs)
-            coroutineContext.ensureActive()
-            block(sftp)
-        } finally {
-            sftp.disconnect()
-        }
-    }
-
-    private fun transferMonitor(job: Job?, onProgress: (Long) -> Unit): SftpProgressMonitor = object : SftpProgressMonitor {
-        private var transferred = 0L
-        override fun init(op: Int, src: String?, dest: String?, max: Long) = Unit
-        override fun count(count: Long): Boolean {
-            transferred += count
-            onProgress(transferred)
-            return !stopped.get() && job?.isActive != false
-        }
-        override fun end() = Unit
-    }
-
-    private fun validTransferPath(path: String): String {
-        require(path.isNotBlank() && path.length <= 4096 && path.none { it == '\u0000' || it == '\n' || it == '\r' }) { "请输入有效的远端文件路径" }
-        return path
-    }
-
-    // JSch's high-level operations interpret glob patterns; realpath alone takes a raw path.
-    private fun literalSftpPath(path: String): String = buildString {
-        path.forEach { char ->
-            if (char == '\\' || char == '*' || char == '?') append('\\')
-            append(char)
-        }
-    }
-
-    private fun ChannelSftp.exists(path: String): Boolean = try {
-        lstat(path)
-        true
-    } catch (e: SftpException) {
-        if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) false else throw e
-    }
+    suspend fun listRemoteDirectory(remotePath: String = ""): RemoteDirectory = files.listRemoteDirectory(remotePath)
+    suspend fun rename(oldPath: String, newPath: String) = files.rename(oldPath, newPath)
+    suspend fun deleteFile(path: String) = files.deleteFile(path)
 
     private suspend fun runTmux(command: String): String? = withContext(Dispatchers.IO) {
         val ssh = session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
