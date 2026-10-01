@@ -50,6 +50,7 @@ import io.itermux.app.session.*
 import io.itermux.app.R
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -63,6 +64,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     BackHandler(showingOutput) { session.exitTmuxHistory() }
     val sessionTitle by session.title.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val inputScope = rememberCoroutineScope()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val prefs = remember { context.getSharedPreferences("terminal-settings", Context.MODE_PRIVATE) }
     var fontSize by rememberSaveable { mutableIntStateOf(prefs.getInt("fontSize", 13)) }
@@ -118,15 +120,33 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         terminal?.clearFocus()
         keyboard.hide()
     }
+    fun sendPaste(text: String) {
+        inputScope.launch {
+            terminal?.scrollToBottom()
+            session.pasteIntoLiveTerminal(text)
+        }
+    }
     fun paste(text: String) {
         if ((text.contains('\n') || text.contains('\r')) && !session.getEmulator().isBracketedPasteEnabled) confirmPaste = text
-        else { terminal?.scrollToBottom(); session.paste(text) }
+        else sendPaste(text)
     }
     fun showClipboard() {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.let {
             // Stage clipboard content in the editor; reading clipboard requires a user gesture.
             updateDraft(insertDraftText(draft, it, 128 * 1024)); editor = true; hideKeyboard()
+        }
+    }
+    // AndroidView can outlive a recomposition/reconnection. Always paste into the current session.
+    val pasteClipboard by rememberUpdatedState {
+        if (session.state.value.phase == Phase.CONNECTED) {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+                ?.takeIf { it.isNotEmpty() }?.let { text ->
+                    ctrlArmed = false
+                    shiftArmed = false
+                    paste(text)
+                }
         }
     }
     DisposableEffect(session) {
@@ -140,7 +160,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     LaunchedEffect(session.id) { hideKeyboard() }
     LaunchedEffect(showingOutput) { if (showingOutput) { editor = false; hideKeyboard() } }
     LaunchedEffect(state.phase) {
-        if (state.phase != Phase.CONNECTED) { ctrlArmed = false; shiftArmed = false }
+        if (state.phase != Phase.CONNECTED) { ctrlArmed = false; shiftArmed = false; confirmPaste = null }
         else session.inputWarning.value = null
     }
     // Opening the arrow menu can hide the IME. Keep Shift armed until the arrow is sent.
@@ -283,14 +303,13 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         val workspaceHeight = maxHeight
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                if (state.phase != Phase.CONNECTED) {
+                if (!state.active) {
                     Column(Modifier.fillMaxWidth().heightIn(max = if (landscape) 120.dp else 224.dp).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp)) {
-                        Text(tr(state.message).ifBlank { when (state.phase) { Phase.VERIFYING -> tr("等待核对主机指纹"); Phase.AUTHENTICATING -> tr("正在进行 SSH 认证"); else -> trf("正在连接 %s…", session.host.address) } }, fontSize = 13.sp)
+                        Text(tr(state.message).ifBlank { phaseLabel(state.phase) }, fontSize = 13.sp)
                         if (state.phase == Phase.HOST_KEY_CHANGED) {
                             SelectionContainer { Text(trf("原指纹：%s\n新指纹：%s", state.oldFingerprint.orEmpty(), state.newFingerprint.orEmpty()), fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)) }
                             TextButton(onClick = onReverify) { Text(tr("重新核验…")) }
-                        } else if (state.active) TextButton(onClick = { session.disconnect() }) { Text(tr("取消连接")) }
-                        else Row {
+                        } else Row {
                             TextButton(onClick = onReconnect) { Text(tr("手动重连")) }
                             if (state.phase == Phase.TMUX_MISSING) TextButton(onClick = onShell) { Text(tr("改用普通 SSH")) }
                         }
@@ -306,7 +325,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         setTerminalViewClient(MobileTerminalClient(this,
                             onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
-                            shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false }))
+                            shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
+                            onDoubleTap = { pasteClipboard() }))
                         attachSession(session)
                         setRemoteHistory(0, 0, null)
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
@@ -329,6 +349,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
                 if (showingOutput) OutputHistoryView(recordedOutput, fontSize, lightTheme)
+                TerminalConnectionProgress(state.phase, onCancel = session::disconnect,
+                    modifier = Modifier.align(Alignment.Center))
                 }
                 warning?.let { message -> Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                     Text(tr(message), color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -390,6 +412,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         terminal?.scrollToBottom()
         session.executeHistoryCommand(command)
     }, onDismiss = { commonCommandsOpen = false })
-    confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text(tr("发送多行文本？")) }, text = { Text(tr("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。")) }, confirmButton = { TextButton(onClick = { session.paste(text); confirmPaste = null }) { Text(tr("发送")) } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text(tr("取消")) } }) }
+    confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text(tr("发送多行文本？")) }, text = { Text(tr("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。")) }, confirmButton = { TextButton(onClick = { sendPaste(text); confirmPaste = null }, enabled = state.phase == Phase.CONNECTED) { Text(tr("发送")) } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text(tr("取消")) } }) }
     if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text(tr("关闭此连接？")) }, text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")) }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text(tr("关闭连接")) } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text(tr("取消")) } })
 }
