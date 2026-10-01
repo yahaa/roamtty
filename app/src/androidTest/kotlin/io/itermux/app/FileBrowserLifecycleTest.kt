@@ -33,12 +33,20 @@ class FileBrowserLifecycleTest {
         val prompts = launch { session.pending.collect { it?.answer?.complete(listOf("trust")) } }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
+            withContext(Dispatchers.Main) { session.rename("File browser task") }
             compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription(trf("主机选项：%s", host.name)).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithContentDescription(trf("主机选项：%s", host.name)).performClick()
             compose.onNodeWithTag("host-browse-files-${host.id}").performClick()
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("files-entry-phone-a").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("files-host-title").assertTextEquals(host.name)
+            compose.onNodeWithTag("files-breadcrumb").assertTextEquals("/")
+            compose.onNodeWithText(tr("服务器文件")).assertDoesNotExist()
+            compose.onNode(hasText("File browser task", substring = true) and
+                hasAnyAncestor(hasTestTag("remote-file-browser"))).assertDoesNotExist()
             compose.onNodeWithTag("files-entry-phone-a").performClick()
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("files-entry-design-notes.md").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("files-host-title").assertTextEquals(host.name)
+            compose.onNodeWithTag("files-breadcrumb").assertTextEquals("/phone-a")
             compose.onNodeWithTag("files-row-menu-design-notes.md").performClick()
             compose.onNodeWithTag("files-action-rename").performClick()
             compose.onNodeWithTag("files-rename-input").performTextReplacement("Revised notes.md")

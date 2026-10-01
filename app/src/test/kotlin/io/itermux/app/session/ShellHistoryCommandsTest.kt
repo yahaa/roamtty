@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShellHistoryCommandsTest {
-    @Test fun bashSkipsBlankAndRanksByFrequencyThenRecency() {
+    @Test fun bashRanksByLastUseRegardlessOfFrequency() {
         val raw = """
             ls
             git status
@@ -16,11 +16,11 @@ class ShellHistoryCommandsTest {
             echo hi
 
         """.trimIndent()
-        val ranked = ShellHistoryCommands.rankByFrequencyThenRecency(
+        val ranked = ShellHistoryCommands.rankByRecency(
             ShellHistoryCommands.extractCommands(raw, zshStyle = false),
             limit = 10
         )
-        assertEquals(listOf("git status", "ls", "echo hi", "pwd"), ranked)
+        assertEquals(listOf("echo hi", "git status", "pwd", "ls"), ranked)
     }
 
     @Test fun zshExtendedHistoryExtractsCommands() {
@@ -32,17 +32,17 @@ class ShellHistoryCommandsTest {
         """.trimIndent()
         val commands = ShellHistoryCommands.extractCommands(raw, zshStyle = true)
         assertEquals(listOf("cd /tmp", "ls -la", "plain leftover", "cd /tmp"), commands)
-        // frequency first; recency tie-break (plain leftover later than ls -la)
+        // The last occurrence of each command determines its position.
         assertEquals(listOf("cd /tmp", "plain leftover", "ls -la"),
-            ShellHistoryCommands.rankByFrequencyThenRecency(commands))
+            ShellHistoryCommands.rankByRecency(commands))
     }
 
     @Test fun skipsOverlongLinesAndRespectsLimit() {
         val long = "x".repeat(ShellHistoryCommands.MAX_COMMAND_LENGTH + 1)
         val commands = ShellHistoryCommands.extractCommands("ok\n$long\nok\n", zshStyle = false)
         assertEquals(listOf("ok", "ok"), commands)
-        // a freq=2; among freq=1, c is more recent than b
-        assertEquals(listOf("a", "c"), ShellHistoryCommands.rankByFrequencyThenRecency(
+        // Duplicates are removed before applying the limit.
+        assertEquals(listOf("a", "c"), ShellHistoryCommands.rankByRecency(
             listOf("a", "b", "c", "a"), limit = 2
         ))
     }
@@ -64,4 +64,24 @@ class ShellHistoryCommandsTest {
         )
         assertEquals(listOf("full one", "full two"), commands)
     }
+    @Test fun bashTimestampsAreNotExecutableShortcuts() {
+        assertEquals(listOf("pwd", "ls"), ShellHistoryCommands.extractCommands("#1700000000\npwd\n#1700000001\nls", false))
+    }
+
+    @Test fun recentSelectionStaysFirstAcrossHistoryRefreshWithoutDuplicates() {
+        assertEquals(listOf("ls", "pwd", "git status"),
+            ShellHistoryCommands.mergeRecent(listOf("ls", "pwd"), listOf("git status", "ls", "pwd")))
+        assertEquals(emptyList<String>(), ShellHistoryCommands.rankByRecency(listOf("ls"), 0))
+    }
+
+    @Test fun executionAppendsEnterOutsideBracketedPaste() {
+        assertEquals("git status\r", ShellHistoryCommands.executionInput("git status", false))
+        assertEquals("\u001b[200~git status\u001b[201~\r", ShellHistoryCommands.executionInput("git status", true))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun executionRejectsEmbeddedTerminalControlSequences() {
+        ShellHistoryCommands.executionInput("ls\u001b[201~", true)
+    }
+
 }

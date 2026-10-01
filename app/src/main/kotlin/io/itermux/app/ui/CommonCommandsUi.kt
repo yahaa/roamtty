@@ -40,7 +40,7 @@ internal fun CommonCommandsContent(history: CommonCommandsState, connected: Bool
     AppSheet(onDismiss) {
         LazyColumn(Modifier.fillMaxSize().testTag("common-commands-list"),
             contentPadding = PaddingValues(bottom = 24.dp)) {
-            item(key = "header") { SheetHeader(tr("常用命令"), tr("点选后放入编辑区，确认后再发送。"), onDismiss) }
+            item(key = "header") { SheetHeader(tr("常用命令"), tr("最近使用在前，点选后立即执行。"), onDismiss) }
             item(key = "search") {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(query, { query = it }, singleLine = true,

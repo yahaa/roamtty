@@ -82,16 +82,20 @@ internal class TmuxHistoryCoordinator(
 
     fun exit() {
         if (!enabled) return
+        scope.launch { exitAndAwait() }
+    }
+
+    suspend fun exitAndAwait(): Boolean {
+        if (!enabled) return true
         val generation = ++requestGeneration
         requested = false
         positionPending = false
         poller?.cancel()
-        scope.launch {
-            val result = ssh.exitTmuxHistory()
-            if (generation != requestGeneration) return@launch
-            if (result == null) warn(tr("无法返回 tmux 实时画面，请检查远端会话。"))
-            else history.value = null
-        }
+        val result = ssh.exitTmuxHistory()
+        if (generation != requestGeneration) return false
+        if (result == null) warn(tr("无法返回 tmux 实时画面，请检查远端会话。"))
+        else history.value = null
+        return result != null
     }
 
     fun onConnectionEnded() {

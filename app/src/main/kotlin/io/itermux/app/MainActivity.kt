@@ -26,6 +26,13 @@ class MainActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 31) {
+            // Dismiss as soon as the first frame is ready; never wait for the icon loop.
+            splashScreen.setOnExitAnimationListener { splash ->
+                splash.animate().alpha(0f).setDuration(140L)
+                    .withEndAction { splash.remove() }.start()
+            }
+        }
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 28) {
             window.attributes = window.attributes.apply {

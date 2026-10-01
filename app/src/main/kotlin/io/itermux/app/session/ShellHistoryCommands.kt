@@ -3,7 +3,7 @@ package io.itermux.app.session
 /**
  * Pure helpers for shell history → ranked common-command shortcuts.
  *
- * Ranking: frequency descending, then most-recent occurrence (higher file index) as tie-break.
+ * Ranking: most-recent occurrence first, with duplicate commands removed.
  */
 object ShellHistoryCommands {
     const val DEFAULT_LIMIT = 200
@@ -24,27 +24,25 @@ object ShellHistoryCommands {
                 trimmed
             }.trim()
             if (command.isBlank() || command.length > MAX_COMMAND_LENGTH) continue
+            if (!zshStyle && command.matches(Regex("^#\\d+$"))) continue
+            if (command.any { it.isISOControl() && it != '\t' }) continue
             out.add(command)
         }
         return out
     }
 
-    /** Frequency primary; recency (later in history file) breaks ties. */
-    fun rankByFrequencyThenRecency(commands: List<String>, limit: Int = DEFAULT_LIMIT): List<String> {
-        data class Acc(var count: Int = 0, var lastIndex: Int = 0)
-        val map = LinkedHashMap<String, Acc>()
-        commands.forEachIndexed { index, command ->
-            val acc = map.getOrPut(command) { Acc() }
-            acc.count++
-            acc.lastIndex = index
-        }
-        return map.entries
-            .sortedWith(
-                compareByDescending<Map.Entry<String, Acc>> { it.value.count }
-                    .thenByDescending { it.value.lastIndex }
-            )
-            .take(limit.coerceAtLeast(0))
-            .map { it.key }
+    fun rankByRecency(commands: List<String>, limit: Int = DEFAULT_LIMIT): List<String> =
+        commands.asReversed().distinct().take(limit.coerceAtLeast(0))
+
+    /** Local selections precede disk history, which shells may only flush on exit. */
+    fun mergeRecent(recent: List<String>, saved: List<String>): List<String> =
+        (recent + saved).distinct().take(DEFAULT_LIMIT)
+
+    /** Submit Enter outside the paste delimiters, in the same SSH queue entry. */
+    fun executionInput(command: String, bracketed: Boolean): String {
+        require(command.isNotBlank() && command.length <= MAX_COMMAND_LENGTH)
+        require(command.none { it.isISOControl() && it != '\t' })
+        return (if (bracketed) "\u001b[200~$command\u001b[201~" else command) + "\r"
     }
 
     /** Case-insensitive contains, then subsequence fuzzy match. Empty query keeps all. */

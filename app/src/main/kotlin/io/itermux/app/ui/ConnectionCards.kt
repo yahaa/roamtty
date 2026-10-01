@@ -90,10 +90,8 @@ import io.itermux.ssh.SessionMode
             Row(verticalAlignment = Alignment.CenterVertically) {
                 HostSystemIcon(session.host.os)
                 Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                    Text(title.ifBlank { session.defaultTitle }, fontWeight = FontWeight.SemiBold, fontSize = 18.sp,
+                    Text(session.titleForDisplay(title), fontWeight = FontWeight.SemiBold, fontSize = 18.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (title.isNotBlank()) Text(session.host.name, color = colors.onSurfaceVariant,
-                        fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("${session.host.username}@${session.host.address}:${session.host.port}",
                         color = colors.onSurfaceVariant, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -126,9 +124,9 @@ import io.itermux.ssh.SessionMode
     fun finish() { focusManager.clearFocus(force = true); keyboardController?.hide(); onDismiss() }
     AlertDialog(onDismissRequest = ::finish, title = { Text(tr("修改会话标题")) },
         text = { Column {
-            Text(tr("用标题标记这个会话正在处理的任务。留空则显示主机名。"))
+            Text(tr("主机名与会话标题在同一行显示。标题留空则显示会话编号。"))
             OutlinedTextField(title, { title = clipSessionTitle(it) }, label = { Text(tr("会话标题")) },
-                placeholder = { Text(session.host.name) }, singleLine = true,
+                placeholder = { Text(session.defaultTitle) }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("session-title-input"))
         } },
         confirmButton = { TextButton(onClick = { session.rename(title); finish() }) { Text(tr("保存")) } },

@@ -66,9 +66,9 @@ internal fun ItermuxDrawer(
                     val title by session.title.collectAsStateWithLifecycle()
                     val state by session.state.collectAsStateWithLifecycle()
                     NavigationDrawerItem(label = { Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(title.ifBlank { session.defaultTitle }, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        Text(session.titleForDisplay(title), maxLines = 1, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                        Text(if (title.isBlank()) "${session.host.username}@${session.host.address}" else session.host.name,
+                        Text("${session.host.username}@${session.host.address}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)

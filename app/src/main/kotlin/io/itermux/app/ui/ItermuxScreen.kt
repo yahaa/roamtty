@@ -34,6 +34,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,7 +65,9 @@ fun ItermuxScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val imeVisible = WindowInsets.isImeVisible
     val scope = rememberCoroutineScope()
-    val hosts by app.database.hosts().observe().collectAsStateWithLifecycle(emptyList())
+    val hostFlow = remember(app) { app.database.hosts().observe() }
+    val loadedHosts by hostFlow.collectAsStateWithLifecycle(initialValue = null)
+    val hosts = loadedHosts.orEmpty()
     val sessionFlow = remember(service) { service?.sessions ?: MutableStateFlow(emptyList()) }
     val sessions by sessionFlow.collectAsStateWithLifecycle()
     var page by rememberSaveable { mutableStateOf("hosts") }
@@ -208,6 +211,10 @@ fun ItermuxScreen(
     }
     LaunchedEffect(searchExpanded, page) { if (searchExpanded && navigationVisible) searchFocus.requestFocus() }
     MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors) {
+        if (loadedHosts == null) {
+            StartupLoading()
+            return@MaterialTheme
+        }
         val colors = MaterialTheme.colorScheme
         ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files",
             drawerContent = {
@@ -241,7 +248,6 @@ fun ItermuxScreen(
                         Text(if (page == "hosts") {
                             if (search.isBlank()) tr("已保存的主机") else tr("搜索结果")
                         } else if (page == "sessions") tr("会话列表")
-                        else if (page == "files") tr("服务器文件")
                         else tr("设置"),
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(start = 16.dp), maxLines = 1)
@@ -251,7 +257,7 @@ fun ItermuxScreen(
                         NavigationTabs(page, hosts.size, sessions.size) { page = it }
                     }
                     if (navigationVisible) {
-                        IconButton(onClick = {
+                        AppSearchToggle(searchExpanded, onToggle = {
                             if (searchExpanded) {
                                 search = ""
                                 sessionSearch = ""
@@ -259,12 +265,8 @@ fun ItermuxScreen(
                                 keyboardController?.hide()
                             }
                             searchExpanded = !searchExpanded
-                        }, modifier = Modifier.testTag("search-toggle")) {
-                            if (searchExpanded) Text("×", fontSize = 26.sp,
-                                modifier = Modifier.semantics { contentDescription = tr("收起搜索") })
-                            else Icon(painterResource(R.drawable.ic_search),
-                                contentDescription = if (page == "hosts") tr("搜索主机") else tr("搜索会话"))
-                        }
+                        }, searchDescription = if (page == "hosts") tr("搜索主机") else tr("搜索会话"),
+                            modifier = Modifier.testTag("search-toggle"))
                         if (page == "hosts" && landscape) FilledTonalButton(onClick = { editHostId = null; editorOpen = true },
                             modifier = Modifier.padding(start = 4.dp).heightIn(min = 48.dp),
                             contentPadding = PaddingValues(horizontal = 14.dp)) { Text(tr("＋ 主机")) }
@@ -285,19 +287,16 @@ fun ItermuxScreen(
                                 modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { Text(tr("＋ 主机")) }
                         }
                         if (searchExpanded) {
-                            OutlinedTextField(search, { search = it }, placeholder = { Text(tr("名称、地址或用户名")) },
-                                leadingIcon = { Text("⌕", fontSize = 23.sp) },
-                                trailingIcon = { if (search.isNotEmpty()) TextButton(onClick = { search = "" }) { Text(tr("清除")) } },
-                                singleLine = true, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
-                                    .focusRequester(searchFocus).testTag("host-search"),
-                                shape = RoundedCornerShape(14.dp))
+                            AppSearchField(search, { search = it }, tr("名称、地址或用户名"),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                                    .focusRequester(searchFocus).testTag("host-search"))
                         }
                         val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
                         if (filtered.isEmpty()) {
                             Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                                 if (hosts.isEmpty()) Icon(painterResource(R.drawable.ic_terminal), contentDescription = "iTermux",
-                                    tint = Color.Unspecified, modifier = Modifier.size(76.dp).testTag("empty-logo"))
-                                Spacer(Modifier.height(18.dp))
+                                    tint = Color.Unspecified, modifier = Modifier.size(48.dp).testTag("empty-logo"))
+                                Spacer(Modifier.height(12.dp))
                                 Text(if (hosts.isEmpty()) tr("从第一台主机开始") else tr("没有匹配的主机"), fontSize = 20.sp)
                                 Text(if (hosts.isEmpty()) tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。") else tr("试试其他名称或地址"), color = colors.onSurfaceVariant, modifier = Modifier.padding(16.dp), lineHeight = 23.sp)
                             }
@@ -406,7 +405,8 @@ fun ItermuxScreen(
                         }, enabled = state.phase == Phase.CONNECTED,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("share-session-${session.id}")) {
                             Column(Modifier.fillMaxWidth().padding(8.dp)) {
-                                Text(title.ifBlank { session.defaultTitle }, style = MaterialTheme.typography.bodyLarge)
+                                Text(session.titleForDisplay(title), style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("${session.host.username}@${session.host.address}:${session.host.port}",
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }

@@ -8,6 +8,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TmuxHistoryControllerTest {
+    @Test fun fullScreenCodexUsesItsTranscriptInsteadOfEmptyCopyMode() = runBlocking {
+        val commands = mutableListOf<String>()
+        val history = TmuxHistoryController("itermux-test") { command ->
+            commands += command
+            when {
+                command.startsWith("ps ") -> "42 42 node\n42 42 codex\n"
+                command.contains("display-message") -> "0::0:40:1"
+                else -> ""
+            }
+        }
+        assertEquals(HistorySource.CODEX, history.enter()?.source)
+        history.enter() // Do not toggle the transcript closed on a repeated request.
+        history.moveTo(200)
+        assertTrue(requireNotNull(history.history()).active)
+        assertEquals(1, commands.count { it.endsWith(" C-t") })
+        assertFalse(commands.any { it.contains("copy-mode") || it.contains(" -X ") })
+        assertFalse(requireNotNull(history.exit()).active)
+        assertTrue(commands.any { it.endsWith(" Escape") })
+    }
+
+    @Test fun backgroundCodexDoesNotStealOtherProgramsHistoryKeys() = runBlocking {
+        val commands = mutableListOf<String>()
+        val history = TmuxHistoryController("itermux-test") { command ->
+            commands += command
+            when {
+                command.startsWith("ps ") -> "42 11 codex\n42 42 grok\n"
+                command.contains("display-message") -> "0::1:40:1"
+                else -> ""
+            }
+        }
+        assertEquals(HistorySource.APPLICATION, history.enter()?.source)
+        assertTrue(commands.indexOfFirst { it.endsWith(" -X cancel") } < commands.indexOfFirst { it.endsWith(" PPage") })
+        assertFalse(commands.any { it.endsWith(" C-t") || it.contains("copy-mode") })
+    }
+
     @Test fun historyCanMoveAcrossLargeRangesAndReturnToLivePane() = runBlocking {
         val remote = FakeTmux()
         val history = TmuxHistoryController(Tmux.LEGACY_SESSION, remote::execute)
@@ -36,7 +71,7 @@ class TmuxHistoryControllerTest {
         val commands = mutableListOf<String>()
         val history = TmuxHistoryController("itermux-custom1") { command ->
             commands += command
-            if (command.contains("display-message")) "10:0:0:24" else ""
+            if (command.contains("display-message")) "10:0:0:24:0" else ""
         }
         assertEquals(TmuxHistory(10, 0, false, 24), history.history())
         history.enter()
@@ -51,7 +86,7 @@ class TmuxHistoryControllerTest {
 
         suspend fun execute(command: String): String? {
             commands += command
-            if (command.contains("display-message")) return "120:${if (active) position else ""}:${if (active) 1 else 0}:24"
+            if (command.contains("display-message")) return "120:${if (active) position else ""}:${if (active) 1 else 0}:24:0"
             if (command.contains("copy-mode")) {
                 active = true
                 return ""

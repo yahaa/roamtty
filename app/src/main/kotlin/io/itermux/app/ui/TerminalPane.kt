@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -154,7 +155,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             }
         }, sessionControl = { sessionModifier ->
             Box(sessionModifier) {
-                TextButton(onClick = { hideKeyboard(); sessionMenu = true }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = trf("切换会话：%s", sessionTitle.ifBlank { session.defaultTitle }) }.testTag("session-switcher"), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                TextButton(onClick = { hideKeyboard(); sessionMenu = true }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = trf("切换会话：%s", session.titleForDisplay(sessionTitle)) }.testTag("session-switcher"), contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Text("●", color = if (state.phase == Phase.CONNECTED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, fontSize = 9.sp)
                     Spacer(Modifier.width(6.dp))
                     Text("▤", fontSize = 18.sp)
@@ -172,14 +173,15 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     sessions.forEach { other ->
                         val otherState by other.state.collectAsStateWithLifecycle()
                         val otherTitle by other.title.collectAsStateWithLifecycle()
-                        DropdownMenuItem(text = { Text("${if (other.id == session.id) "✓ " else ""}${otherTitle.ifBlank { other.defaultTitle }} · ${phaseLabel(otherState.phase)}") }, onClick = { sessionMenu = false; onSelectSession(other.id) })
+                        DropdownMenuItem(text = { Text("${if (other.id == session.id) "✓ " else ""}${other.titleForDisplay(otherTitle)} · ${phaseLabel(otherState.phase)}",
+                            maxLines = 1, overflow = TextOverflow.Ellipsis) }, onClick = { sessionMenu = false; onSelectSession(other.id) })
                     }
                 }
             }
         }, primaryControls = {
             if (session.mode == SessionMode.TMUX) {
                 InputControlButton(if (tmuxHistory?.active == true) tr("实时") else tr("历史"),
-                    if (tmuxHistory?.active == true) tr("返回 tmux 实时画面") else tr("浏览 tmux 历史"),
+                    if (tmuxHistory?.active == true) tr("返回实时画面") else tr("浏览历史记录"),
                     "tmux-history", enabled = state.phase == Phase.CONNECTED,
                     onClick = { if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
             }
@@ -200,7 +202,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 DropdownMenu(fileMenu, { fileMenu = false }) {
                     DropdownMenuItem(text = { Text(tr("上传文件")) }, onClick = { fileMenu = false; fileAction = FileAction.UPLOAD })
                     DropdownMenuItem(
-                        text = { Text(tr("选择图片")) },
+                        text = { Text(tr("插入图片")) },
                         onClick = { fileMenu = false; fileAction = FileAction.SELECT_IMAGE },
                         modifier = Modifier.testTag("select-image")
                     )
@@ -218,7 +220,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 IconButton(onClick = { ctrlArmed = false; shiftArmed = false; menu = true }, modifier = Modifier.semantics { contentDescription = tr("终端菜单") }.testTag("terminal-menu")) { Text("⋯", fontSize = 26.sp) }
                 DropdownMenu(menu, { menu = false }) {
                     if (session.mode == SessionMode.TMUX) DropdownMenuItem(
-                        text = { Text(if (tmuxHistory?.active == true) tr("返回 tmux 实时画面") else tr("浏览 tmux 历史")) },
+                        text = { Text(if (tmuxHistory?.active == true) tr("返回实时画面") else tr("浏览历史记录")) },
                         onClick = { menu = false; if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
                     DropdownMenuItem(text = { Text(tr("编辑文本")) }, onClick = { menu = false; editor = true; hideKeyboard() })
                     DropdownMenuItem(text = { Text(if (dockPinned) tr("取消固定操作栏") else tr("固定操作栏")) }, onClick = {
@@ -317,7 +319,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     view.setTextSize((fontSize * view.resources.displayMetrics.scaledDensity).toInt())
                     view.setTypeface(TerminalFonts.resolveTypeface(view.context))
                     checkNotNull(terminalFontKey)
-                    val history = tmuxHistory?.takeIf { it.active }
+                    val activeHistory = tmuxHistory?.takeIf { it.active }
+                    val history = activeHistory?.takeIf { it.source == io.itermux.ssh.HistorySource.TMUX }
+                    view.setApplicationHistory(activeHistory != null && history == null)
                     view.setRemoteHistory(history?.rows ?: 0, history?.position ?: 0,
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
@@ -372,13 +376,14 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     pending?.let { request -> PromptDialog(request) }
     if (editSessionTitle) SessionTitleDialog(session) { editSessionTitle = false }
     FileTransferUi(session, fileAction, onInsertPath = { path ->
-        updateDraft(insertDraftText(draft, path, 128 * 1024)); editor = true; hideKeyboard()
+        updateDraft(insertDraftText(draft, io.itermux.app.session.CodexImageAttach.pathForPaste(path), 128 * 1024)); editor = true; hideKeyboard()
     }) { fileAction = null }
     if (commonCommandsOpen) CommonCommandsSheet(session, onSelect = { command ->
-        updateDraft(insertDraftText(draft, command, 128 * 1024))
         commonCommandsOpen = false
-        editor = true
+        editor = false
         hideKeyboard()
+        terminal?.scrollToBottom()
+        session.executeHistoryCommand(command)
     }, onDismiss = { commonCommandsOpen = false })
     confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text(tr("发送多行文本？")) }, text = { Text(tr("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。")) }, confirmButton = { TextButton(onClick = { session.paste(text); confirmPaste = null }) { Text(tr("发送")) } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text(tr("取消")) } }) }
     if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text(tr("关闭此连接？")) }, text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，可稍后重连。") else tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")) }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text(tr("关闭连接")) } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text(tr("取消")) } })

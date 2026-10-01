@@ -39,13 +39,14 @@ class TerminalConnection(
     private val mutableTitle = MutableStateFlow(initialTitle)
     val title = mutableTitle.asStateFlow()
     val defaultTitle: String get() = trf("%s · 会话 %d", host.name, sessionNumber)
-    val displayTitle: String get() = title.value.ifBlank { defaultTitle }
+    val displayTitle: String get() = titleForDisplay(title.value)
+    fun titleForDisplay(title: String): String = if (title.isBlank()) defaultTitle else "${host.name} · $title"
     fun rename(title: String) { mutableTitle.value = clipSessionTitle(title.trim()); onRename() }
     var draft: String = "" // Memory only; terminal text and prompt drafts are never saved to disk.
     var onScreenChanged: (() -> Unit)? = null
     var copyToClipboard: ((String) -> Unit)? = null
     var pasteFromClipboard: (() -> Unit)? = null
-    private val parser = TerminalEmulator(this, 80, 24, 8, 16, 5000, SilentTerminalClient())
+    private val parser = TerminalEmulator(this, 80, 24, 8, 16, 50000, SilentTerminalClient())
     private val ssh = JschSession(
         host.target(mode),
         credentials ?: Credentials(),
@@ -64,6 +65,8 @@ class TerminalConnection(
     private val mutableCommonCommands = MutableStateFlow<CommonCommandsState>(CommonCommandsState.Idle)
     val commonCommands = mutableCommonCommands.asStateFlow()
     private var commonCommandsJob: Job? = null
+    private var recentCommands = emptyList<String>()
+    private var savedCommands: CommonCommandsState = CommonCommandsState.Idle
     private val job = if (credentials == null) null else scope.launch {
         try {
             ssh.connect { bytes ->
@@ -107,6 +110,15 @@ class TerminalConnection(
     fun enterTmuxHistory() = tmux.enter()
     fun moveTmuxHistoryTo(position: Int) = tmux.moveTo(position)
     fun exitTmuxHistory() = tmux.exit()
+    /** Explicit image insertion must not be lost to copy-mode or a disappearing CLI banner. */
+    suspend fun insertImagePath(path: String) {
+        if (!tmux.exitAndAwait()) throw java.io.IOException(tr("无法返回 tmux 实时画面，请检查远端会话。"))
+        val text = CodexImageAttach.pathForPaste(path)
+        val input = if (parser.isBracketedPasteEnabled) "\u001b[200~$text\u001b[201~" else text
+        if (!ssh.write(input.toByteArray(Charsets.UTF_8))) {
+            throw java.io.IOException(tr("未发送：连接未就绪或输入队列已满。"))
+        }
+    }
     suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = ssh.upload(remotePath, source, onProgress)
     suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}, onSize: (Long) -> Unit = {}) = ssh.download(remotePath, destination, onProgress, onSize)
     suspend fun listRemoteDirectory(remotePath: String = "") = ssh.listRemoteDirectory(remotePath)
@@ -119,13 +131,33 @@ class TerminalConnection(
         commonCommandsJob = scope.launch {
             mutableCommonCommands.value = CommonCommandsState.Loading
             try {
-                mutableCommonCommands.value = withContext(Dispatchers.IO) { loadCommonCommands() }
+                savedCommands = withContext(Dispatchers.IO) { loadCommonCommands() }
+                publishCommonCommands()
             } catch (_: CancellationException) {
                 // superseded refresh or disconnect
             } catch (_: Exception) {
-                mutableCommonCommands.value = CommonCommandsState.Unavailable("无法读取 shell 历史")
+                savedCommands = CommonCommandsState.Unavailable("无法读取 shell 历史")
+                publishCommonCommands()
             }
         }
+    }
+
+    fun executeHistoryCommand(command: String): Boolean {
+        val input = ShellHistoryCommands.executionInput(command, parser.isBracketedPasteEnabled)
+        if (!ssh.write(input.toByteArray(Charsets.UTF_8))) {
+            inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
+            return false
+        }
+        recentCommands = ShellHistoryCommands.mergeRecent(listOf(command), recentCommands)
+        publishCommonCommands()
+        return true
+    }
+
+    private fun publishCommonCommands() {
+        val saved = savedCommands as? CommonCommandsState.Ready
+        mutableCommonCommands.value = if (recentCommands.isEmpty() && saved == null) savedCommands
+        else CommonCommandsState.Ready(ShellHistoryCommands.mergeRecent(recentCommands, saved?.commands.orEmpty()),
+            saved?.source.orEmpty())
     }
 
     private suspend fun loadCommonCommands(): CommonCommandsState {
@@ -133,7 +165,7 @@ class TerminalConnection(
         if (bash != null) {
             val (raw, truncated) = bash
             if (raw.isNotBlank()) {
-                val ranked = ShellHistoryCommands.rankByFrequencyThenRecency(
+                val ranked = ShellHistoryCommands.rankByRecency(
                     ShellHistoryCommands.extractCommands(raw, zshStyle = false, skipFirstLine = truncated)
                 )
                 if (ranked.isNotEmpty()) return CommonCommandsState.Ready(ranked, "~/.bash_history")
@@ -143,7 +175,7 @@ class TerminalConnection(
         if (zsh != null) {
             val (raw, truncated) = zsh
             if (raw.isNotBlank()) {
-                val ranked = ShellHistoryCommands.rankByFrequencyThenRecency(
+                val ranked = ShellHistoryCommands.rankByRecency(
                     ShellHistoryCommands.extractCommands(raw, zshStyle = true, skipFirstLine = truncated)
                 )
                 if (ranked.isNotEmpty()) return CommonCommandsState.Ready(ranked, "~/.zsh_history")

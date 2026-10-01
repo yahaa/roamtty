@@ -88,6 +88,8 @@ public final class TerminalView extends View {
     private final TranscriptScrollBar mTranscriptScrollBar;
     public interface RemoteHistoryListener { void onPositionRequested(int position); }
     private final RemoteHistoryState mRemoteHistory = new RemoteHistoryState();
+    private boolean mApplicationHistory;
+    private final ApplicationHistoryScroll mApplicationHistoryScroll = new ApplicationHistoryScroll();
     private BaseInputConnection mInputConnection;
     private final ImeBackspaceTracker mImeBackspace = new ImeBackspaceTracker();
     private Integer mExtractedTextToken;
@@ -770,6 +772,12 @@ public final class TerminalView extends View {
 
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */
     void doScroll(MotionEvent event, int rowsDown) {
+        if (mApplicationHistory && !mEmulator.isMouseTrackingActive()) {
+            int pages = mApplicationHistoryScroll.pages(rowsDown, mEmulator.mRows);
+            for (int i = 0; i < Math.abs(pages); i++)
+                handleKeyCode(pages < 0 ? KeyEvent.KEYCODE_PAGE_UP : KeyEvent.KEYCODE_PAGE_DOWN, 0);
+            return;
+        }
         if (mRemoteHistory.isActive()) {
             requestRemoteHistoryPosition(mRemoteHistory.position() - rowsDown);
             return;
@@ -1277,6 +1285,14 @@ public final class TerminalView extends View {
             listener == null ? null : listener::onPositionRequested,
             mTranscriptScrollBar.isDragging());
         if (changed) mTranscriptScrollBar.show();
+    }
+
+    /** Full-screen applications retain their own transcript; tmux's row count is unrelated. */
+    public void setApplicationHistory(boolean active) {
+        if (mApplicationHistory == active) return;
+        mApplicationHistory = active;
+        mApplicationHistoryScroll.reset();
+        mScroller.abortAnimation();
     }
 
     boolean hasRemoteHistory() { return mRemoteHistory.isActive(); }

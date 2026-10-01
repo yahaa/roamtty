@@ -2,7 +2,6 @@ package io.itermux.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -44,13 +43,14 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
     val transfer = session.transfers
     val transferStatus by transfer.status.collectAsStateWithLifecycle()
     val browser = session.fileBrowser
+    val options = rememberRemoteFileOptions()
     val listStates = rememberSaveableStateHolder()
     var listing by remember(session.id) { mutableStateOf<RemoteDirectory?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     // The picker can outlive both this composition and this process.
     var savedDownloadPath by rememberSaveable(session.id) { mutableStateOf(browser.pendingDownloadPath) }
-    val downloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+    val downloadPicker = rememberLauncherForActivityResult(CreateDownloadDocument()) { uri ->
         val path = browser.pendingDownloadPath ?: savedDownloadPath
         browser.pendingDownloadPath = null
         savedDownloadPath = null
@@ -76,44 +76,47 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
         finally { loading = false }
     }
 
+    val entries = remember(listing, options.showHiddenFiles) {
+        listing?.entries.orEmpty().filter { options.showHiddenFiles || !it.name.startsWith('.') }
+    }
+    val currentPath = listing?.path ?: browser.directory
     Column(modifier.fillMaxSize().testTag("remote-file-browser")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = ::navigateBack, modifier = Modifier.testTag("files-back")) {
                 Icon(painterResource(R.drawable.ic_chevron_left),
                     contentDescription = tr(if (browser.canGoBack) "返回上一目录" else "返回主机列表"))
             }
-            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                Text(tr("服务器文件"), style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(session.displayTitle, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("files-host-subtitle"))
+            IconButton(onClick = { browser.navigate(parentRemotePath(currentPath)) },
+                enabled = connection.phase == Phase.CONNECTED && currentPath.isNotEmpty() && currentPath != "/",
+                modifier = Modifier.testTag("files-parent")) {
+                Icon(painterResource(R.drawable.ic_arrow_up), contentDescription = tr("↑ 上级目录"))
             }
-            IconButton(onClick = browser::refresh,
-                enabled = connection.phase == Phase.CONNECTED && !loading && browser.operation == null,
-                modifier = Modifier.testTag("files-refresh")) {
-                Icon(painterResource(R.drawable.ic_refresh), contentDescription = tr("刷新"))
+            Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
+                Text(session.host.name, style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("files-host-title"))
+                SelectionContainer {
+                    Text(currentPath.ifBlank { tr("主目录") }, fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("files-breadcrumb"))
+                }
+            }
+            RemoteFileOptionsMenu(options) { dismissMenu ->
+                DropdownMenuItem(text = { Text(tr("刷新")) },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_refresh), contentDescription = null) },
+                    onClick = { browser.refresh(); dismissMenu() },
+                    enabled = connection.phase == Phase.CONNECTED && !loading && browser.operation == null,
+                    modifier = Modifier.testTag("files-refresh"))
+                DropdownMenuItem(text = { Text(tr("批量下载")) }, onClick = {
+                    transfer.downloadDirectory = currentPath
+                    transfer.selectedDownloads = emptyList()
+                    transfer.downloadDialog = true
+                    dismissMenu()
+                }, enabled = connection.phase == Phase.CONNECTED && !transferStatus.running,
+                    modifier = Modifier.testTag("files-batch-download"))
+                HorizontalDivider()
             }
             IconButton(onClick = onBack, modifier = Modifier.testTag("files-close")) {
                 Icon(painterResource(R.drawable.ic_close), contentDescription = tr("返回主机列表"))
-            }
-        }
-        val currentPath = listing?.path ?: browser.directory
-        if (connection.phase == Phase.CONNECTED) {
-            Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { browser.navigate(parentRemotePath(currentPath)) },
-                        enabled = currentPath.isNotEmpty() && currentPath != "/",
-                        modifier = Modifier.testTag("files-parent")) {
-                        Icon(painterResource(R.drawable.ic_arrow_up), contentDescription = tr("↑ 上级目录"))
-                    }
-                    SelectionContainer(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text(currentPath.ifBlank { tr("正在读取远端目录…") }, fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.testTag("files-breadcrumb"))
-                    }
-                }
             }
         }
         browser.operation?.let { label ->
@@ -143,14 +146,15 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                 Text(tr(error!!), Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = browser::refresh) { Text(tr("重试")) }
             }
-            listing?.entries.isNullOrEmpty() -> BrowserMessage(tr("此目录为空"), false, Modifier.weight(1f))
+            entries.isEmpty() -> BrowserMessage(tr(if (listing?.entries.isNullOrEmpty()) "此目录为空" else "没有可显示的项目"),
+                false, Modifier.weight(1f))
             else -> {
                 val current = listing!!
                 // Each directory gets its own scroll position; returning restores it within the page.
                 listStates.SaveableStateProvider(current.path) {
                     LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("files-list"),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-                        items(current.entries, key = { it.name }) { entry ->
+                        items(entries, key = { it.name }) { entry ->
                             RemoteFileRow(entry,
                                 onOpen = {
                                     if (entry.isDirectory) browser.navigate(joinRemotePath(current.path, entry.name))
@@ -163,6 +167,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
             }
         }
     }
+    DownloadFilesUi(session)
     pending?.let { PromptDialog(it) }
     browser.menuEntry?.let { entry ->
         val path = browser.menuPath
@@ -202,8 +207,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
             dismissButton = { TextButton(onClick = { browser.deletePath = null }) { Text(tr("取消")) } })
     }
     if (transferStatus.running || transferStatus.result != null) {
-        TransferStatusDialog(transferStatus.name, transferStatus.bytes, transferStatus.total, transferStatus.running,
-            transferStatus.result, transfer::cancel, transfer::dismiss, remotePath = transferStatus.remotePath)
+        TransferStatusDialog(transferStatus, transfer::cancel, transfer::dismiss)
     }
 }
 

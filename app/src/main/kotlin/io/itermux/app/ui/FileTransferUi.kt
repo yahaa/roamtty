@@ -3,14 +3,8 @@ package io.itermux.app.ui
 import io.itermux.app.tr
 import io.itermux.app.trf
 
-import android.net.Uri
-import android.content.ClipData
-import android.content.ClipboardManager
-import androidx.compose.foundation.text.selection.SelectionContainer
 import android.provider.OpenableColumns
 import android.content.res.Configuration
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
@@ -37,6 +30,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -52,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.RemoteDirectory
+import kotlinx.coroutines.CancellationException
 
 internal enum class FileAction { UPLOAD, DOWNLOAD, SELECT_IMAGE }
 
@@ -64,7 +60,6 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
     var uploadName by transfer::uploadName
     var uploadPath by transfer::uploadPath
     var downloadDialog by transfer::downloadDialog
-    var downloadPath by transfer::downloadPath
 
     val uploadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -75,12 +70,6 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
                 }
             }.getOrNull()?.takeIf { it.isNotBlank() } ?: "upload"
             uploadPath = uploadName.replace('/', '_').replace('\\', '_')
-        }
-    }
-    val downloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        if (uri != null) {
-            val path = downloadPath.trim()
-            transfer.download(context, session, uri, path)
         }
     }
     // Independent of OpenDocument upload: Photo Picker / gallery images only.
@@ -120,67 +109,20 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
         }, enabled = uploadPath.isNotBlank()) { Text(tr("上传")) } },
         dismissButton = { TextButton(onClick = { uploadUri = null }) { Text(tr("取消")) } }) }
 
-    if (downloadDialog) AlertDialog(onDismissRequest = { downloadDialog = false },
-        title = { Text(tr("下载文件")) },
-        text = { Column {
-            OutlinedTextField(downloadPath, { downloadPath = it }, label = { Text(tr("远端文件路径")) },
-                supportingText = { Text(tr("选择远端文件，或手动填写路径")) },
-                singleLine = true, modifier = Modifier.fillMaxWidth().testTag("download-remote-path"))
-            RemotePathDropdown(session, FileAction.DOWNLOAD) { downloadPath = it }
-        } },
-        confirmButton = { TextButton(onClick = {
-            val name = downloadPath.trim().substringAfterLast('/').ifBlank { "download" }
-            downloadDialog = false
-            downloadPicker.launch(name)
-        }, enabled = downloadPath.isNotBlank() && !downloadPath.trim().endsWith('/')) { Text(tr("选择保存位置")) } },
-        dismissButton = { TextButton(onClick = { downloadDialog = false }) { Text(tr("取消")) } })
-
-    if (status.running || status.result != null) TransferStatusDialog(status.name, status.bytes, status.total,
-        status.running, status.result, onCancel = transfer::cancel, onDismiss = transfer::dismiss,
-        remotePath = status.remotePath, onInsertPath = onInsertPath)
+    DownloadFilesUi(session)
+    if (status.running || status.result != null) TransferStatusDialog(status,
+        onCancel = transfer::cancel, onDismiss = transfer::dismiss, onInsertPath = onInsertPath)
 }
-
-@Composable
-internal fun TransferStatusDialog(name: String, transferred: Long, totalBytes: Long,
-    transferring: Boolean, result: String?, onCancel: () -> Unit, onDismiss: () -> Unit,
-    remotePath: String? = null, onInsertPath: ((String) -> Unit)? = null) {
-    val context = LocalContext.current
-    AlertDialog(onDismissRequest = { if (!transferring) onDismiss() }, modifier = Modifier.testTag("transfer-dialog"),
-        title = { Text(name) },
-        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-            if (transferring) {
-                if (totalBytes >= 0) LinearProgressIndicator(
-                    progress = { if (totalBytes == 0L) 1f else (transferred.toFloat() / totalBytes).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().testTag("transfer-progress"))
-                else LinearProgressIndicator(modifier = Modifier.fillMaxWidth().testTag("transfer-progress"))
-            }
-            SelectionContainer {
-                Text(result ?: if (totalBytes >= 0) "${sizeLabel(transferred)} / ${sizeLabel(totalBytes)}" else trf("已传输 %s", sizeLabel(transferred)),
-                    modifier = Modifier.padding(top = 12.dp).testTag("transfer-status"))
-            }
-            if (!transferring && remotePath != null) {
-                TextButton(onClick = {
-                    context.getSystemService(ClipboardManager::class.java)
-                        .setPrimaryClip(ClipData.newPlainText(tr("远端文件路径"), remotePath))
-                }, modifier = Modifier.testTag("copy-upload-path")) { Text(tr("复制路径")) }
-                if (onInsertPath != null) TextButton(onClick = { onInsertPath(remotePath); onDismiss() },
-                    modifier = Modifier.testTag("insert-upload-path")) { Text(tr("放入编辑区")) }
-            }
-        } },
-        confirmButton = { TextButton(onClick = {
-            if (transferring) onCancel() else onDismiss()
-        }) { Text(if (transferring) tr("取消传输") else tr("完成")) } })
-}
-
-private fun sizeLabel(bytes: Long): String = if (bytes < 1024) "$bytes B" else "${bytes / 1024} KiB"
 
 @Composable
 internal fun RemotePathDropdown(
     session: TerminalConnection,
     action: FileAction,
     uploadName: String = "",
+    selectedPath: String = "",
     onPathSelected: (String) -> Unit
 ) {
+    val options = rememberRemoteFileOptions()
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val configuration = LocalConfiguration.current
@@ -193,11 +135,12 @@ internal fun RemotePathDropdown(
         availableHeight
     )
     var expanded by remember { mutableStateOf(false) }
-    var directory by remember(session.id) { mutableStateOf("") }
+    var directory by rememberSaveable(session.id, action) { mutableStateOf(selectedPath.substringBeforeLast('/', "")) }
     var listing by remember(session.id) { mutableStateOf<RemoteDirectory?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableLongStateOf(0L) }
+    var visibleCount by remember(directory, action, options.showHiddenFiles) { mutableIntStateOf(200) }
     LaunchedEffect(expanded, directory, retry, session.id) {
         if (!expanded) return@LaunchedEffect
         loading = true
@@ -205,20 +148,24 @@ internal fun RemotePathDropdown(
         listing = null
         try {
             listing = session.listRemoteDirectory(directory)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             error = e.message ?: tr("无法读取目录")
         } finally {
             loading = false
         }
     }
-    Box(Modifier.padding(top = 8.dp)) {
+    Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         OutlinedButton(onClick = {
             focusManager.clearFocus(force = true)
             keyboardController?.hide()
             expanded = true
-        }, modifier = Modifier.fillMaxWidth().testTag("remote-path-dropdown")) {
-            Text(listing?.let { trf("当前目录：%s ▾", it.path) }
-                ?: if (action == FileAction.UPLOAD) tr("选择远端目录 ▾") else tr("选择远端文件或目录 ▾"),
+        }, modifier = Modifier.fillMaxWidth().padding(end = 48.dp).align(Alignment.CenterStart).testTag("remote-path-dropdown")) {
+            Text(if (action == FileAction.DOWNLOAD && selectedPath.isNotEmpty())
+                trf("已选择：%s ▾", selectedPath.substringAfterLast('/'))
+                else listing?.let { trf("当前目录：%s ▾", it.path) }
+                ?: if (action == FileAction.UPLOAD) tr("选择远端目录 ▾") else tr("选择远端文件 ▾"),
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false },
@@ -231,21 +178,26 @@ internal fun RemotePathDropdown(
                     onClick = {
                         directory = ""
                         if (action == FileAction.UPLOAD) onPathSelected(uploadName.replace('/', '_').replace('\\', '_'))
+                        else onPathSelected("")
                     })
             }
             listing?.let { current ->
-                DropdownMenuItem(text = { Text(if (action == FileAction.UPLOAD) tr("使用此目录") else tr("选择此目录并输入文件名")) },
+                if (action == FileAction.UPLOAD) DropdownMenuItem(text = { Text(tr("使用此目录")) },
                     onClick = {
-                        onPathSelected(remoteChildPath(current.path, if (action == FileAction.UPLOAD) uploadName.replace('/', '_').replace('\\', '_') else ""))
+                        onPathSelected(remoteChildPath(current.path, uploadName.replace('/', '_').replace('\\', '_')))
                         expanded = false
                     }, modifier = Modifier.testTag("remote-use-directory"))
                 if (current.path != "/") DropdownMenuItem(text = { Text(tr("↑ 上级目录")) },
                     onClick = {
                         directory = current.path.substringBeforeLast('/', "").ifEmpty { "/" }
                         if (action == FileAction.UPLOAD) onPathSelected(remoteChildPath(directory, uploadName.replace('/', '_').replace('\\', '_')))
+                        else onPathSelected("")
                     },
                     modifier = Modifier.testTag("remote-parent-directory"))
-                current.entries.filter { it.isDirectory || action == FileAction.DOWNLOAD }.take(200).forEach { entry ->
+                val entries = current.entries.filter {
+                    (it.isDirectory || action == FileAction.DOWNLOAD) && (options.showHiddenFiles || !it.name.startsWith('.'))
+                }
+                entries.take(visibleCount).forEach { entry ->
                     DropdownMenuItem(text = { Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (entry.isDirectory) "▸" else "•")
                         Spacer(Modifier.width(8.dp))
@@ -256,13 +208,19 @@ internal fun RemotePathDropdown(
                             if (entry.isDirectory) {
                                 directory = path
                                 if (action == FileAction.UPLOAD) onPathSelected(remoteChildPath(path, uploadName.replace('/', '_').replace('\\', '_')))
+                                else onPathSelected("")
                             }
                             else { onPathSelected(path); expanded = false }
                         }, modifier = Modifier.testTag("remote-entry-${entry.name}"))
                 }
-                if (current.entries.size > 200) DropdownMenuItem(text = { Text(tr("仅显示前 200 项，可手动输入路径")) }, onClick = {}, enabled = false)
+                if (entries.size > visibleCount) DropdownMenuItem(text = { Text(tr("显示更多")) },
+                    onClick = { visibleCount += 200 }, modifier = Modifier.testTag("remote-show-more"))
+                if (entries.isEmpty()) DropdownMenuItem(text = {
+                    Text(tr(if (current.entries.isEmpty()) "此目录为空" else "没有可显示的项目"))
+                }, onClick = {}, enabled = false)
             }
         }
+        RemoteFileOptionsMenu(options, Modifier.align(Alignment.CenterEnd), tagPrefix = "remote")
     }
 }
 

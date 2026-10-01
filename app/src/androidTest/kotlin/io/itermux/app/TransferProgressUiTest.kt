@@ -9,6 +9,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.itermux.app.ui.TransferStatusDialog
+import io.itermux.app.session.DownloadItem
+import io.itermux.app.session.DownloadPhase
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -18,6 +20,27 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class TransferProgressUiTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun batchProgressShowsCountsPercentageSpeedAndPerFileStates() {
+        compose.setContent {
+            MaterialTheme {
+                TransferStatusDialog("", 512 * 1024L, 1024 * 1024L, true, null, {}, {},
+                    downloads = listOf(
+                        DownloadItem("/notes/README.md", 200, 200, DownloadPhase.COMPLETE),
+                        DownloadItem("/reports/quarterly-report.pdf", 1024 * 1024L, 512 * 1024L, DownloadPhase.RUNNING),
+                        DownloadItem("/images/photo.png", 4 * 1024 * 1024L)), bytesPerSecond = 256 * 1024.0)
+            }
+        }
+        compose.onNodeWithTag("transfer-count").assertTextEquals(trf("已完成 %d/%d · 失败 %d", 1, 3, 0))
+        compose.onNodeWithTag("transfer-percent").assertTextEquals("50%")
+        compose.onNodeWithTag("transfer-speed").assertTextEquals("256 KiB/s")
+        compose.onNodeWithTag("transfer-overall-progress").assertIsDisplayed()
+        compose.onNodeWithText(tr("取消全部")).assertIsDisplayed()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        File(context.getExternalFilesDir(null), "download-batch-progress.png").outputStream().use {
+            compose.onNodeWithTag("transfer-dialog").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
+    }
 
     @Test fun showsMeasuredProgressInEnglish() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -32,7 +55,7 @@ class TransferProgressUiTest {
                 }
             }
             compose.onNodeWithTag("transfer-progress").assertIsDisplayed()
-            compose.onNodeWithTag("transfer-status").assertTextContains("512 KiB / 1024 KiB")
+            compose.onNodeWithTag("transfer-status").assertTextContains("512 KiB / 1.0 MiB")
             compose.onNodeWithText("Cancel transfer").assertIsDisplayed()
             File(context.getExternalFilesDir(null), "transfer-progress-en.png").outputStream().use {
                 compose.onNodeWithTag("transfer-dialog").captureToImage().asAndroidBitmap()

@@ -8,5 +8,7 @@
         <item name="android:colorAccent">#D96C49</item>
         <item name="android:windowBackground">#252728</item>
     </style>
-    <style name="Theme.ITermux" parent="Theme.ITermux.Base" />
+    <style name="Theme.ITermux" parent="Theme.ITermux.Base">
+        <item name="android:windowBackground">@drawable/startup_background</item>
+    </style>
 </resources>
