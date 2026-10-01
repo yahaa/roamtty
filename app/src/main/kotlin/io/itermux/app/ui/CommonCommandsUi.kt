@@ -1,123 +1,87 @@
 package io.itermux.app.ui
 
-import io.itermux.app.tr
-
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.itermux.app.R
+import io.itermux.app.tr
 import io.itermux.app.session.CommonCommandsState
 import io.itermux.app.session.ShellHistoryCommands
 import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.Phase
 
 @Composable
-internal fun CommonCommandsDialog(session: TerminalConnection, onDismiss: () -> Unit) {
+internal fun CommonCommandsSheet(session: TerminalConnection, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
     val connection by session.state.collectAsStateWithLifecycle()
     val history by session.commonCommands.collectAsStateWithLifecycle()
-    var query by remember { mutableStateOf("") }
+    CommonCommandsContent(history, connection.phase == Phase.CONNECTED,
+        session::refreshCommonCommands, onSelect, onDismiss)
+}
+
+@Composable
+internal fun CommonCommandsContent(history: CommonCommandsState, connected: Boolean,
+    onRefresh: () -> Unit, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
     val filtered = remember(history, query) {
-        when (val state = history) {
-            is CommonCommandsState.Ready -> ShellHistoryCommands.fuzzyFilter(state.commands, query)
-            else -> emptyList()
-        }
+        (history as? CommonCommandsState.Ready)?.let { ShellHistoryCommands.fuzzyFilter(it.commands, query) }.orEmpty()
     }
-    val connected = connection.phase == Phase.CONNECTED
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(tr("常用命令")) },
-        text = {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        modifier = Modifier.weight(1f).testTag("common-commands-search"),
-                        singleLine = true,
-                        enabled = history is CommonCommandsState.Ready,
-                        label = { Text(tr("搜索命令")) },
-                        placeholder = { Text(tr("过滤常用命令")) }
-                    )
-                    TextButton(
-                        onClick = { session.refreshCommonCommands() },
-                        enabled = connected,
-                        modifier = Modifier.testTag("common-commands-refresh")
-                    ) { Text(tr("刷新")) }
-                }
-                when (val state = history) {
-                    CommonCommandsState.Idle, CommonCommandsState.Loading -> {
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(Modifier.padding(end = 12.dp))
-                            Text(tr("正在读取 shell 历史…"), fontSize = 13.sp)
-                        }
-                    }
-                    is CommonCommandsState.Unavailable -> {
-                        Text(tr(state.reason), color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
-                    }
-                    is CommonCommandsState.Ready -> {
-                        Text(tr("来源：") + state.source, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (filtered.isEmpty()) {
-                            Text(
-                                if (query.isBlank()) tr("未找到可用命令") else tr("无匹配命令"),
-                                fontSize = 13.sp,
-                                modifier = Modifier.padding(vertical = 12.dp)
-                            )
-                        } else {
-                            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp).testTag("common-commands-list")) {
-                                items(filtered, key = { it }) { command ->
-                                    TextButton(
-                                        onClick = {
-                                            session.executeCommonCommand(command)
-                                            onDismiss()
-                                        },
-                                        enabled = connected,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            command,
-                                            modifier = Modifier.fillMaxWidth(),
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 13.sp,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    HorizontalDivider()
-                                }
-                            }
-                        }
+    AppSheet(onDismiss) {
+        LazyColumn(Modifier.fillMaxSize().testTag("common-commands-list"),
+            contentPadding = PaddingValues(bottom = 24.dp)) {
+            item(key = "header") { SheetHeader(tr("常用命令"), tr("点选后放入编辑区，确认后再发送。"), onDismiss) }
+            item(key = "search") {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(query, { query = it }, singleLine = true,
+                        label = { Text(tr("搜索命令")) }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        modifier = Modifier.weight(1f).testTag("common-commands-search"))
+                    IconButton(onClick = onRefresh, enabled = connected && history !is CommonCommandsState.Loading,
+                        modifier = Modifier.padding(start = 8.dp).testTag("common-commands-refresh")) {
+                        Icon(painterResource(R.drawable.ic_refresh), contentDescription = tr("刷新"))
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("关闭")) } }
-    )
+            item(key = "spacing") { Spacer(Modifier.height(12.dp)) }
+            when (history) {
+                CommonCommandsState.Idle, CommonCommandsState.Loading -> item {
+                    Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        Text(tr("正在读取 shell 历史…"), style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                is CommonCommandsState.Unavailable -> item {
+                    Text(tr(history.reason), modifier = Modifier.padding(24.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                is CommonCommandsState.Ready -> {
+                    if (filtered.isEmpty()) item {
+                        Text(tr(if (query.isBlank()) "未找到可用命令" else "无匹配命令"), Modifier.padding(24.dp))
+                    }
+                    items(filtered, key = { "command:$it" }) { command ->
+                        ListItem(
+                            headlineContent = { Text(command, fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.bodyMedium, maxLines = 3,
+                                overflow = TextOverflow.Ellipsis) },
+                            trailingContent = { Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null) },
+                            colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                            modifier = Modifier.clickable(enabled = connected) { onSelect(command) }
+                                .padding(horizontal = 8.dp).testTag("common-command-$command"))
+                        HorizontalDivider(Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+            }
+        }
+    }
 }

@@ -16,7 +16,8 @@ internal class SessionJournal(context: Context) {
         val mode: SessionMode,
         val title: String,
         /** Remote tmux session name; legacy entries without the field keep [Tmux.LEGACY_SESSION]. */
-        val remoteSessionName: String = Tmux.LEGACY_SESSION
+        val remoteSessionName: String = Tmux.LEGACY_SESSION,
+        val sessionNumber: Int = 0
     )
 
     fun read(): List<Entry> = runCatching {
@@ -30,7 +31,8 @@ internal class SessionJournal(context: Context) {
                     item.getString("hostId"),
                     SessionMode.valueOf(item.getString("mode")),
                     clipSessionTitle(item.optString("title")),
-                    Tmux.sanitizeSessionName(remote)
+                    Tmux.sanitizeSessionName(remote),
+                    item.optInt("sessionNumber", 0).coerceAtLeast(0)
                 )
             }.getOrNull()
         }.distinctBy { it.id }
@@ -46,6 +48,7 @@ internal class SessionJournal(context: Context) {
                     .put("mode", session.mode.name)
                     .put("title", session.title.value)
                     .put("remoteSessionName", session.remoteSessionName)
+                    .put("sessionNumber", session.sessionNumber)
             )
         }
         // apply updates memory immediately and Android flushes pending writes at lifecycle boundaries.

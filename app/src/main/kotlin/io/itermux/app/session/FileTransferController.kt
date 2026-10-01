@@ -17,7 +17,8 @@ import java.io.IOException
 import java.nio.file.FileAlreadyExistsException
 
 internal data class TransferStatus(val name: String = "", val bytes: Long = 0,
-    val total: Long = -1, val running: Boolean = false, val result: String? = null)
+    val total: Long = -1, val running: Boolean = false, val result: String? = null,
+    val remotePath: String? = null, val succeeded: Boolean? = null)
 
 /** The session owns both the task and its UI draft, independent of Activity/composition lifetime. */
 class FileTransferController(private val scope: CoroutineScope) {
@@ -50,17 +51,17 @@ class FileTransferController(private val scope: CoroutineScope) {
                 }
                 ensureActive()
                 mutableStatus.update {
-                    it.copy(bytes = if (it.total >= 0) it.total else it.bytes, result = customResult ?: tr("传输完成"))
+                    it.copy(bytes = if (it.total >= 0) it.total else it.bytes, result = customResult ?: tr("传输完成"), succeeded = true)
                 }
             } catch (_: CancellationException) {
-                mutableStatus.update { it.copy(result = tr("传输已取消")) }
+                mutableStatus.update { it.copy(result = tr("传输已取消"), succeeded = false) }
             } catch (e: Exception) {
                 val message = when (e) {
                     is IncompleteDownload -> tr("下载未完成，无法删除本地半成品，请在保存位置手动删除。")
                     is FileAlreadyExistsException -> trf("远端文件已存在：%s", e.file ?: uploadPath)
                     else -> trf("传输失败：%s", tr(e.message ?: "请检查路径和 SFTP 服务"))
                 }
-                mutableStatus.update { it.copy(result = message) }
+                mutableStatus.update { it.copy(result = message, succeeded = false) }
             } finally {
                 mutableStatus.update { it.copy(running = false) }
                 job = null
@@ -102,6 +103,7 @@ class FileTransferController(private val scope: CoroutineScope) {
                 png.delete()
             }
             withContext(Dispatchers.Main.immediate) {
+                mutableStatus.update { it.copy(remotePath = remotePath) }
                 if (CodexImageAttach.looksLikeCodexOrGrokCli(session.getEmulator())) {
                     session.paste(remotePath)
                     trf("已上传并粘贴路径：%s", remotePath)

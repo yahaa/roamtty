@@ -1,6 +1,7 @@
 package io.itermux.app.session
 
 import io.itermux.app.tr
+import io.itermux.app.trf
 
 import com.termux.terminal.*
 import io.itermux.app.data.Host
@@ -27,6 +28,7 @@ class TerminalConnection(
     private val scope: CoroutineScope,
     val id: String = UUID.randomUUID().toString(),
     initialTitle: String = "",
+    val sessionNumber: Int = 1,
     /** Unique remote tmux session for this local entry; legacy restorations use [Tmux.LEGACY_SESSION]. */
     val remoteSessionName: String = if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION,
     private val onRename: () -> Unit = {}
@@ -36,7 +38,8 @@ class TerminalConnection(
     val revision = MutableStateFlow(0L)
     private val mutableTitle = MutableStateFlow(initialTitle)
     val title = mutableTitle.asStateFlow()
-    val displayTitle: String get() = title.value.ifBlank { host.name }
+    val defaultTitle: String get() = trf("%s · 会话 %d", host.name, sessionNumber)
+    val displayTitle: String get() = title.value.ifBlank { defaultTitle }
     fun rename(title: String) { mutableTitle.value = clipSessionTitle(title.trim()); onRename() }
     var draft: String = "" // Memory only; terminal text and prompt drafts are never saved to disk.
     var onScreenChanged: (() -> Unit)? = null
@@ -125,12 +128,6 @@ class TerminalConnection(
         }
     }
 
-    /** Inject command text into the PTY and send CR (execute), not bracketed paste. */
-    fun executeCommonCommand(command: String) {
-        if (command.isEmpty()) return
-        write(command + "\r")
-    }
-
     private suspend fun loadCommonCommands(): CommonCommandsState {
         val bash = runCatching { ssh.readRemoteText(".bash_history") }.getOrElse { throw it }
         if (bash != null) {
@@ -162,7 +159,9 @@ class TerminalConnection(
     override fun onBell() = Unit
     override fun onColorsChanged() { onScreenChanged?.invoke() }
     val transfers = FileTransferController(scope)
+    val fileBrowser = RemoteBrowserState(scope)
     fun disconnect() {
+        fileBrowser.cancel()
         transfers.cancel()
         commonCommandsJob?.cancel()
         commonCommandsWatcher?.cancel()

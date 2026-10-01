@@ -492,7 +492,8 @@ class JschSession(
         deleteRemoteRecursive(sftp, validTransferPath(path))
     }
 
-    private fun deleteRemoteRecursive(sftp: ChannelSftp, path: String) {
+    private suspend fun deleteRemoteRecursive(sftp: ChannelSftp, path: String) {
+        coroutineContext.ensureActive()
         val remote = literalSftpPath(path)
         val attrs = try {
             sftp.lstat(remote)
@@ -516,12 +517,14 @@ class JschSession(
                 deleteRemoteRecursive(sftp, child)
             }
             try {
+                coroutineContext.ensureActive()
                 sftp.rmdir(remote)
             } catch (e: SftpException) {
                 throw IllegalStateException("无法删除目录：$path（${e.message}）", e)
             }
         } else {
             try {
+                coroutineContext.ensureActive()
                 sftp.rm(remote)
             } catch (e: SftpException) {
                 throw IllegalStateException("无法删除文件：$path（${e.message}）", e)

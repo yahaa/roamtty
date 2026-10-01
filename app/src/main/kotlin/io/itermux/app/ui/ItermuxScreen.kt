@@ -81,7 +81,6 @@ fun ItermuxScreen(
     LaunchedEffect(terminalVisible, imeVisible, lightTheme) { onChromeChange(terminalVisible, lightTheme) }
     BackHandler(page == "terminal") { page = "sessions" }
     BackHandler(page == "sessions") { page = "hosts" }
-    BackHandler(page == "files") { page = "hosts" }
     BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
@@ -167,8 +166,8 @@ fun ItermuxScreen(
     }
 
     // System share sheet → SFTP upload (+ Codex/Grok paste) on a connected session.
-    var shareSessionChoices by remember { mutableStateOf<List<TerminalConnection>?>(null) }
-    var shareUrisPending by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var shareSessionIds by rememberSaveable { mutableStateOf<List<String>?>(null) }
+    var shareUrisPending by rememberSaveable { mutableStateOf<List<Uri>>(emptyList()) }
     fun uploadSharedImages(session: TerminalConnection, uris: List<Uri>) {
         if (uris.isEmpty()) return
         selected = session.id
@@ -180,7 +179,8 @@ fun ItermuxScreen(
                 if (session.transfers.status.value.result != null) session.transfers.dismiss()
                 session.transfers.uploadImageForCli(context, session, uri)
                 if (!session.transfers.status.value.running) break
-                session.transfers.status.first { !it.running }
+                val completed = session.transfers.status.first { !it.running }
+                if (completed.succeeded != true) break
             }
         }
     }
@@ -192,11 +192,10 @@ fun ItermuxScreen(
                 toast(tr("请先连接一台主机后再分享图片"))
                 page = if (available.isNotEmpty()) "sessions" else "hosts"
             }
-            connected.any { it.id == selected } -> uploadSharedImages(connected.first { it.id == selected }, uris)
             connected.size == 1 -> uploadSharedImages(connected.first(), uris)
             else -> {
                 shareUrisPending = uris
-                shareSessionChoices = connected
+                shareSessionIds = connected.map { it.id }
             }
         }
     }
@@ -210,7 +209,7 @@ fun ItermuxScreen(
     LaunchedEffect(searchExpanded, page) { if (searchExpanded && navigationVisible) searchFocus.requestFocus() }
     MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors) {
         val colors = MaterialTheme.colorScheme
-        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible,
+        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files",
             drawerContent = {
                 ItermuxDrawer(page, sessions,
                     onHosts = { page = "hosts"; scope.launch { drawerState.close() } },
@@ -390,32 +389,31 @@ fun ItermuxScreen(
                 reverify = null
                 connect(session.host, session.mode)
             } }) { Text(tr("移除旧记录并重连")) } }, dismissButton = { TextButton(onClick = { reverify = null }) { Text(tr("取消")) } }) }
-        shareSessionChoices?.let { choices ->
-            AlertDialog(
-                onDismissRequest = { shareSessionChoices = null; shareUrisPending = emptyList() },
-                title = { Text(tr("选择会话以上传图片")) },
-                text = {
-                    Column {
-                        Text(tr("有多个已连接会话，请选择要接收图片的会话。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        choices.forEach { session ->
-                            TextButton(
-                                onClick = {
-                                    val uris = shareUrisPending
-                                    shareSessionChoices = null
-                                    shareUrisPending = emptyList()
-                                    uploadSharedImages(session, uris)
-                                },
-                                modifier = Modifier.fillMaxWidth().testTag("share-session-${session.id}")
-                            ) {
-                                Text(session.displayTitle, modifier = Modifier.fillMaxWidth())
+        shareSessionIds?.let { ids ->
+            val choices = sessions.filter { it.id in ids }
+            fun dismissShare() { shareSessionIds = null; shareUrisPending = emptyList() }
+            AppSheet(onDismiss = ::dismissShare) {
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f)) {
+                    item { SheetHeader(tr("选择会话以上传图片"), tr("选择接收图片的主机和会话。"), ::dismissShare) }
+                    items(choices.size, key = { choices[it].id }) { index ->
+                        val session = choices[index]
+                        val title by session.title.collectAsStateWithLifecycle()
+                        val state by session.state.collectAsStateWithLifecycle()
+                        TextButton(onClick = {
+                            val uris = shareUrisPending
+                            dismissShare()
+                            uploadSharedImages(session, uris)
+                        }, enabled = state.phase == Phase.CONNECTED,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("share-session-${session.id}")) {
+                            Column(Modifier.fillMaxWidth().padding(8.dp)) {
+                                Text(title.ifBlank { session.defaultTitle }, style = MaterialTheme.typography.bodyLarge)
+                                Text("${session.host.username}@${session.host.address}:${session.host.port}",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
-                },
-                confirmButton = {
-                    TextButton(onClick = { shareSessionChoices = null; shareUrisPending = emptyList() }) { Text(tr("取消")) }
-                },
-            )
+                }
+            }
         }
         if (showAbout) AboutDialog(context) { showAbout = false }
     }

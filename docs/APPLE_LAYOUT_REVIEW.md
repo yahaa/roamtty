@@ -21,3 +21,44 @@ PLU110 上拍摄：[竖屏编辑](screenshots/adaptive-editor-portrait-phone.png
 - 测试使用独立包名 `io.itermux.devicecheck`，没有覆盖手机上原有签名的应用。
 
 测试输出：[真机导航](test-results/adaptive-navigation-phone.txt) · [真机终端](test-results/adaptive-terminal-phone.txt) · [模拟器导航](test-results/adaptive-navigation-emulator.txt) · [模拟器终端](test-results/adaptive-terminal-emulator.txt)。
+
+## PR #6 设计修订（2026-10-01）
+
+对比 `main` 与 PR 原版本 `6b2d426`，保留原有暖灰深浅主题、暖色强调色、16 dp 分组圆角、文字层级和线性图标。文件、命令和字体新增页面使用这些既有样式；选择任务放入底部面板，确认与破坏性操作保留对话框。
+
+| 发现的问题 | 修订后的行为 |
+| --- | --- |
+| 历史命令显示不完整且点选立即执行 | 点选只将完整文本放入编辑区，用户检查后发送；不自动追加回车。 |
+| 文件列表与设置页的信息密度过高 | 文件列表只展示名称、大小及时间，权限移入操作面板；字体设置展示当前字体与预览，点开再选择。 |
+| 文件操作和命令列表借用警告弹窗 | 改为圆角底部面板，统一关闭、标题、留白与滚动行为。删除仍需明确确认。 |
+| 应用深色主题与系统浅色主题不同时，面板状态栏图标对比不足 | 面板窗口的系统栏跟随应用配色，深色面板显示浅色状态栏图标。 |
+| 7 个快捷键在 320 dp 窄屏溢出 | 快捷键分为两行，每项保持 48 dp 触控区；空间不足的操作栏可滚动。 |
+| Shift 与箭头组合被输入法可见性变化清除 | Shift 状态保留到箭头发送；不为箭头组合强制弹出输入法。 |
+| 同一主机多个会话难以区分 | 默认标题带独立编号；编号写入会话日志，重连保持。分享图片时多个连接必须明确选目标。 |
+| 文件页自定义边缘手势与系统返回/抽屉冲突 | 工具栏返回与 Android 返回沿访问记录回退；上箭头单独进入父目录，关闭按钮返回主机列表。 |
+| 旋转丢失目录、草稿或下载目标 | 会话持有文件浏览状态与操作任务；外部保存位置选择器保留待下载路径，列表保留各目录滚动位置。 |
+| 文件“更多”按钮缺少读屏标签 | 增加带文件名的操作标签、文件类型及长按动作语义；操作进度/错误提供 live region。 |
+| 递归删除缺少进度、取消和部分失败反馈 | 显示进行中状态与取消按钮；文件操作间检查取消，失败或取消后刷新目录并保留结果提示。 |
+| 图片上传路径难以复用 | 结果支持选取、复制路径及放入编辑区；横屏大字号时结果内容可滚动。 |
+
+这些选择依据 Apple HIG 的 [Layout](https://developer.apple.com/design/human-interface-guidelines/layout)、[Sheets](https://developer.apple.com/design/human-interface-guidelines/sheets)、[Alerts](https://developer.apple.com/design/human-interface-guidelines/alerts)、[Gestures](https://developer.apple.com/design/human-interface-guidelines/gestures)、[Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility) 与 [Progress indicators](https://developer.apple.com/design/human-interface-guidelines/progress-indicators) 原则，落地仍使用 Android 原生返回、输入法与 Compose 无障碍语义。48 dp 是本项目的 Android 触控目标，不能与 Apple 的 pt 单位混用。
+
+### 本轮验证范围
+
+使用 API 36 模拟器，320 × 640 dp 及旋转后的 640 × 320 dp，系统字号 100% / 200%。所有 SSH/SFTP 输入均来自本地隔离夹具，截图中没有真实服务器内容。本节记录模拟器结果；上面的历史真机记录不代表本轮修订已经完成真机验收。
+
+- JVM：app 29、SSH core 28、terminal emulator 150、terminal view 16 项通过，共 223 项；另有 28 项需要 OpenSSH 环境的集成测试跳过。
+- 构建与 Android Lint 通过；Lint 保留原有 2 个 warning、1 个 hint，0 error。
+- `DesignUiTest`：搜索恢复、完整命令选择、文件操作可触达/标签、字体即时预览、图片路径复制与放入编辑区；100% 竖屏、200% 竖屏和 200% 横屏均验证。
+- `FileBrowserLifecycleTest`：SFTP 目录、重命名草稿及待下载路径经过 Activity 重建保持；返回沿访问路径回退。
+- `SessionReconnectUiTest`：同主机编号区分、日志实际读写、重连沿用编号与终端绑定。
+- `TerminalExtraKeysTest`：7 个快捷键的 48 dp 触控区、实际 SSH 按键字节、Shift+Left、横屏输入法、常用命令只进入编辑区。原测试以屏幕高度 20% 抓取滚动条，在原 PR 上也会错过已淡出的滑块；改为抓取已滚到顶部的可见滑块后验证返回实时输出。
+
+记录：[构建/单元测试](test-results/pr6-design-build.txt) · [终端单元测试](test-results/pr6-design-terminal-unit.txt) · [常规界面](test-results/pr6-design-ui.txt) · [终端界面](test-results/pr6-design-terminal-ui.txt) · [200% 竖屏](test-results/pr6-design-200-portrait.txt) · [200% 横屏](test-results/pr6-design-200-landscape.txt)。
+
+待补充的验证：真实手机上的 TalkBack 全流程、不同厂商输入法、长时间网络中断及大量远端文件删除。当前结果支持设计原则与已覆盖交互的一致性，不代表 Apple 官方认证或所有设备上的验收。
+
+### 修订后画面
+
+<img src="screenshots/pr6-design-files-dark.png" width="280" alt="320 dp 深色服务器文件页：目录路径、文件名称及次要信息清晰分层">
+<img src="screenshots/pr6-design-fonts-dark.png" width="280" alt="字体选择面板沿用既有深色主题及暖色强调色，提供即时字形预览">

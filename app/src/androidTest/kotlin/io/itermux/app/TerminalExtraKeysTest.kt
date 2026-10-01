@@ -23,11 +23,14 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -129,7 +132,7 @@ class TerminalExtraKeysTest {
             }
         }
         fun shortcut(tag: String) {
-            compose.onNodeWithTag("terminal-shortcuts").assertIsDisplayed().performTouchInput { click() }
+            compose.onNodeWithTag("terminal-shortcuts").performScrollTo().assertIsDisplayed().performTouchInput { click() }
             compose.onNodeWithTag(tag).assertIsDisplayed().performTouchInput { click() }
         }
         try {
@@ -144,6 +147,17 @@ class TerminalExtraKeysTest {
             outputContains("KEY_1B")
             shortcut("terminal-tab")
             outputContains("KEY_09")
+            compose.onNodeWithTag("terminal-shortcuts").performClick()
+            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-shift",
+                "terminal-left", "terminal-right", "terminal-delete").forEach { tag ->
+                val bounds = compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                val minimum = 48 * context.resources.displayMetrics.density - 1
+                assertTrue("$tag retains a 48dp target", bounds.width >= minimum && bounds.height >= minimum)
+            }
+            compose.onNodeWithTag("terminal-shift").performClick()
+            shortcut("terminal-left")
+            outputContains("KEY_32") // Shift+Left includes the modifier 2 in ESC [ 1 ; 2 D.
+            outputContains("KEY_44")
 
             compose.activityRule.scenario.onActivity {
                 // Capture only the isolated fixture, never the user's protected app.
@@ -207,8 +221,9 @@ class TerminalExtraKeysTest {
             }
             historyBitmap.recycle()
             compose.onNodeWithTag("terminal").performTouchInput {
-                // After scrolling up, grab the visible thumb rather than the empty track above it.
-                down(androidx.compose.ui.geometry.Offset(width - 6 * density, height * 0.2f))
+                // At the oldest row the thumb starts at 8dp and is at least 32dp tall.
+                // A percentage of screen height can miss the faded thumb on narrow devices.
+                down(androidx.compose.ui.geometry.Offset(width - 6 * density, 24 * density))
                 moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 8 * density), delayMillis = 400)
                 up()
             }
@@ -227,7 +242,7 @@ class TerminalExtraKeysTest {
             compose.waitUntil(10_000) { compose.onAllNodes(isRoot()).fetchSemanticsNodes().size == 1 }
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("terminal-shortcuts").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("terminal-shortcuts").assertIsDisplayed().performTouchInput { click() }
-            listOf("terminal-escape", "terminal-tab", "terminal-control",
+            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-shift",
                 "terminal-left", "terminal-right", "terminal-delete").forEach { tag ->
                 compose.onNodeWithTag(tag).assertIsDisplayed()
             }
@@ -298,6 +313,19 @@ class TerminalExtraKeysTest {
             listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-delete").forEach { tag ->
                 compose.onNodeWithTag(tag).assertIsDisplayed()
             }
+            compose.onNodeWithTag("terminal-escape").performClick()
+            val commandsButton = compose.onNodeWithTag("common-commands")
+            if (!commandsButton.isDisplayed()) commandsButton.performScrollTo()
+            commandsButton.performClick()
+            compose.onNodeWithTag("common-commands-list").performScrollToNode(hasTestTag("common-command-git status"))
+            withContext(Dispatchers.Main) { session.write("Z") }
+            outputContains("KEY_5A") // Flush earlier keystrokes before checking for unintended command execution.
+            val beforeSelection = withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }
+            compose.onNodeWithTag("common-command-git status").performClick()
+            compose.onNodeWithTag("prompt-editor").assertTextContains("git status")
+            delay(250) // Let any accidentally emitted PTY bytes reach the SSH echo fixture.
+            assertEquals("Selecting history only stages input", beforeSelection,
+                withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText })
             Unit
         } finally {
             compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }

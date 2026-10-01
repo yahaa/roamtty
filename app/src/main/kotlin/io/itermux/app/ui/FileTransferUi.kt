@@ -4,9 +4,13 @@ import io.itermux.app.tr
 import io.itermux.app.trf
 
 import android.net.Uri
+import android.content.ClipData
+import android.content.ClipboardManager
+import androidx.compose.foundation.text.selection.SelectionContainer
 import android.provider.OpenableColumns
 import android.content.res.Configuration
-import android.widget.Toast
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -52,7 +56,7 @@ import io.itermux.ssh.RemoteDirectory
 internal enum class FileAction { UPLOAD, DOWNLOAD, SELECT_IMAGE }
 
 @Composable
-internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, onConsumed: () -> Unit) {
+internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, onInsertPath: ((String) -> Unit)? = null, onConsumed: () -> Unit) {
     val context = LocalContext.current
     val transfer = session.transfers
     val status by transfer.status.collectAsStateWithLifecycle()
@@ -131,31 +135,37 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
         }, enabled = downloadPath.isNotBlank() && !downloadPath.trim().endsWith('/')) { Text(tr("选择保存位置")) } },
         dismissButton = { TextButton(onClick = { downloadDialog = false }) { Text(tr("取消")) } })
 
-    LaunchedEffect(status.result) {
-        val result = status.result ?: return@LaunchedEffect
-        if ("itermux-img-" in result) {
-            Toast.makeText(context, result, Toast.LENGTH_LONG).show()
-        }
-    }
-
     if (status.running || status.result != null) TransferStatusDialog(status.name, status.bytes, status.total,
-        status.running, status.result, onCancel = transfer::cancel, onDismiss = transfer::dismiss)
+        status.running, status.result, onCancel = transfer::cancel, onDismiss = transfer::dismiss,
+        remotePath = status.remotePath, onInsertPath = onInsertPath)
 }
 
 @Composable
 internal fun TransferStatusDialog(name: String, transferred: Long, totalBytes: Long,
-    transferring: Boolean, result: String?, onCancel: () -> Unit, onDismiss: () -> Unit) {
+    transferring: Boolean, result: String?, onCancel: () -> Unit, onDismiss: () -> Unit,
+    remotePath: String? = null, onInsertPath: ((String) -> Unit)? = null) {
+    val context = LocalContext.current
     AlertDialog(onDismissRequest = { if (!transferring) onDismiss() }, modifier = Modifier.testTag("transfer-dialog"),
         title = { Text(name) },
-        text = { Column {
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
             if (transferring) {
                 if (totalBytes >= 0) LinearProgressIndicator(
                     progress = { if (totalBytes == 0L) 1f else (transferred.toFloat() / totalBytes).coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().testTag("transfer-progress"))
                 else LinearProgressIndicator(modifier = Modifier.fillMaxWidth().testTag("transfer-progress"))
             }
-            Text(result ?: if (totalBytes >= 0) "${sizeLabel(transferred)} / ${sizeLabel(totalBytes)}" else trf("已传输 %s", sizeLabel(transferred)),
-                modifier = Modifier.padding(top = 12.dp).testTag("transfer-status"))
+            SelectionContainer {
+                Text(result ?: if (totalBytes >= 0) "${sizeLabel(transferred)} / ${sizeLabel(totalBytes)}" else trf("已传输 %s", sizeLabel(transferred)),
+                    modifier = Modifier.padding(top = 12.dp).testTag("transfer-status"))
+            }
+            if (!transferring && remotePath != null) {
+                TextButton(onClick = {
+                    context.getSystemService(ClipboardManager::class.java)
+                        .setPrimaryClip(ClipData.newPlainText(tr("远端文件路径"), remotePath))
+                }, modifier = Modifier.testTag("copy-upload-path")) { Text(tr("复制路径")) }
+                if (onInsertPath != null) TextButton(onClick = { onInsertPath(remotePath); onDismiss() },
+                    modifier = Modifier.testTag("insert-upload-path")) { Text(tr("放入编辑区")) }
+            }
         } },
         confirmButton = { TextButton(onClick = {
             if (transferring) onCancel() else onDismiss()

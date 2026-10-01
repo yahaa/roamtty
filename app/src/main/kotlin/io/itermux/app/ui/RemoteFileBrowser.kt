@@ -1,554 +1,270 @@
 package io.itermux.app.ui
 
-import io.itermux.app.tr
-import io.itermux.app.trf
-
-import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.itermux.app.R
+import io.itermux.app.tr
+import io.itermux.app.trf
 import io.itermux.app.session.TerminalConnection
-import io.itermux.ssh.Phase
-import io.itermux.ssh.RemoteDirectory
-import io.itermux.ssh.RemoteEntry
-import io.itermux.ssh.formatRemoteMtime
-import io.itermux.ssh.formatRemoteSize
-import io.itermux.ssh.joinRemotePath
-import io.itermux.ssh.parentRemotePath
+import io.itermux.app.session.validRemoteRename
+import io.itermux.ssh.*
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
 
-/**
- * Remote SFTP browser: list / enter dirs / download / rename / delete file or directory.
- * Move and mkdir are deferred to a later batch.
- */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun RemoteFileBrowserPage(
-    session: TerminalConnection,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val connection by session.state.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
     val transfer = session.transfers
     val transferStatus by transfer.status.collectAsStateWithLifecycle()
-
-    var directory by remember(session.id) { mutableStateOf("") }
+    val browser = session.fileBrowser
+    val listStates = rememberSaveableStateHolder()
     var listing by remember(session.id) { mutableStateOf<RemoteDirectory?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var refreshKey by remember { mutableIntStateOf(0) }
-
-    var menuEntry by remember { mutableStateOf<RemoteEntry?>(null) }
-    var renameEntry by remember { mutableStateOf<RemoteEntry?>(null) }
-    var renameDraft by remember { mutableStateOf("") }
-    var deleteEntry by remember { mutableStateOf<RemoteEntry?>(null) }
-    var pendingDownloadPath by remember { mutableStateOf<String?>(null) }
-    var actionBusy by remember { mutableStateOf(false) }
-
-    val downloadPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri ->
-        val path = pendingDownloadPath
-        pendingDownloadPath = null
-        if (uri != null && path != null) transfer.download(context, session, uri, path)
-    }
-
-    fun toast(message: String) {
-        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-    }
-
-    fun reload() { refreshKey++ }
-
-    // Track which path the current listing belongs to so refresh keeps content,
-    // while navigation clears immediately for a skeleton/first-paint feel.
-    var listingPath by remember(session.id) { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(session.id, directory, refreshKey, connection.phase) {
-        if (connection.phase != Phase.CONNECTED) {
-            listing = null
-            listingPath = null
-            error = null
-            loading = false
-            return@LaunchedEffect
+    // The picker can outlive both this composition and this process.
+    var savedDownloadPath by rememberSaveable(session.id) { mutableStateOf(browser.pendingDownloadPath) }
+    val downloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val path = browser.pendingDownloadPath ?: savedDownloadPath
+        browser.pendingDownloadPath = null
+        savedDownloadPath = null
+        if (uri != null) {
+            if (path != null && connection.phase == Phase.CONNECTED && !transferStatus.running) {
+                transfer.download(context, session, uri, path)
+            } else {
+                browser.actionError = tr("下载未开始，请重新连接后再试。")
+            }
         }
-        val requestDirectory = directory
-        val requestRefresh = refreshKey
-        loading = true
+    }
+    fun navigateBack() { if (!browser.goBack()) onBack() }
+    BackHandler(onBack = ::navigateBack)
+
+    LaunchedEffect(session.id, browser.directory, browser.revision, connection.phase) {
+        listing = null
         error = null
-        // Drop stale rows when navigating to another directory (not on same-path refresh).
-        if (listingPath != null && listingPath != requestDirectory) {
-            listing = null
-        }
-        try {
-            val result = session.listRemoteDirectory(requestDirectory)
-            if (directory == requestDirectory && refreshKey == requestRefresh) {
-                listing = result
-                listingPath = requestDirectory
-                error = null
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            if (directory == requestDirectory && refreshKey == requestRefresh) {
-                listing = null
-                listingPath = null
-                error = e.message ?: tr("无法读取目录")
-            }
-        } finally {
-            if (directory == requestDirectory && refreshKey == requestRefresh) {
-                loading = false
-            }
-        }
+        if (connection.phase != Phase.CONNECTED) { loading = false; return@LaunchedEffect }
+        loading = true
+        try { listing = session.listRemoteDirectory(browser.directory) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { error = e.message ?: tr("无法读取目录") }
+        finally { loading = false }
     }
 
     Column(modifier.fillMaxSize().testTag("remote-file-browser")) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onBack, modifier = Modifier.testTag("files-back")) {
-                Text(tr("返回主机列表"))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = ::navigateBack, modifier = Modifier.testTag("files-back")) {
+                Icon(painterResource(R.drawable.ic_chevron_left),
+                    contentDescription = tr(if (browser.canGoBack) "返回上一目录" else "返回主机列表"))
             }
-            Row(
-                Modifier.weight(1f).padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    tr("服务器文件"),
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 17.sp,
-                    maxLines = 1
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    session.host.name,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).testTag("files-host-subtitle")
-                )
+            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                Text(tr("服务器文件"), style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(session.displayTitle, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("files-host-subtitle"))
             }
-            TextButton(
-                onClick = { reload() },
-                enabled = connection.phase == Phase.CONNECTED && !loading && !actionBusy,
-                modifier = Modifier.testTag("files-refresh")
-            ) { Text(tr("刷新")) }
+            IconButton(onClick = browser::refresh,
+                enabled = connection.phase == Phase.CONNECTED && !loading && browser.operation == null,
+                modifier = Modifier.testTag("files-refresh")) {
+                Icon(painterResource(R.drawable.ic_refresh), contentDescription = tr("刷新"))
+            }
+            IconButton(onClick = onBack, modifier = Modifier.testTag("files-close")) {
+                Icon(painterResource(R.drawable.ic_close), contentDescription = tr("返回主机列表"))
+            }
         }
-
-        when (connection.phase) {
-            Phase.CONNECTING, Phase.VERIFYING, Phase.AUTHENTICATING -> {
-                Column(
-                    Modifier.fillMaxSize().padding(24.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    CircularProgressIndicator(Modifier.padding(bottom = 16.dp))
-                    Text(phaseLabel(connection.phase), fontSize = 16.sp)
-                    if (connection.message.isNotBlank()) {
-                        Text(
-                            tr(connection.message),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
+        val currentPath = listing?.path ?: browser.directory
+        if (connection.phase == Phase.CONNECTED) {
+            Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { browser.navigate(parentRemotePath(currentPath)) },
+                        enabled = currentPath.isNotEmpty() && currentPath != "/",
+                        modifier = Modifier.testTag("files-parent")) {
+                        Icon(painterResource(R.drawable.ic_arrow_up), contentDescription = tr("↑ 上级目录"))
+                    }
+                    SelectionContainer(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text(currentPath.ifBlank { tr("正在读取远端目录…") }, fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("files-breadcrumb"))
                     }
                 }
             }
-            Phase.CONNECTED -> {
-                val current = listing
-                Column(Modifier.fillMaxSize()) {
-                Surface(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        current?.path ?: if (directory.isBlank()) tr("正在读取远端目录…") else directory,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp).testTag("files-breadcrumb"),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                when {
-                    loading && current == null -> {
-                        Row(
-                            Modifier.fillMaxWidth().padding(24.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(Modifier.padding(end = 12.dp))
-                            Text(tr("正在读取远端目录…"))
-                        }
-                    }
-                    error != null && current == null -> {
-                        Column(
-                            Modifier.fillMaxSize().padding(24.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(trf("读取失败：%s，点击重试", tr(error!!.take(120))))
-                            TextButton(onClick = { reload() }, modifier = Modifier.padding(top = 12.dp)) {
-                                Text(tr("刷新"))
-                            }
-                        }
-                    }
-                    else -> {
-                        val allEntries = current?.entries.orEmpty()
-                        // Bind the first screen immediately; append the rest in chunks so huge
-                        // dirs (cargo registry, node_modules) paint the first page sooner.
-                        var bindCount by remember(current?.path, allEntries) {
-                            mutableIntStateOf(minOf(REMOTE_LIST_INITIAL_BIND, allEntries.size))
-                        }
-                        LaunchedEffect(current?.path, allEntries) {
-                            bindCount = minOf(REMOTE_LIST_INITIAL_BIND, allEntries.size)
-                            while (bindCount < allEntries.size) {
-                                yield()
-                                bindCount = minOf(bindCount + REMOTE_LIST_BIND_CHUNK, allEntries.size)
-                            }
-                        }
-                        val density = LocalDensity.current
-                        val currentPathForSwipe = current?.path
-                        val parentSwipeEnabled = RemoteBrowserSwipeNav.canNavigateToParent(currentPathForSwipe)
-                        LazyColumn(
-                            Modifier
-                                .weight(1f)
-                                .pointerInput(currentPathForSwipe, parentSwipeEnabled) {
-                                    if (!parentSwipeEnabled || currentPathForSwipe == null) return@pointerInput
-                                    val edgeWidthPx = with(density) {
-                                        RemoteBrowserSwipeNav.EDGE_WIDTH_DP.dp.toPx()
-                                    }
-                                    val minDxPx = with(density) {
-                                        RemoteBrowserSwipeNav.MIN_RIGHT_DX_DP.dp.toPx()
-                                    }
-                                    awaitEachGesture {
-                                        val down = awaitFirstDown(requireUnconsumed = false)
-                                        if (!RemoteBrowserSwipeNav.isLeftEdgeStart(down.position.x, edgeWidthPx)) {
-                                            return@awaitEachGesture
-                                        }
-                                        var totalDx = 0f
-                                        val slopPointer = awaitHorizontalTouchSlopOrCancellation(down.id) { change, overSlop ->
-                                            totalDx += overSlop
-                                            change.consume()
-                                        } ?: return@awaitEachGesture
-                                        horizontalDrag(slopPointer.id) { change ->
-                                            totalDx += change.positionChange().x
-                                            change.consume()
-                                        }
-                                        if (RemoteBrowserSwipeNav.shouldGoToParent(totalDx, minDxPx)) {
-                                            directory = parentRemotePath(currentPathForSwipe)
-                                        }
-                                    }
-                                }
-                                .testTag("files-parent-swipe"),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            if (loading && current != null) {
-                                item(key = "_loading") {
-                                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp))
-                                }
-                            }
-                            if (current != null && current.path != "/") {
-                                item(key = "..") {
-                                    ListItem(
-                                        headlineContent = { Text(tr("↑ 上级目录")) },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                directory = parentRemotePath(current.path)
-                                            }
-                                            .testTag("files-parent")
-                                    )
-                                    HorizontalDivider()
-                                }
-                            }
-                            items(
-                                count = bindCount,
-                                key = { index -> allEntries[index].name }
-                            ) { index ->
-                                val entry = allEntries[index]
-                                RemoteFileRow(
-                                    entry = entry,
-                                    onOpen = {
-                                        if (entry.isDirectory && current != null) {
-                                            directory = joinRemotePath(current.path, entry.name)
-                                        }
-                                    },
-                                    onLongPress = { menuEntry = entry }
-                                )
-                                HorizontalDivider()
-                            }
-                            if (current != null && current.entries.isEmpty() && !loading) {
-                                item {
-                                    Text(
-                                        tr("此目录为空"),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(24.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                } // Column for CONNECTED
+        }
+        browser.operation?.let { label ->
+            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp).semantics { liveRegion = LiveRegionMode.Polite }
+                .testTag("files-operation"), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text(label, Modifier.weight(1f).padding(horizontal = 12.dp), style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = browser::cancel) { Text(tr("取消")) }
             }
+        }
+        browser.actionError?.let { message ->
+            Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium)
+                IconButton(onClick = { browser.actionError = null }) {
+                    Icon(painterResource(R.drawable.ic_close), contentDescription = tr("关闭"))
+                }
+            }
+        }
+        when {
+            connection.phase != Phase.CONNECTED -> BrowserMessage(
+                tr(connection.message).ifBlank { phaseLabel(connection.phase) }, connection.active, Modifier.weight(1f))
+            loading -> BrowserMessage(tr("正在读取远端目录…"), true, Modifier.weight(1f))
+            error != null -> Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center) {
+                Text(tr(error!!), Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = browser::refresh) { Text(tr("重试")) }
+            }
+            listing?.entries.isNullOrEmpty() -> BrowserMessage(tr("此目录为空"), false, Modifier.weight(1f))
             else -> {
-                Column(
-                    Modifier.fillMaxSize().padding(24.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(phaseLabel(connection.phase), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    if (connection.message.isNotBlank()) {
-                        Text(
-                            tr(connection.message),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 12.dp)
-                        )
-                    }
-                    TextButton(onClick = onBack, modifier = Modifier.padding(top = 16.dp)) {
-                        Text(tr("返回主机列表"))
+                val current = listing!!
+                // Each directory gets its own scroll position; returning restores it within the page.
+                listStates.SaveableStateProvider(current.path) {
+                    LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("files-list"),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                        items(current.entries, key = { it.name }) { entry ->
+                            RemoteFileRow(entry,
+                                onOpen = {
+                                    if (entry.isDirectory) browser.navigate(joinRemotePath(current.path, entry.name))
+                                    else browser.showMenu(current.path, entry)
+                                }, onMenu = { browser.showMenu(current.path, entry) })
+                            HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        }
                     }
                 }
             }
         }
     }
-
     pending?.let { PromptDialog(it) }
-
-    if (menuEntry != null) {
-        val entry = menuEntry!!
-        val currentPath = listing?.path
-        AlertDialog(
-            onDismissRequest = { menuEntry = null },
-            title = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-            text = {
-                Column {
-                    Text(
-                        buildString {
-                            if (entry.permissions.isNotBlank()) append(entry.permissions)
-                            if (!entry.isDirectory) {
-                                if (isNotEmpty()) append("  ·  ")
-                                append(formatRemoteSize(entry.size))
-                            }
-                            val mtime = formatRemoteMtime(entry.mtimeSeconds)
-                            if (mtime.isNotEmpty()) {
-                                if (isNotEmpty()) append("\n")
-                                append(mtime)
-                            }
-                        }.ifBlank { if (entry.isDirectory) tr("目录") else tr("文件") },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
-                    )
+    browser.menuEntry?.let { entry ->
+        val path = browser.menuPath
+        FileActionsSheet(entry, busy = browser.operation != null || transferStatus.running || connection.phase != Phase.CONNECTED,
+            onOpen = { if (path != null) browser.navigate(path) },
+            onDownload = {
+                if (path != null) {
+                    browser.pendingDownloadPath = path
+                    savedDownloadPath = path
+                    browser.dismissMenu()
+                    downloadPicker.launch(entry.name)
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                Column(horizontalAlignment = Alignment.End) {
-                    if (entry.isDirectory) {
-                        TextButton(onClick = {
-                            menuEntry = null
-                            if (currentPath != null) directory = joinRemotePath(currentPath, entry.name)
-                        }) { Text(tr("打开")) }
-                    } else {
-                        TextButton(onClick = {
-                            menuEntry = null
-                            if (currentPath == null) return@TextButton
-                            pendingDownloadPath = joinRemotePath(currentPath, entry.name)
-                            downloadPicker.launch(entry.name)
-                        }, modifier = Modifier.testTag("files-action-download")) { Text(tr("下载")) }
-                        TextButton(onClick = {
-                            menuEntry = null
-                            renameDraft = entry.name
-                            renameEntry = entry
-                        }, modifier = Modifier.testTag("files-action-rename")) { Text(tr("重命名")) }
-                    }
-                    TextButton(onClick = {
-                        menuEntry = null
-                        deleteEntry = entry
-                    }, modifier = Modifier.testTag("files-action-delete")) {
-                        Text(tr("删除"), color = MaterialTheme.colorScheme.error)
-                    }
-                    TextButton(onClick = { menuEntry = null }) { Text(tr("取消")) }
-                }
-            }
-        )
+            }, onRename = { browser.renamePath = path; browser.renameDraft = entry.name; browser.dismissMenu() },
+            onDelete = { browser.deletePath = path; browser.deleteIsDirectory = entry.isDirectory; browser.dismissMenu() },
+            onDismiss = browser::dismissMenu)
     }
-
-    renameEntry?.let { entry ->
-        val currentPath = listing?.path
-        AlertDialog(
-            onDismissRequest = { if (!actionBusy) renameEntry = null },
-            title = { Text(tr("重命名")) },
-            text = {
-                OutlinedTextField(
-                    renameDraft,
-                    { renameDraft = it },
-                    label = { Text(tr("新文件名")) },
-                    singleLine = true,
-                    enabled = !actionBusy,
-                    modifier = Modifier.fillMaxWidth().testTag("files-rename-input")
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !actionBusy && renameDraft.isNotBlank() && renameDraft != entry.name &&
-                        '/' !in renameDraft && '\\' !in renameDraft && renameDraft != "." && renameDraft != "..",
-                    onClick = {
-                        if (currentPath == null) return@TextButton
-                        val oldPath = joinRemotePath(currentPath, entry.name)
-                        val newPath = joinRemotePath(currentPath, renameDraft.trim())
-                        actionBusy = true
-                        scope.launch {
-                            try {
-                                session.renameRemoteFile(oldPath, newPath)
-                                renameEntry = null
-                                reload()
-                            } catch (e: Exception) {
-                                toast(trf("重命名失败：%s", tr(e.message ?: "请检查路径和 SFTP 服务")))
-                            } finally {
-                                actionBusy = false
-                            }
-                        }
-                    },
-                    modifier = Modifier.testTag("files-rename-confirm")
-                ) { Text(tr("保存")) }
-            },
-            dismissButton = {
-                TextButton(onClick = { renameEntry = null }, enabled = !actionBusy) { Text(tr("取消")) }
-            }
-        )
+    browser.renamePath?.let { path ->
+        AlertDialog(onDismissRequest = { browser.renamePath = null }, title = { Text(tr("重命名")) },
+            text = { OutlinedTextField(browser.renameDraft, { browser.renameDraft = it }, singleLine = true,
+                label = { Text(tr("新文件名")) }, modifier = Modifier.fillMaxWidth().testTag("files-rename-input")) },
+            confirmButton = { TextButton(onClick = { browser.rename(session::renameRemoteFile) },
+                enabled = connection.phase == Phase.CONNECTED && browser.operation == null &&
+                    validRemoteRename(browser.renameDraft.trim()) && browser.renameDraft.trim() != path.substringAfterLast('/'),
+                modifier = Modifier.testTag("files-rename-confirm")) { Text(tr("保存")) } },
+            dismissButton = { TextButton(onClick = { browser.renamePath = null }) { Text(tr("取消")) } })
     }
-
-    deleteEntry?.let { entry ->
-        val currentPath = listing?.path
-        AlertDialog(
-            onDismissRequest = { if (!actionBusy) deleteEntry = null },
-            title = { Text(trf("删除 %s？", entry.name)) },
-            text = {
-                Text(
-                    if (entry.isDirectory) tr("将永久删除远端目录及其全部内容，此操作不可撤销。")
-                    else tr("将永久删除远端文件，此操作不可撤销。")
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !actionBusy,
-                    onClick = {
-                        if (currentPath == null) return@TextButton
-                        val path = joinRemotePath(currentPath, entry.name)
-                        actionBusy = true
-                        scope.launch {
-                            try {
-                                session.deleteRemoteFile(path)
-                                deleteEntry = null
-                                reload()
-                            } catch (e: Exception) {
-                                val message = e.message ?: "请检查路径和 SFTP 服务"
-                                toast(trf("删除失败：%s", tr(message)))
-                                deleteEntry = null
-                            } finally {
-                                actionBusy = false
-                            }
-                        }
-                    },
-                    modifier = Modifier.testTag("files-delete-confirm")
-                ) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteEntry = null }, enabled = !actionBusy) { Text(tr("取消")) }
-            }
-        )
+    browser.deletePath?.let { path ->
+        AlertDialog(onDismissRequest = { browser.deletePath = null }, title = { Text(tr("删除文件夹？").takeIf { browser.deleteIsDirectory } ?: tr("删除文件？")) },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SelectionContainer { Text(path, style = MaterialTheme.typography.bodyMedium) }
+                Text(tr(if (browser.deleteIsDirectory) "将永久删除远端目录及其全部内容，此操作不可撤销。" else "将永久删除远端文件，此操作不可撤销。"))
+            } },
+            confirmButton = { TextButton(onClick = { browser.delete(session::deleteRemoteFile) },
+                enabled = connection.phase == Phase.CONNECTED && browser.operation == null,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.testTag("files-delete-confirm")) { Text(tr("删除")) } },
+            dismissButton = { TextButton(onClick = { browser.deletePath = null }) { Text(tr("取消")) } })
     }
-
     if (transferStatus.running || transferStatus.result != null) {
-        TransferStatusDialog(
-            transferStatus.name,
-            transferStatus.bytes,
-            transferStatus.total,
-            transferStatus.running,
-            transferStatus.result,
-            onCancel = transfer::cancel,
-            onDismiss = transfer::dismiss
-        )
+        TransferStatusDialog(transferStatus.name, transferStatus.bytes, transferStatus.total, transferStatus.running,
+            transferStatus.result, transfer::cancel, transfer::dismiss, remotePath = transferStatus.remotePath)
     }
 }
 
-private const val REMOTE_LIST_INITIAL_BIND = 64
-private const val REMOTE_LIST_BIND_CHUNK = 128
+@Composable
+private fun BrowserMessage(message: String, busy: Boolean, modifier: Modifier) {
+    Column(modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center) {
+        if (busy) CircularProgressIndicator(Modifier.padding(bottom = 16.dp).size(28.dp), strokeWidth = 2.dp)
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun FileActionsSheet(entry: RemoteEntry, busy: Boolean, onOpen: () -> Unit,
+    onDownload: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
+    // Content-sized sheet: these few actions should not occupy an entire screen.
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetMaxWidth = 560.dp, containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), tonalElevation = 0.dp) {
+        SheetSystemBars()
+        LazyColumn(Modifier.fillMaxWidth().testTag("files-actions-list"), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item { SheetHeader(entry.name, listOf(if (entry.isDirectory) tr("目录") else formatRemoteSize(entry.size),
+                formatRemoteMtime(entry.mtimeSeconds)).filter { it.isNotBlank() }.joinToString(" · "), onDismiss) }
+            if (entry.permissions.isNotBlank()) item {
+                Text(entry.permissions, Modifier.padding(start = 24.dp, bottom = 12.dp), fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            item { SheetAction(tr(if (entry.isDirectory) "打开" else "下载"), "files-action-download", !busy,
+                if (entry.isDirectory) onOpen else onDownload) }
+            item { SheetAction(tr("重命名"), "files-action-rename", !busy, onRename) }
+            item { HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) }
+            item { SheetAction(tr("删除"), "files-action-delete", !busy, onDelete, destructive = true) }
+        }
+    }
+}
+
+@Composable
+private fun SheetAction(label: String, tag: String, enabled: Boolean, onClick: () -> Unit, destructive: Boolean = false) {
+    TextButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag(tag),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp),
+        colors = ButtonDefaults.textButtonColors(contentColor = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)) {
+        Text(label, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyLarge)
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onLongPress: () -> Unit) {
-    // Defer/caches heavy-ish formatting so LazyColumn scrapes stay cheap on recompose.
-    val meta = remember(entry.name, entry.isDirectory, entry.size, entry.mtimeSeconds, entry.permissions) {
-        buildString {
-            if (entry.permissions.isNotBlank()) append(entry.permissions)
-            if (!entry.isDirectory) {
-                if (isNotEmpty()) append("  ·  ")
-                append(formatRemoteSize(entry.size))
-            }
-            val mtime = formatRemoteMtime(entry.mtimeSeconds)
-            if (mtime.isNotEmpty()) {
-                if (isNotEmpty()) append("  ·  ")
-                append(mtime)
-            }
-        }
-    }
+internal fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onMenu: () -> Unit) {
+    val meta = remember(entry) { listOfNotNull(if (entry.isDirectory) null else formatRemoteSize(entry.size),
+        formatRemoteMtime(entry.mtimeSeconds).takeIf { it.isNotEmpty() }).joinToString(" · ") }
     ListItem(
-        headlineContent = {
-            Text(
-                if (entry.isDirectory) "▸ ${entry.name}" else entry.name,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = if (entry.isDirectory) FontWeight.Medium else FontWeight.Normal
-            )
-        },
-        supportingContent = {
-            if (meta.isNotEmpty()) {
-                Text(meta, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
-            }
-        },
+        leadingContent = { Icon(painterResource(if (entry.isDirectory) R.drawable.ic_folder else R.drawable.ic_file),
+            contentDescription = tr(if (entry.isDirectory) "目录" else "文件"), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        headlineContent = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge) },
+        supportingContent = if (meta.isEmpty()) null else { { Text(meta, maxLines = 2, style = MaterialTheme.typography.bodySmall) } },
         trailingContent = {
-            TextButton(onClick = onLongPress, modifier = Modifier.testTag("files-row-menu-${entry.name}")) {
-                Text("⋯")
+            IconButton(onClick = onMenu, modifier = Modifier.testTag("files-row-menu-${entry.name}")) {
+                Icon(painterResource(R.drawable.ic_more), contentDescription = trf("文件操作：%s", entry.name))
             }
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
-            .testTag("files-entry-${entry.name}")
-    )
+        }, colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.combinedClickable(role = Role.Button, onClick = onOpen,
+            onLongClickLabel = tr("文件操作"), onLongClick = onMenu).testTag("files-entry-${entry.name}"))
 }

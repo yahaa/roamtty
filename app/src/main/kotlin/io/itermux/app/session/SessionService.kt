@@ -38,15 +38,21 @@ class SessionService : Service() {
         refreshLanguage()
         restoration = scope.launch {
             val app = application as ItermuxApp
+            val usedNumbers = mutableMapOf<String, MutableSet<Int>>()
             mutableSessions.value = journal.read().mapNotNull { entry ->
                 app.database.hosts().find(entry.hostId)?.let { host ->
+                    val used = usedNumbers.getOrPut(host.id) { mutableSetOf() }
+                    val number = entry.sessionNumber.takeIf { it > 0 && it !in used } ?: nextSessionNumber(used)
+                    used.add(number)
                     TerminalConnection(
                         host, entry.mode, null, app.pins, scope, entry.id, entry.title,
+                        sessionNumber = number,
                         remoteSessionName = entry.remoteSessionName,
                         onRename = ::saveSessions
                     )
                 }
             }
+            saveSessions()
         }
     }
     fun refreshLanguage() {
@@ -65,6 +71,7 @@ class SessionService : Service() {
         val remoteName = if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION
         val connection = TerminalConnection(
             host, mode, credentials, (application as ItermuxApp).pins, scope,
+            sessionNumber = nextSessionNumber(mutableSessions.value.filter { it.host.id == host.id }.map { it.sessionNumber }),
             remoteSessionName = remoteName, onRename = ::saveSessions
         )
         mutableSessions.value += connection
@@ -88,6 +95,7 @@ class SessionService : Service() {
             existing.host, existing.mode, credentials, (application as ItermuxApp).pins, scope,
             id = existing.id,
             initialTitle = existing.title.value,
+            sessionNumber = existing.sessionNumber,
             remoteSessionName = existing.remoteSessionName,
             onRename = ::saveSessions
         )

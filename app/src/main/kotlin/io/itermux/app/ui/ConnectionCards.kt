@@ -90,7 +90,7 @@ import io.itermux.ssh.SessionMode
             Row(verticalAlignment = Alignment.CenterVertically) {
                 HostSystemIcon(session.host.os)
                 Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                    Text(title.ifBlank { session.host.name }, fontWeight = FontWeight.SemiBold, fontSize = 18.sp,
+                    Text(title.ifBlank { session.defaultTitle }, fontWeight = FontWeight.SemiBold, fontSize = 18.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (title.isNotBlank()) Text(session.host.name, color = colors.onSurfaceVariant,
                         fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

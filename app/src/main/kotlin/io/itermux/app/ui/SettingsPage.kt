@@ -26,7 +26,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.itermux.app.AppLanguage
-import io.itermux.app.TerminalFontId
 import io.itermux.app.TerminalFonts
 import io.itermux.app.tr
 
@@ -85,72 +84,10 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
                 }
             }
             Spacer(Modifier.height(24.dp))
-            Text(tr("终端字体"), style = MaterialTheme.typography.titleMedium)
-            Text(tr("选择等宽字体可改善清晰度。系统等宽在部分手机上会发虚或被横向拉伸。"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.selectableGroup()) {
-                    TerminalFontId.entries.filter { it != TerminalFontId.CUSTOM }.forEachIndexed { index, option ->
-                        if (index > 0) HorizontalDivider(Modifier.padding(start = 16.dp))
-                        ListItem(
-                            headlineContent = { Text(tr(option.label)) },
-                            supportingContent = if (option == TerminalFontId.SYSTEM) {
-                                { Text(tr("跟随系统 Typeface.MONOSPACE"), style = MaterialTheme.typography.bodySmall) }
-                            } else null,
-                            trailingContent = { RadioButton(selected = fontSelection == option, onClick = null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.selectable(selected = fontSelection == option,
-                                onClick = { TerminalFonts.setSelection(context, option); fontImportError = null },
-                                role = Role.RadioButton)
-                                .testTag("settings-font-${option.id}"))
-                    }
-                    HorizontalDivider(Modifier.padding(start = 16.dp))
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                if (hasCustom && customName != null) tr("自定义字体") + " · $customName"
-                                else tr("自定义字体")
-                            )
-                        },
-                        supportingContent = {
-                            Text(
-                                if (hasCustom) tr("已从本机导入；点选应用，或重新选择文件")
-                                else tr("从本机选择 .ttf / .otf 文件"),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        },
-                        trailingContent = {
-                            if (hasCustom) RadioButton(selected = fontSelection == TerminalFontId.CUSTOM, onClick = null)
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        modifier = Modifier.selectable(
-                            selected = fontSelection == TerminalFontId.CUSTOM && hasCustom,
-                            onClick = {
-                                if (hasCustom) TerminalFonts.setSelection(context, TerminalFontId.CUSTOM)
-                                else pickFont.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream", "*/*"))
-                            },
-                            role = Role.RadioButton
-                        ).testTag("settings-font-custom")
-                    )
-                }
-            }
-            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { pickFont.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream", "*/*")) },
-                    modifier = Modifier.testTag("settings-font-pick")
-                ) { Text(tr("选择字体文件…")) }
-                if (hasCustom) {
-                    TextButton(
-                        onClick = { TerminalFonts.clearCustomFont(context); fontImportError = null },
-                        modifier = Modifier.testTag("settings-font-clear-custom")
-                    ) { Text(tr("清除自定义字体")) }
-                }
-            }
-            fontImportError?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-            }
+            TerminalFontSetting(fontSelection, fontRevision, hasCustom, customName, fontImportError,
+                onImport = { pickFont.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream", "*/*")) },
+                onClear = { TerminalFonts.clearCustomFont(context); fontImportError = null },
+                onSelect = { TerminalFonts.setSelection(context, it); fontImportError = null })
             Spacer(Modifier.height(24.dp))
             Text(tr("语言"), style = MaterialTheme.typography.titleMedium)
             Text(tr("选择应用的显示语言"), style = MaterialTheme.typography.bodySmall,

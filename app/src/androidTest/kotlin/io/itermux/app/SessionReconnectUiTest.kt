@@ -13,6 +13,7 @@ import androidx.test.rule.ServiceTestRule
 import com.termux.view.TerminalView
 import io.itermux.app.data.Host
 import io.itermux.app.session.SessionService
+import io.itermux.app.session.SessionJournal
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +44,14 @@ class SessionReconnectUiTest {
             service.open(Host(name = "Reconnect regression", address = "127.0.0.1", port = 1, username = "test"),
                 SessionMode.TMUX, Credentials("fixture-only".toByteArray()))
         }
+        val sibling = withContext(Dispatchers.Main) {
+            service.open(original.host, SessionMode.TMUX, Credentials("fixture-only".toByteArray()))
+        }
         try {
+            assertNotEquals(original.defaultTitle, sibling.defaultTitle)
+            val restored = SessionJournal(context).read().associateBy { it.id }
+            assertEquals(original.sessionNumber, restored.getValue(original.id).sessionNumber)
+            assertEquals(sibling.sessionNumber, restored.getValue(sibling.id).sessionNumber)
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("sessions-tab").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("sessions-tab").performClick()
             compose.onNodeWithTag("session-${original.id}").performClick()
@@ -57,13 +65,14 @@ class SessionReconnectUiTest {
             compose.runOnIdle {
                 val view = requireNotNull(terminal(compose.activity.window.decorView))
                 assertEquals(original.id, replacement.id)
+                assertEquals(original.sessionNumber, replacement.sessionNumber)
                 assertEquals(original.remoteSessionName, replacement.remoteSessionName)
                 assertSame("Visible output and keyboard input must use the replacement", replacement, view.currentSession)
                 assertNull("Old callbacks must be detached", original.onScreenChanged)
                 assertNotNull("Replacement output must redraw the view", replacement.onScreenChanged)
             }
         } finally {
-            withContext(Dispatchers.Main) { service.close(original.id) }
+            withContext(Dispatchers.Main) { service.close(original.id); service.close(sibling.id) }
         }
     }
 }
