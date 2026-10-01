@@ -1,5 +1,32 @@
 # iTermux 0.1.0 测试与交付记录
 
+## 2026-10-01 历史终端网格与样式修复
+
+- 定位：旧采集调用用于复制的 `getSelectedText`，合并自动折行并丢失每列样式；历史页再用普通 Compose `Text` 排版，额外左右留白、文本行距及字体回退宽度与原终端网格不同，导致满宽边框二次折行、竖线断开。Grok 的边框较多，因此同一问题比 Codex 更明显。
+- 采集改为保留物理行、列数、空格、折行标志和每列样式。独立只读 `OutputHistorySession` 只装载可见行，复用实时画面的 `TerminalView` / `TerminalRenderer`。宽记录左右拖动，标准 ANSI 颜色随主题切换，远端 OSC 覆盖冻结为真彩色；不把终端网格重新排成段落。
+- 本轮 JVM：app 46、terminal-emulator 150、terminal-view 18，合计 **214 项通过、0 失败**。新增检查覆盖样式变化、中文/emoji/组合字符、物理折行、远端调色板、带背景色空行及只读快照。
+- API 36 隔离包基础回归 **9 项通过**，覆盖深浅主题下与实时绘制器逐像素一致、5,000 行拖动、140 列横向浏览和可见边缘滑块、短/空记录、横竖屏、Grok/Codex 通用历史与原入口返回、会话重建及原 tmux 历史。[回归记录](test-results/history-grid-device.txt)。全屏程序使用回环 SSH/PTY 夹具，没有调用真实模型服务或在用户手机上复测。
+- 后续补强原生长按复制用例，修正只读视图的选区焦点；用 Espresso 的真实长按与浮动工具栏执行 Copy，验证剪贴板内容并恢复原剪贴板，独立复验通过。[逐像素与复制复验](test-results/history-grid-copy-device.txt)、[深色网格](screenshots/history-grid-dark.png)、[浅色网格](screenshots/history-grid-light.png)。组件宿主使用与终端一致的沉浸模式，避免边缘手势拉出模拟器通知栏抢占焦点。
+- 默认包名 Debug APK、AndroidTest 构建通过，Lint **0 错误、14 警告和 1 提示**。安装包：`.local/builds/iTermux-history-grid-debug.apk`。下方保留之前界面版本的记录。
+
+## 2026-10-01 历史界面简化
+
+- 移除记录页的“最早 / 最新 / 返回实时画面”三个按钮及更多菜单中的重复入口；仅通过原操作栏的“历史 / 实时”按钮和系统返回键退出。进入记录页收起键盘，阅读内容沿用终端字体与主题。
+- 右侧细滚动条支持拖动及无障碍定位，平时淡显，拖动时强调；拖到底部仍停留在历史快照。短记录和空记录不显示滑块。
+- API 36 隔离包 `io.itermux.historyuicheck`：新增 3 项组件测试和增强的 Grok 退出/重建测试 **4 项通过**，覆盖 5,000 行拖动两端、300 行高度的单条记录、短/空记录、深浅主题、横竖屏、重建后阅读位置及系统返回不发送按键。[专项结果](test-results/history-ui-device.txt)。同轮其余 3 项真实回环 SSH/SFTP 回归亦通过，包含 Codex 从原按钮返回实时、连续插图、分享队列重建与关闭重连。
+- 已目视检查组件的[深色竖屏](screenshots/history-ui-dark-portrait.png)与[浅色横屏](screenshots/history-ui-light-landscape.png)。最初的横屏组件测试因空白测试 Activity 重建后未重新挂载内容而失败，修正测试宿主后通过；真实 MainActivity 重建检查独立通过。
+- 默认包名 Debug APK 与 AndroidTest 编译通过；Lint **0 错误、14 警告和 1 提示**。本轮为模拟器验证，APK 保存于 `.local/builds/iTermux-history-ui-debug.apk`。
+
+## 2026-10-01 PR #6 评论修复与统一全屏历史
+
+- Codex、Grok 等全屏程序统一浏览客户端在本次连接中捕获的输出；不再探测工具名或发送 Ctrl+T、Page Up、Escape。清屏/滚动前保留被覆盖文字，固定快照支持最早/最新跳转和复制，限制为 50,000 行或 2 Mi 个字符。连接前、未显示及已被容量限制淘汰的内容不在此记录中。
+- 历史进入/滚动/退出串行并检查代次；退出完成后旧请求不会重新进入 copy-mode。常用命令退出历史后才发送，仍在全屏程序时拒绝发送命令与回车，草稿保留。
+- 输入队列切换原子化；shell 历史通过 SFTP 偏移只读末尾最多 512 KiB。下载显式区分同名文件、保持扩展名，清理失败不吞掉取消。
+- Activity 保存未交接的图片 URI 字符串；服务持有分享选择器状态，会话持有整个上传队列。tmux 关闭保留远端身份及卡片，显式移除时提示手动连接命令。字体导入在 IO 执行，以临时文件和 Typeface.Builder 验证，损坏文件不会覆盖已导入字体。
+- JVM：app 43、ssh-core 42、terminal-emulator 150、terminal-view 18，合计 **253 项通过**；16 项未配置的外部环境测试跳过。含真实回环 SSH 的 11 项重连场景，以及真实 OpenSSH/tmux 滚动、退出后陈旧滚动不重入、SFTP 尾部读取测试。
+- API 36 模拟器、隔离包 `io.itermux.pr6check`：**8 项通过**，覆盖不支持原生历史的 Grok 式全屏重绘、Codex 式同路径查看及三次插图、分享队列旋转、关闭后重连、损坏字体拒绝、命令执行、跨目录同名下载、tmux 拖动与 copy-mode 内执行命令。[设备测试原始结果](test-results/pr6-history-review-device.txt)。全屏程序使用隔离 PTY 夹具，未调用真实 Grok/Codex 模型服务。
+- Debug/AndroidTest 构建通过；Lint 0 错误、14 警告和 1 提示（既有界面建议与依赖版本提示）。另复跑此前已失败的 `TerminalExtraKeysTest`，仍在本地滚动条拖回实时断言失败（期望 0，实际 -178）；该旧问题未计入 8 项专项通过结果。本轮未做真机验证。APK、截图和其余日志在忽略目录 `.local/builds/`。
+
 ## 2026-09-25 传输进度、目录与双语界面
 
 - 本机隔离 SFTP 夹具验证同名文件上传到两个不同目录、同一目标拒绝覆盖、下载大小与字节数匹配；上传目录菜单在进入另一目录时立即更新目标路径。

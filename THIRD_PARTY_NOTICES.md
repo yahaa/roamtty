@@ -13,6 +13,7 @@ iTermux's original code is copyright 2026 iTermux contributors, licensed under A
 | AndroidX / Jetpack Compose / Room | Exact versions in Gradle build files | Apache-2.0 |
 | Gradle Wrapper | 8.11.1 | Apache-2.0 |
 | JUnit / Hamcrest (tests only) | 4.13.2 / transitive | EPL-1.0 / BSD-3-Clause |
+| Bundled terminal fonts (JetBrains Mono 2.304, Fira Code 6.2, Source Code Pro 2.042, IBM Plex Mono 1.1.0, Cascadia Mono 2404.23) | assets/fonts + licenses/fonts | SIL Open Font License 1.1 |
 
 Upstream Termux is GPLv3 as an application. Only the two terminal libraries covered by its explicit Apache-2.0 exception are vendored. No Termux app, termux-shared, local shell launcher, JNI source, or native Termux binary is shipped. The original repository license declaration is preserved at `licenses/Termux-upstream-LICENSE.md`.
 
@@ -24,6 +25,7 @@ Local changes to the vendored libraries:
 - Enqueued bracketed paste as one packet; exposed the current paste mode to the UI.
 - Disabled remote OSC 52 clipboard writes. Local selection and copying remain available.
 - Added SSH-specific regression tests. Source files retain upstream headers.
+- TerminalRenderer: disable subpixel text AA and enable glyph hinting for clearer mobile LCD/OLED rendering.
 
 Full license texts are in `licenses/` and LICENSE, and are bundled in the application's offline guide. Dependencies used only to build or test are not part of the release APK. The separately downloaded Codex Linux binary is used only to validate a real remote AI terminal tool and is not shipped in the app or source archive.
 

@@ -17,6 +17,17 @@ SFTP_ROOT = Path(__file__).resolve().parent.parent / ".local" / "sftp-fixture"
 SFTP_ROOT.mkdir(parents=True, exist_ok=True)
 for name in ("phone-a", "phone-b"):
     (SFTP_ROOT / name).mkdir(exist_ok=True)
+for name in ("assets", "src"):
+    (SFTP_ROOT / "phone-a" / name).mkdir(exist_ok=True)
+for path, content in {
+    ".bash_history": "git status\npwd\nls -lah\n",
+    "phone-a/design-notes.md": "# Design notes\n",
+    "phone-a/package.json": '{"name":"design-studio"}\n',
+    "phone-a/README.md": "# Demo project\n",
+}.items():
+    target = SFTP_ROOT / path
+    if not target.exists():
+        target.write_text(content)
 
 
 class FixtureSftp(paramiko.SFTPServerInterface):

@@ -6,7 +6,15 @@ import io.itermux.app.data.Host
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
 
-internal data class ConnectRequest(val host: Host, val mode: SessionMode, val title: String = "")
+internal data class ConnectRequest(
+    val host: Host,
+    val mode: SessionMode,
+    val title: String = "",
+    /** When set, reattach this journal entry (same remote tmux name) instead of opening a new session. */
+    val reuseSessionId: String? = null,
+    /** After connect succeeds, open the remote file browser instead of the terminal. */
+    val openFilesAfterConnect: Boolean = false
+)
 
 internal fun authLabel(auth: String) = when (auth) {
     "KEY" -> tr("私钥")

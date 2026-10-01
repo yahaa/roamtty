@@ -3,6 +3,7 @@ package io.itermux.app.ui
 import io.itermux.app.tr
 
 import android.Manifest
+import android.net.Uri
 import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
@@ -33,6 +34,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,17 +48,26 @@ import io.itermux.app.data.Host
 import io.itermux.app.session.*
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Boolean, Boolean) -> Unit) {
+fun ItermuxScreen(
+    app: ItermuxApp,
+    service: SessionService?,
+    pendingShareImages: List<Uri> = emptyList(),
+    onShareImagesConsumed: () -> Unit = {},
+    onChromeChange: (Boolean, Boolean) -> Unit,
+) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val imeVisible = WindowInsets.isImeVisible
     val scope = rememberCoroutineScope()
-    val hosts by app.database.hosts().observe().collectAsStateWithLifecycle(emptyList())
+    val hostFlow = remember(app) { app.database.hosts().observe() }
+    val loadedHosts by hostFlow.collectAsStateWithLifecycle(initialValue = null)
+    val hosts = loadedHosts.orEmpty()
     val sessionFlow = remember(service) { service?.sessions ?: MutableStateFlow(emptyList()) }
     val sessions by sessionFlow.collectAsStateWithLifecycle()
     var page by rememberSaveable { mutableStateOf("hosts") }
@@ -79,6 +90,7 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
     LaunchedEffect(service, sessions, selected, page) {
         service?.awaitRestoration()
         if (service != null && page == "terminal" && service.sessions.value.none { it.id == selected }) page = "sessions"
+        if (service != null && page == "files" && service.sessions.value.none { it.id == selected }) page = "hosts"
     }
     var search by rememberSaveable { mutableStateOf("") }
     var sessionSearch by rememberSaveable { mutableStateOf("") }
@@ -119,26 +131,83 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                         passphrase = passphrase.takeIf { it.isNotEmpty() }?.toByteArray()
                     )
                 }
-                val session = bound.open(request.host, request.mode, credentials)
-                session.rename(request.title)
+                val session = if (request.reuseSessionId != null) {
+                    bound.reconnect(request.reuseSessionId, credentials)
+                } else {
+                    bound.open(request.host, request.mode, credentials)
+                }
+                if (request.title.isNotBlank()) session.rename(request.title)
                 selected = session.id
-                page = "terminal"
+                page = if (request.openFilesAfterConnect) "files" else "terminal"
             } catch (e: Exception) {
                 credentials?.clear()
                 toast(if (e is IllegalStateException) tr("最多保留 8 个会话，请先关闭旧会话") else tr("无法读取凭据，请重新导入密钥或保存密码。"))
             }
         }
     }
-    fun connect(host: Host, mode: SessionMode = SessionMode.valueOf(host.mode), title: String = "") {
-        val request = ConnectRequest(host, mode, title)
+    fun connect(host: Host, mode: SessionMode = SessionMode.valueOf(host.mode), title: String = "", reuseSessionId: String? = null, openFilesAfterConnect: Boolean = false) {
+        val request = ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect)
         if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null)) connectRequest = request
         else start(request)
     }
 
+    /** Open the SFTP browser: reuse a CONNECTED session for this host, else connect a SHELL session. */
+    fun browseFiles(host: Host) {
+        val bound = service
+        if (bound == null) {
+            toast(tr("会话服务尚未就绪，请稍后重试"))
+            return
+        }
+        val existing = sessions.firstOrNull { it.host.id == host.id && it.state.value.phase == Phase.CONNECTED }
+        if (existing != null) {
+            selected = existing.id
+            page = "files"
+            return
+        }
+        // Prefer a short-lived SHELL session so browsing does not create a remote tmux session.
+        connect(host, SessionMode.SHELL, openFilesAfterConnect = true)
+    }
+
+    // System share sheet → SFTP upload (+ Codex/Grok paste) on a connected session.
+    val shareFlow = remember(service) { service?.pendingSharedImages ?: MutableStateFlow(emptyList()) }
+    val shareUrisPending by shareFlow.collectAsStateWithLifecycle()
+    fun uploadSharedImages(session: TerminalConnection, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        selected = session.id
+        page = "terminal"
+        if (uris.size > 1) toast(trf("共 %d 张图片，将依次上传", uris.size))
+        if (!session.transfers.uploadSharedImages(context, session, uris))
+            toast(tr("已有传输进行中，请稍后再试"))
+    }
+    fun routeSharedImages(uris: List<Uri>, available: List<TerminalConnection>) {
+        if (uris.isEmpty()) return
+        val connected = available.filter { it.state.value.phase == Phase.CONNECTED }
+        when {
+            connected.isEmpty() -> {
+                toast(tr("请先连接一台主机后再分享图片"))
+                page = if (available.isNotEmpty()) "sessions" else "hosts"
+            }
+            connected.size == 1 -> uploadSharedImages(connected.first(), uris)
+            else -> {
+                service?.pendingSharedImages?.value = shareUrisPending + uris
+            }
+        }
+    }
+    LaunchedEffect(pendingShareImages, service) {
+        if (pendingShareImages.isEmpty() || service == null) return@LaunchedEffect
+        service.awaitRestoration()
+        val uris = pendingShareImages.toList()
+        routeSharedImages(uris, service.sessions.value)
+        onShareImagesConsumed()
+    }
     LaunchedEffect(searchExpanded, page) { if (searchExpanded && navigationVisible) searchFocus.requestFocus() }
     MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors) {
+        if (loadedHosts == null) {
+            StartupLoading()
+            return@MaterialTheme
+        }
         val colors = MaterialTheme.colorScheme
-        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible,
+        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files",
             drawerContent = {
                 ItermuxDrawer(page, sessions,
                     onHosts = { page = "hosts"; scope.launch { drawerState.close() } },
@@ -157,7 +226,7 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
             // Only desktop window chrome reserves a whole edge; terminal controls avoid cutouts locally.
             val contentInsets = if (terminalVisible) WindowInsets.captionBar else WindowInsets.safeDrawing
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).imePadding()) {
-                if ((!imeVisible || searchExpanded) && !terminalVisible) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (landscape) 0.dp else 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files") Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (landscape) 0.dp else 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = {
                         focusManager.clearFocus(force = true)
                         keyboardController?.hide()
@@ -169,7 +238,8 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                     if (landscape && configuration.screenWidthDp >= 700) {
                         Text(if (page == "hosts") {
                             if (search.isBlank()) tr("已保存的主机") else tr("搜索结果")
-                        } else if (page == "sessions") tr("会话列表") else tr("设置"),
+                        } else if (page == "sessions") tr("会话列表")
+                        else tr("设置"),
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(start = 16.dp), maxLines = 1)
                     }
@@ -178,7 +248,7 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                         NavigationTabs(page, hosts.size, sessions.size) { page = it }
                     }
                     if (navigationVisible) {
-                        IconButton(onClick = {
+                        AppSearchToggle(searchExpanded, onToggle = {
                             if (searchExpanded) {
                                 search = ""
                                 sessionSearch = ""
@@ -186,12 +256,8 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                                 keyboardController?.hide()
                             }
                             searchExpanded = !searchExpanded
-                        }, modifier = Modifier.testTag("search-toggle")) {
-                            if (searchExpanded) Text("×", fontSize = 26.sp,
-                                modifier = Modifier.semantics { contentDescription = tr("收起搜索") })
-                            else Icon(painterResource(R.drawable.ic_search),
-                                contentDescription = if (page == "hosts") tr("搜索主机") else tr("搜索会话"))
-                        }
+                        }, searchDescription = if (page == "hosts") tr("搜索主机") else tr("搜索会话"),
+                            modifier = Modifier.testTag("search-toggle"))
                         if (page == "hosts" && landscape) FilledTonalButton(onClick = { editHostId = null; editorOpen = true },
                             modifier = Modifier.padding(start = 4.dp).heightIn(min = 48.dp),
                             contentPadding = PaddingValues(horizontal = 14.dp)) { Text(tr("＋ 主机")) }
@@ -212,24 +278,21 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                                 modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { Text(tr("＋ 主机")) }
                         }
                         if (searchExpanded) {
-                            OutlinedTextField(search, { search = it }, placeholder = { Text(tr("名称、地址或用户名")) },
-                                leadingIcon = { Text("⌕", fontSize = 23.sp) },
-                                trailingIcon = { if (search.isNotEmpty()) TextButton(onClick = { search = "" }) { Text(tr("清除")) } },
-                                singleLine = true, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
-                                    .focusRequester(searchFocus).testTag("host-search"),
-                                shape = RoundedCornerShape(14.dp))
+                            AppSearchField(search, { search = it }, tr("名称、地址或用户名"),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                                    .focusRequester(searchFocus).testTag("host-search"))
                         }
                         val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
                         if (filtered.isEmpty()) {
                             Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                                 if (hosts.isEmpty()) Icon(painterResource(R.drawable.ic_terminal), contentDescription = "iTermux",
-                                    tint = Color.Unspecified, modifier = Modifier.size(76.dp).testTag("empty-logo"))
-                                Spacer(Modifier.height(18.dp))
+                                    tint = Color.Unspecified, modifier = Modifier.size(48.dp).testTag("empty-logo"))
+                                Spacer(Modifier.height(12.dp))
                                 Text(if (hosts.isEmpty()) tr("从第一台主机开始") else tr("没有匹配的主机"), fontSize = 20.sp)
                                 Text(if (hosts.isEmpty()) tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。") else tr("试试其他名称或地址"), color = colors.onSurfaceVariant, modifier = Modifier.padding(16.dp), lineHeight = 23.sp)
                             }
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = if (landscape) 8.dp else 0.dp, bottom = 12.dp)) {
-                            items(filtered, key = { it.id }) { host -> HostCard(host, landscape, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }) }
+                            items(filtered, key = { it.id }) { host -> HostCard(host, landscape, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }) }
                         }
                     }
                 } else if (page == "sessions") {
@@ -255,8 +318,20 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                             }
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = sessionGridState, modifier = Modifier.weight(1f).testTag("session-grid"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = if (landscape) 8.dp else 0.dp, bottom = 12.dp)) {
                             items(filteredSessions, key = { it.id }) { session ->
-                                SessionCard(session, onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) })
+                                SessionCard(session, onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) }, onForget = { service?.forget(session.id) })
                             }
+                        }
+                    }
+                } else if (page == "files") {
+                    val filesSession = sessions.find { it.id == selected }
+                    if (filesSession != null) {
+                        key(filesSession) {
+                            RemoteFileBrowserPage(filesSession, onBack = { page = "hosts" }, Modifier.weight(1f))
+                        }
+                    } else {
+                        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(tr("会话不存在"), fontSize = 18.sp)
+                            Button(onClick = { page = "hosts" }, modifier = Modifier.padding(top = 16.dp)) { Text(tr("返回主机列表")) }
                         }
                     }
                 } else if (page == "settings") {
@@ -272,12 +347,14 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                     }
                 } else {
                     val active = sessions.find { it.id == selected }
-                    if (active != null) key(active.id) {
+                    // Manual reconnect preserves the journal id but replaces the transport and emulator.
+                    if (active != null) key(active) {
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
                             onSessions = { page = "sessions" }, onHosts = { page = "hosts" },
-                            onReconnect = { service?.close(active.id); connect(active.host, active.mode, active.title.value) },
-                            onShell = { service?.close(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
+                            onReconnect = { connect(active.host, active.mode, active.title.value, reuseSessionId = active.id) },
+                            onNewSession = { connect(active.host, active.mode) },
+                            onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active }, onClose = { service?.close(active.id) })
                     }
                 }
@@ -291,7 +368,7 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                 onSaved = { editorOpen = false; editHostId = null })
         }
         deleteHost?.let { host -> AlertDialog(onDismissRequest = { deleteHost = null }, title = { Text(trf("删除 %s？", host.name)) }, text = { Text(tr("将删除这台主机及保存的凭据，并关闭它的连接。远端 tmux 任务不受影响。")) },
-            confirmButton = { TextButton(onClick = { scope.launch { sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id) }; app.database.hosts().delete(host.id); deleteHost = null } }) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) } },
+            confirmButton = { TextButton(onClick = { scope.launch { sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }; app.database.hosts().delete(host.id); deleteHost = null } }) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { deleteHost = null }) { Text(tr("取消")) } }) }
         connectRequest?.let { request -> CredentialsDialog(request, { connectRequest = null }) { password, phrase -> connectRequest = null; start(request, password, phrase) } }
         reverify?.let { session -> AlertDialog(onDismissRequest = { reverify = null }, title = { Text(tr("重新核验主机指纹")) }, text = { Text(trf("请先向服务器管理员确认新指纹。继续会移除此地址原有的信任记录，关闭该地址的连接，并在重连时重新展示指纹。\n\n%s", session.host.target().endpoint)) },
@@ -300,8 +377,35 @@ fun ItermuxScreen(app: ItermuxApp, service: SessionService?, onChromeChange: (Bo
                 sessions.filter { it.host.target().endpoint == endpoint }.forEach { service?.close(it.id) }
                 app.database.hosts().forgetPin(endpoint)
                 reverify = null
-                connect(session.host, session.mode)
+                connect(session.host, session.mode, session.title.value, reuseSessionId = session.id.takeIf { session.mode == SessionMode.TMUX })
             } }) { Text(tr("移除旧记录并重连")) } }, dismissButton = { TextButton(onClick = { reverify = null }) { Text(tr("取消")) } }) }
+        if (shareUrisPending.isNotEmpty()) {
+            val choices = sessions.filter { it.state.value.phase == Phase.CONNECTED }
+            fun dismissShare() { service?.pendingSharedImages?.value = emptyList() }
+            AppSheet(onDismiss = ::dismissShare) {
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f)) {
+                    item { SheetHeader(tr("选择会话以上传图片"), tr("选择接收图片的主机和会话。"), ::dismissShare) }
+                    items(choices.size, key = { choices[it].id }) { index ->
+                        val session = choices[index]
+                        val title by session.title.collectAsStateWithLifecycle()
+                        val state by session.state.collectAsStateWithLifecycle()
+                        TextButton(onClick = {
+                            val uris = shareUrisPending
+                            dismissShare()
+                            uploadSharedImages(session, uris)
+                        }, enabled = state.phase == Phase.CONNECTED,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("share-session-${session.id}")) {
+                            Column(Modifier.fillMaxWidth().padding(8.dp)) {
+                                Text(session.titleForDisplay(title), style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${session.host.username}@${session.host.address}:${session.host.port}",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (showAbout) AboutDialog(context) { showAbout = false }
     }
 }

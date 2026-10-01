@@ -18,7 +18,7 @@ flowchart LR
 
 `ssh-core` 是可在 JVM 上独立测试的 Kotlin 模块。Target、Credentials、PinStore、Prompt 和 SshSession 与 Android 无关。mwiede/JSch 负责 SSH 协议与认证，不自制密码学。Bouncy Castle 为 Android 提供现代密钥算法支持，保留 JSch 的算法默认策略，不自动启用 ssh-rsa/SHA-1 等旧算法。
 
-`JschSession.connect` 在 IO dispatcher 执行握手和读取。输出按最多 8192 字节逐段交给挂起回调，回调等待主线程完成解析后才读下一段，因此 UI 慢时不会积压无界输出。所有终端 append、resize、paste、按键生成和绘制均在主线程串行执行。历史上限 5000 行；每个终端有独立的解析器和缓冲区。
+`JschSession.connect` 在 IO dispatcher 执行握手和读取。输出按最多 8192 字节逐段交给挂起回调，回调等待主线程完成解析后才读下一段，因此 UI 慢时不会积压无界输出。所有终端 append、resize、paste、按键生成和绘制均在主线程串行执行。历史上限 50000 行；每个终端有独立的解析器和缓冲区。
 
 输入有界队列容量 64，单次原始写入上限 256 KiB，编辑/粘贴上限 128 KiB。断开关闭队列并清空剩余数据；每次重连创建新的 transport 和终端，不重放旧输入。PTY resize 使用合并队列，只发送最新尺寸，网络写入不阻塞 UI。SSH keepalive 间隔 15 秒，最多 3 次未响应后断开。
 
@@ -47,9 +47,11 @@ Keystore 持有不可导出的 AES 密钥，AES-GCM 随机 IV 和 128 位认证�
 `FileTransferController` 由 `TerminalConnection` 持有，使用服务作用域与 StateFlow 管理任务/进度，Activity 只展示状态。SAF 下载失败或取消在 `NonCancellable + IO` 中删除文档；文档 URI 使用 `DocumentsContract.deleteDocument`，删除失败显式反馈。SFTP 操作统一转义字面路径中的 `\`、`*`、`?`（JSch `realpath` 例外，接受原始路径）；上传使用同目录固定长度随机临时文件名，避免合法目标文件名因追加后缀超长。
 
 
-tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec channel 执行固定命令 `exec tmux new-session -A -s 'itermux'`。普通 SSH 使用 shell channel。用户进入“历史”后，同一 SSH 连接的短时 exec channel 对固定会话运行 `copy-mode`、`display-message` 和 `send-keys -X`；命令在 Mutex 下串行，长距离定位先用 `history-top` / `history-bottom` 或翻页，避免逐行重绘。客户端只保存当前窗格的历史行数、滚动位置和浏览状态，并用它驱动右侧滑块；“实时”执行 `cancel` 后退出复制模式。文件传输使用相同已认证 SSH 连接上的独立 SFTP channel，Android SAF 提供手机侧输入输出流；上传先写远端临时文件，确认目标不存在后改名。没有远端安装、端口转发、文件同步或后台自动命令重放。
+tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec channel 执行经校验的独立会话名命令 `exec tmux new-session -A -s 'itermux-<id>'`。普通 SSH 使用 shell channel。用户进入“历史”后，同一 SSH 连接的短时 exec channel 对对应远端会话运行 `copy-mode`、`display-message` 和 `send-keys -X`；命令在 Mutex 下串行，长距离定位先用 `history-top` / `history-bottom` 或翻页，避免逐行重绘。客户端只保存当前窗格的历史行数、滚动位置和浏览状态，并用它驱动右侧滑块；“实时”执行 `cancel` 后退出复制模式。文件传输使用相同已认证 SSH 连接上的独立 SFTP channel，Android SAF 提供手机侧输入输出流；上传先写远端临时文件，确认目标不存在后改名。没有远端安装、端口转发、文件同步或后台自动命令重放。
 
-`ssh-core` 的 `TmuxHistoryController` 负责远端命令和状态解析，`app.session.TmuxHistoryCoordinator` 负责当前连接的轮询、请求失效与乐观滚动状态，`terminal-view.RemoteHistoryState` 只管理滑块位置和回调。断连会使等待中的历史请求失效；拖动期间收到的远端位置在松手时同步。
+`ssh-core` 的 `TmuxHistoryController` 负责远端命令和状态解析，`app.session.TmuxHistoryCoordinator` 负责当前连接的轮询、请求失效与乐观滚动状态，`terminal-view.RemoteHistoryState` 只管理滑块位置和回调。断连会使等待中的历史请求失效；拖动期间收到的远端位置在松手时同步。协调器在同一个 Mutex 内检查请求代次并执行远端命令，退出等待当前命令结束；过期滚动不会重新进入 copy-mode。
+
+全屏程序统一使用 `OutputHistory` 的内存文字记录，不识别品牌或注入历史快捷键。emulator 在清屏/滚动前及每批输出解析后保存屏幕变化；去除相邻画面中重复的行，保留被覆盖文字，限制为 50,000 行和 2 Mi 个字符。采集直接读取 `TerminalRow`，保留物理行、列数、空格、折行标志及每列样式；不经过用于复制的 `getSelectedText` 合并行接口。远端 OSC 调色板覆盖冻结为真彩色，标准 ANSI 调色板仍随主题切换。`OutputHistoryView` 通过无传输能力的只读 `OutputHistorySession` 浏览固定快照，复用 `TerminalView` / `TerminalRenderer` 的字格、行距、样式和选区；只在独立 emulator 中装载可见行，远端继续接收输出，阅读位置不会跳动。历史宽度保持采集时的网格，宽记录通过 `HorizontalScrollView` 横向浏览；不将远端按列定位的界面当作段落折行。右侧 24 dp 触摸区的细滚动条固定在可见边缘，拖动只更新本地快照视口，短记录隐藏滑块；只读视口不提供输入连接和粘贴动作。滚到记录末尾仍保持浏览状态，仅原操作栏的“历史/实时”按钮及系统返回键切换模式，历史页和更多菜单不另设重复入口。该记录仅包含本次连接已显示的文字，不是远端程序持久化的完整对话，也不写入磁盘。
 
 ## 上游适配
 

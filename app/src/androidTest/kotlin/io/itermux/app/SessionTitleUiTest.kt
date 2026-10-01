@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.Context
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -44,10 +45,24 @@ class SessionTitleUiTest {
                     .getOrDefault(false)
             }
             compose.onNodeWithText("会话  1").performClick()
+            compose.onNodeWithTag("session-${session.id}").assertTextContains(session.defaultTitle)
+            val initialHeight = compose.onNodeWithTag("session-${session.id}").fetchSemanticsNode().boundsInRoot.height
             compose.onNodeWithTag("rename-session-${session.id}").performClick()
             compose.onNodeWithTag("session-title-input").performTextInput("修复登录流程")
             compose.onNodeWithText("保存").performClick()
             assertEquals("修复登录流程", session.title.value)
+            compose.onNodeWithTag("session-${session.id}").assertTextContains("测试主机 · 修复登录流程")
+            compose.onNodeWithText("测试主机", useUnmergedTree = true).assertDoesNotExist()
+            assertEquals("Renaming does not add a host-name row", initialHeight,
+                compose.onNodeWithTag("session-${session.id}").fetchSemanticsNode().boundsInRoot.height, 1f)
+            compose.onNodeWithTag("rename-session-${session.id}").performClick()
+            compose.onNodeWithTag("session-title-input").performTextClearance()
+            compose.onNodeWithText("保存").performClick()
+            compose.onNodeWithTag("session-${session.id}").assertTextContains(session.defaultTitle)
+            assertEquals(initialHeight, compose.onNodeWithTag("session-${session.id}").fetchSemanticsNode().boundsInRoot.height, 1f)
+            compose.onNodeWithTag("rename-session-${session.id}").performClick()
+            compose.onNodeWithTag("session-title-input").performTextInput("修复登录流程")
+            compose.onNodeWithText("保存").performClick()
             compose.onNodeWithTag("session-${session.id}").assertIsDisplayed()
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("search-toggle").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("search-toggle").performClick()
@@ -67,10 +82,12 @@ class SessionTitleUiTest {
                 compose.onAllNodesWithTag("brand-logo").fetchSemanticsNodes().isNotEmpty()
             }
             compose.onNodeWithTag("brand-logo").performClick()
+            compose.onNodeWithTag("drawer-session-${session.id}").assertTextContains("测试主机 · 修复登录流程")
+            compose.onNodeWithText("测试主机", useUnmergedTree = true).assertDoesNotExist()
             compose.onNodeWithTag("drawer-session-${session.id}").assertIsDisplayed().performClick()
             compose.onNodeWithTag("restore-dock").performClick()
             compose.onNodeWithTag("session-switcher").performClick()
-            compose.onNodeWithText("✓ 修复登录流程", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("✓ 测试主机 · 修复登录流程", substring = true).assertIsDisplayed()
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id) }
         }

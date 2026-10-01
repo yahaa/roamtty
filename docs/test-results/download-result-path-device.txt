@@ -1,0 +1,37 @@
+2026-10-01 — Download result paths
+
+Environment: Android API 36 emulator, 1080x2400.
+
+Behavior:
+- Download results display each actual destination, including the filename selected
+  by Save as or renamed by the document provider to avoid a collision.
+- Source folders are explicitly labeled. Destination text wraps and is selectable.
+- File-backed external-storage documents show their device path. Providers without
+  a resolvable filesystem path retain the exact returned document URI.
+- Deleted partial files do not retain a download path; undeleted partial files
+  retain their location for cleanup.
+
+Validation:
+- :app:assembleDebug and :app:assembleDebugAndroidTest passed.
+- :app:testDebugUnitTest: 47 passed.
+- :app:lintDebug and git diff --check passed.
+- 9 device tests passed across the regression run and final targeted UI rerun.
+- Checked default directory, single/batch Save as, collision-renamed files,
+  actual result-dialog text/layout, failed download cleanup, and cancellation.
+- Result screenshot visually inspected; long paths wrap without truncation.
+- Tested on emulator only.
+
+Passing device tests:
+- DownloadDestinationTest.defaultPersistsAcrossRecreationAndSingleBatchDownloadsWhileSaveAsStaysTemporary
+- DownloadDestinationTest.fileBrowserAndDownloadPanelUseTheSameDefault
+- DownloadDestinationTest.revokedGrantReopensPickerAndCancelDoesNotStartADownload
+- DownloadDestinationTest.settingsChangeDefaultAndDeletedDirectoryIsDetected
+- DownloadFilesTest.batchDownloadsUseDocumentTreeKeepNamesAndContinueAfterFailure
+- DownloadFilesTest.selectionCanSpanDirectoriesAndShowsMetadata
+- TransferLifetimeTest.realDownloadContinuesAfterRecreationAndCancellationRemovesPartialFile
+- TransferProgressUiTest.batchProgressShowsCountsPercentageSpeedAndPerFileStates
+- TransferProgressUiTest.showsMeasuredProgressInEnglish
+
+APK: .local/builds/iTermux-download-result-path-20261001-debug.apk
+SHA-256: f184c7801fb3bd9960d6bc16f85651977e68bf2663ab7711249bc25b5a6e6e59
+Screenshot: .local/builds/iTermux-download-result-path.png

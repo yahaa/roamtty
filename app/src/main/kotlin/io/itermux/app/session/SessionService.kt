@@ -22,6 +22,7 @@ class SessionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutableSessions = MutableStateFlow<List<TerminalConnection>>(emptyList())
     val sessions = mutableSessions.asStateFlow()
+    val pendingSharedImages = MutableStateFlow<List<android.net.Uri>>(emptyList())
     private val binder = LocalBinder()
     private var foreground = false
     private lateinit var journal: SessionJournal
@@ -38,11 +39,21 @@ class SessionService : Service() {
         refreshLanguage()
         restoration = scope.launch {
             val app = application as ItermuxApp
+            val usedNumbers = mutableMapOf<String, MutableSet<Int>>()
             mutableSessions.value = journal.read().mapNotNull { entry ->
                 app.database.hosts().find(entry.hostId)?.let { host ->
-                    TerminalConnection(host, entry.mode, null, app.pins, scope, entry.id, entry.title, ::saveSessions)
+                    val used = usedNumbers.getOrPut(host.id) { mutableSetOf() }
+                    val number = entry.sessionNumber.takeIf { it > 0 && it !in used } ?: nextSessionNumber(used)
+                    used.add(number)
+                    TerminalConnection(
+                        host, entry.mode, null, app.pins, scope, entry.id, entry.title,
+                        sessionNumber = number,
+                        remoteSessionName = entry.remoteSessionName,
+                        onRename = ::saveSessions
+                    )
                 }
             }
+            saveSessions()
         }
     }
     fun refreshLanguage() {
@@ -53,22 +64,65 @@ class SessionService : Service() {
     }
     suspend fun awaitRestoration() { restoration.join() }
     private fun saveSessions() = journal.save(mutableSessions.value)
+    /** Opens a new local entry. TMUX mode always allocates a fresh remote session name. */
     suspend fun open(host: Host, mode: SessionMode, credentials: Credentials): TerminalConnection {
         awaitRestoration()
         check(mutableSessions.value.size < 8) { tr("最多保留 8 个会话，请先关闭旧会话") }
         ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
-        val connection = TerminalConnection(host, mode, credentials, (application as ItermuxApp).pins, scope, onRename = ::saveSessions)
+        val remoteName = if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION
+        val connection = TerminalConnection(
+            host, mode, credentials, (application as ItermuxApp).pins, scope,
+            sessionNumber = nextSessionNumber(mutableSessions.value.filter { it.host.id == host.id }.map { it.sessionNumber }),
+            remoteSessionName = remoteName, onRename = ::saveSessions
+        )
         mutableSessions.value += connection
         saveSessions()
         stateWatchers[connection.id] = scope.launch { connection.state.collect { refreshNotification() } }
         return connection
     }
+
+    /**
+     * Reconnects an existing journal entry, reattaching the same remote tmux session name.
+     * Replaces the local transport object in place so the session list identity is preserved.
+     */
+    suspend fun reconnect(id: String, credentials: Credentials): TerminalConnection {
+        awaitRestoration()
+        val existing = mutableSessions.value.find { it.id == id }
+            ?: error(tr("会话不存在"))
+        stateWatchers.remove(id)?.cancel()
+        existing.disconnect()
+        ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
+        val replacement = TerminalConnection(
+            existing.host, existing.mode, credentials, (application as ItermuxApp).pins, scope,
+            id = existing.id,
+            initialTitle = existing.title.value,
+            sessionNumber = existing.sessionNumber,
+            remoteSessionName = existing.remoteSessionName,
+            onRename = ::saveSessions
+        )
+        mutableSessions.value = mutableSessions.value.map { if (it.id == id) replacement else it }
+        saveSessions()
+        stateWatchers[id] = scope.launch { replacement.state.collect { refreshNotification() } }
+        refreshNotification()
+        return replacement
+    }
+
     fun close(id: String) {
         stateWatchers.remove(id)?.cancel()
-        mutableSessions.value.find { it.id == id }?.disconnect()
-        mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+        val existing = mutableSessions.value.find { it.id == id } ?: return
+        existing.disconnect()
+        // Detach preserves the remote task. Keep its addressable identity for reconnect.
+        if (existing.mode != SessionMode.TMUX)
+            mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
         saveSessions()
         refreshNotification()
+    }
+    fun forget(id: String) {
+        val existing = mutableSessions.value.find { it.id == id } ?: return
+        check(!existing.state.value.active)
+        stateWatchers.remove(id)?.cancel()
+        mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+        saveSessions()
     }
     fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; refreshNotification() }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

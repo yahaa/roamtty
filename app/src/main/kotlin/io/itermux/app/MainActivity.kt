@@ -1,6 +1,7 @@
 package io.itermux.app
 
 import android.content.*
+import android.net.Uri
 import android.os.*
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -18,12 +19,20 @@ class MainActivity : ComponentActivity() {
     private var bound = false
     private var terminalVisible = false
     private var lightTheme = false
+    private var pendingShareImages by mutableStateOf<List<Uri>>(emptyList())
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) { service = (binder as SessionService.LocalBinder).service }
         override fun onServiceDisconnected(name: ComponentName?) { service = null }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 31) {
+            // Dismiss as soon as the first frame is ready; never wait for the icon loop.
+            splashScreen.setOnExitAnimationListener { splash ->
+                splash.animate().alpha(0f).setDuration(140L)
+                    .withEndAction { splash.remove() }.start()
+            }
+        }
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 28) {
             window.attributes = window.attributes.apply {
@@ -32,15 +41,29 @@ class MainActivity : ComponentActivity() {
                 else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
-        // Prevent system screenshots/recent-task snapshots from persisting credentials or terminal output.
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        pendingShareImages = savedInstanceState?.getStringArrayList("pendingShareImages")?.map(Uri::parse)
+            ?: ShareImageIntents.takeImageUris(intent)
         setContent {
-            ItermuxScreen(application as ItermuxApp, service) { visible, light ->
+            ItermuxScreen(
+                application as ItermuxApp,
+                service,
+                pendingShareImages = pendingShareImages,
+                onShareImagesConsumed = { pendingShareImages = emptyList() },
+            ) { visible, light ->
                 terminalVisible = visible
                 lightTheme = light
                 updateSystemBars()
             }
         }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingShareImages = pendingShareImages + ShareImageIntents.takeImageUris(intent)
+    }
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putStringArrayList("pendingShareImages", ArrayList(pendingShareImages.map(Uri::toString)))
+        super.onSaveInstanceState(outState)
     }
     private fun updateSystemBars() {
         @Suppress("DEPRECATION")

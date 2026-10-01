@@ -1,6 +1,7 @@
 <resources>
     <style name="Theme.ITermux" parent="Theme.ITermux.Base">
-        <item name="android:windowSplashScreenBackground">#252728</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenBackground">@color/startup_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/startup_animated</item>
+        <item name="android:windowSplashScreenAnimationDuration">900</item>
     </style>
 </resources>

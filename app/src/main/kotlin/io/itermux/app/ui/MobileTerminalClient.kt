@@ -11,7 +11,9 @@ internal class MobileTerminalClient(
     private val view: TerminalView,
     private val onScale: (Float) -> Unit,
     private val controlArmed: () -> Boolean,
-    private val consumeControl: () -> Unit
+    private val consumeControl: () -> Unit,
+    private val shiftArmed: () -> Boolean = { false },
+    private val consumeShift: () -> Unit = {}
 ) : TerminalViewClient {
     override fun onScale(scale: Float): Float { if (scale < 0.9f || scale > 1.1f) onScale(scale); return 1f }
     override fun onSingleTapUp(e: MotionEvent?) {
@@ -25,16 +27,22 @@ internal class MobileTerminalClient(
     override fun copyModeChanged(copyMode: Boolean) = Unit
     override fun onKeyDown(keyCode: Int, e: KeyEvent?, session: TerminalSession?) = false
     override fun onKeyUp(keyCode: Int, e: KeyEvent?): Boolean {
-        if (controlArmed() && keyCode != KeyEvent.KEYCODE_CTRL_LEFT && keyCode != KeyEvent.KEYCODE_CTRL_RIGHT) consumeControl()
+        val modifierKey = keyCode == KeyEvent.KEYCODE_CTRL_LEFT || keyCode == KeyEvent.KEYCODE_CTRL_RIGHT ||
+            keyCode == KeyEvent.KEYCODE_SHIFT_LEFT || keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT
+        if (!modifierKey) {
+            if (controlArmed()) consumeControl()
+            if (shiftArmed()) consumeShift()
+        }
         return false
     }
     override fun onLongPress(event: MotionEvent?) = false
     override fun readControlKey() = controlArmed()
     override fun readAltKey() = false
-    override fun readShiftKey() = false
+    override fun readShiftKey() = shiftArmed()
     override fun readFnKey() = false
     override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: TerminalSession?): Boolean {
         if (controlArmed()) consumeControl()
+        if (shiftArmed()) consumeShift()
         return false
     }
     override fun onEmulatorSet() = Unit

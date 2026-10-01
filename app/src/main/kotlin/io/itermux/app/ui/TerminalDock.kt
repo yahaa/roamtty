@@ -36,26 +36,15 @@ import androidx.compose.ui.unit.dp
                 keyControls()
             }
         }
-    } else if ((landscape && imeVisible) || availableHeight < 192.dp) {
-        // A short viewport needs the whole rail to scroll so extra keys retain full touch targets.
-        Column(modifier.verticalScroll(rememberScrollState()),
+    } else {
+        // Measure every control naturally. New actions must not consume a fixed shortcut budget.
+        Column(modifier.heightIn(max = (availableHeight - 8.dp).coerceAtLeast(0.dp))
+            .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally) {
             collapseControl()
             sessionControl(Modifier.size(48.dp))
             primaryControls()
             keyControls()
-        }
-    } else {
-        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-            collapseControl()
-            sessionControl(Modifier.size(48.dp))
-            primaryControls()
-            val keyArea = if (floating) Modifier.heightIn(max = (availableHeight - 192.dp).coerceAtLeast(0.dp))
-                else Modifier.weight(1f)
-            Column(keyArea.verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                keyControls()
-            }
         }
     }
 }

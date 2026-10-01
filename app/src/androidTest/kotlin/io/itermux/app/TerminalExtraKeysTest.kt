@@ -15,6 +15,8 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
@@ -23,11 +25,15 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -129,7 +135,7 @@ class TerminalExtraKeysTest {
             }
         }
         fun shortcut(tag: String) {
-            compose.onNodeWithTag("terminal-shortcuts").assertIsDisplayed().performTouchInput { click() }
+            compose.onNodeWithTag("terminal-shortcuts").performScrollTo().assertIsDisplayed().performTouchInput { click() }
             compose.onNodeWithTag(tag).assertIsDisplayed().performTouchInput { click() }
         }
         try {
@@ -144,6 +150,17 @@ class TerminalExtraKeysTest {
             outputContains("KEY_1B")
             shortcut("terminal-tab")
             outputContains("KEY_09")
+            compose.onNodeWithTag("terminal-shortcuts").performClick()
+            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-shift",
+                "terminal-left", "terminal-right", "terminal-delete").forEach { tag ->
+                val bounds = compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                val minimum = 48 * context.resources.displayMetrics.density - 1
+                assertTrue("$tag retains a 48dp target", bounds.width >= minimum && bounds.height >= minimum)
+            }
+            compose.onNodeWithTag("terminal-shift").performClick()
+            shortcut("terminal-left")
+            outputContains("KEY_32") // Shift+Left includes the modifier 2 in ESC [ 1 ; 2 D.
+            outputContains("KEY_44")
 
             compose.activityRule.scenario.onActivity {
                 // Capture only the isolated fixture, never the user's protected app.
@@ -207,8 +224,9 @@ class TerminalExtraKeysTest {
             }
             historyBitmap.recycle()
             compose.onNodeWithTag("terminal").performTouchInput {
-                // After scrolling up, grab the visible thumb rather than the empty track above it.
-                down(androidx.compose.ui.geometry.Offset(width - 6 * density, height * 0.2f))
+                // At the oldest row the thumb starts at 8dp and is at least 32dp tall.
+                // A percentage of screen height can miss the faded thumb on narrow devices.
+                down(androidx.compose.ui.geometry.Offset(width - 6 * density, 24 * density))
                 moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 8 * density), delayMillis = 400)
                 up()
             }
@@ -227,7 +245,7 @@ class TerminalExtraKeysTest {
             compose.waitUntil(10_000) { compose.onAllNodes(isRoot()).fetchSemanticsNodes().size == 1 }
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("terminal-shortcuts").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("terminal-shortcuts").assertIsDisplayed().performTouchInput { click() }
-            listOf("terminal-escape", "terminal-tab", "terminal-control",
+            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-shift",
                 "terminal-left", "terminal-right", "terminal-delete").forEach { tag ->
                 compose.onNodeWithTag(tag).assertIsDisplayed()
             }
@@ -238,11 +256,12 @@ class TerminalExtraKeysTest {
             compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.onNodeWithTag("file-transfer").performClick()
             compose.onNodeWithText("下载文件").performClick()
-            compose.onNodeWithTag("download-remote-path").assertIsDisplayed()
-            compose.onNodeWithTag("remote-path-dropdown").performClick()
+            compose.onNodeWithTag("download-remote-path").assertDoesNotExist()
+            compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
             compose.waitUntil(8_000) {
-                compose.onAllNodesWithTag("remote-use-directory").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithTag("download-entry-.bash_history").fetchSemanticsNodes().isNotEmpty()
             }
+            compose.onNodeWithTag("remote-use-directory").assertDoesNotExist()
             compose.waitForIdle()
             delay(250)
             InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
@@ -251,9 +270,17 @@ class TerminalExtraKeysTest {
                 }
             }
             compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-            compose.onNodeWithTag("remote-use-directory").performClick()
-            compose.onNodeWithTag("download-remote-path").assertTextContains("/")
-            compose.onNodeWithText("取消").performClick()
+            compose.onNodeWithTag("download-files-list").performScrollToNode(hasTestTag("download-entry-phone-a"))
+            compose.onNodeWithTag("download-entry-phone-a").performClick()
+            compose.waitUntil(8_000) {
+                compose.onAllNodesWithTag("download-entry-README.md").fetchSemanticsNodes().isNotEmpty()
+            }
+            assertTrue("Browsing a directory does not select it as a download", session.transfers.selectedDownloads.isEmpty())
+            compose.onNodeWithTag("download-files-list").performScrollToNode(hasTestTag("download-entry-README.md"))
+            compose.onNodeWithTag("download-entry-README.md").performClick()
+            assertEquals("/phone-a/README.md", session.transfers.selectedDownloads.single().path)
+            compose.onNodeWithTag("download-confirm").assertIsEnabled()
+            compose.onNodeWithContentDescription("关闭").performClick()
             compose.onNodeWithTag("terminal-menu").assertIsDisplayed()
             compose.activityRule.scenario.onActivity {
                 it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -298,6 +325,33 @@ class TerminalExtraKeysTest {
             listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-delete").forEach { tag ->
                 compose.onNodeWithTag(tag).assertIsDisplayed()
             }
+            compose.onNodeWithTag("terminal-escape").performClick()
+            val commandsButton = compose.onNodeWithTag("common-commands")
+            if (!commandsButton.isDisplayed()) commandsButton.performScrollTo()
+            commandsButton.performClick()
+            compose.onNodeWithTag("common-commands-list").performScrollToNode(hasTestTag("common-command-git status"))
+            withContext(Dispatchers.Main) { session.write("Z") }
+            outputContains("KEY_5A") // Flush earlier keystrokes before checking the exact inserted bytes.
+            fun receivedBytes() = Regex("KEY_([0-9A-F]{2})").findAll(session.getEmulator().screen.transcriptText)
+                .map { it.groupValues[1].toInt(16) }.toList()
+            val beforeSelection = withContext(Dispatchers.Main) { receivedBytes().size }
+            val savedDraft = "unsent draft"
+            withContext(Dispatchers.Main) { session.draft = savedDraft }
+            compose.onNodeWithTag("common-command-git status").performClick()
+            compose.onNodeWithTag("prompt-editor").assertDoesNotExist()
+            compose.onNodeWithTag("common-commands-list").assertDoesNotExist()
+            withTimeout(8_000) {
+                while (withContext(Dispatchers.Main) { receivedBytes().size } < beforeSelection + "git status\r".length) delay(40)
+            }
+            delay(250) // Include any accidental duplicate Enter in the comparison.
+            assertEquals("History executes immediately with exactly one Enter", "git status\r".map { it.code },
+                withContext(Dispatchers.Main) { receivedBytes().drop(beforeSelection) })
+            assertEquals("History selection preserves the unsent draft", savedDraft, session.draft)
+            assertEquals("git status", (session.commonCommands.value as io.itermux.app.session.CommonCommandsState.Ready).commands.first())
+            withContext(Dispatchers.Main) { session.refreshCommonCommands() }
+            withTimeout(8_000) { session.commonCommands.first { it is io.itermux.app.session.CommonCommandsState.Ready } }
+            assertEquals("Refresh preserves the recently executed command", "git status",
+                (session.commonCommands.value as io.itermux.app.session.CommonCommandsState.Ready).commands.first())
             Unit
         } finally {
             compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }

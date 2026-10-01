@@ -1,0 +1,83 @@
+package io.itermux.ssh
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class RemoteEntryFormattingTest {
+    @Test fun defaultsKeepListingCallSitesCompatible() {
+        val entry = RemoteEntry("readme.txt", false)
+        assertEquals("readme.txt", entry.name)
+        assertFalse(entry.isDirectory)
+        assertEquals(0L, entry.size)
+        assertEquals(0L, entry.mtimeSeconds)
+        assertEquals("", entry.permissions)
+    }
+
+    @Test fun joinRemotePathHandlesRootAndNested() {
+        assertEquals("/file.txt", joinRemotePath("/", "file.txt"))
+        assertEquals("/home/user/file.txt", joinRemotePath("/home/user", "file.txt"))
+        assertEquals("/home/user/file.txt", joinRemotePath("/home/user/", "file.txt"))
+        assertEquals("/home/user/", joinRemotePath("/home/user", ""))
+        assertEquals("/", joinRemotePath("/", ""))
+        assertEquals("/home/user/subdir", joinRemotePath("/home/user", "subdir"))
+    }
+
+    @Test fun parentRemotePathStopsAtRoot() {
+        assertEquals("/", parentRemotePath("/"))
+        assertEquals("/", parentRemotePath("/home"))
+        assertEquals("/home", parentRemotePath("/home/user"))
+        assertEquals("/home/user", parentRemotePath("/home/user/file.txt"))
+        assertEquals("/home", parentRemotePath("/home/user/"))
+    }
+
+    @Test fun formatRemoteSizeUsesBinaryUnits() {
+        assertEquals("0 B", formatRemoteSize(0))
+        assertEquals("512 B", formatRemoteSize(512))
+        assertEquals("1 KiB", formatRemoteSize(1024))
+        assertEquals("1.5 MiB", formatRemoteSize((1024L * 1024) + (512L * 1024)))
+        assertTrue(formatRemoteSize(3L * 1024 * 1024 * 1024).endsWith(" GiB"))
+    }
+
+    @Test fun formatRemoteMtimeEmptyForUnknown() {
+        assertEquals("", formatRemoteMtime(0))
+        assertEquals("", formatRemoteMtime(-1))
+        assertTrue(formatRemoteMtime(1_700_000_000L).matches(Regex("""\d{4}-\d{2}-\d{2} \d{2}:\d{2}""")))
+    }
+    @Test fun isSafeRemoteEntryNameRejectsDotsAndSeparators() {
+        assertTrue(isSafeRemoteEntryName("file.txt"))
+        assertTrue(isSafeRemoteEntryName("my-dir"))
+        assertFalse(isSafeRemoteEntryName(""))
+        assertFalse(isSafeRemoteEntryName("."))
+        assertFalse(isSafeRemoteEntryName(".."))
+        assertFalse(isSafeRemoteEntryName("a/b"))
+        assertFalse(isSafeRemoteEntryName("a\\b"))
+    }
+
+    @Test fun isSafeRemoteDeletePathRejectsRootAndDotSegments() {
+        assertTrue(isSafeRemoteDeletePath("/home/user/file.txt"))
+        assertTrue(isSafeRemoteDeletePath("/home/user/subdir"))
+        assertTrue(isSafeRemoteDeletePath("relative/file"))
+        assertFalse(isSafeRemoteDeletePath(""))
+        assertFalse(isSafeRemoteDeletePath("/"))
+        assertFalse(isSafeRemoteDeletePath("//"))
+        assertFalse(isSafeRemoteDeletePath("."))
+        assertFalse(isSafeRemoteDeletePath(".."))
+        assertFalse(isSafeRemoteDeletePath("/home/../etc"))
+        assertFalse(isSafeRemoteDeletePath("/home/user/."))
+        assertFalse(isSafeRemoteDeletePath("/home/user/.."))
+    }
+
+    @Test fun remoteEntryListComparatorDirsFirstThenCaseInsensitiveName() {
+        val entries = mutableListOf(
+            RemoteEntry("b.txt", false),
+            RemoteEntry("A-dir", true),
+            RemoteEntry("a.txt", false),
+            RemoteEntry("B-dir", true),
+            RemoteEntry("m.txt", false)
+        )
+        entries.sortWith(remoteEntryListComparator())
+        assertEquals(listOf("A-dir", "B-dir", "a.txt", "b.txt", "m.txt"), entries.map { it.name })
+    }
+}

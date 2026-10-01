@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import android.content.Intent
 import android.content.ActivityNotFoundException
+import android.provider.OpenableColumns
 import androidx.core.net.toUri
 import android.os.PowerManager
 import android.provider.Settings
@@ -25,7 +26,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.itermux.app.AppLanguage
+import io.itermux.app.TerminalFonts
 import io.itermux.app.tr
+import kotlinx.coroutines.*
 
 @Composable
 internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
@@ -33,6 +36,30 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
     val context = LocalContext.current
     val power = context.getSystemService(PowerManager::class.java)
     var exempt by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(context.packageName)) }
+    val scope = rememberCoroutineScope()
+    var fontImportError by remember { mutableStateOf<String?>(null) }
+    val fontSelection = TerminalFonts.selection
+    val fontRevision = TerminalFonts.revision
+    val hasCustom = remember(fontRevision) { TerminalFonts.hasCustomFont(context) }
+    val customName = remember(fontRevision) { TerminalFonts.customFontDisplayName(context) }
+    val pickFont = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val name = withContext(Dispatchers.IO) { runCatching {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            }.getOrNull() }
+            val lower = (name ?: uri.lastPathSegment.orEmpty()).lowercase()
+            if (!lower.endsWith(".ttf") && !lower.endsWith(".otf")) {
+                fontImportError = tr("请选择 .ttf 或 .otf 字体文件")
+                return@launch
+            }
+            fontImportError = if (TerminalFonts.importCustomFont(context.applicationContext, uri, name)) null
+            else tr("无法加载该字体文件")
+        }
+    }
+
     val backgroundSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         exempt = power.isIgnoringBatteryOptimizations(context.packageName)
     }
@@ -62,6 +89,11 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
                 }
             }
             Spacer(Modifier.height(24.dp))
+            TerminalFontSetting(fontSelection, fontRevision, hasCustom, customName, fontImportError,
+                onImport = { pickFont.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream", "*/*")) },
+                onClear = { TerminalFonts.clearCustomFont(context); fontImportError = null },
+                onSelect = { TerminalFonts.setSelection(context, it); fontImportError = null })
+            Spacer(Modifier.height(24.dp))
             Text(tr("语言"), style = MaterialTheme.typography.titleMedium)
             Text(tr("选择应用的显示语言"), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -79,6 +111,8 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
                     }
                 }
             }
+            Spacer(Modifier.height(24.dp))
+            DownloadDirectorySetting()
             Spacer(Modifier.height(24.dp))
             Text(tr("后台连接"), style = MaterialTheme.typography.titleMedium)
             Text(tr("锁屏后保持 SSH 需要允许后台运行，可能增加耗电。部分手机还需在系统设置中允许自启动。"),

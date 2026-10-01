@@ -43,6 +43,18 @@ class TmuxHistoryIntegrationTest {
             assertEquals(atTop.rows, atTop.position)
             val live = requireNotNull(ssh.exitTmuxHistory())
             assertFalse(live.active)
+            assertFalse(requireNotNull(ssh.moveTmuxHistoryTo(20)).active)
+            val path = "/tmp/itermux-history-tail-${java.util.UUID.randomUUID()}"
+            try {
+                val content = ByteArray(2 * 1024 * 1024) { 'a'.code.toByte() } + "\nRECENT_COMMAND\n".toByteArray()
+                ssh.upload(path, content.inputStream())
+                val tail = requireNotNull(ssh.readRemoteText(path, 32))
+                assertTrue(tail.second)
+                assertEquals(32, tail.first.toByteArray().size)
+                assertTrue(tail.first.endsWith("\nRECENT_COMMAND\n"))
+            } finally {
+                ssh.deleteFile(path)
+            }
         } finally {
             ssh.disconnect()
             withTimeout(5000) { job.join() }

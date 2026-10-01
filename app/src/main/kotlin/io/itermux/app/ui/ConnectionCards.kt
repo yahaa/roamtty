@@ -28,7 +28,7 @@ import io.itermux.app.session.clipSessionTitle
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
 
-@Composable internal fun HostCard(host: Host, compact: Boolean, connect: () -> Unit, edit: () -> Unit, delete: () -> Unit) {
+@Composable internal fun HostCard(host: Host, compact: Boolean, connect: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     val menuControl: @Composable () -> Unit = {
@@ -38,6 +38,8 @@ import io.itermux.ssh.SessionMode
             }
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem(text = { Text(tr("编辑主机")) }, onClick = { menu = false; edit() })
+                DropdownMenuItem(text = { Text(tr("查看文件")) }, onClick = { menu = false; browseFiles() },
+                    modifier = Modifier.testTag("host-browse-files-${host.id}"))
                 DropdownMenuItem(text = { Text(tr("删除主机")) }, onClick = { menu = false; delete() })
             }
         }
@@ -77,21 +79,20 @@ import io.itermux.ssh.SessionMode
     }
 }
 
-@Composable internal fun SessionCard(session: TerminalConnection, onOpen: () -> Unit, onClose: () -> Unit) {
+@Composable internal fun SessionCard(session: TerminalConnection, onOpen: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {}) {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val colors = MaterialTheme.colorScheme
     var confirmClose by remember { mutableStateOf(false) }
+    var confirmForget by remember { mutableStateOf(false) }
     var editTitle by remember { mutableStateOf(false) }
     Card(onClick = onOpen, colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant), shape = RoundedCornerShape(18.dp), modifier = Modifier.testTag("session-${session.id}")) {
         Column(Modifier.fillMaxWidth().padding(start = 16.dp, top = 14.dp, end = 8.dp, bottom = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 HostSystemIcon(session.host.os)
                 Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                    Text(title.ifBlank { session.host.name }, fontWeight = FontWeight.SemiBold, fontSize = 18.sp,
+                    Text(session.titleForDisplay(title), fontWeight = FontWeight.SemiBold, fontSize = 18.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (title.isNotBlank()) Text(session.host.name, color = colors.onSurfaceVariant,
-                        fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("${session.host.username}@${session.host.address}:${session.host.port}",
                         color = colors.onSurfaceVariant, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -106,15 +107,22 @@ import io.itermux.ssh.SessionMode
                 Text("● ${phaseLabel(state.phase)}", color = if (state.phase == Phase.CONNECTED) colors.primary else colors.onSurfaceVariant,
                     style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { confirmClose = true }) { Text(tr("关闭")) }
+                if (!state.active && session.mode == SessionMode.TMUX)
+                    TextButton(onClick = { confirmForget = true }) { Text(tr("移除记录")) }
+                else TextButton(onClick = { confirmClose = true }) { Text(tr("关闭")) }
             }
         }
     }
     if (confirmClose) AlertDialog(onDismissRequest = { confirmClose = false }, title = { Text(trf("关闭 %s？", session.host.name)) },
-        text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行。") else tr("普通 SSH shell 会结束。")) },
+        text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束。")) },
         confirmButton = { TextButton(onClick = { confirmClose = false; onClose() }) { Text(tr("关闭连接")) } },
         dismissButton = { TextButton(onClick = { confirmClose = false }) { Text(tr("取消")) } })
     if (editTitle) SessionTitleDialog(session) { editTitle = false }
+    if (confirmForget) AlertDialog(onDismissRequest = { confirmForget = false },
+        title = { Text(tr("移除记录")) },
+        text = { Text(trf("移除后无法从此卡片重连。远端会话不会被终止，可通过 tmux attach -t %s 手动连接。", session.remoteSessionName)) },
+        confirmButton = { TextButton(onClick = { confirmForget = false; onForget() }) { Text(tr("移除记录")) } },
+        dismissButton = { TextButton(onClick = { confirmForget = false }) { Text(tr("取消")) } })
 }
 
 @Composable internal fun SessionTitleDialog(session: TerminalConnection, onDismiss: () -> Unit) {
@@ -124,9 +132,9 @@ import io.itermux.ssh.SessionMode
     fun finish() { focusManager.clearFocus(force = true); keyboardController?.hide(); onDismiss() }
     AlertDialog(onDismissRequest = ::finish, title = { Text(tr("修改会话标题")) },
         text = { Column {
-            Text(tr("用标题标记这个会话正在处理的任务。留空则显示主机名。"))
+            Text(tr("主机名与会话标题在同一行显示。标题留空则显示会话编号。"))
             OutlinedTextField(title, { title = clipSessionTitle(it) }, label = { Text(tr("会话标题")) },
-                placeholder = { Text(session.host.name) }, singleLine = true,
+                placeholder = { Text(session.defaultTitle) }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("session-title-input"))
         } },
         confirmButton = { TextButton(onClick = { session.rename(title); finish() }) { Text(tr("保存")) } },
