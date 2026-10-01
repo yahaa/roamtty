@@ -1,22 +1,18 @@
 package io.itermux.app.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -30,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.tr
 import io.itermux.app.trf
+import io.itermux.app.session.DownloadItem
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.session.validRemoteRename
 import io.itermux.ssh.*
@@ -37,7 +34,6 @@ import kotlinx.coroutines.CancellationException
 
 @Composable
 internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
     val connection by session.state.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
     val transfer = session.transfers
@@ -48,20 +44,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
     var listing by remember(session.id) { mutableStateOf<RemoteDirectory?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    // The picker can outlive both this composition and this process.
-    var savedDownloadPath by rememberSaveable(session.id) { mutableStateOf(browser.pendingDownloadPath) }
-    val downloadPicker = rememberLauncherForActivityResult(CreateDownloadDocument()) { uri ->
-        val path = browser.pendingDownloadPath ?: savedDownloadPath
-        browser.pendingDownloadPath = null
-        savedDownloadPath = null
-        if (uri != null) {
-            if (path != null && connection.phase == Phase.CONNECTED && !transferStatus.running) {
-                transfer.download(context, session, uri, path)
-            } else {
-                browser.actionError = tr("下载未开始，请重新连接后再试。")
-            }
-        }
-    }
+    val downloads = rememberDownloadActions(session)
     fun navigateBack() { if (!browser.goBack()) onBack() }
     BackHandler(onBack = ::navigateBack)
 
@@ -155,11 +138,27 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                     LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("files-list"),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                         items(entries, key = { it.name }) { entry ->
+                            val path = joinRemotePath(current.path, entry.name)
                             RemoteFileRow(entry,
                                 onOpen = {
-                                    if (entry.isDirectory) browser.navigate(joinRemotePath(current.path, entry.name))
+                                    if (entry.isDirectory) browser.navigate(path)
                                     else browser.showMenu(current.path, entry)
-                                }, onMenu = { browser.showMenu(current.path, entry) })
+                                }, onMenu = { browser.showMenu(current.path, entry) }) {
+                                FileActionsMenu(entry, expanded = browser.menuPath == path,
+                                    busy = browser.operation != null || transferStatus.running || downloads.busy || connection.phase != Phase.CONNECTED,
+                                    onOpen = { browser.dismissMenu(); browser.navigate(path) },
+                                    onDownload = {
+                                        browser.dismissMenu()
+                                        downloads.start(listOf(DownloadItem(path, entry.size)), false)
+                                    }, onSaveAs = {
+                                        browser.dismissMenu()
+                                        downloads.start(listOf(DownloadItem(path, entry.size)), true)
+                                    }, onRename = {
+                                        browser.renamePath = path; browser.renameDraft = entry.name; browser.dismissMenu()
+                                    }, onDelete = {
+                                        browser.deletePath = path; browser.deleteIsDirectory = entry.isDirectory; browser.dismissMenu()
+                                    }, onDismiss = browser::dismissMenu)
+                            }
                             HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
@@ -167,23 +166,8 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
             }
         }
     }
-    DownloadFilesUi(session)
+    DownloadFilesUi(session, downloads)
     pending?.let { PromptDialog(it) }
-    browser.menuEntry?.let { entry ->
-        val path = browser.menuPath
-        FileActionsSheet(entry, busy = browser.operation != null || transferStatus.running || connection.phase != Phase.CONNECTED,
-            onOpen = { if (path != null) browser.navigate(path) },
-            onDownload = {
-                if (path != null) {
-                    browser.pendingDownloadPath = path
-                    savedDownloadPath = path
-                    browser.dismissMenu()
-                    downloadPicker.launch(entry.name)
-                }
-            }, onRename = { browser.renamePath = path; browser.renameDraft = entry.name; browser.dismissMenu() },
-            onDelete = { browser.deletePath = path; browser.deleteIsDirectory = entry.isDirectory; browser.dismissMenu() },
-            onDismiss = browser::dismissMenu)
-    }
     browser.renamePath?.let { path ->
         AlertDialog(onDismissRequest = { browser.renamePath = null }, title = { Text(tr("重命名")) },
             text = { OutlinedTextField(browser.renameDraft, { browser.renameDraft = it }, singleLine = true,
@@ -220,43 +204,30 @@ private fun BrowserMessage(message: String, busy: Boolean, modifier: Modifier) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun FileActionsSheet(entry: RemoteEntry, busy: Boolean, onOpen: () -> Unit,
-    onDownload: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
-    // Content-sized sheet: these few actions should not occupy an entire screen.
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        sheetMaxWidth = 560.dp, containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), tonalElevation = 0.dp) {
-        SheetSystemBars()
-        LazyColumn(Modifier.fillMaxWidth().testTag("files-actions-list"), contentPadding = PaddingValues(bottom = 24.dp)) {
-            item { SheetHeader(entry.name, listOf(if (entry.isDirectory) tr("目录") else formatRemoteSize(entry.size),
-                formatRemoteMtime(entry.mtimeSeconds)).filter { it.isNotBlank() }.joinToString(" · "), onDismiss) }
-            if (entry.permissions.isNotBlank()) item {
-                Text(entry.permissions, Modifier.padding(start = 24.dp, bottom = 12.dp), fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            item { SheetAction(tr(if (entry.isDirectory) "打开" else "下载"), "files-action-download", !busy,
-                if (entry.isDirectory) onOpen else onDownload) }
-            item { SheetAction(tr("重命名"), "files-action-rename", !busy, onRename) }
-            item { HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) }
-            item { SheetAction(tr("删除"), "files-action-delete", !busy, onDelete, destructive = true) }
-        }
-    }
-}
-
-@Composable
-private fun SheetAction(label: String, tag: String, enabled: Boolean, onClick: () -> Unit, destructive: Boolean = false) {
-    TextButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag(tag),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp),
-        colors = ButtonDefaults.textButtonColors(contentColor = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)) {
-        Text(label, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyLarge)
+internal fun FileActionsMenu(entry: RemoteEntry, expanded: Boolean, busy: Boolean, onOpen: () -> Unit,
+    onDownload: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit,
+    onSaveAs: () -> Unit = onDownload) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss,
+        modifier = Modifier.widthIn(min = 200.dp, max = 280.dp).testTag("files-actions-list")) {
+        DropdownMenuItem(text = { Text(tr(if (entry.isDirectory) "打开" else "下载")) },
+            onClick = if (entry.isDirectory) onOpen else onDownload, enabled = !busy,
+            modifier = Modifier.testTag("files-action-download"))
+        if (!entry.isDirectory) DropdownMenuItem(text = { Text(tr("另存为…")) }, onClick = onSaveAs,
+            enabled = !busy, modifier = Modifier.testTag("files-action-save-as"))
+        DropdownMenuItem(text = { Text(tr("重命名")) }, onClick = onRename, enabled = !busy,
+            modifier = Modifier.testTag("files-action-rename"))
+        HorizontalDivider()
+        DropdownMenuItem(text = { Text(tr("删除")) }, onClick = onDelete, enabled = !busy,
+            colors = MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.error),
+            modifier = Modifier.testTag("files-action-delete"))
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onMenu: () -> Unit) {
+internal fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onMenu: () -> Unit,
+    menu: @Composable () -> Unit = {}) {
     val meta = remember(entry) { listOfNotNull(if (entry.isDirectory) null else formatRemoteSize(entry.size),
         formatRemoteMtime(entry.mtimeSeconds).takeIf { it.isNotEmpty() }).joinToString(" · ") }
     ListItem(
@@ -265,8 +236,11 @@ internal fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onMenu: () ->
         headlineContent = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge) },
         supportingContent = if (meta.isEmpty()) null else { { Text(meta, maxLines = 2, style = MaterialTheme.typography.bodySmall) } },
         trailingContent = {
-            IconButton(onClick = onMenu, modifier = Modifier.testTag("files-row-menu-${entry.name}")) {
-                Icon(painterResource(R.drawable.ic_more), contentDescription = trf("文件操作：%s", entry.name))
+            Box {
+                IconButton(onClick = onMenu, modifier = Modifier.testTag("files-row-menu-${entry.name}")) {
+                    Icon(painterResource(R.drawable.ic_more), contentDescription = trf("文件操作：%s", entry.name))
+                }
+                menu()
             }
         }, colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.combinedClickable(role = Role.Button, onClick = onOpen,

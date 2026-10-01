@@ -257,7 +257,7 @@ class TerminalExtraKeysTest {
             compose.onNodeWithTag("file-transfer").performClick()
             compose.onNodeWithText("下载文件").performClick()
             compose.onNodeWithTag("download-remote-path").assertDoesNotExist()
-            compose.onNodeWithText("选择保存位置").assertIsNotEnabled()
+            compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
             compose.waitUntil(8_000) {
                 compose.onAllNodesWithTag("download-entry-.bash_history").fetchSemanticsNodes().isNotEmpty()
             }
@@ -279,7 +279,7 @@ class TerminalExtraKeysTest {
             compose.onNodeWithTag("download-files-list").performScrollToNode(hasTestTag("download-entry-README.md"))
             compose.onNodeWithTag("download-entry-README.md").performClick()
             assertEquals("/phone-a/README.md", session.transfers.selectedDownloads.single().path)
-            compose.onNodeWithText("选择保存位置").assertIsEnabled()
+            compose.onNodeWithTag("download-confirm").assertIsEnabled()
             compose.onNodeWithContentDescription("关闭").performClick()
             compose.onNodeWithTag("terminal-menu").assertIsDisplayed()
             compose.activityRule.scenario.onActivity {

@@ -26,6 +26,8 @@ class FileBrowserLifecycleTest {
     @Test fun browserAndRenameSurviveRecreationAndBackRetracesFolders() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val app = context.applicationContext as ItermuxApp
+        // The loopback fixture creates a fresh host key on each run.
+        app.database.hosts().forgetPin("[127.0.0.1]:22228")
         val host = Host(name = "Design Studio", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "SHELL", os = "LINUX")
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
         app.database.hosts().save(host)
@@ -50,12 +52,12 @@ class FileBrowserLifecycleTest {
             compose.onNodeWithTag("files-row-menu-design-notes.md").performClick()
             compose.onNodeWithTag("files-action-rename").performClick()
             compose.onNodeWithTag("files-rename-input").performTextReplacement("Revised notes.md")
-            compose.runOnIdle { session.fileBrowser.pendingDownloadPath = "/phone-a/design-notes.md" }
+            compose.runOnIdle { session.transfers.pendingDownloads = listOf(io.itermux.app.session.DownloadItem("/phone-a/design-notes.md")) }
             compose.activityRule.scenario.recreate()
             compose.onNodeWithTag("files-rename-input").assertTextContains("Revised notes.md")
             compose.runOnIdle {
                 assertEquals("/phone-a", session.fileBrowser.directory)
-                assertEquals("/phone-a/design-notes.md", session.fileBrowser.pendingDownloadPath)
+                assertEquals("/phone-a/design-notes.md", session.transfers.pendingDownloads.single().path)
             }
             compose.onNodeWithText(tr("取消")).performClick()
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("files-entry-design-notes.md").fetchSemanticsNodes().isNotEmpty() }

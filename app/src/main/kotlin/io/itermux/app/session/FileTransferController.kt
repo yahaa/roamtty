@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.io.IOException
 import java.nio.file.FileAlreadyExistsException
+import java.util.concurrent.ConcurrentHashMap
 
 internal data class TransferStatus(val name: String = "", val bytes: Long = 0,
     val total: Long = -1, val running: Boolean = false, val result: String? = null,
@@ -161,14 +162,17 @@ class FileTransferController(private val scope: CoroutineScope) {
         destination: (DownloadItem) -> Uri) {
         if (files.isEmpty()) return
         val application = context.applicationContext
+        val localPaths = ConcurrentHashMap<String, String>()
         start(tr("下载文件"), downloads = files) {
             val result = runDownloadQueue(files, onUpdate = { items, speed ->
                 val current = items.firstOrNull { it.phase == DownloadPhase.RUNNING } ?: items.last()
-                mutableStatus.update { it.copy(downloads = items, bytes = current.bytes, total = current.total,
+                val located = items.map { it.copy(localPath = localPaths[it.path]) }
+                mutableStatus.update { it.copy(downloads = located, bytes = current.bytes, total = current.total,
                     bytesPerSecond = speed) }
             }) { file, progress ->
                 withContext(Dispatchers.IO) {
                     val uri = destination(file)
+                    localPaths[file.path] = downloadLocation(application, uri)
                     try {
                         var total = file.total
                         val output = application.contentResolver.openOutputStream(uri, "w") ?: throw IOException(tr("无法打开本地文件"))
@@ -183,6 +187,7 @@ class FileTransferController(private val scope: CoroutineScope) {
                                 else application.contentResolver.delete(uri, null, null) > 0
                             }.getOrDefault(false)
                         }
+                        if (deleted) localPaths.remove(file.path)
                         // Cleanup failure must never turn cancellation into a recoverable file failure.
                         if (e is CancellationException) {
                             if (!deleted) e.addSuppressed(IncompleteDownload(e))

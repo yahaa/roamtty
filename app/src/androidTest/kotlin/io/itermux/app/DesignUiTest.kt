@@ -72,16 +72,17 @@ class DesignUiTest {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
                 MaterialTheme(colorScheme = LightColors) {
-                    RemoteFileRow(entry, onOpen = { open = true }, onMenu = { open = true })
-                    if (open) FileActionsSheet(entry, false, {}, {}, { renamed = true }, {}, { open = false })
+                    RemoteFileRow(entry, onOpen = { open = true }, onMenu = { open = true }) {
+                        FileActionsMenu(entry, open, false, {}, {}, { renamed = true; open = false }, {}, { open = false })
+                    }
                 }
             }
         }
         compose.onNodeWithContentDescription(trf("文件操作：%s", entry.name)).assertHasClickAction().performClick()
-        compose.onNodeWithTag("files-actions-list").performScrollToNode(hasTestTag("files-action-delete"))
+        compose.onNodeWithTag("files-action-delete").performScrollTo()
         compose.onNodeWithTag("files-action-delete").assertIsDisplayed()
         screenshot("design-file-actions-large-text")
-        compose.onNodeWithTag("files-actions-list").performScrollToNode(hasTestTag("files-action-rename"))
+        compose.onNodeWithTag("files-action-rename").performScrollTo()
         compose.onNodeWithTag("files-action-rename").performClick()
         assertTrue(renamed)
     }

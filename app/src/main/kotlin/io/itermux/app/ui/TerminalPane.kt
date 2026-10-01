@@ -316,6 +316,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 }, update = { view ->
                     // Harden against Compose reuse: always rebind session + screen callback (factory alone is not enough).
                     view.attachSession(session)
+                    view.setCursorDraggingEnabled(state.phase == Phase.CONNECTED)
                     session.onScreenChanged = { view.onScreenUpdated() }
                     if (session.getEmulator().mColors.setLightTheme(lightTheme)) view.onScreenUpdated()
                     view.setTextSize((fontSize * view.resources.displayMetrics.scaledDensity).toInt())

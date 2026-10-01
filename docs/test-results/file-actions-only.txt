@@ -1,0 +1,13 @@
+File actions menu — 2026-10-01
+
+Removed the popup header (filename, size/type, modification time and permissions). The anchored menu now contains only Download/Open, Save as (files only), Rename and Delete, with a divider before Delete. List-row information is unchanged. Terminal double-tap path actions remain removed.
+
+Validation:
+- assembleDebug, assembleDebugAndroidTest and lintDebug passed.
+- API 36 emulator: anchored-menu test and large-text file-actions test passed (2 tests).
+- Inspected .local/builds/file-actions-only-large-text.png; popup contains only actions.
+- Signed APK verified; certificate matches the previous delivered debug APK.
+- git diff --check passed.
+
+APK: dist/iTermux-latest-20261001-r3-debug.apk
+SHA-256: ea69b01323287b207686171f34d9408454afbf1edcca463307c1be4f798a9f74

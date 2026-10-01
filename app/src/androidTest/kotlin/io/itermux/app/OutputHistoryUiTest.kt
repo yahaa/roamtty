@@ -6,6 +6,9 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -33,6 +36,7 @@ import org.hamcrest.Matchers.equalTo
 import com.termux.terminal.*
 import com.termux.view.TerminalView
 import io.itermux.app.session.OutputHistoryLine
+import io.itermux.app.session.OutputHistorySession
 import io.itermux.app.ui.DarkColors
 import io.itermux.app.ui.HistoryGrid
 import io.itermux.app.ui.LightColors
@@ -78,6 +82,99 @@ class OutputHistoryUiTest {
     private fun capture(name: String) {
         val bitmap = compose.onNodeWithTag("output-history").captureToImage().asAndroidBitmap()
         File(compose.activity.getExternalFilesDir(null), "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    private fun HistoryGrid.touch(action: Int, x: Float, y: Float, start: Long, elapsed: Long = 0) {
+        val event = MotionEvent.obtain(start, start + elapsed, action, x, y, 0)
+        event.source = InputDevice.SOURCE_TOUCHSCREEN
+        try { dispatchTouchEvent(event) } finally { event.recycle() }
+    }
+
+    private fun HistoryGrid.drag(downwards: Boolean, driftX: Float = 0f, fling: Boolean = true) {
+        val start = SystemClock.uptimeMillis()
+        val x = width * 0.65f
+        val y = height * if (downwards) 0.2f else 0.8f
+        val distance = height * if (downwards) 0.6f else -0.6f
+        touch(MotionEvent.ACTION_DOWN, x, y, start)
+        for (step in 1..8) touch(MotionEvent.ACTION_MOVE,
+            x + driftX * step / 8, y + distance * step / 8, start, step * 12L)
+        touch(if (fling) MotionEvent.ACTION_UP else MotionEvent.ACTION_CANCEL,
+            x + driftX, y + distance, start, 100)
+    }
+
+    @Test fun diagonalVerticalDragsKeepFollowingTheFingerOnWideHistory() {
+        val records = lines(List(5000) { "ROW_$it " + "─".repeat(125) }, 140)
+        compose.setContent { MaterialTheme(colorScheme = DarkColors) { OutputHistoryView(records, 13) } }
+        compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
+        compose.runOnIdle {
+            val view = terminal()
+            val grid = view.parent as HistoryGrid
+            val history = view.currentSession as OutputHistorySession
+            for (downwards in listOf(true, false)) {
+                val before = history.firstLine
+                grid.drag(downwards, driftX = -grid.width * 0.25f, fling = false)
+                val moved = if (downwards) before - history.firstLine else history.firstLine - before
+                val expected = grid.height * 0.6f / view.mRenderer.fontLineSpacing
+                assertTrue("Vertical drag lost motion: moved=$moved, expected=$expected", moved >= expected - 2)
+                assertEquals("Sideways drift must not pan a vertical gesture", 0, grid.scrollX)
+            }
+        }
+    }
+
+    @Test fun capturedHistoryFlingsBeyondHalfScreenInBothDirections() {
+        val records = lines(List(5000) { "ROW_$it" })
+        compose.setContent { MaterialTheme(colorScheme = DarkColors) { OutputHistoryView(records, 13) } }
+        compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
+        for (downwards in listOf(true, false)) {
+            var releasedAt = 0
+            compose.runOnIdle {
+                (terminal().parent as HistoryGrid).drag(downwards)
+                releasedAt = (terminal().currentSession as OutputHistorySession).firstLine
+            }
+            SystemClock.sleep(450) // Native Scroller advances on Android frames, independently of the Compose clock.
+            compose.runOnIdle {
+                val history = terminal().currentSession as OutputHistorySession
+                val moved = if (downwards) releasedAt - history.firstLine else history.firstLine - releasedAt
+                assertTrue("Fling stopped too soon: moved=$moved, screen=${history.emulator.mRows}",
+                    moved > history.emulator.mRows / 2)
+            }
+        }
+    }
+
+    @Test fun touchingDuringFlingStopsItAndAllowsImmediateReverseDrag() {
+        val records = lines(List(5000) { "ROW_$it" })
+        compose.setContent { MaterialTheme(colorScheme = DarkColors) { OutputHistoryView(records, 13) } }
+        compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
+        var heldAt = 0
+        var downTime = 0L
+        compose.runOnIdle {
+            val grid = terminal().parent as HistoryGrid
+            grid.drag(downwards = true)
+            downTime = SystemClock.uptimeMillis()
+            grid.touch(MotionEvent.ACTION_DOWN, grid.width / 2f, grid.height * 0.8f, downTime)
+            heldAt = (terminal().currentSession as OutputHistorySession).firstLine
+        }
+        SystemClock.sleep(120)
+        compose.runOnIdle {
+            val view = terminal()
+            val grid = view.parent as HistoryGrid
+            val history = view.currentSession as OutputHistorySession
+            assertEquals("Old fling must stop as soon as the finger touches", heldAt, history.firstLine)
+            grid.touch(MotionEvent.ACTION_MOVE, grid.width / 2f, grid.height * 0.5f, downTime, 140)
+            assertTrue("Reverse drag should take effect immediately", history.firstLine > heldAt)
+            grid.touch(MotionEvent.ACTION_CANCEL, grid.width / 2f, grid.height * 0.5f, downTime, 160)
+        }
+    }
+
+    @Test fun accessibleSeekDuringFlingKeepsTheRequestedPosition() {
+        val records = lines(List(5000) { "ROW_$it" })
+        compose.setContent { MaterialTheme(colorScheme = DarkColors) { OutputHistoryView(records, 13) } }
+        compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
+        compose.runOnIdle { (terminal().parent as HistoryGrid).drag(downwards = true) }
+        compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(SemanticsActions.SetProgress) { it(1f) }
+        SystemClock.sleep(120)
+        assertEquals(1f, fraction(), 0.001f)
+        assertVisible("ROW_4999")
     }
 
     @Test fun dragAndAccessibleSeekReachBothEndsWithoutExtraButtons() {

@@ -97,4 +97,26 @@ class OutputHistoryTest {
         assertEquals(0xff123456.toInt(), TextStyle.decodeForeColor(style))
         assertEquals(4, TextStyle.decodeBackColor(style))
     }
+
+    @Test fun repeatedSeeksSkipUnchangedViewportButResizeStillFillsNewRows() {
+        val history = OutputHistory()
+        repeat(60) { history.capture("ROW_$it") }
+        val snapshot = OutputHistorySession(history.snapshot(), 0)
+        snapshot.updateSize(16, 24, 8, 16)
+        var updates = 0
+        snapshot.onViewportChanged = { updates++ }
+        repeat(100) { snapshot.showFirstLine(-1) }
+        assertEquals(0, updates)
+        snapshot.showFirstLine(10)
+        assertEquals(1, updates)
+        assertTrue(snapshot.emulator.screen.transcriptText.startsWith("ROW_10"))
+        snapshot.updateSize(16, 30, 8, 16)
+        assertEquals(2, updates)
+        assertTrue(snapshot.emulator.screen.transcriptText.contains("ROW_39"))
+        snapshot.showFirstLine(Int.MAX_VALUE)
+        assertEquals(30, snapshot.firstLine)
+        assertTrue(snapshot.emulator.screen.transcriptText.contains("ROW_59"))
+        repeat(100) { snapshot.showFirstLine(Int.MAX_VALUE) }
+        assertEquals(3, updates)
+    }
 }

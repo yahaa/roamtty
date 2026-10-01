@@ -164,6 +164,7 @@ class DownloadFilesTest {
                 val result = withTimeout(30_000) { session.transfers.status.first { !it.running } }
                 assertEquals(listOf(DownloadPhase.COMPLETE, DownloadPhase.FAILED, DownloadPhase.COMPLETE, DownloadPhase.COMPLETE), result.downloads.map { it.phase })
                 assertEquals(false, result.succeeded)
+                assertNull("A deleted partial file must not be presented as a saved download", result.downloads[1].localPath)
                 val children = DocumentsContract.buildChildDocumentsUriUsingTree(isolatedTree, DocumentsContract.getTreeDocumentId(isolatedTree))
                 val names = mutableListOf<String>()
                 val contents = mutableListOf<String>()
@@ -181,6 +182,8 @@ class DownloadFilesTest {
                 assertTrue(names.contains("$prefix-report (2).pdf"))
                 assertTrue(names.contains("$prefix-README"))
                 assertEquals(setOf("first", "second", "plain"), contents.toSet())
+                assertEquals(names.toSet(), result.downloads.filter { it.phase == DownloadPhase.COMPLETE }
+                    .map { requireNotNull(it.localPath).substringAfterLast('/') }.toSet())
             }
         } finally {
             created.forEach { DocumentsContract.deleteDocument(resolver, it) }

@@ -7,7 +7,8 @@ import kotlinx.coroutines.ensureActive
 internal enum class DownloadPhase { WAITING, RUNNING, COMPLETE, FAILED, CANCELLED }
 
 internal data class DownloadItem(val path: String, val total: Long = -1, val bytes: Long = 0,
-    val phase: DownloadPhase = DownloadPhase.WAITING, val error: String? = null) {
+    val phase: DownloadPhase = DownloadPhase.WAITING, val error: String? = null,
+    val localPath: String? = null) {
     val name: String get() = path.substringAfterLast('/')
 }
 
@@ -36,7 +37,7 @@ internal suspend fun runDownloadQueue(
     onUpdate: (List<DownloadItem>, Double) -> Unit,
     download: suspend (DownloadItem, (Long, Long) -> Unit) -> Unit
 ): List<DownloadItem> {
-    var items = files.map { it.copy(bytes = 0, phase = DownloadPhase.WAITING, error = null) }
+    var items = files.map { it.copy(bytes = 0, phase = DownloadPhase.WAITING, error = null, localPath = null) }
     try {
         for (index in items.indices) {
             currentCoroutineContext().ensureActive()

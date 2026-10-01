@@ -19,7 +19,6 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
     var renameDraft by mutableStateOf("")
     var deletePath by mutableStateOf<String?>(null)
     var deleteIsDirectory by mutableStateOf(false)
-    var pendingDownloadPath by mutableStateOf<String?>(null)
     var operation by mutableStateOf<String?>(null)
         private set
     var actionError by mutableStateOf<String?>(null)

@@ -85,7 +85,10 @@ public final class TerminalView extends View {
     private long mMouseStartDownTime = -1;
 
     final Scroller mScroller;
+    private Runnable mFlingRunnable;
+    private MotionEvent mFlingEvent;
     private final TranscriptScrollBar mTranscriptScrollBar;
+    private final TerminalCursorDrag mCursorDrag = new TerminalCursorDrag(this);
     public interface RemoteHistoryListener { void onPositionRequested(int position); }
     private final RemoteHistoryState mRemoteHistory = new RemoteHistoryState();
     private boolean mApplicationHistory;
@@ -217,15 +220,26 @@ public final class TerminalView extends View {
                 final boolean mouseTrackingAtStartOfFling = mEmulator.isMouseTrackingActive();
                 final boolean alternateBufferAtStartOfFling = mEmulator.isAlternateBufferActive();
                 final boolean remoteHistoryAtStartOfFling = mRemoteHistory.isActive();
+                // Captured output is local: use Android's pixel velocity and the entire history
+                // range. The half-screen limit below only protects remote applications from
+                // a burst of mouse/key events; applying it here makes every fling stop abruptly.
+                final boolean capturedHistory = remoteHistoryAtStartOfFling && mTermSession.isReadOnly();
+                final int lineHeight = mRenderer.mFontLineSpacing;
                 final boolean remoteScrollingAtStartOfFling = remoteHistoryAtStartOfFling || mouseTrackingAtStartOfFling || alternateBufferAtStartOfFling;
                 float SCALE = 0.25f;
-                if (remoteScrollingAtStartOfFling) {
+                if (capturedHistory) {
+                    mScroller.fling(0, -mRemoteHistory.position() * lineHeight, 0, -(int) velocityY,
+                        0, 0, -mRemoteHistory.rows() * lineHeight, 0);
+                } else if (remoteScrollingAtStartOfFling) {
                     mScroller.fling(0, 0, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.mRows / 2, mEmulator.mRows / 2);
                 } else {
                     mScroller.fling(0, mTopRow, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.getScreen().getActiveTranscriptRows(), 0);
                 }
 
-                post(new Runnable() {
+                // Motion events belong to dispatch and are recycled after onTouchEvent returns.
+                final MotionEvent flingEvent = MotionEvent.obtain(e2);
+                mFlingEvent = flingEvent;
+                mFlingRunnable = new Runnable() {
                     private int mLastY = 0;
 
                     @Override
@@ -233,24 +247,32 @@ public final class TerminalView extends View {
                         if (remoteHistoryAtStartOfFling != mRemoteHistory.isActive() ||
                             mouseTrackingAtStartOfFling != mEmulator.isMouseTrackingActive() ||
                             alternateBufferAtStartOfFling != mEmulator.isAlternateBufferActive()) {
-                            mScroller.abortAnimation();
+                            stopScrolling();
                             return;
                         }
-                        if (mScroller.isFinished()) return;
+                        if (mScroller.isFinished()) { stopScrolling(); return; }
                         boolean more = mScroller.computeScrollOffset();
                         int newY = mScroller.getCurrY();
-                        int diff = remoteScrollingAtStartOfFling ? (newY - mLastY) : (newY - mTopRow);
-                        doScroll(e2, diff);
+                        if (capturedHistory) {
+                            requestRemoteHistoryPosition(Math.round(-newY / (float) lineHeight));
+                        } else {
+                            int diff = remoteScrollingAtStartOfFling ? (newY - mLastY) : (newY - mTopRow);
+                            doScroll(flingEvent, diff);
+                        }
                         mLastY = newY;
-                        if (more) post(this);
+                        if (more && !mScroller.isFinished()) postOnAnimation(this);
+                        else stopScrolling();
                     }
-                });
+                };
+                postOnAnimation(mFlingRunnable);
 
                 return true;
             }
 
             @Override
             public boolean onDown(float x, float y) {
+                mScrollRemainder = 0f;
+                scrolledWithFinger = false;
                 // Why is true not returned here?
                 // https://developer.android.com/training/gestures/detector.html#detect-a-subset-of-supported-gestures
                 // Although setting this to true still does not solve the following errors when long pressing in terminal view text area
@@ -270,6 +292,10 @@ public final class TerminalView extends View {
             public void onLongPress(MotionEvent event) {
                 if (mGestureRecognizer.isInProgress()) return;
                 if (mClient.onLongPress(event)) return;
+                if (!isSelectingText() && mCursorDrag.start(event)) {
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                    return;
+                }
                 if (!isSelectingText()) {
                     performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                     startTextSelectionMode(event);
@@ -310,6 +336,8 @@ public final class TerminalView extends View {
     public boolean attachSession(TerminalSession session) {
         if (session == mTermSession) return false;
 
+        mCursorDrag.finish();
+        stopScrolling();
         mTermSession = session;
         mEmulator = null;
         mInputConnection = null;
@@ -636,6 +664,7 @@ public final class TerminalView extends View {
 
     public void onScreenUpdated(boolean skipScrolling) {
         if (mEmulator == null) return;
+        mCursorDrag.onScreenUpdated();
 
         int rowsInHistory = mEmulator.getScreen().getActiveTranscriptRows();
         if (mTopRow < -rowsInHistory) setTopRow(-rowsInHistory);
@@ -710,6 +739,7 @@ public final class TerminalView extends View {
      */
     public void setTextSize(int textSize) {
         if (mRenderer != null && mRenderer.mTextSize == textSize) return;
+        stopScrolling();
         mRenderer = new TerminalRenderer(textSize, mRenderer == null ? Typeface.MONOSPACE : mRenderer.mTypeface);
         updateSize();
     }
@@ -717,6 +747,7 @@ public final class TerminalView extends View {
     public void setTypeface(Typeface newTypeface) {
         if (newTypeface == null) newTypeface = Typeface.MONOSPACE;
         if (mRenderer != null && mRenderer.mTypeface == newTypeface) return;
+        stopScrolling();
         // Prefer calling setTextSize first so metrics exist; keep prior size when swapping faces.
         mRenderer = new TerminalRenderer(mRenderer == null ? 12 : mRenderer.mTextSize, newTypeface);
         updateSize();
@@ -816,6 +847,17 @@ public final class TerminalView extends View {
     @TargetApi(23)
     public boolean onTouchEvent(MotionEvent event) {
         if (mEmulator == null) return true;
+        if (mCursorDrag.onTouch(event)) {
+            if (!mCursorDrag.isActive()) {
+                MotionEvent cancel = MotionEvent.obtain(event);
+                cancel.setAction(MotionEvent.ACTION_CANCEL);
+                mGestureRecognizer.onTouchEvent(cancel);
+                cancel.recycle();
+            }
+            return true;
+        }
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_CANCEL)
+            stopScrolling();
         if (mTranscriptScrollBar.onTouch(event)) return true;
         final int action = event.getAction();
 
@@ -1191,6 +1233,7 @@ public final class TerminalView extends View {
      */
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        mCursorDrag.finish();
         updateSize();
     }
 
@@ -1247,6 +1290,7 @@ public final class TerminalView extends View {
             // render the text selection handles
             renderTextSelection();
             mTranscriptScrollBar.draw(canvas);
+            mCursorDrag.draw(canvas);
         }
     }
 
@@ -1260,6 +1304,20 @@ public final class TerminalView extends View {
 
     public int getCursorX(float x) {
         return (int) (x / mRenderer.mFontWidth);
+    }
+
+    int textRowAt(float y) {
+        return (int) Math.floor((y - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing) + mTopRow;
+    }
+
+    public void setCursorDraggingEnabled(boolean enabled) { mCursorDrag.setEnabled(enabled); }
+
+    public boolean isCursorDragging() { return mCursorDrag.isActive(); }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasWindowFocus) {
+        super.onWindowFocusChanged(hasWindowFocus);
+        if (!hasWindowFocus) mCursorDrag.finish();
     }
 
     public int getCursorY(float y) {
@@ -1282,6 +1340,10 @@ public final class TerminalView extends View {
     }
 
     public void setRemoteHistory(int rows, int position, @Nullable RemoteHistoryListener listener) {
+        // A local resize or accessible seek supersedes inertia. Scroll callbacks already have
+        // their requested position in mRemoteHistory, so normal animation frames keep running.
+        if (mTermSession != null && mTermSession.isReadOnly() &&
+            (rows != mRemoteHistory.rows() || position != mRemoteHistory.position())) stopScrolling();
         boolean changed = mRemoteHistory.update(rows, position,
             listener == null ? null : listener::onPositionRequested,
             mTranscriptScrollBar.isDragging());
@@ -1293,7 +1355,16 @@ public final class TerminalView extends View {
         if (mApplicationHistory == active) return;
         mApplicationHistory = active;
         mApplicationHistoryScroll.reset();
+        stopScrolling();
+    }
+
+    /** A fresh touch, session switch, or detached view must not compete with a queued fling. */
+    void stopScrolling() {
         mScroller.abortAnimation();
+        if (mFlingRunnable != null) removeCallbacks(mFlingRunnable);
+        mFlingRunnable = null;
+        if (mFlingEvent != null) mFlingEvent.recycle();
+        mFlingEvent = null;
     }
 
     boolean hasRemoteHistory() { return mRemoteHistory.isActive(); }
@@ -1308,7 +1379,7 @@ public final class TerminalView extends View {
 
     public void scrollToBottom() {
         if (mTopRow != 0) {
-            mScroller.abortAnimation();
+            stopScrolling();
             setTopRow(0);
             mTranscriptScrollBar.show();
         }
@@ -1357,6 +1428,7 @@ public final class TerminalView extends View {
     }
 
     public void setTopRow(int topRow, boolean updateEmulator) {
+        if (topRow != mTopRow) mCursorDrag.finish();
         mTopRow = topRow;
         if (updateEmulator && mEmulator != null) {
             mEmulator.setTopRow(mTopRow);
@@ -1746,7 +1818,9 @@ public final class TerminalView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
+        mCursorDrag.finish();
         super.onDetachedFromWindow();
+        stopScrolling();
 
         if (mTextSelectionCursorController != null) {
             // Might solve the following exception

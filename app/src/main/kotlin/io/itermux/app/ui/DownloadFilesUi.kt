@@ -1,9 +1,6 @@
 package io.itermux.app.ui
 
-import android.widget.Toast
 import android.content.res.Configuration
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,7 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -41,49 +37,22 @@ import io.itermux.ssh.*
 import kotlinx.coroutines.CancellationException
 
 @Composable
-internal fun DownloadFilesUi(session: TerminalConnection) {
-    val context = LocalContext.current
+internal fun DownloadFilesUi(session: TerminalConnection, actions: DownloadActions = rememberDownloadActions(session)) {
     val transfer = session.transfers
     val connection by session.state.collectAsStateWithLifecycle()
     val status by transfer.status.collectAsStateWithLifecycle()
-    var savedPaths by rememberSaveable(session.id) { mutableStateOf(arrayListOf<String>()) }
-    fun pendingFiles(): List<DownloadItem> = transfer.pendingDownloads.ifEmpty { savedPaths.map { DownloadItem(it) } }
-    fun clearPending() { transfer.pendingDownloads = emptyList(); savedPaths = arrayListOf() }
-    fun canStart() = session.state.value.phase == Phase.CONNECTED && !transfer.status.value.running
-    fun unavailable() {
-        Toast.makeText(context, tr("下载未开始，请重新连接后再试。"), Toast.LENGTH_LONG).show()
-    }
-    val singlePicker = rememberLauncherForActivityResult(CreateDownloadDocument()) { uri ->
-        val files = pendingFiles()
-        clearPending()
-        if (uri != null) {
-            if (canStart() && files.size == 1) transfer.download(context, session, uri, files.single().path)
-            else unavailable()
-        } else transfer.downloadDialog = true
-    }
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        val files = pendingFiles()
-        clearPending()
-        if (uri != null) {
-            if (canStart() && files.isNotEmpty()) transfer.downloadFiles(context, session, uri, files)
-            else unavailable()
-        } else transfer.downloadDialog = true
-    }
     if (transfer.downloadDialog) DownloadFilesSheet(session,
-        enabled = connection.phase == Phase.CONNECTED && !status.running,
+        enabled = connection.phase == Phase.CONNECTED && !status.running && !actions.busy,
+        directoryLabel = actions.directoryLabel,
         onDismiss = { transfer.downloadDialog = false },
-        onDownload = {
-            val files = transfer.selectedDownloads.toList()
-            transfer.pendingDownloads = files
-            savedPaths = ArrayList(files.map { it.path })
-            transfer.downloadDialog = false
-            if (files.size == 1) singlePicker.launch(files.single().name) else folderPicker.launch(null)
-        })
+        onDownload = { actions.start(transfer.selectedDownloads.toList(), false) },
+        onSaveAs = { actions.start(transfer.selectedDownloads.toList(), true) })
 }
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, onDismiss: () -> Unit, onDownload: () -> Unit) {
+private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, directoryLabel: String,
+    onDismiss: () -> Unit, onDownload: () -> Unit, onSaveAs: () -> Unit) {
     val transfer = session.transfers
     val options = rememberRemoteFileOptions()
     val compact = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -154,6 +123,8 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, on
                         dismissMenu()
                     }, enabled = selectedOnly || (enabled && !loading && entries.any { !it.isDirectory }),
                     modifier = Modifier.testTag(if (selectedOnly) "download-show-all" else "download-select-all"))
+                DropdownMenuItem(text = { Text(tr("另存为…")) }, onClick = { dismissMenu(); onSaveAs() },
+                    enabled = enabled && selected.isNotEmpty(), modifier = Modifier.testTag("download-save-as"))
                 HorizontalDivider()
             }
             if (!searchExpanded) IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
@@ -224,7 +195,7 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, on
             val confirm: @Composable (Modifier) -> Unit = { modifier ->
                 Button(onClick = onDownload, enabled = enabled && selected.isNotEmpty(),
                     modifier = modifier.testTag("download-confirm")) {
-                    Text(tr(if (selected.size > 1) "选择保存目录" else "选择保存位置"))
+                    Text(tr(if (directoryLabel.isEmpty()) "选择下载目录" else "下载"))
                 }
             }
             if (compact) Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
@@ -233,6 +204,9 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, on
                 confirm(Modifier)
             } else Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
                 summary(Modifier.fillMaxWidth())
+                Text(if (directoryLabel.isEmpty()) tr("首次选择后将记住此目录") else trf("保存到：%s", directoryLabel),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 8.dp))
                 confirm(Modifier.fillMaxWidth())
             }
         }

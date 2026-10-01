@@ -112,6 +112,8 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
                 }
             }
             Spacer(Modifier.height(24.dp))
+            DownloadDirectorySetting()
+            Spacer(Modifier.height(24.dp))
             Text(tr("后台连接"), style = MaterialTheme.typography.titleMedium)
             Text(tr("锁屏后保持 SSH 需要允许后台运行，可能增加耗电。部分手机还需在系统设置中允许自启动。"),
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 8.dp))

@@ -62,6 +62,7 @@ class TransferLifetimeTest {
             val complete = withTimeout(90_000) { session.transfers.status.first { !it.running } }
             assertEquals(tr("传输完成"), complete.result)
             assertEquals(size, complete.bytes)
+            assertEquals(destination.toString(), complete.downloads.single().localPath)
             withContext(Dispatchers.IO) {
                 resolver.openInputStream(destination)!!.use { input ->
                     val buffer = ByteArray(64 * 1024)
@@ -80,6 +81,7 @@ class TransferLifetimeTest {
             withContext(Dispatchers.Main) { session.transfers.cancel() }
             val cancelled = withTimeout(15_000) { session.transfers.status.first { !it.running } }
             assertEquals(tr("传输已取消"), cancelled.result)
+            assertNull("Canceled and deleted downloads must not retain a saved path", cancelled.downloads.single().localPath)
             assertEquals("No full-name partial file", 0, resolver.query(destination, null, null, null, null)!!.use { it.count })
         } finally {
             prompts.cancel()

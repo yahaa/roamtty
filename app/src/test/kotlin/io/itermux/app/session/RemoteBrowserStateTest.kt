@@ -6,7 +6,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RemoteBrowserStateTest {
-    @Test fun navigationRetracesVisitsAndKeepsRenameAndPickerTargets() {
+    @Test fun navigationRetracesVisitsAndKeepsRenameTargets() {
         val state = RemoteBrowserState(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
         state.navigate("/projects")
         state.navigate("/projects/app")
@@ -14,11 +14,10 @@ class RemoteBrowserStateTest {
         assertEquals("/projects/app/README.md", state.menuPath)
         state.renamePath = state.menuPath
         state.renameDraft = "NOTES.md"
-        state.pendingDownloadPath = state.menuPath
         assertTrue(state.goBack())
         assertEquals("/projects", state.directory)
         assertEquals("NOTES.md", state.renameDraft)
-        assertEquals("/projects/app/README.md", state.pendingDownloadPath)
+        assertEquals("/projects/app/README.md", state.renamePath)
         assertTrue(state.goBack())
         assertEquals("", state.directory)
         assertFalse(state.goBack())

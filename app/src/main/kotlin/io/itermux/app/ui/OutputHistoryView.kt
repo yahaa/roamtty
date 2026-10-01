@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -26,6 +27,7 @@ import io.itermux.app.session.OutputHistoryLine
 import io.itermux.app.session.OutputHistorySession
 import io.itermux.app.tr
 import kotlin.math.ceil
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private data class HistoryViewport(val first: Int, val rows: Int, val last: Int)
@@ -43,6 +45,8 @@ internal fun OutputHistoryView(lines: List<OutputHistoryLine>, fontSize: Int, li
         }
     }
     var viewport by remember(snapshot) { mutableStateOf(HistoryViewport(snapshot.firstLine, snapshot.emulator.mRows, snapshot.lastFirstLine)) }
+    // Row changes update accessibility semantics, without recomposing the Android view on every frame.
+    val canScroll by remember(snapshot) { derivedStateOf { viewport.last > 0 } }
     val font = remember(TerminalFonts.selection, TerminalFonts.revision, context) { TerminalFonts.resolveTypeface(context) }
     val description = tr("历史位置")
     Box(Modifier.fillMaxSize().testTag("output-history")) {
@@ -84,7 +88,7 @@ internal fun OutputHistoryView(lines: List<OutputHistoryLine>, fontSize: Int, li
             grid.fitGridWidth()
             grid.terminal.invalidate()
         }, onRelease = { snapshot.onViewportChanged = {}; it.terminal.stopTextSelectionMode() }) }
-        if (viewport.last > 0) Box(Modifier.align(Alignment.CenterEnd)
+        if (canScroll) Box(Modifier.align(Alignment.CenterEnd)
             .width(24.dp).fillMaxHeight().testTag("output-history-scrollbar").semantics {
                 contentDescription = description
                 progressBarRangeInfo = ProgressBarRangeInfo(viewport.first.toFloat() / viewport.last, 0f..1f)
@@ -99,6 +103,11 @@ internal fun OutputHistoryView(lines: List<OutputHistoryLine>, fontSize: Int, li
 
 /** Horizontal panning preserves old wide grids after rotation instead of folding their borders. */
 internal class HistoryGrid(context: Context) : HorizontalScrollView(context) {
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private var downX = 0f
+    private var downY = 0f
+    private var verticalGesture = false
+    private var horizontalGesture = false
     val terminal = TerminalView(context, null).apply {
         tag = "output-history-terminal"
         isFocusableInTouchMode = true // Selection needs focus; the read-only session still disables the IME.
@@ -107,6 +116,29 @@ internal class HistoryGrid(context: Context) : HorizontalScrollView(context) {
         isFillViewport = true
         isHorizontalScrollBarEnabled = false
         addView(terminal, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downY = event.y
+                verticalGesture = false
+                horizontalGesture = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!verticalGesture && !horizontalGesture) {
+                    val dx = abs(event.x - downX)
+                    val dy = abs(event.y - downY)
+                    if (maxOf(dx, dy) > touchSlop) {
+                        verticalGesture = dy >= dx
+                        horizontalGesture = !verticalGesture
+                    }
+                }
+                // A little sideways drift must not cancel an established vertical drag.
+                if (verticalGesture || !horizontalGesture) return false
+            }
+        }
+        return super.onInterceptTouchEvent(event)
     }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)

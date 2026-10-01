@@ -124,7 +124,7 @@ final class TranscriptScrollBar {
             if (visibilityAlpha(SystemClock.uptimeMillis() - shownAt, false, topRow() < 0) < 1f &&
                 (event.getY() < thumb.top - HIT_WIDTH_DP * density ||
                     event.getY() > thumb.bottom + HIT_WIDTH_DP * density)) return false;
-            view.mScroller.abortAnimation();
+            view.stopScrolling();
             if (view.isSelectingText()) view.stopTextSelectionMode();
             pointerId = event.getPointerId(0);
             dragOffset = event.getY() >= thumb.top && event.getY() <= thumb.bottom

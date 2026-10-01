@@ -15,6 +15,7 @@ internal class OutputHistorySession(
     val lastFirstLine get() = (lines.size - parser.mRows).coerceAtLeast(0)
     var onViewportChanged: () -> Unit = {}
     private var laidOut = false
+    private var rendered = false
 
     init {
         val hideCursor = "\u001b[?25l".toByteArray()
@@ -23,7 +24,9 @@ internal class OutputHistorySession(
     }
 
     fun showFirstLine(first: Int) {
-        firstLine = first.coerceIn(0, lastFirstLine)
+        val targetFirst = first.coerceIn(0, lastFirstLine)
+        if (rendered && targetFirst == firstLine) return
+        firstLine = targetFirst
         val screen = parser.screen
         for (row in 0 until parser.mRows) {
             val target = screen.allocateFullLineIfNecessary(screen.externalToInternalRow(row))
@@ -34,11 +37,13 @@ internal class OutputHistorySession(
                 if (line.wrapped && line.columns == columns) screen.setLineWrap(row)
             }
         }
+        rendered = true
         onViewportChanged()
     }
 
     override fun updateSize(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {
         parser.resize(this.columns, rows.coerceIn(4, 300), cellWidthPixels, cellHeightPixels)
+        rendered = false
         // Resize only the viewport height; never reflow the recorded grid to the device width.
         showFirstLine(if (laidOut) firstLine else initialFirstLine)
         laidOut = true
