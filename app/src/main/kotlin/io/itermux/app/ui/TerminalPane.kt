@@ -58,6 +58,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val pending by session.pending.collectAsStateWithLifecycle()
     val warning by session.inputWarning.collectAsStateWithLifecycle()
     val tmuxHistory by session.tmuxHistory.collectAsStateWithLifecycle()
+    val showingOutput = tmuxHistory?.let { it.active && it.source == io.itermux.ssh.HistorySource.OUTPUT } == true
+    val recordedOutput = remember(session, showingOutput) { if (showingOutput) session.outputHistorySnapshot() else emptyList() }
+    BackHandler(showingOutput) { session.exitTmuxHistory() }
     val sessionTitle by session.title.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -295,7 +298,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         }
                     }
                 }
-                AndroidView(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.background).testTag("terminal"), factory = { ctx ->
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                AndroidView(modifier = Modifier.fillMaxSize().clipToBounds().background(MaterialTheme.colorScheme.background).testTag("terminal"), factory = { ctx ->
                     TerminalView(ctx, null).apply {
                         session.getEmulator().mColors.setLightTheme(lightTheme)
                         terminal = this
@@ -321,10 +325,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     checkNotNull(terminalFontKey)
                     val activeHistory = tmuxHistory?.takeIf { it.active }
                     val history = activeHistory?.takeIf { it.source == io.itermux.ssh.HistorySource.TMUX }
-                    view.setApplicationHistory(activeHistory != null && history == null)
+                    view.setApplicationHistory(false)
                     view.setRemoteHistory(history?.rows ?: 0, history?.position ?: 0,
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
+                if (showingOutput) OutputHistoryView(recordedOutput, fontSize, session::exitTmuxHistory)
+                }
                 warning?.let { message -> Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                     Text(tr(message), color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.weight(1f))
                     TextButton(onClick = { session.inputWarning.value = null }) { Text(tr("知道了")) }
@@ -386,5 +392,5 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         session.executeHistoryCommand(command)
     }, onDismiss = { commonCommandsOpen = false })
     confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text(tr("发送多行文本？")) }, text = { Text(tr("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。")) }, confirmButton = { TextButton(onClick = { session.paste(text); confirmPaste = null }) { Text(tr("发送")) } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text(tr("取消")) } }) }
-    if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text(tr("关闭此连接？")) }, text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，可稍后重连。") else tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")) }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text(tr("关闭连接")) } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text(tr("取消")) } })
+    if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text(tr("关闭此连接？")) }, text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")) }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text(tr("关闭连接")) } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text(tr("取消")) } })
 }

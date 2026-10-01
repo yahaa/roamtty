@@ -79,11 +79,12 @@ import io.itermux.ssh.SessionMode
     }
 }
 
-@Composable internal fun SessionCard(session: TerminalConnection, onOpen: () -> Unit, onClose: () -> Unit) {
+@Composable internal fun SessionCard(session: TerminalConnection, onOpen: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {}) {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val colors = MaterialTheme.colorScheme
     var confirmClose by remember { mutableStateOf(false) }
+    var confirmForget by remember { mutableStateOf(false) }
     var editTitle by remember { mutableStateOf(false) }
     Card(onClick = onOpen, colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant), shape = RoundedCornerShape(18.dp), modifier = Modifier.testTag("session-${session.id}")) {
         Column(Modifier.fillMaxWidth().padding(start = 16.dp, top = 14.dp, end = 8.dp, bottom = 8.dp)) {
@@ -106,15 +107,22 @@ import io.itermux.ssh.SessionMode
                 Text("● ${phaseLabel(state.phase)}", color = if (state.phase == Phase.CONNECTED) colors.primary else colors.onSurfaceVariant,
                     style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { confirmClose = true }) { Text(tr("关闭")) }
+                if (!state.active && session.mode == SessionMode.TMUX)
+                    TextButton(onClick = { confirmForget = true }) { Text(tr("移除记录")) }
+                else TextButton(onClick = { confirmClose = true }) { Text(tr("关闭")) }
             }
         }
     }
     if (confirmClose) AlertDialog(onDismissRequest = { confirmClose = false }, title = { Text(trf("关闭 %s？", session.host.name)) },
-        text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行。") else tr("普通 SSH shell 会结束。")) },
+        text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束。")) },
         confirmButton = { TextButton(onClick = { confirmClose = false; onClose() }) { Text(tr("关闭连接")) } },
         dismissButton = { TextButton(onClick = { confirmClose = false }) { Text(tr("取消")) } })
     if (editTitle) SessionTitleDialog(session) { editTitle = false }
+    if (confirmForget) AlertDialog(onDismissRequest = { confirmForget = false },
+        title = { Text(tr("移除记录")) },
+        text = { Text(trf("移除后无法从此卡片重连。远端会话不会被终止，可通过 tmux attach -t %s 手动连接。", session.remoteSessionName)) },
+        confirmButton = { TextButton(onClick = { confirmForget = false; onForget() }) { Text(tr("移除记录")) } },
+        dismissButton = { TextButton(onClick = { confirmForget = false }) { Text(tr("取消")) } })
 }
 
 @Composable internal fun SessionTitleDialog(session: TerminalConnection, onDismiss: () -> Unit) {

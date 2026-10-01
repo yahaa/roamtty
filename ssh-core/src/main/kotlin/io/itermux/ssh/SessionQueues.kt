@@ -12,10 +12,10 @@ internal class SessionQueues {
     @Volatile private var input: Channel<ByteArray> = Channel(64)
     @Volatile private var sizes: Channel<IntArray> = Channel(Channel.CONFLATED)
 
-    fun setAccepting(value: Boolean) { accepting.set(value) }
+    @Synchronized fun setAccepting(value: Boolean) { accepting.set(value) }
     fun isAccepting(): Boolean = accepting.get()
 
-    fun write(bytes: ByteArray, stopped: Boolean): Boolean {
+    @Synchronized fun write(bytes: ByteArray, stopped: Boolean): Boolean {
         if (bytes.isEmpty()) return true
         if (bytes.size > 256 * 1024 || stopped || !accepting.get()) return false
         val queue = input
@@ -32,7 +32,8 @@ internal class SessionQueues {
     fun currentInput(): Channel<ByteArray> = input
     fun currentSizes(): Channel<IntArray> = sizes
 
-    fun reopen() {
+    @Synchronized fun reopen() {
+        accepting.set(false)
         val previousInput = input
         val previousSizes = sizes
         input = Channel(64)
@@ -43,7 +44,7 @@ internal class SessionQueues {
         while (true) previousSizes.tryReceive().getOrNull() ?: break
     }
 
-    fun close() {
+    @Synchronized fun close() {
         accepting.set(false)
         val currentInput = input
         val currentSizes = sizes

@@ -7,6 +7,7 @@ import signal
 import sys
 import termios
 import tty
+import time
 
 name = sys.argv[1] if len(sys.argv) > 1 else "codex"
 ctypes.CDLL(None).prctl(15, name.encode(), 0, 0, 0)
@@ -15,6 +16,7 @@ images = []
 position = 0
 history = False
 submitted = 0
+navigation = 0
 buffer = b""
 
 
@@ -27,7 +29,7 @@ def render(*_):
         output += "\r\n".join(f"ARCHIVE_{n:03d}" for n in range(240 - position, 240 - position + max(1, rows - 7)))
     else:
         output += "CLI_LIVE\r\n"
-    output += f"\x1b[{rows - 2};1HIMAGES={len(images)} SUBMITTED={submitted}\r\n"
+    output += f"\x1b[{rows - 2};1HIMAGES={len(images)} SUBMITTED={submitted} NAVKEYS={navigation}\r\n"
     output += " ".join(f"[Image #{i + 1}]" for i in range(len(images)))
     sys.stdout.write(output)
     sys.stdout.flush()
@@ -39,6 +41,11 @@ try:
     if name != "codex":
         sys.stdout.write("\x1b[?1000h\x1b[?1006h")
     signal.signal(signal.SIGWINCH, render)
+    # Show output, then erase it as real full-screen tools do. No native history support.
+    for n in range(60):
+        sys.stdout.write(f"\x1b[H\x1b[2JOUTPUT_{n:03d}\r\nThis frame will be overwritten.\r\n")
+        sys.stdout.flush()
+        time.sleep(0.06)
     render()
     while True:
         buffer += os.read(0, 4096)
@@ -63,6 +70,7 @@ try:
             key = next((key for key in (b"\x1b[5~", b"\x1b[6~", b"\x14", b"\x03", b"\r", b"\n") if buffer.startswith(key)), None)
             if key is None:
                 if buffer == b"\x1b":
+                    navigation += 1
                     history = False
                     position = 0
                     buffer = b""
@@ -76,12 +84,11 @@ try:
             if key == b"\x03":
                 raise KeyboardInterrupt
             if key == b"\x14":
-                history = not history
+                navigation += 1
             elif key in (b"\r", b"\n"):
                 submitted += 1
             else:
-                history = True
-                position = max(0, min(220, position + (20 if key == b"\x1b[5~" else -20)))
+                navigation += 1
             render()
 except (KeyboardInterrupt, EOFError):
     pass

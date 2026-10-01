@@ -29,7 +29,10 @@ class SessionQueuesTest {
         assertTrue(oldSizes.isClosedForSend)
         assertTrue(oldInput.tryReceive().isFailure)
         assertTrue(freshInput.tryReceive().isFailure)
-        // Fresh queue accepts again after reopen.
+        // Reattach must explicitly enable the new writer before any input can enter it.
+        assertFalse(queues.isAccepting())
+        assertFalse(queues.write(byteArrayOf(8), stopped = false))
+        queues.setAccepting(true)
         assertTrue(queues.write(byteArrayOf(9), stopped = false))
         val received = freshInput.receive()
         assertArrayEquals(byteArrayOf(9), received)

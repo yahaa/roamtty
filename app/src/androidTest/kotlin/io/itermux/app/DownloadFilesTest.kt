@@ -178,7 +178,7 @@ class DownloadFilesTest {
                 }
                 assertEquals(3, names.size)
                 assertTrue(names.contains("$prefix-report.pdf"))
-                assertTrue(names.contains("$prefix-report (1).pdf"))
+                assertTrue(names.contains("$prefix-report (2).pdf"))
                 assertTrue(names.contains("$prefix-README"))
                 assertEquals(setOf("first", "second", "plain"), contents.toSet())
             }

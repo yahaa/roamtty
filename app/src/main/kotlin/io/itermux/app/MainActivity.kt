@@ -41,7 +41,8 @@ class MainActivity : ComponentActivity() {
                 else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
-        pendingShareImages = ShareImageIntents.takeImageUris(intent)
+        pendingShareImages = savedInstanceState?.getStringArrayList("pendingShareImages")?.map(Uri::parse)
+            ?: ShareImageIntents.takeImageUris(intent)
         setContent {
             ItermuxScreen(
                 application as ItermuxApp,
@@ -58,7 +59,11 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        pendingShareImages = ShareImageIntents.takeImageUris(intent)
+        pendingShareImages = pendingShareImages + ShareImageIntents.takeImageUris(intent)
+    }
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putStringArrayList("pendingShareImages", ArrayList(pendingShareImages.map(Uri::toString)))
+        super.onSaveInstanceState(outState)
     }
     private fun updateSystemBars() {
         @Suppress("DEPRECATION")

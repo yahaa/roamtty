@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TmuxHistoryControllerTest {
-    @Test fun fullScreenCodexUsesItsTranscriptInsteadOfEmptyCopyMode() = runBlocking {
+    @Test fun fullScreenProgramsUseCapturedOutputWithoutInjectingKeys() = runBlocking {
         val commands = mutableListOf<String>()
         val history = TmuxHistoryController("itermux-test") { command ->
             commands += command
@@ -18,14 +18,14 @@ class TmuxHistoryControllerTest {
                 else -> ""
             }
         }
-        assertEquals(HistorySource.CODEX, history.enter()?.source)
+        assertEquals(HistorySource.OUTPUT, history.enter()?.source)
         history.enter() // Do not toggle the transcript closed on a repeated request.
         history.moveTo(200)
         assertTrue(requireNotNull(history.history()).active)
-        assertEquals(1, commands.count { it.endsWith(" C-t") })
+        assertEquals(0, commands.count { it.contains("send-keys") })
         assertFalse(commands.any { it.contains("copy-mode") || it.contains(" -X ") })
         assertFalse(requireNotNull(history.exit()).active)
-        assertTrue(commands.any { it.endsWith(" Escape") })
+        assertFalse(commands.any { it.endsWith(" Escape") })
     }
 
     @Test fun backgroundCodexDoesNotStealOtherProgramsHistoryKeys() = runBlocking {
@@ -38,8 +38,9 @@ class TmuxHistoryControllerTest {
                 else -> ""
             }
         }
-        assertEquals(HistorySource.APPLICATION, history.enter()?.source)
-        assertTrue(commands.indexOfFirst { it.endsWith(" -X cancel") } < commands.indexOfFirst { it.endsWith(" PPage") })
+        assertEquals(HistorySource.OUTPUT, history.enter()?.source)
+        assertTrue(commands.any { it.endsWith(" -X cancel") })
+        assertFalse(commands.any { it.endsWith(" PPage") })
         assertFalse(commands.any { it.endsWith(" C-t") || it.contains("copy-mode") })
     }
 
@@ -48,6 +49,8 @@ class TmuxHistoryControllerTest {
         val history = TmuxHistoryController(Tmux.LEGACY_SESSION, remote::execute)
 
         assertEquals(TmuxHistory(120, 0, false, 24), history.history())
+        assertFalse(requireNotNull(history.moveTo(37)).active)
+        history.enter()
         assertTrue(requireNotNull(history.moveTo(37)).active)
         assertEquals(37, history.history()?.position)
         assertEquals(120, history.moveTo(120)?.position)

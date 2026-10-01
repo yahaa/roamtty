@@ -104,7 +104,8 @@ class JschSession(
     private val connectTimeoutMs: Int = 20_000,
     /** Remote tmux session name; ignored for SHELL mode. Legacy journal entries use [Tmux.LEGACY_SESSION]. */
     val remoteSessionName: String = Tmux.LEGACY_SESSION
-) : SshSession {
+) : SshSession, TmuxHistoryAccess {
+    override val historyConnected: Boolean get() = state.value.phase == Phase.CONNECTED
     private val mutableState = MutableStateFlow(ConnectionState(Phase.CONNECTING))
     override val state = mutableState.asStateFlow()
     private val stopped = AtomicBoolean(false)
@@ -135,6 +136,7 @@ class JschSession(
             while (!stopped.get()) {
                 // Discard stale input before each attempt; never replay it after reattachment.
                 queues.reopen()
+                tmuxHistoryController.reset()
                 when (runAttempt(onOutput, reattaching = attempt > 0)) {
                     AttemptOutcome.STOPPED -> break
                     AttemptOutcome.FATAL -> break
@@ -379,13 +381,13 @@ class JschSession(
     }
 
     /** Query the active pane of this connection's tmux session over a separate SSH channel. */
-    suspend fun tmuxHistory(): TmuxHistory? = tmuxHistoryController.history()
+    override suspend fun tmuxHistory(): TmuxHistory? = tmuxHistoryController.history()
 
-    suspend fun enterTmuxHistory(): TmuxHistory? = tmuxHistoryController.enter()
+    override suspend fun enterTmuxHistory(): TmuxHistory? = tmuxHistoryController.enter()
 
-    suspend fun moveTmuxHistoryTo(position: Int): TmuxHistory? = tmuxHistoryController.moveTo(position)
+    override suspend fun moveTmuxHistoryTo(position: Int): TmuxHistory? = tmuxHistoryController.moveTo(position)
 
-    suspend fun exitTmuxHistory(): TmuxHistory? = tmuxHistoryController.exit()
+    override suspend fun exitTmuxHistory(): TmuxHistory? = tmuxHistoryController.exit()
 
     /** A separate SFTP channel shares the authenticated SSH connection without touching the PTY. */
     suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = withSftp { sftp ->
@@ -422,6 +424,7 @@ class JschSession(
      * (caller should skip the first partial line).
      */
     suspend fun readRemoteText(remotePath: String, maxBytes: Int = 512 * 1024): Pair<String, Boolean>? = withSftp { sftp ->
+        require(maxBytes in 1..512 * 1024)
         require(remotePath.isNotBlank() && remotePath.length <= 4096 &&
             remotePath.none { it == '\u0000' || it == '\n' || it == '\r' }) {
             "请输入有效的远端文件路径"
@@ -433,13 +436,23 @@ class JschSession(
             if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return@withSftp null else throw e
         }
         if (attributes.isDir) return@withSftp null
-        val out = java.io.ByteArrayOutputStream()
-        sftp.get(path, out)
+        val offset = (attributes.size - maxBytes).coerceAtLeast(0)
+        val out = java.io.ByteArrayOutputStream(maxBytes)
+        // Bound both network reads and allocation even if the file grows after stat.
+        sftp.get(path, transferMonitor(coroutineContext[Job]) {}, offset).use { input ->
+            var remaining = maxBytes
+            val buffer = ByteArray(8192)
+            while (remaining > 0) {
+                coroutineContext.ensureActive()
+                val count = input.read(buffer, 0, minOf(buffer.size, remaining))
+                if (count < 0) break
+                out.write(buffer, 0, count)
+                remaining -= count
+            }
+        }
         coroutineContext.ensureActive()
         val bytes = out.toByteArray()
-        val truncated = bytes.size > maxBytes
-        val slice = if (truncated) bytes.copyOfRange(bytes.size - maxBytes, bytes.size) else bytes
-        String(slice, Charsets.UTF_8) to truncated
+        String(bytes, Charsets.UTF_8) to (offset > 0)
     }
 
     /** List a remote SFTP directory for the file picker. An empty path opens the SFTP home. */
@@ -598,7 +611,8 @@ class JschSession(
                 }
             }
             if (exec.exitStatus == 0) bytes.toString(Charsets.UTF_8.name()) else null
-        } catch (_: Exception) { null }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { null }
         finally { exec.disconnect() }
     }
 

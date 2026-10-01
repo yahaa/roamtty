@@ -11,6 +11,25 @@ internal data class DownloadItem(val path: String, val total: Long = -1, val byt
     val name: String get() = path.substringAfterLast('/')
 }
 
+/** Reserve all original basenames first so generated suffixes cannot steal another file's name. */
+internal fun downloadNames(files: List<DownloadItem>): Map<String, String> {
+    val reserved = files.map { it.name.lowercase(java.util.Locale.ROOT) }.toMutableSet()
+    val used = mutableSetOf<String>()
+    return files.associate { file ->
+        var name = file.name
+        if (!used.add(name.lowercase(java.util.Locale.ROOT))) {
+            val dot = name.lastIndexOf('.').takeIf { it > 0 } ?: name.length
+            val stem = name.substring(0, dot)
+            val extension = name.substring(dot)
+            var number = 2
+            do { name = "$stem (${number++})$extension" }
+            while (!reserved.add(name.lowercase(java.util.Locale.ROOT)))
+            used.add(name.lowercase(java.util.Locale.ROOT))
+        }
+        file.path to name
+    }
+}
+
 /** Serial transfers bound memory/channel use; each failure belongs to its own file. */
 internal suspend fun runDownloadQueue(
     files: List<DownloadItem>,
@@ -39,6 +58,7 @@ internal suspend fun runDownloadQueue(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
                 items = items.toMutableList().apply {
                     this[index] = this[index].copy(phase = DownloadPhase.FAILED, error = e.message)
                 }

@@ -47,6 +47,14 @@ class TerminalConnection(
     var copyToClipboard: ((String) -> Unit)? = null
     var pasteFromClipboard: (() -> Unit)? = null
     private val parser = TerminalEmulator(this, 80, 24, 8, 16, 50000, SilentTerminalClient())
+    private val outputHistory = OutputHistory()
+    internal fun outputHistorySnapshot(): List<String> = outputHistory.snapshot()
+    override fun onBeforeScreenChange() = captureOutput()
+    private fun captureOutput() {
+        // Browsing remote copy-mode redraws old text; it is not new application output.
+        if (mode == SessionMode.TMUX && tmuxHistory.value?.source != HistorySource.TMUX)
+            outputHistory.capture(parser.screen.getSelectedText(0, 0, parser.mColumns, parser.mRows - 1))
+    }
     private val ssh = JschSession(
         host.target(mode),
         credentials ?: Credentials(),
@@ -72,6 +80,7 @@ class TerminalConnection(
             ssh.connect { bytes ->
                 withContext(Dispatchers.Main.immediate) {
                     parser.append(bytes, bytes.size)
+                    captureOutput()
                     revision.value++
                     onScreenChanged?.invoke()
                 }
@@ -82,6 +91,7 @@ class TerminalConnection(
         var wasConnected = false
         ssh.state.collect { connection ->
             val connected = connection.phase == Phase.CONNECTED
+            if (!connected && wasConnected) tmux.onConnectionEnded()
             if (connected && !wasConnected) refreshCommonCommands()
             wasConnected = connected
         }
@@ -142,15 +152,24 @@ class TerminalConnection(
         }
     }
 
-    fun executeHistoryCommand(command: String): Boolean {
+    fun executeHistoryCommand(command: String) = scope.launch {
+        val fullScreen = (mode == SessionMode.TMUX && ssh.tmuxHistory()?.alternateScreen != false) ||
+            (mode == SessionMode.SHELL && parser.isAlternateBufferActive)
+        // Complete all suspending probes before the exit barrier. Nothing may reopen
+        // copy-mode between a successful exit and the immediate, Main-thread write.
+        if (!tmux.exitAndAwait()) return@launch
+        // Exiting a transcript never turns an interactive program into a shell prompt.
+        if (fullScreen) {
+            inputWarning.value = tr("请先退出全屏程序，再执行 shell 历史命令。")
+            return@launch
+        }
         val input = ShellHistoryCommands.executionInput(command, parser.isBracketedPasteEnabled)
         if (!ssh.write(input.toByteArray(Charsets.UTF_8))) {
             inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
-            return false
+            return@launch
         }
         recentCommands = ShellHistoryCommands.mergeRecent(listOf(command), recentCommands)
         publishCommonCommands()
-        return true
     }
 
     private fun publishCommonCommands() {

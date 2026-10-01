@@ -8,6 +8,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import java.io.File
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Terminal typeface selection. Bundled fonts are OFL-licensed monospace faces under assets/fonts.
@@ -80,34 +83,50 @@ object TerminalFonts {
      * Copy a user-picked ttf/otf into app-private storage and select it.
      * Returns false if the file cannot be read or is not a plausible font.
      */
-    fun importCustomFont(context: Context, uri: Uri, displayName: String?): Boolean {
-        return try {
+    private val importLock = Mutex()
+
+    suspend fun importCustomFont(context: Context, uri: Uri, displayName: String?): Boolean = importLock.withLock {
+        val imported = withContext(Dispatchers.IO) {
             val dest = customFontFile(context)
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                dest.outputStream().use { output -> input.copyTo(output) }
-            } ?: return false
-            if (dest.length() < 1024L || dest.length() > 16L * 1024L * 1024L) {
-                dest.delete()
-                return false
+            val temporary = File.createTempFile("font-", ".tmp", dest.parentFile)
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    temporary.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var count = 0
+                        while (true) {
+                            ensureActive()
+                            val size = input.read(buffer)
+                            if (size < 0) break
+                            count += size
+                            require(count <= 16 * 1024 * 1024)
+                            output.write(buffer, 0, size)
+                        }
+                    }
+                } ?: return@withContext false
+                // Builder returns null on invalid data; createFromFile may silently return DEFAULT.
+                requireNotNull(Typeface.Builder(temporary).build())
+                ensureActive()
+                check(temporary.renameTo(dest))
+                val name = displayName?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "custom-font"
+                File(dest.parentFile, "$CUSTOM_NAME.name").writeText(name)
+                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+                    putString(KEY_FONT, TerminalFontId.CUSTOM.id)
+                }
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            } finally {
+                temporary.delete()
             }
-            // Validate by attempting to load.
-            val face = Typeface.createFromFile(dest)
-            if (face == null) {
-                dest.delete()
-                return false
-            }
-            val name = displayName?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "custom-font"
-            File(dest.parentFile, "$CUSTOM_NAME.name").writeText(name)
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
-                putString(KEY_FONT, TerminalFontId.CUSTOM.id)
-            }
+        }
+        if (imported) withContext(Dispatchers.Main.immediate) {
             selection = TerminalFontId.CUSTOM
             revision++
-            true
-        } catch (_: Exception) {
-            customFontFile(context).delete()
-            false
         }
+        imported
     }
 
     fun clearCustomFont(context: Context) {

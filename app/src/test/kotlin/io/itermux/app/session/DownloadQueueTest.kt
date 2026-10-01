@@ -6,6 +6,28 @@ import org.junit.Test
 import java.io.IOException
 
 class DownloadQueueTest {
+    @Test fun duplicateBasenamesKeepTheirExtensionsAndAvoidReservedNames() {
+        val files = listOf("/a/report.pdf", "/b/report.pdf", "/c/report (2).pdf", "/d/REPORT.PDF", "/e/.env", "/f/.env")
+            .map { DownloadItem(it) }
+        assertEquals(listOf("report.pdf", "report (3).pdf", "report (2).pdf", "REPORT (4).PDF", ".env", ".env (2)"),
+            downloadNames(files).values.toList())
+    }
+
+    @Test fun cancellationStillStopsQueueWhenCleanupThrowsIOException() = runBlocking {
+        val visited = mutableListOf<String>()
+        var snapshot = emptyList<DownloadItem>()
+        val worker = launch {
+            runDownloadQueue(listOf(DownloadItem("one"), DownloadItem("two")), { items, _ -> snapshot = items }) { file, _ ->
+                visited += file.path
+                currentCoroutineContext().cancel()
+                throw IOException("Cleanup failed after cancellation")
+            }
+        }
+        worker.join()
+        assertEquals(listOf("one"), visited)
+        assertTrue(snapshot.all { it.phase == DownloadPhase.CANCELLED })
+    }
+
     @Test fun failuresDoNotStopLaterFilesAndSameNamesStayDistinct() = runBlocking {
         val visited = mutableListOf<String>()
         val files = listOf(DownloadItem("/a/report.pdf", 42), DownloadItem("/b/report.pdf"), DownloadItem("/empty", 0))

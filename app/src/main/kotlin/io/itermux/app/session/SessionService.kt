@@ -22,6 +22,7 @@ class SessionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutableSessions = MutableStateFlow<List<TerminalConnection>>(emptyList())
     val sessions = mutableSessions.asStateFlow()
+    val pendingSharedImages = MutableStateFlow<List<android.net.Uri>>(emptyList())
     private val binder = LocalBinder()
     private var foreground = false
     private lateinit var journal: SessionJournal
@@ -108,10 +109,20 @@ class SessionService : Service() {
 
     fun close(id: String) {
         stateWatchers.remove(id)?.cancel()
-        mutableSessions.value.find { it.id == id }?.disconnect()
-        mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+        val existing = mutableSessions.value.find { it.id == id } ?: return
+        existing.disconnect()
+        // Detach preserves the remote task. Keep its addressable identity for reconnect.
+        if (existing.mode != SessionMode.TMUX)
+            mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
         saveSessions()
         refreshNotification()
+    }
+    fun forget(id: String) {
+        val existing = mutableSessions.value.find { it.id == id } ?: return
+        check(!existing.state.value.active)
+        stateWatchers.remove(id)?.cancel()
+        mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+        saveSessions()
     }
     fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; refreshNotification() }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

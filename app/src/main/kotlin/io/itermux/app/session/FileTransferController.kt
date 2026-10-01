@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.widget.Toast
 import android.provider.DocumentsContract
-import android.webkit.MimeTypeMap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -34,8 +33,27 @@ class FileTransferController(private val scope: CoroutineScope) {
     private val mutableStatus = MutableStateFlow(TransferStatus())
     internal val status = mutableStatus.asStateFlow()
     private var job: Job? = null
+    private var sharedImagesJob: Job? = null
 
-    fun cancel() { job?.cancel() }
+    fun cancel() { sharedImagesJob?.cancel(); job?.cancel() }
+
+    /** The session scope owns the whole queue, including images not started yet. */
+    fun uploadSharedImages(context: Context, session: TerminalConnection, uris: List<Uri>): Boolean {
+        if (sharedImagesJob?.isActive == true) return false
+        val application = context.applicationContext
+        sharedImagesJob = scope.launch {
+            for (uri in uris.toList()) {
+                job?.join()
+                ensureActive()
+                dismiss()
+                uploadImageForCli(application, session, uri)
+                job?.join()
+                ensureActive()
+                if (mutableStatus.value.succeeded != true) break
+            }
+        }
+        return true
+    }
     fun dismiss() { if (!mutableStatus.value.running) mutableStatus.update { it.copy(result = null) } }
 
     /**
@@ -64,8 +82,10 @@ class FileTransferController(private val scope: CoroutineScope) {
                     it.copy(bytes = if (it.total >= 0) it.total else it.bytes, result = customResult ?: tr("传输完成"),
                         succeeded = it.downloads.none { file -> file.phase != DownloadPhase.COMPLETE })
                 }
-            } catch (_: CancellationException) {
-                mutableStatus.update { it.copy(result = tr("传输已取消"), succeeded = false) }
+            } catch (e: CancellationException) {
+                val message = if (e.suppressed.any { it is IncompleteDownload })
+                    tr("下载未完成，无法删除本地半成品，请在保存位置手动删除。") else tr("传输已取消")
+                mutableStatus.update { it.copy(result = message, succeeded = false) }
             } catch (e: Exception) {
                 val message = when (e) {
                     is IncompleteDownload -> tr("下载未完成，无法删除本地半成品，请在保存位置手动删除。")
@@ -129,10 +149,10 @@ class FileTransferController(private val scope: CoroutineScope) {
 
     internal fun downloadFiles(context: Context, session: TerminalConnection, tree: Uri, files: List<DownloadItem>) {
         val resolver = context.applicationContext.contentResolver
+        val names = downloadNames(files)
         startDownloads(context, session, files) { file ->
             val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
-            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.name.substringAfterLast('.', "").lowercase()) ?: "*/*"
-            DocumentsContract.createDocument(resolver, parent, mime, file.name)
+            DocumentsContract.createDocument(resolver, parent, "*/*", names.getValue(file.path))
                 ?: throw IOException(tr("无法创建本地文件"))
         }
     }
@@ -162,6 +182,17 @@ class FileTransferController(private val scope: CoroutineScope) {
                                     DocumentsContract.deleteDocument(application.contentResolver, uri)
                                 else application.contentResolver.delete(uri, null, null) > 0
                             }.getOrDefault(false)
+                        }
+                        // Cleanup failure must never turn cancellation into a recoverable file failure.
+                        if (e is CancellationException) {
+                            if (!deleted) e.addSuppressed(IncompleteDownload(e))
+                            throw e
+                        }
+                        try {
+                            currentCoroutineContext().ensureActive()
+                        } catch (cancelled: CancellationException) {
+                            if (!deleted) cancelled.addSuppressed(IncompleteDownload(e))
+                            throw cancelled
                         }
                         if (!deleted) throw IncompleteDownload(e)
                         throw e

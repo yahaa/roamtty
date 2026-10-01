@@ -169,23 +169,15 @@ fun ItermuxScreen(
     }
 
     // System share sheet → SFTP upload (+ Codex/Grok paste) on a connected session.
-    var shareSessionIds by rememberSaveable { mutableStateOf<List<String>?>(null) }
-    var shareUrisPending by rememberSaveable { mutableStateOf<List<Uri>>(emptyList()) }
+    val shareFlow = remember(service) { service?.pendingSharedImages ?: MutableStateFlow(emptyList()) }
+    val shareUrisPending by shareFlow.collectAsStateWithLifecycle()
     fun uploadSharedImages(session: TerminalConnection, uris: List<Uri>) {
         if (uris.isEmpty()) return
         selected = session.id
         page = "terminal"
         if (uris.size > 1) toast(trf("共 %d 张图片，将依次上传", uris.size))
-        scope.launch {
-            for (uri in uris) {
-                session.transfers.status.first { !it.running }
-                if (session.transfers.status.value.result != null) session.transfers.dismiss()
-                session.transfers.uploadImageForCli(context, session, uri)
-                if (!session.transfers.status.value.running) break
-                val completed = session.transfers.status.first { !it.running }
-                if (completed.succeeded != true) break
-            }
-        }
+        if (!session.transfers.uploadSharedImages(context, session, uris))
+            toast(tr("已有传输进行中，请稍后再试"))
     }
     fun routeSharedImages(uris: List<Uri>, available: List<TerminalConnection>) {
         if (uris.isEmpty()) return
@@ -197,8 +189,7 @@ fun ItermuxScreen(
             }
             connected.size == 1 -> uploadSharedImages(connected.first(), uris)
             else -> {
-                shareUrisPending = uris
-                shareSessionIds = connected.map { it.id }
+                service?.pendingSharedImages?.value = shareUrisPending + uris
             }
         }
     }
@@ -206,8 +197,8 @@ fun ItermuxScreen(
         if (pendingShareImages.isEmpty() || service == null) return@LaunchedEffect
         service.awaitRestoration()
         val uris = pendingShareImages.toList()
-        onShareImagesConsumed()
         routeSharedImages(uris, service.sessions.value)
+        onShareImagesConsumed()
     }
     LaunchedEffect(searchExpanded, page) { if (searchExpanded && navigationVisible) searchFocus.requestFocus() }
     MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors) {
@@ -327,7 +318,7 @@ fun ItermuxScreen(
                             }
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = sessionGridState, modifier = Modifier.weight(1f).testTag("session-grid"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = if (landscape) 8.dp else 0.dp, bottom = 12.dp)) {
                             items(filteredSessions, key = { it.id }) { session ->
-                                SessionCard(session, onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) })
+                                SessionCard(session, onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) }, onForget = { service?.forget(session.id) })
                             }
                         }
                     }
@@ -363,7 +354,7 @@ fun ItermuxScreen(
                             onSessions = { page = "sessions" }, onHosts = { page = "hosts" },
                             onReconnect = { connect(active.host, active.mode, active.title.value, reuseSessionId = active.id) },
                             onNewSession = { connect(active.host, active.mode) },
-                            onShell = { service?.close(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
+                            onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active }, onClose = { service?.close(active.id) })
                     }
                 }
@@ -377,7 +368,7 @@ fun ItermuxScreen(
                 onSaved = { editorOpen = false; editHostId = null })
         }
         deleteHost?.let { host -> AlertDialog(onDismissRequest = { deleteHost = null }, title = { Text(trf("删除 %s？", host.name)) }, text = { Text(tr("将删除这台主机及保存的凭据，并关闭它的连接。远端 tmux 任务不受影响。")) },
-            confirmButton = { TextButton(onClick = { scope.launch { sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id) }; app.database.hosts().delete(host.id); deleteHost = null } }) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) } },
+            confirmButton = { TextButton(onClick = { scope.launch { sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }; app.database.hosts().delete(host.id); deleteHost = null } }) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { deleteHost = null }) { Text(tr("取消")) } }) }
         connectRequest?.let { request -> CredentialsDialog(request, { connectRequest = null }) { password, phrase -> connectRequest = null; start(request, password, phrase) } }
         reverify?.let { session -> AlertDialog(onDismissRequest = { reverify = null }, title = { Text(tr("重新核验主机指纹")) }, text = { Text(trf("请先向服务器管理员确认新指纹。继续会移除此地址原有的信任记录，关闭该地址的连接，并在重连时重新展示指纹。\n\n%s", session.host.target().endpoint)) },
@@ -386,11 +377,11 @@ fun ItermuxScreen(
                 sessions.filter { it.host.target().endpoint == endpoint }.forEach { service?.close(it.id) }
                 app.database.hosts().forgetPin(endpoint)
                 reverify = null
-                connect(session.host, session.mode)
+                connect(session.host, session.mode, session.title.value, reuseSessionId = session.id.takeIf { session.mode == SessionMode.TMUX })
             } }) { Text(tr("移除旧记录并重连")) } }, dismissButton = { TextButton(onClick = { reverify = null }) { Text(tr("取消")) } }) }
-        shareSessionIds?.let { ids ->
-            val choices = sessions.filter { it.id in ids }
-            fun dismissShare() { shareSessionIds = null; shareUrisPending = emptyList() }
+        if (shareUrisPending.isNotEmpty()) {
+            val choices = sessions.filter { it.state.value.phase == Phase.CONNECTED }
+            fun dismissShare() { service?.pendingSharedImages?.value = emptyList() }
             AppSheet(onDismiss = ::dismissShare) {
                 androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f)) {
                     item { SheetHeader(tr("选择会话以上传图片"), tr("选择接收图片的主机和会话。"), ::dismissShare) }

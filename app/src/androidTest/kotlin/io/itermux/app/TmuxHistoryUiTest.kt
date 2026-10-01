@@ -130,9 +130,20 @@ class TmuxHistoryUiTest {
             }
             compose.onNodeWithTag("tmux-history").performClick()
             withTimeout(8000) { while (session.tmuxHistory.value != null) delay(40) }
+            withContext(Dispatchers.Main) { session.draft = "unsent draft"; session.enterTmuxHistory() }
+            withTimeout(8000) { while (session.tmuxHistory.value?.active != true) delay(40) }
+            withContext(Dispatchers.Main) { session.executeHistoryCommand("printf 'EXEC_%s\\n' OK") }.join()
+            withTimeout(8000) {
+                while (!withContext(Dispatchers.Main) {
+                    val emulator = session.getEmulator()
+                    emulator.getSelectedText(0, 0, emulator.mColumns, emulator.mRows).contains("EXEC_OK")
+                }) delay(40)
+            }
+            assertNull(session.tmuxHistory.value)
+            assertEquals("unsent draft", session.draft)
         } finally {
             prompts.cancel()
-            withContext(Dispatchers.Main) { service.close(session.id) }
+            withContext(Dispatchers.Main) { session.write("exit\r"); service.close(session.id); service.forget(session.id) }
         }
     }
 }

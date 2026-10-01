@@ -63,22 +63,20 @@ class NativeHistoryImageTest {
             test(session)
         } finally {
             prompts.cancel()
-            withContext(Dispatchers.Main) { session.write("\u0003"); service.close(session.id) }
+            withContext(Dispatchers.Main) { session.write("\u0003"); service.close(session.id); service.forget(session.id) }
         }
     }
 
     @Test fun fullScreenHistoryAndSuccessiveSingleImageSelections() = runBlocking {
         withFixture("codex") { session ->
             compose.onNodeWithTag("tmux-history").performClick()
-            withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.CODEX) delay(50) }
-            awaitScreen(session, "CLI_HISTORY_000")
-            compose.onNodeWithTag("terminal").performTouchInput { swipeDown() }
-            withTimeout(8000) {
-                while (withContext(Dispatchers.Main) { screen(session).contains("CLI_HISTORY_000") }) delay(50)
-            }
-            assertEquals(0, session.tmuxHistory.value?.rows) // tmux has no history; the CLI does.
-            compose.onNodeWithTag("tmux-history").performClick()
+            withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
+            compose.onNodeWithTag("output-history-top").performClick()
+            compose.onNodeWithTag("output-history-lines").performScrollToNode(hasText("OUTPUT_000"))
+            compose.onNodeWithText("OUTPUT_000").assertIsDisplayed()
             awaitScreen(session, "CLI_LIVE")
+            compose.onNodeWithTag("output-history-live").performClick()
+            awaitScreen(session, "SUBMITTED=0 NAVKEYS=0")
 
             val context = InstrumentationRegistry.getInstrumentation().targetContext
             val resolver = context.contentResolver
@@ -99,7 +97,7 @@ class NativeHistoryImageTest {
                         compose.activityRule.scenario.recreate()
                         compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
                         withContext(Dispatchers.Main) { session.enterTmuxHistory() }
-                        awaitScreen(session, "CLI_HISTORY_000")
+                        withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
                     }
                     if (number == 3) {
                         // Also leave copy-mode entered outside the app (e.g. before upgrading).
@@ -132,17 +130,79 @@ class NativeHistoryImageTest {
         }
     }
 
-    @Test fun otherFullScreenProgramsReceiveNativeScrolling() = runBlocking {
+    @Test fun grokWithoutNativeHistoryUsesTheSameCapturedOutput() = runBlocking {
         withFixture("grok") { session ->
             compose.onNodeWithTag("tmux-history").performClick()
-            withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.APPLICATION) delay(50) }
-            awaitScreen(session, "CLI_HISTORY_020")
-            compose.onNodeWithTag("terminal").performTouchInput { swipeDown() }
-            withTimeout(8000) {
-                while (withContext(Dispatchers.Main) { screen(session).contains("CLI_HISTORY_020") }) delay(50)
+            withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
+            compose.onNodeWithTag("output-history-lines").performScrollToNode(hasText("OUTPUT_000"))
+            compose.onNodeWithText("OUTPUT_000").assertIsDisplayed()
+            compose.activityRule.scenario.recreate()
+            compose.onNodeWithTag("output-history").assertIsDisplayed()
+            withContext(Dispatchers.Main) { session.executeHistoryCommand("SHOULD_NOT_SUBMIT") }.join()
+            awaitScreen(session, "SUBMITTED=0 NAVKEYS=0")
+            assertNotNull(session.inputWarning.value)
+            assertNull(session.tmuxHistory.value)
+        }
+    }
+
+    @Test fun multiImageSharePickerAndQueuedUploadsSurviveRecreation() = runBlocking {
+        withFixture("grok") { session ->
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+            val second = withContext(Dispatchers.Main) {
+                service.open(session.host, SessionMode.TMUX,
+                    Credentials(privateKey = File(context.filesDir, "tmux_client_key").readBytes()))
             }
-            compose.onNodeWithTag("tmux-history").performClick()
-            awaitScreen(session, "CLI_LIVE")
+            val uris = (1..3).map { number ->
+                val uri = requireNotNull(context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, "itermux-share-$number.png")
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    }))
+                val bitmap = Bitmap.createBitmap(3, 3, Bitmap.Config.ARGB_8888)
+                context.contentResolver.openOutputStream(uri)!!.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+                uri
+            }
+            try {
+                withTimeout(10_000) { second.state.first { it.phase == Phase.CONNECTED } }
+                // Seed the service-owned picker; ActivityScenario cannot track a changed launch intent.
+                withContext(Dispatchers.Main) { service.pendingSharedImages.value = uris }
+                compose.waitUntil(8000) { compose.onAllNodesWithTag("share-session-${session.id}").fetchSemanticsNodes().isNotEmpty() }
+                compose.activityRule.scenario.recreate()
+                compose.onNodeWithTag("share-session-${session.id}").assertIsDisplayed().performClick()
+                compose.activityRule.scenario.recreate()
+                awaitScreen(session, "IMAGES=3 SUBMITTED=0 NAVKEYS=0")
+                assertTrue(service.pendingSharedImages.value.isEmpty())
+                val remote = withContext(Dispatchers.Main) { session.transfers.status.value.remotePath }
+                if (remote != null) session.deleteRemoteFile(remote)
+            } finally {
+                uris.forEach { context.contentResolver.delete(it, null, null) }
+                withContext(Dispatchers.Main) {
+                    second.write("exit\r")
+                    service.close(second.id)
+                    service.forget(second.id)
+                }
+            }
+        }
+    }
+
+    @Test fun closingTmuxKeepsItsRemoteIdentityForReconnect() = runBlocking {
+        withFixture("grok") { session ->
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+            withContext(Dispatchers.Main) { session.rename("Retained task"); service.close(session.id) }
+            val retained = service.sessions.value.single { it.id == session.id }
+            assertEquals(session.remoteSessionName, retained.remoteSessionName)
+            assertEquals("Retained task", retained.title.value)
+            assertEquals(Phase.DISCONNECTED, retained.state.value.phase)
+            val replacement = withContext(Dispatchers.Main) {
+                service.reconnect(retained.id, Credentials(privateKey = File(context.filesDir, "tmux_client_key").readBytes()))
+            }
+            withTimeout(10_000) { replacement.state.first { it.phase == Phase.CONNECTED } }
+            awaitScreen(replacement, "CLI_LIVE")
+            assertEquals(session.remoteSessionName, replacement.remoteSessionName)
+            withContext(Dispatchers.Main) { replacement.write("\u0003") }
         }
     }
 }

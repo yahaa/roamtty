@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import io.itermux.app.AppLanguage
 import io.itermux.app.TerminalFonts
 import io.itermux.app.tr
+import kotlinx.coroutines.*
 
 @Composable
 internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
@@ -35,6 +36,7 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
     val context = LocalContext.current
     val power = context.getSystemService(PowerManager::class.java)
     var exempt by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(context.packageName)) }
+    val scope = rememberCoroutineScope()
     var fontImportError by remember { mutableStateOf<String?>(null) }
     val fontSelection = TerminalFonts.selection
     val fontRevision = TerminalFonts.revision
@@ -42,19 +44,22 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
     val customName = remember(fontRevision) { TerminalFonts.customFontDisplayName(context) }
     val pickFont = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val name = runCatching {
-            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getString(0) else null
+        scope.launch {
+            val name = withContext(Dispatchers.IO) { runCatching {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            }.getOrNull() }
+            val lower = (name ?: uri.lastPathSegment.orEmpty()).lowercase()
+            if (!lower.endsWith(".ttf") && !lower.endsWith(".otf")) {
+                fontImportError = tr("请选择 .ttf 或 .otf 字体文件")
+                return@launch
             }
-        }.getOrNull()
-        val lower = (name ?: uri.lastPathSegment.orEmpty()).lowercase()
-        if (!lower.endsWith(".ttf") && !lower.endsWith(".otf")) {
-            fontImportError = tr("请选择 .ttf 或 .otf 字体文件")
-            return@rememberLauncherForActivityResult
+            fontImportError = if (TerminalFonts.importCustomFont(context.applicationContext, uri, name)) null
+            else tr("无法加载该字体文件")
         }
-        fontImportError = if (TerminalFonts.importCustomFont(context, uri, name)) null
-        else tr("无法加载该字体文件")
     }
+
     val backgroundSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         exempt = power.isIgnoringBatteryOptimizations(context.packageName)
     }

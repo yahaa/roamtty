@@ -2188,6 +2188,7 @@ public final class TerminalEmulator {
                 setCursorCol(nextTabStop(getArg0(1)));
                 break;
             case 'J': // "${CSI}${0,1,2,3}J" - Erase in Display (ED)
+                mSession.onBeforeScreenChange();
                 // ED ignores the scrolling margins.
                 switch (getArg0(0)) {
                     case 0: // Erase from the active position to the end of the screen, inclusive (default).
@@ -3063,6 +3064,7 @@ public final class TerminalEmulator {
     }
 
     private void scrollDownOneLine() {
+        mSession.onBeforeScreenChange();
         mScrollCounter++;
         long currentStyle = getStyle();
         if (mLeftMargin != 0 || mRightMargin != mColumns) {
