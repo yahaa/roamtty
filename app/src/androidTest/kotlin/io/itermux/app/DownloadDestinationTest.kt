@@ -291,6 +291,7 @@ class DownloadDestinationTest {
             withTimeout(15_000) { session.transfers.status.first { !it.running && it.result != null } }
             val displayedPath = "${Environment.getExternalStorageDirectory()}/Documents/$folderName/${files.first().name}"
             val remotePath = session.transfers.status.value.downloads.single().path
+            compose.onNodeWithTag("download-result-details").performClick()
             compose.onNodeWithTag("download-local-path-$remotePath")
                 .assertTextEquals(trf("下载路径：%s", displayedPath))
                 .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { getLayout ->

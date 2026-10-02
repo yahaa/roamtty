@@ -35,6 +35,7 @@ import io.itermux.app.session.DownloadItem
 import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun DownloadFilesUi(session: TerminalConnection, actions: DownloadActions = rememberDownloadActions(session)) {
@@ -44,7 +45,7 @@ internal fun DownloadFilesUi(session: TerminalConnection, actions: DownloadActio
     if (transfer.downloadDialog) DownloadFilesSheet(session,
         enabled = connection.phase == Phase.CONNECTED && !status.running && !actions.busy,
         directoryLabel = actions.directoryLabel,
-        onDismiss = { transfer.downloadDialog = false },
+        onDismiss = transfer::dismissDownloads,
         onDownload = { actions.start(transfer.selectedDownloads.toList(), false) },
         onSaveAs = { actions.start(transfer.selectedDownloads.toList(), true) })
 }
@@ -57,7 +58,7 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
     val options = rememberRemoteFileOptions()
     val compact = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val listState = rememberLazyListState()
-    var listing by remember { mutableStateOf<RemoteDirectory?>(null) }
+    var listing by remember { mutableStateOf<RemoteSearchDirectories?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var retry by remember { mutableIntStateOf(0) }
@@ -65,23 +66,47 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val searchFocus = remember { FocusRequester() }
     var selectedOnly by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(transfer.downloadDirectory, retry, enabled) {
+    val search = remember(transfer.downloadDirectory, query, selectedOnly) {
+        remotePathSearch(transfer.downloadDirectory, if (selectedOnly) "" else query)
+    }
+    val prefix = if (selectedOnly) "" else query.substring(0, query.lastIndexOf('/') + 1)
+    val directories = remember(session.id, transfer.downloadDirectory, retry, enabled) {
+        linkedMapOf<String, RemoteDirectory>()
+    }
+    LaunchedEffect(transfer.downloadDirectory, prefix, options.showHiddenFiles, retry, enabled, transfer.resolvingDownloadDirectory) {
         listing = null
         error = null
         loading = true
         try {
-            if (enabled) listing = session.listRemoteDirectory(transfer.downloadDirectory)
+            if (enabled && !transfer.resolvingDownloadDirectory) {
+                if (prefix.isNotEmpty()) delay(200)
+                listing = resolveRemoteSearchDirectories(transfer.downloadDirectory, prefix, options.showHiddenFiles) { path ->
+                    directories[path] ?: session.listRemoteDirectory(path).also {
+                        directories[path] = it
+                        if (directories.size > 64) directories.remove(directories.keys.first())
+                    }
+                }
+            }
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { error = e.message ?: tr("无法读取目录") }
         finally { loading = false }
     }
     val selected = transfer.selectedDownloads
     val selectedPaths = remember(selected) { selected.mapTo(HashSet()) { it.path } }
-    val currentPath = listing?.path ?: transfer.downloadDirectory
-    val entries = remember(listing, options.showHiddenFiles, query) {
-        listing?.entries.orEmpty().filter {
-            (options.showHiddenFiles || !it.name.startsWith('.')) && it.name.contains(query, ignoreCase = true)
-        }
+    val currentPath = listing?.directories?.singleOrNull()?.path ?: listing?.basePath ?: search.directory
+    val entries = remember(listing, options.showHiddenFiles, search.name) {
+        listing?.directories.orEmpty().flatMap { directory -> directory.entries.mapNotNull { entry ->
+            if (!options.showHiddenFiles && entry.name.startsWith('.')) null
+            else remoteNameMatchRank(entry.name, search.name)?.let { rank ->
+                Triple(joinRemotePath(directory.path, entry.name), entry, rank)
+            }
+        } }.distinctBy { it.first }.sortedWith(compareBy<Triple<String, RemoteEntry, Int>> { it.third }
+            .thenByDescending { it.second.isDirectory }
+            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.second.name })
+    }
+    val selectedMatches = remember(selected, query) {
+        selected.mapNotNull { file -> remoteNameMatchRank(file.path, query)?.let { file to it } }
+            .sortedBy { it.second }.map { it.first }
     }
     LaunchedEffect(currentPath, query, selectedOnly, options.showHiddenFiles) { listState.scrollToItem(0) }
     fun toggle(file: DownloadItem) {
@@ -89,8 +114,8 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
         else selected + file
     }
     fun selectAll() {
-        transfer.selectedDownloads = (selected + entries.filterNot { it.isDirectory }
-            .map { DownloadItem(joinRemotePath(currentPath, it.name), it.size) }).distinctBy { it.path }
+        transfer.selectedDownloads = (selected + entries.filterNot { it.second.isDirectory }
+            .map { DownloadItem(it.first, it.second.size) }).distinctBy { it.path }
     }
     AppSheet(onDismiss) {
         // Resolve focus/IME inside the sheet's window, not the underlying Activity.
@@ -102,7 +127,7 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
         if (!editingCompact) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { transfer.downloadDirectory = parentRemotePath(currentPath); query = "" },
-                enabled = enabled && currentPath.isNotEmpty() && currentPath != "/" && !selectedOnly,
+                enabled = enabled && !transfer.resolvingDownloadDirectory && currentPath.isNotEmpty() && currentPath != "/" && !selectedOnly,
                 modifier = Modifier.testTag("download-parent")) {
                 Icon(painterResource(R.drawable.ic_arrow_up), contentDescription = tr("↑ 上级目录"))
             }
@@ -123,7 +148,7 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
                         if (selectedOnly) selectedOnly = false else selectAll()
                         finishSearch()
                         dismissMenu()
-                    }, enabled = selectedOnly || (enabled && !loading && entries.any { !it.isDirectory }),
+                    }, enabled = selectedOnly || (enabled && !loading && entries.any { !it.second.isDirectory }),
                     modifier = Modifier.testTag(if (selectedOnly) "download-show-all" else "download-select-all"))
                 DropdownMenuItem(text = { Text(tr("另存为…")) }, onClick = { dismissMenu(); onSaveAs() },
                     enabled = enabled && selected.isNotEmpty(), modifier = Modifier.testTag("download-save-as"))
@@ -135,38 +160,45 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
         }
         if (searchExpanded) Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            AppSearchField(query, { query = it }, tr("搜索文件"),
+            AppSearchField(query, { query = it }, tr("文件名或路径"),
                 modifier = Modifier.weight(1f).focusRequester(searchFocus).testTag("download-search"),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { finishSearch() }))
             if (editingCompact) TextButton(onClick = ::finishSearch) { Text(tr("完成")) }
         }
         HorizontalDivider()
+        if (!selectedOnly && listing?.limited == true) DownloadMessage(tr("匹配较多，请补充路径以缩小范围"))
+        if (!selectedOnly && listing?.unreadable == true) Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(tr("部分目录无法读取"), Modifier.weight(1f).padding(start = 24.dp), style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { retry++ }) { Text(tr("重试")) }
+        }
         LazyColumn(Modifier.fillMaxWidth().weight(1f).testTag("download-files-list"), state = listState) {
             when {
                 selectedOnly -> {
-                    if (selected.isEmpty()) item { DownloadMessage(tr("尚未选择文件")) }
-                    items(selected.filter { it.path.contains(query, ignoreCase = true) }, key = { it.path }) { file ->
+                    if (selectedMatches.isEmpty()) item { DownloadMessage(tr(if (selected.isEmpty()) "尚未选择文件" else "无匹配文件")) }
+                    items(selectedMatches, key = { it.path }) { file ->
                         DownloadFileRow(file.name, "${formatRemoteSize(file.total)} · ${file.path.substringBeforeLast('/').ifBlank { "/" }}",
                             directory = false, selected = true, enabled = enabled, tag = "download-entry-${file.name}") { toggle(file) }
                     }
                 }
                 !enabled -> item { DownloadMessage(tr("下载未开始，请重新连接后再试。")) }
-                loading -> item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(24.dp)) }
+                loading || transfer.resolvingDownloadDirectory -> item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(24.dp)) }
                 error != null -> item {
                     DownloadMessage(tr(error!!))
                     TextButton(onClick = { retry++ }, modifier = Modifier.padding(horizontal = 24.dp)) { Text(tr("重试")) }
-                    TextButton(onClick = { transfer.downloadDirectory = "" }) { Text(tr("返回主目录")) }
+                    TextButton(onClick = { transfer.downloadDirectory = ""; query = "" }) { Text(tr("返回主目录")) }
                 }
                 entries.isEmpty() -> item { DownloadMessage(tr(when {
                     query.isNotBlank() -> "无匹配文件"
-                    listing?.entries.isNullOrEmpty() -> "此目录为空"
+                    listing?.directories.orEmpty().all { it.entries.isEmpty() } -> "此目录为空"
                     else -> "没有可显示的项目"
                 })) }
-                else -> items(entries, key = { it.name }) { entry ->
-                    val path = joinRemotePath(currentPath, entry.name)
+                else -> items(entries, key = { it.first }) { (path, entry) ->
                     val type = if (entry.isDirectory) tr("目录") else entry.name.substringAfterLast('.', "").uppercase().ifBlank { tr("文件") }
-                    val meta = listOf(type, if (entry.isDirectory) "" else formatRemoteSize(entry.size),
+                    val location = if (listing?.directories.orEmpty().size > 1) {
+                        path.substringBeforeLast('/').removePrefix("${listing?.basePath?.trimEnd('/')}/")
+                    } else ""
+                    val meta = listOf(location, type, if (entry.isDirectory) "" else formatRemoteSize(entry.size),
                         formatRemoteMtime(entry.mtimeSeconds)).filter { it.isNotBlank() }.joinToString(" · ")
                     DownloadFileRow(entry.name, meta, entry.isDirectory, path in selectedPaths, enabled,
                         "download-entry-${entry.name}") {

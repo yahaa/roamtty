@@ -29,6 +29,33 @@ class FileTransferController(private val scope: CoroutineScope) {
     var uploadPath by mutableStateOf("")
     var downloadDialog by mutableStateOf(false)
     var downloadDirectory by mutableStateOf("")
+    var resolvingDownloadDirectory by mutableStateOf(false)
+        private set
+    private var downloadDirectoryJob: Job? = null
+    private var downloadDirectoryRequest = 0
+
+    fun openDownloads(resolveDirectory: suspend () -> String) {
+        downloadDirectoryJob?.cancel()
+        val request = ++downloadDirectoryRequest
+        downloadDialog = true
+        resolvingDownloadDirectory = true
+        downloadDirectoryJob = scope.launch {
+            try {
+                val directory = resolveDirectory()
+                if (request == downloadDirectoryRequest) downloadDirectory = directory
+            }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (request == downloadDirectoryRequest) downloadDirectory = "" }
+            finally { if (request == downloadDirectoryRequest) resolvingDownloadDirectory = false }
+        }
+    }
+
+    fun dismissDownloads() {
+        downloadDirectoryRequest++
+        downloadDirectoryJob?.cancel()
+        resolvingDownloadDirectory = false
+        downloadDialog = false
+    }
     internal var selectedDownloads by mutableStateOf(emptyList<DownloadItem>())
     internal var pendingDownloads by mutableStateOf(emptyList<DownloadItem>())
     private val mutableStatus = MutableStateFlow(TransferStatus())
@@ -36,7 +63,7 @@ class FileTransferController(private val scope: CoroutineScope) {
     private var job: Job? = null
     private var sharedImagesJob: Job? = null
 
-    fun cancel() { sharedImagesJob?.cancel(); job?.cancel() }
+    fun cancel() { downloadDirectoryJob?.cancel(); sharedImagesJob?.cancel(); job?.cancel() }
 
     /** The session scope owns the whole queue, including images not started yet. */
     fun uploadSharedImages(context: Context, session: TerminalConnection, uris: List<Uri>): Boolean {

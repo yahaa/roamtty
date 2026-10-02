@@ -45,7 +45,6 @@ import androidx.annotation.RequiresApi;
 import com.termux.terminal.KeyHandler;
 import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalSession;
-import com.termux.terminal.TerminalRow;
 import com.termux.view.textselection.TextSelectionCursorController;
 
 /** View displaying and interacting with a {@link TerminalSession}. */
@@ -467,8 +466,7 @@ public final class TerminalView extends View {
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) mClient.logInfo(LOG_TAG, "IME: finishComposingText()");
                 super.finishComposingText();
 
-                sendTextToTerminal(getEditable());
-                getEditable().clear();
+                flushCommittedText();
                 return true;
             }
 
@@ -482,10 +480,18 @@ public final class TerminalView extends View {
 
                 if (mEmulator == null) return true;
 
-                Editable content = getEditable();
-                sendTextToTerminal(content);
-                content.clear();
+                flushCommittedText();
                 return true;
+            }
+
+            private void flushCommittedText() {
+                Editable content = getEditable();
+                String committed = content.toString();
+                // Clear before sending: an immediate echo or a repeated finish must never resend it.
+                content.clear();
+                BaseInputConnection.removeComposingSpans(content);
+                Selection.setSelection(content, 0);
+                sendTextToTerminal(committed);
             }
 
             @Override
@@ -596,7 +602,7 @@ public final class TerminalView extends View {
         };
     }
 
-    /** Only the cursor's wrapped line (bounded to eight rows), or the uncommitted composition. */
+    /** IME offsets must refer to its editable buffer, never the remote screen's padded cells. */
     private ExtractedText imeSnapshot(@Nullable Editable composing) {
         ExtractedText result = new ExtractedText();
         result.partialStartOffset = result.partialEndOffset = -1;
@@ -605,27 +611,6 @@ public final class TerminalView extends View {
             int len = result.text.length();
             result.selectionStart = ImeDeleteGuard.clampIndex(Selection.getSelectionStart(composing), len);
             result.selectionEnd = ImeDeleteGuard.clampIndex(Selection.getSelectionEnd(composing), len);
-        } else if (mEmulator != null) {
-            StringBuilder prefix = new StringBuilder();
-            int cursorRow = mEmulator.getCursorRow();
-            int startRow = cursorRow;
-            int firstAvailable = -mEmulator.getScreen().getActiveTranscriptRows();
-            while (startRow > firstAvailable && cursorRow - startRow < 7 && mEmulator.getScreen().getLineWrap(startRow - 1)) startRow--;
-            for (int y = startRow; y < cursorRow; y++) {
-                TerminalRow preceding = mEmulator.getScreen().allocateFullLineIfNecessary(mEmulator.getScreen().externalToInternalRow(y));
-                int used = Math.min(preceding.getSpaceUsed(), preceding.mText.length);
-                prefix.append(preceding.mText, 0, used);
-            }
-            TerminalRow row = mEmulator.getScreen().allocateFullLineIfNecessary(
-                mEmulator.getScreen().externalToInternalRow(cursorRow));
-            int cursor = Math.max(0, Math.min(row.findStartOfColumn(mEmulator.getCursorCol()), row.mText.length));
-            int end = Math.max(0, Math.min(row.getSpaceUsed(), row.mText.length));
-            while (end > cursor && row.mText[end - 1] == ' ') end--;
-            // Keep selection inside the returned text (never past trimmed trailing spaces).
-            int prefixLen = prefix.length();
-            int cursorInText = Math.min(cursor, end);
-            result.selectionStart = result.selectionEnd = prefixLen + cursorInText;
-            result.text = prefix.append(row.mText, 0, end).toString();
         } else {
             result.text = "";
             result.selectionStart = result.selectionEnd = 0;

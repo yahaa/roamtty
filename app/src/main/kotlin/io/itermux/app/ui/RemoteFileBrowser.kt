@@ -90,9 +90,8 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                     enabled = connection.phase == Phase.CONNECTED && !loading && browser.operation == null,
                     modifier = Modifier.testTag("files-refresh"))
                 DropdownMenuItem(text = { Text(tr("批量下载")) }, onClick = {
-                    transfer.downloadDirectory = currentPath
                     transfer.selectedDownloads = emptyList()
-                    transfer.downloadDialog = true
+                    transfer.openDownloads { currentPath }
                     dismissMenu()
                 }, enabled = connection.phase == Phase.CONNECTED && !transferStatus.running,
                     modifier = Modifier.testTag("files-batch-download"))

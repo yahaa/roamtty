@@ -1,0 +1,28 @@
+2026-10-02 terminal/download interaction verification
+
+APK: dist/iTermux-terminal-20261002-debug.apk (debug signature)
+
+Build and lint:
+ANDROID_HOME=/home/v/repo/itermux/.tools/android-sdk ./gradlew :app:assembleDebug :app:testDebugUnitTest :terminal-view:testDebugUnitTest :terminal-emulator:testDebugUnitTest :ssh-core:test :app:lintDebug
+BUILD SUCCESSFUL
+
+Local JUnit suites: 261 passed, 29 skipped, 0 failed.
+- app: 57 passed; optional benchmark skipped.
+- terminal-view: 18 passed.
+- terminal-emulator: 151 passed.
+- ssh-core: 35 passed; 28 optional OpenSSH/reattach tests skipped.
+- Real OpenSSH on isolated localhost port 22231 verified shell cd, independent connections, tmux cd and active pane selection.
+- The CWD integration fixture uses PS1=CWD_READY, bash --noprofile --norc, and the isolated tmux socket itermux-cwd-qa.
+
+API 36 emulator: 19 passed, 0 failed.
+TerminalGesturesTest (9), DownloadDestinationTest (4), DownloadFilesTest (3), TransferProgressUiTest (3).
+Validated multilevel relative/absolute path search, terminal directory reopening via OSC 7 fallback, default destinations, compact success results and expandable paths, Chinese IME composition without screen padding, intentional spaces, magnifier hard/soft line movement, delayed echo, and output selection.
+
+Limitations: no physical phone connected; vendor IME behavior has not been exercised on a phone. Remote directory discovery falls back to the SFTP home when neither tmux/Linux process metadata nor OSC 7 provides a path.
+
+PR branch verification, independently based on main 6c3892b:
+Branch: fix/terminal-download-fuzzy-input.
+Debug / AndroidTest builds and lint passed.
+JVM: 263 passed, 32 optional tests skipped, 0 failed.
+API 36 emulator: 17 passed, 0 failed: TerminalGesturesTest (6), DownloadFilesTest (4), DownloadDestinationTest (4), TransferProgressUiTest (3).
+The separate double-tap/reconnect PR is not required for this branch.

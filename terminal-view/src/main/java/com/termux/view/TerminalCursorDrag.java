@@ -15,7 +15,7 @@ final class TerminalCursorDrag {
     private final RectF lens = new RectF();
     private TerminalTextLine line;
     private float sourceX, sourceY;
-    private int lastCell, sentStep;
+    private int lastCell, sentStep, sentRow, sentColumn, preferredColumn, rows;
     private boolean enabled;
     private boolean alternateBuffer;
 
@@ -31,7 +31,11 @@ final class TerminalCursorDrag {
         TerminalTextLine current = TerminalTextLine.at(view.mEmulator, view.mEmulator.getCursorRow());
         if (row < current.firstRow || row > current.lastRow) return false;
         line = current;
+        rows = view.mEmulator.mRows;
         alternateBuffer = view.mEmulator.isAlternateBufferActive();
+        sentRow = view.mEmulator.getCursorRow();
+        sentColumn = view.mEmulator.getCursorCol();
+        preferredColumn = sentColumn;
         int initialCell = line.cellAt(view.mEmulator.getCursorCol(), view.mEmulator.getCursorRow());
         lastCell = Math.max(initialCell, line.contentEndCell());
         sentStep = line.cursorStepAt(initialCell);
@@ -59,18 +63,37 @@ final class TerminalCursorDrag {
     }
 
     private void moveTo(MotionEvent event) {
-        int row = Math.max(Math.max(0, line.firstRow), Math.min(line.lastRow, view.textRowAt(event.getY())));
+        int row = Math.max(0, Math.min(rows - 1, view.textRowAt(event.getY())));
+        if (row < line.firstRow || row > line.lastRow) {
+            TerminalTextLine target = TerminalTextLine.at(view.mEmulator, row);
+            int endColumn = Math.max(0, Math.min(target.columns - 1,
+                target.contentEndCell() - target.cellAt(0, row)));
+            // Hard line breaks require vertical arrows. Keep our requested row/column while SSH
+            // catches up, exactly as horizontal scrubbing keeps its last requested character.
+            sendArrows(row - sentRow, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN);
+            sentColumn = Math.min(preferredColumn, endColumn);
+            sentRow = row;
+            line = target;
+            lastCell = target.contentEndCell();
+            sentStep = target.cursorStepAt(target.cellAt(sentColumn, row));
+        }
         int column = Math.max(0, Math.min(line.columns - 1, Math.round(event.getX() / view.mRenderer.mFontWidth)));
         int targetCell = Math.max(0, Math.min(lastCell, line.cellAt(column, row)));
         int step = line.cursorStepAt(targetCell);
         int delta = step - sentStep;
         // Use the gesture's last requested position, not delayed SSH echo, to avoid repeated arrows.
         sentStep = step;
-        for (int i = 0; i < Math.abs(delta); i++)
-            view.handleKeyCode(delta < 0 ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT, 0);
-        sourceX = (targetCell % line.columns) * view.mRenderer.mFontWidth;
-        sourceY = rowCenter(line.firstRow + targetCell / line.columns);
+        sendArrows(delta, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT);
+        sentColumn = targetCell % line.columns;
+        if (delta != 0) preferredColumn = sentColumn;
+        sentRow = line.firstRow + targetCell / line.columns;
+        sourceX = sentColumn * view.mRenderer.mFontWidth;
+        sourceY = rowCenter(sentRow);
         view.invalidate();
+    }
+
+    private void sendArrows(int delta, int negative, int positive) {
+        for (int i = 0; i < Math.abs(delta); i++) view.handleKeyCode(delta < 0 ? negative : positive, 0);
     }
 
     private float rowCenter(int row) {
@@ -87,7 +110,7 @@ final class TerminalCursorDrag {
     void onScreenUpdated() {
         if (line != null && (view.hasRemoteHistory() || alternateBuffer != view.mEmulator.isAlternateBufferActive() ||
             view.mEmulator.getScrollCounter() > 0 || !view.mEmulator.isCursorEnabled() ||
-            view.mEmulator.getCursorRow() < line.firstRow || view.mEmulator.getCursorRow() > line.lastRow)) finish();
+            view.mEmulator.mRows != rows || view.mEmulator.mColumns != line.columns)) finish();
     }
 
     void draw(Canvas canvas) {

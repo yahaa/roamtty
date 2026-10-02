@@ -303,9 +303,9 @@ class TerminalUiTest {
                     delay(250)
                     withContext(Dispatchers.Main) {
                         val text = ic!!.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
-                        assertTrue(text.text.toString().endsWith("甲🙂 乙"))
+                        assertEquals("", text.text.toString())
                         assertEquals(text.text.length, text.selectionStart)
-                        assertTrue(ic.getTextBeforeCursor(20, 0).toString().endsWith("甲🙂 乙"))
+                        assertEquals("", ic.getTextBeforeCursor(20, 0).toString())
                         ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
                         ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))
                     }
@@ -332,7 +332,7 @@ class TerminalUiTest {
                     delay(1500)
                 } else {
                     withContext(Dispatchers.Main) {
-                        assertTrue("IME context must cross soft-wrapped rows", ic!!.getTextBeforeCursor(100, 0).toString().endsWith("x".repeat(60)))
+                        assertEquals("Remote text must not become an IME editing buffer", "", ic!!.getTextBeforeCursor(100, 0).toString())
                     }
                     repeat(22) {
                         withContext(Dispatchers.Main) {

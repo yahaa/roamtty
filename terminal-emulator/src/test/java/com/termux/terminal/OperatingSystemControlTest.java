@@ -9,6 +9,17 @@ import java.util.Random;
 /** "ESC ]" is the Operating System Command. */
 public class OperatingSystemControlTest extends TerminalTestCase {
 
+    public void testWorkingDirectoryMetadataAcceptsBothTerminatorsAcrossChunks() {
+        withTerminalSized(20, 5);
+        enterString("\033]7;file://host/home/v/");
+        assertTrue(mOutput.workingDirectories.isEmpty());
+        enterString("work%20dir\007");
+        enterString("\033]7;file://host/tmp\033\\");
+        assertEquals(java.util.Arrays.asList("file://host/home/v/work%20dir", "file://host/tmp"), mOutput.workingDirectories);
+        assertEquals("", mOutput.getOutputAndClear());
+        assertTrue(mOutput.titleChanges.isEmpty());
+    }
+
 	public void testSetTitle() throws Exception {
 		List<ChangedTitle> expectedTitleChanges = new ArrayList<>();
 

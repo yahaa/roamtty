@@ -59,7 +59,6 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
     var uploadUri by transfer::uploadUri
     var uploadName by transfer::uploadName
     var uploadPath by transfer::uploadPath
-    var downloadDialog by transfer::downloadDialog
 
     val uploadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -79,7 +78,7 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
     LaunchedEffect(action) {
         when (action) {
             FileAction.UPLOAD -> { onConsumed(); uploadPicker.launch(arrayOf("*/*")) }
-            FileAction.DOWNLOAD -> { onConsumed(); downloadDialog = true }
+            FileAction.DOWNLOAD -> { onConsumed(); session.openTerminalDownloads() }
             FileAction.SELECT_IMAGE -> {
                 onConsumed()
                 imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))

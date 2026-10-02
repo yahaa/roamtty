@@ -37,7 +37,7 @@ class JschSession(
     @Volatile private var dimensions = intArrayOf(80, 24, 0, 0)
     @Volatile private var trustFailure: Exception? = null
     private val tmuxName = Tmux.sanitizeSessionName(remoteSessionName)
-    private val tmuxHistoryController = TmuxHistoryController(tmuxName, ::runTmux)
+    private val tmuxHistoryController = TmuxHistoryController(tmuxName, ::runCommand)
 
     private fun update(phase: Phase, message: String = "") {
         if (!stopped.get()) mutableState.value = ConnectionState(phase, message)
@@ -328,10 +328,14 @@ class JschSession(
         files.readRemoteText(remotePath, maxBytes)
 
     suspend fun listRemoteDirectory(remotePath: String = ""): RemoteDirectory = files.listRemoteDirectory(remotePath)
+    suspend fun currentWorkingDirectory(): String? = validWorkingDirectory(runCommand(
+        if (target.mode == SessionMode.TMUX)
+            "tmux display-message -p -t ${Tmux.targetFlag(tmuxName)} '#{pane_current_path}'"
+        else shellWorkingDirectoryCommand))
     suspend fun rename(oldPath: String, newPath: String) = files.rename(oldPath, newPath)
     suspend fun deleteFile(path: String) = files.deleteFile(path)
 
-    private suspend fun runTmux(command: String): String? = withContext(Dispatchers.IO) {
+    private suspend fun runCommand(command: String): String? = withContext(Dispatchers.IO) {
         val ssh = session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
             ?: return@withContext null
         val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
@@ -340,19 +344,20 @@ class JschSession(
             val output = exec.inputStream
             exec.connect(5000)
             val bytes = java.io.ByteArrayOutputStream()
-            withTimeout(5000) {
+            val complete = withTimeoutOrNull(5000) {
                 val buffer = ByteArray(256)
                 while (!exec.isClosed || output.available() > 0) {
                     while (output.available() > 0) {
                         val count = output.read(buffer)
                         if (count < 0) break
-                        if (bytes.size() + count > 1024) return@withTimeout
+                        if (bytes.size() + count > 8192) return@withTimeoutOrNull false
                         bytes.write(buffer, 0, count)
                     }
                     if (!exec.isClosed) delay(20)
                 }
-            }
-            if (exec.exitStatus == 0) bytes.toString(Charsets.UTF_8.name()) else null
+                true
+            } ?: false
+            if (complete && exec.exitStatus == 0) bytes.toString(Charsets.UTF_8.name()) else null
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { null }
         finally { exec.disconnect() }
