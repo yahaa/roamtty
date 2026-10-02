@@ -1,5 +1,7 @@
 package io.itermux.app
 
+import android.app.Activity
+import android.app.Instrumentation
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
@@ -26,6 +28,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class TerminalLayoutTest {
@@ -68,7 +71,8 @@ class TerminalLayoutTest {
     }
 
     private fun foreground() {
-        instrumentation.uiAutomation.executeShellCommand("am start -W --activity-single-top -n io.itermux.app/.MainActivity").use {
+        // Preserve the launch identity so ActivityScenario can still track recreation.
+        instrumentation.uiAutomation.executeShellCommand("am start -W --activity-single-top -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n io.itermux.app/.MainActivity").use {
             android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
         }
         compose.activityRule.scenario.onActivity {
@@ -117,9 +121,9 @@ class TerminalLayoutTest {
         assertTrue("Operation rail must occupy visible space", dock.width > 0f && dock.height > 0f)
         if (dock.width > 80 * compose.activity.resources.displayMetrics.density) {
             assertTrue("Wide rail keeps the session above primary controls", session.bottom <= keyboard.top + 1f)
-            val transfer = compose.onNodeWithTag("file-transfer").fetchSemanticsNode().boundsInRoot
-            assertEquals("Wide rail pairs keyboard and file transfer", keyboard.center.y, transfer.center.y, 2f)
-            assertTrue("Keyboard precedes file transfer in the wide rail", keyboard.right <= transfer.left + 1f)
+            val transfer = compose.onNodeWithTag("upload-file").fetchSemanticsNode().boundsInRoot
+            assertEquals("Wide rail pairs keyboard and upload", keyboard.center.y, transfer.center.y, 2f)
+            assertTrue("Keyboard precedes upload in the wide rail", keyboard.right <= transfer.left + 1f)
         } else {
             assertEquals("Session and keyboard must align vertically", session.center.x, keyboard.center.x, 2f)
             assertTrue("Keyboard follows the session", session.bottom <= keyboard.top + 1f)
@@ -128,6 +132,45 @@ class TerminalLayoutTest {
                 assertEquals("Keyboard and menu must align vertically", keyboard.center.x, menu.center.x, 2f)
                 assertTrue("Menu follows the keyboard", keyboard.bottom <= menu.top + 1f)
             }
+        }
+    }
+
+    private fun checkFileActions() {
+        val more = compose.onNodeWithTag("restore-dock").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        var previousRight = 0f
+        val density = compose.activity.resources.displayMetrics.density
+        listOf("upload-file", "download-file", "select-image").forEach { tag ->
+            val bounds = compose.onNodeWithTag(tag).assertIsDisplayed().assertIsEnabled().fetchSemanticsNode().boundsInRoot
+            assertEquals("File actions stay on the same row as more", more.center.y, bounds.center.y, 2f)
+            assertTrue("Actions must not overlap", bounds.left >= previousRight)
+            assertTrue("File actions have a full touch target", bounds.width >= 48 * density - 1f && bounds.height >= 48 * density - 1f)
+            previousRight = bounds.right
+        }
+        assertTrue("More follows the file actions", more.left >= previousRight)
+        val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
+        assertTrue("Actions leave the scrollbar touch strip clear", more.right <= terminal.right - 20 * density)
+    }
+
+    private fun checkPicker(tag: String, expectedAction: String, expectedType: String) {
+        val launched = AtomicReference<Intent>()
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                launched.set(intent)
+                // Cancel the system picker so the regression test stays within the app.
+                return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+            }
+        }
+        instrumentation.addMonitor(monitor)
+        try {
+            compose.onNodeWithTag(tag).performTouchInput { click() }
+            compose.waitUntil(8000) { launched.get() != null }
+            assertEquals(expectedAction, launched.get().action)
+            assertEquals(expectedType, launched.get().type)
+            compose.waitForIdle()
+            checkFileActions()
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+        } finally {
+            instrumentation.removeMonitor(monitor)
         }
     }
 
@@ -233,6 +276,19 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithTag("restore-dock").assertIsDisplayed()
             checkViewport("layout-portrait-default-hidden")
+            checkFileActions()
+            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            checkFileActions()
+            checkPicker("upload-file", Intent.ACTION_OPEN_DOCUMENT, "*/*")
+            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+            if (Build.VERSION.SDK_INT >= 33) checkPicker("select-image", "android.provider.action.PICK_IMAGES", "image/*")
+            compose.onNodeWithTag("download-file").performTouchInput { click() }
+            compose.waitUntil(8000) { compose.onAllNodesWithTag("download-entry-phone-a").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
+            compose.onNodeWithContentDescription("关闭").performClick()
+            checkFileActions()
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithTag("restore-dock").performClick()
             checkDock()
             compose.onNodeWithTag("collapse-dock").performClick()
@@ -286,6 +342,7 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("隐藏操作栏").performClick()
             checkViewport("layout-landscape-full")
+            checkFileActions()
             rotate(false)
             compose.onNodeWithTag("restore-dock").assertIsDisplayed()
             checkViewport("layout-portrait-full")

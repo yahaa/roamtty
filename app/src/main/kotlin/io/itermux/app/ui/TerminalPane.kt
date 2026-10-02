@@ -15,7 +15,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,6 +55,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onSessions: () -> Unit, onHosts: () -> Unit, onReconnect: () -> Unit, onNewSession: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
+    val transferStatus by session.transfers.status.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
     val warning by session.inputWarning.collectAsStateWithLifecycle()
     val tmuxHistory by session.tmuxHistory.collectAsStateWithLifecycle()
@@ -78,7 +78,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var menu by remember { mutableStateOf(false) }
     var sessionMenu by remember { mutableStateOf(false) }
     var shortcutMenu by remember { mutableStateOf(false) }
-    var fileMenu by remember { mutableStateOf(false) }
     var fileAction by remember { mutableStateOf<FileAction?>(null) }
     var commonCommandsOpen by rememberSaveable { mutableStateOf(false) }
     var editSessionTitle by remember { mutableStateOf(false) }
@@ -166,6 +165,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     // Opening the arrow menu can hide the IME. Keep Shift armed until the arrow is sent.
     LaunchedEffect(imeVisible) { if (!imeVisible) ctrlArmed = false }
     BackHandler(editor || imeVisible) { editor = false; hideKeyboard() }
+    val fileControls: @Composable () -> Unit = {
+        TerminalFileActions(enabled = state.phase == Phase.CONNECTED && !transferStatus.running) { action ->
+            hideKeyboard()
+            fileAction = action
+        }
+    }
     val dock: @Composable (Dp) -> Unit = { availableHeight ->
         TerminalDock(floatingDock, availableHeight, landscape, imeVisible, collapseControl = {
             IconButton(onClick = {
@@ -218,21 +223,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     SoftwareKeyboardControllerCompat(view).show()
                 }
             }, modifier = Modifier.testTag("keyboard-toggle")) { Icon(painterResource(R.drawable.ic_keyboard), contentDescription = if (imeVisible) tr("收起键盘") else tr("键盘"), modifier = Modifier.size(22.dp)) }
-            Box {
-                IconButton(onClick = { fileMenu = true }, enabled = state.phase == Phase.CONNECTED,
-                    modifier = Modifier.testTag("file-transfer")) {
-                    Text("⇅", fontSize = 24.sp, modifier = Modifier.semantics { contentDescription = tr("文件传输") })
-                }
-                DropdownMenu(fileMenu, { fileMenu = false }) {
-                    DropdownMenuItem(text = { Text(tr("上传文件")) }, onClick = { fileMenu = false; fileAction = FileAction.UPLOAD })
-                    DropdownMenuItem(
-                        text = { Text(tr("插入图片")) },
-                        onClick = { fileMenu = false; fileAction = FileAction.SELECT_IMAGE },
-                        modifier = Modifier.testTag("select-image")
-                    )
-                    DropdownMenuItem(text = { Text(tr("下载文件")) }, onClick = { fileMenu = false; fileAction = FileAction.DOWNLOAD })
-                }
-            }
+            fileControls()
             IconButton(
                 onClick = { hideKeyboard(); commonCommandsOpen = true },
                 enabled = state.phase == Phase.CONNECTED,
@@ -392,12 +383,18 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 shadowElevation = 4.dp
             ) { dock(workspaceHeight) }
         } else if (!dockVisible && !editor) {
-            FilledTonalIconButton(
-                onClick = { dockExpanded = true },
-                modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding().padding(4.dp).offset(x = (-20).dp).size(48.dp).testTag("restore-dock"),
-                shape = CircleShape,
-                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
-            ) { Text("⋯", fontSize = 26.sp, modifier = Modifier.semantics { contentDescription = tr("显示操作栏") }) }
+            Surface(
+                modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding().padding(4.dp).offset(x = (-20).dp),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    fileControls()
+                    IconButton(onClick = { dockExpanded = true }, modifier = Modifier.size(48.dp).testTag("restore-dock")) {
+                        Text("⋯", fontSize = 26.sp, modifier = Modifier.semantics { contentDescription = tr("显示操作栏") })
+                    }
+                }
+            }
         }
     }
     pending?.let { request -> PromptDialog(request) }
