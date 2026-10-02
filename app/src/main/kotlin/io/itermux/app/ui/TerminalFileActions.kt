@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import io.itermux.app.R
 import io.itermux.app.tr
 
-/** Shared by the collapsed action row and the expanded terminal dock. */
+/** Direct file actions inside the expanded terminal dock. */
 @Composable
 internal fun TerminalFileActions(enabled: Boolean, onAction: (FileAction) -> Unit) {
     FileActionButton(R.drawable.ic_upload, tr("上传文件"), "upload-file", enabled) { onAction(FileAction.UPLOAD) }

@@ -135,20 +135,61 @@ class TerminalLayoutTest {
         }
     }
 
-    private fun checkFileActions() {
+    private fun checkCollapsedDock() {
+        compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+        listOf("upload-file", "download-file", "select-image").forEach { compose.onNodeWithTag(it).assertDoesNotExist() }
         val more = compose.onNodeWithTag("restore-dock").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        var previousRight = 0f
+        val density = compose.activity.resources.displayMetrics.density
+        assertEquals("Collapsed controls occupy one button", 48 * density, more.width, 1f)
+        val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
+        assertTrue("More leaves the scrollbar touch strip clear", more.right <= terminal.right - 20 * density)
+    }
+
+    private fun checkFileActions() {
+        compose.onNodeWithTag("restore-dock").assertDoesNotExist()
         val density = compose.activity.resources.displayMetrics.density
         listOf("upload-file", "download-file", "select-image").forEach { tag ->
             val bounds = compose.onNodeWithTag(tag).assertIsDisplayed().assertIsEnabled().fetchSemanticsNode().boundsInRoot
-            assertEquals("File actions stay on the same row as more", more.center.y, bounds.center.y, 2f)
-            assertTrue("Actions must not overlap", bounds.left >= previousRight)
             assertTrue("File actions have a full touch target", bounds.width >= 48 * density - 1f && bounds.height >= 48 * density - 1f)
-            previousRight = bounds.right
         }
-        assertTrue("More follows the file actions", more.left >= previousRight)
-        val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
-        assertTrue("Actions leave the scrollbar touch strip clear", more.right <= terminal.right - 20 * density)
+    }
+
+    private fun checkAutoHide() {
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.onNodeWithTag("restore-dock").performClick()
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeBy(4_000)
+            compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+            // Semantic clicks (including accessibility actions) reset the timer too.
+            compose.onNodeWithTag("terminal-menu").performClick()
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeBy(4_000)
+            compose.onNodeWithText("固定操作栏").assertIsDisplayed()
+            compose.mainClock.advanceTimeBy(1_100)
+            checkCollapsedDock()
+            compose.onNodeWithText("固定操作栏").assertDoesNotExist()
+
+            compose.onNodeWithTag("restore-dock").performClick()
+            compose.mainClock.advanceTimeByFrame()
+            compose.onNodeWithTag("terminal-menu").performTouchInput { down(center) }
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeBy(6_000)
+            compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+            compose.onNodeWithTag("terminal-menu").performTouchInput { up() }
+            compose.mainClock.advanceTimeBy(300)
+            compose.onNodeWithText("固定操作栏").performClick()
+            compose.mainClock.advanceTimeBy(6_000)
+            compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+            compose.onNodeWithTag("terminal-menu").performClick()
+            compose.mainClock.advanceTimeBy(300)
+            compose.onNodeWithText("取消固定操作栏").performClick()
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeBy(5_100)
+            checkCollapsedDock()
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
     }
 
     private fun checkPicker(tag: String, expectedAction: String, expectedType: String) {
@@ -168,7 +209,6 @@ class TerminalLayoutTest {
             assertEquals(expectedType, launched.get().type)
             compose.waitForIdle()
             checkFileActions()
-            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
         } finally {
             instrumentation.removeMonitor(monitor)
         }
@@ -276,6 +316,9 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithTag("restore-dock").assertIsDisplayed()
             checkViewport("layout-portrait-default-hidden")
+            checkCollapsedDock()
+            checkAutoHide()
+            compose.onNodeWithTag("restore-dock").performClick()
             checkFileActions()
             compose.onNodeWithTag("terminal").performTouchInput { click(center) }
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
@@ -288,8 +331,6 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
             compose.onNodeWithContentDescription("关闭").performClick()
             checkFileActions()
-            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
-            compose.onNodeWithTag("restore-dock").performClick()
             checkDock()
             compose.onNodeWithTag("collapse-dock").performClick()
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
@@ -342,7 +383,7 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("隐藏操作栏").performClick()
             checkViewport("layout-landscape-full")
-            checkFileActions()
+            checkCollapsedDock()
             rotate(false)
             compose.onNodeWithTag("restore-dock").assertIsDisplayed()
             checkViewport("layout-portrait-full")
