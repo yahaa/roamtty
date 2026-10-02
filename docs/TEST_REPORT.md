@@ -1,5 +1,21 @@
 # iTermux 0.1.0 测试与交付记录
 
+## 2026-10-01 双击粘贴与重连动画
+
+基线为拉取后的 `origin/main`（`6c3892b`），工作分支为 `feat/terminal-paste-reconnect-animation`。
+
+- 终端双击在第二次抬手后读取当前剪贴板，将文字发送到当前已连接会话，不追加回车、不覆盖草稿。保留 128 KiB 上限、bracketed paste 及多行确认；空剪贴板、断开的会话、只读历史、取消/拖动/捏合/长按均不触发粘贴。tmux 历史模式会先完成返回实时终端，再发送文字。
+- 连接、指纹核验和 SSH 认证期间显示居中的旋转进度环及取消按钮，成功或失败后移除；保留失败原因、重连及重新核验入口。进度层不占用终端网格行列。[实际重连截图](screenshots/terminal-reconnect-progress.png)。
+- API 36 模拟器回归 **26 个不同用例通过、0 失败**：第一组 [24 项](test-results/terminal-paste-reconnect-device.txt)，补充组 [3 项](test-results/terminal-paste-reconnect-tmux.txt)，另有 [1 项实际页面动画补验](test-results/terminal-reconnect-animation.txt)，重复用例按名称去重。覆盖真实回环 SSH 的中文/表情字节、无额外回车/重复输入、草稿保持、多行确认/取消、bracketed paste 边界、会话替换、空剪贴板与断开状态，以及只读历史、手势冲突、额外按键和既有输出历史回归。真实 OpenSSH/tmux 夹具验证从历史返回后的粘贴不会自动执行命令。动画用例比较不同时间的帧，并检查可访问性语义、居中位置与取消后的状态。
+- JVM 检查 **256 项通过、0 失败、29 项跳过**（app 57、terminal-view 18、terminal-emulator 150、ssh-core 31）。跳过项为可选性能基准及缺少本轮配置的外部 SSH/SFTP/Python 夹具；设备测试中的 SSH/tmux 使用独立回环夹具。Debug、AndroidTest 编译通过；Lint **0 错误、15 条既有警告、1 提示**；`git diff --check` 通过。
+- 首轮设备运行被模拟器 System UI 无响应弹窗干扰，恢复模拟器后完整重跑通过；修正了测试字节提取误把 `KEY_ECHO_READY` 当成十六进制 `EC` 的问题。Compose 测试默认取消无限动画，实际页面补验在创建动画之前关闭测试时钟自动推进，以两个时间点的图像验证旋转。失败日志保留在 `.local/paste-reconnect-validation/`，未计入通过结果。本轮没有实体手机复测。
+
+安装包为 `.local/builds/iTermux-paste-reconnect-20261001-debug.apk`，同目录有 SHA-256。复现主要检查：
+
+```sh
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :terminal-view:testDebugUnitTest :terminal-emulator:testDebugUnitTest :ssh-core:test :app:lintDebug
+```
+
 ## 2026-10-01 主干性能与职责重构
 
 基线为 `origin/main` 的 `c6b5470`。本轮工作分支为 `refactor/performance-cohesion-20261001`，未更改依赖版本、数据库结构、网络协议或用户操作流程。

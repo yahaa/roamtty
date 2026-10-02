@@ -13,13 +13,15 @@ internal class MobileTerminalClient(
     private val controlArmed: () -> Boolean,
     private val consumeControl: () -> Unit,
     private val shiftArmed: () -> Boolean = { false },
-    private val consumeShift: () -> Unit = {}
+    private val consumeShift: () -> Unit = {},
+    private val onDoubleTap: () -> Unit = {}
 ) : TerminalViewClient {
     override fun onScale(scale: Float): Float { if (scale < 0.9f || scale > 1.1f) onScale(scale); return 1f }
     override fun onSingleTapUp(e: MotionEvent?) {
         view.requestFocus()
         SoftwareKeyboardControllerCompat(view).show()
     }
+    override fun onDoubleTap(e: MotionEvent?) = onDoubleTap()
     override fun shouldBackButtonBeMappedToEscape() = false
     override fun shouldEnforceCharBasedInput() = true
     override fun shouldUseCtrlSpaceWorkaround() = false
