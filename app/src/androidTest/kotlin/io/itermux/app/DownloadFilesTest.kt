@@ -124,6 +124,72 @@ class DownloadFilesTest {
         }
     }
 
+    @Test fun terminalDownloadsFollowCurrentDirectoryAndSearchAcceptsNestedPaths() = runBlocking {
+        withSession { session ->
+            withContext(Dispatchers.Main) {
+                val osc = "\u001b]7;file://fixture/phone-a\u0007".toByteArray()
+                session.emulator.append(osc, osc.size)
+                session.openTerminalDownloads()
+            }
+            compose.setContent { MaterialTheme { DownloadFilesUi(session) } }
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("download-entry-assets").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("download-directory").assertTextEquals("/phone-a")
+            compose.onNodeWithTag("download-search-toggle").performClick()
+            compose.onNodeWithTag("download-search").performTextReplacement("../phone-a/README")
+            compose.onNodeWithTag("download-search").performImeAction()
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("download-entry-README.md").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("download-entry-README.md").performClick()
+            assertEquals("/phone-a/README.md", session.transfers.selectedDownloads.single().path)
+            compose.onNodeWithTag("download-search").performTextReplacement("/phone-b/")
+            compose.onNodeWithTag("download-search").performImeAction()
+            compose.waitUntil(10_000) {
+                runCatching { compose.onNodeWithTag("download-directory").assertTextEquals("/phone-b") }.isSuccess
+            }
+            compose.onNodeWithTag("download-search").performTextReplacement("./assets/")
+            compose.onNodeWithTag("download-search").performImeAction()
+            compose.waitUntil(10_000) {
+                runCatching { compose.onNodeWithTag("download-directory").assertTextEquals("/phone-a/assets") }.isSuccess
+            }
+            withContext(Dispatchers.Main) { session.transfers.downloadDialog = false }
+            compose.waitForIdle()
+            withContext(Dispatchers.Main) {
+                session.onWorkingDirectoryChanged("file://fixture/phone-b")
+                session.openTerminalDownloads()
+            }
+            compose.waitUntil(10_000) {
+                !session.transfers.resolvingDownloadDirectory && session.transfers.downloadDirectory == "/phone-b"
+            }
+            compose.onNodeWithTag("download-directory").assertTextEquals("/phone-b")
+        }
+    }
+
+    @Test fun fuzzySearchMatchesAbbreviatedDirectoriesAndNamesWithoutMixingDownloadPaths() = runBlocking {
+        withSession { session ->
+            withContext(Dispatchers.Main) {
+                session.transfers.downloadDirectory = "/phone-a"
+                session.transfers.downloadDialog = true
+            }
+            compose.setContent { MaterialTheme { DownloadFilesUi(session) } }
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("download-entry-assets").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("download-search-toggle").performClick()
+            compose.onNodeWithTag("download-search").performTextReplacement("RDME")
+            compose.onNodeWithTag("download-search").performImeAction()
+            compose.onNodeWithTag("download-entry-README.md").assertIsDisplayed()
+            compose.onNodeWithTag("download-search").performTextReplacement("DST/ITMDBGAPK")
+            compose.onNodeWithTag("download-search").performImeAction()
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("download-entry-iTermux-debug.apk").fetchSemanticsNodes().size == 2 }
+            compose.onAllNodesWithTag("download-entry-iTermux-debug.apk")[0].performClick()
+            compose.onAllNodesWithTag("download-entry-iTermux-debug.apk")[1].performClick()
+            assertEquals(setOf("/phone-a/dist/iTermux-debug.apk", "/phone-a/dist-backup/iTermux-debug.apk"),
+                session.transfers.selectedDownloads.map { it.path }.toSet())
+            compose.onNodeWithTag("download-selected").performClick()
+            compose.onAllNodesWithTag("download-entry-iTermux-debug.apk").assertCountEquals(2)
+            compose.onNodeWithTag("download-search").performTextReplacement("does-not-exist")
+            compose.onNodeWithTag("download-search").performImeAction()
+            compose.onNodeWithText(tr("无匹配文件")).assertIsDisplayed()
+        }
+    }
+
     @Test fun batchDownloadsUseDocumentTreeKeepNamesAndContinueAfterFailure() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

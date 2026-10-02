@@ -5,6 +5,9 @@ import java.nio.charset.StandardCharsets;
 /** A client which receives callbacks from events triggered by feeding input to a {@link TerminalEmulator}. */
 public abstract class TerminalOutput {
 
+    /** OSC 7 directory metadata, when supplied by the remote shell. */
+    public void onWorkingDirectoryChanged(String uri) {}
+
     /** Preserve displayed text before a redraw/scroll can replace it within one input batch. */
     public void onBeforeScreenChange() {}
 

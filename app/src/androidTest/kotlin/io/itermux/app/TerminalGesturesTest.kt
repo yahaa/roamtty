@@ -6,6 +6,8 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
@@ -46,7 +48,10 @@ class TerminalGesturesTest {
             this@TerminalGesturesTest.emulator.resize(columns, rows, cellWidthPixels, cellHeightPixels)
         }
         override fun write(data: String) { input.append(data) }
-        override fun writeCodePoint(prependEscape: Boolean, codePoint: Int) = Unit
+        override fun writeCodePoint(prependEscape: Boolean, codePoint: Int) {
+            if (prependEscape) input.append('\u001b')
+            input.append(String(Character.toChars(codePoint)))
+        }
         override fun onCopyTextToClipboard(text: String?) = Unit
         override fun onPasteTextFromClipboard() = Unit
         override fun reset() = Unit
@@ -164,6 +169,65 @@ class TerminalGesturesTest {
         SystemClock.sleep(ViewConfiguration.getLongPressTimeout().toLong() + 150)
         compose.runOnIdle { assertFalse(terminal.isCursorDragging); assertTrue(terminal.isSelectingText) }
         touch(MotionEvent.ACTION_UP, x, rowY(0))
+    }
+
+    @Test fun magnifierMovesAcrossHardNewlinesAndBackWithoutRepeatingDelayedArrows() {
+        terminalContent()
+        compose.runOnIdle { feed("first line\r\nsecond line\r\nthird line\u001b[2;5H") }
+        val x = 4 * terminal.mRenderer.fontWidth
+        touch(MotionEvent.ACTION_DOWN, x, rowY(1))
+        SystemClock.sleep(ViewConfiguration.getLongPressTimeout().toLong() + 150)
+        touch(MotionEvent.ACTION_MOVE, x, rowY(0))
+        touch(MotionEvent.ACTION_MOVE, x, rowY(0))
+        compose.runOnIdle {
+            assertTrue(terminal.isCursorDragging)
+            assertEquals("\u001b[A", input.toString())
+            feed("\u001b[1;5H")
+            assertTrue(terminal.isCursorDragging)
+        }
+        touch(MotionEvent.ACTION_MOVE, x, rowY(2))
+        touch(MotionEvent.ACTION_MOVE, x, rowY(2))
+        compose.runOnIdle { assertEquals("\u001b[A\u001b[B\u001b[B", input.toString()) }
+        touch(MotionEvent.ACTION_UP, x, rowY(2))
+        compose.runOnIdle { assertFalse(terminal.isCursorDragging) }
+    }
+
+    @Test fun imeNeverUsesScreenPaddingAsEditableTextAndPreservesIntentionalSpaces() {
+        terminalContent()
+        compose.runOnIdle {
+            feed("prompt>\u001b[60G")
+            val info = EditorInfo()
+            val connection = terminal.onCreateInputConnection(info)
+            assertEquals(0, info.initialSelStart)
+            assertEquals("", connection.getTextBeforeCursor(1000, 0).toString())
+            assertEquals("", connection.getTextAfterCursor(1000, 0).toString())
+            connection.setComposingText("zhong", 1)
+            assertEquals("zhong", connection.getTextBeforeCursor(1000, 0).toString())
+            feed("\u001b[70G")
+            assertEquals("zhong", connection.getExtractedText(ExtractedTextRequest(), 0).text.toString())
+            connection.setComposingText("中文", 1)
+            connection.commitText("中文", 1)
+            repeat(3) { connection.finishComposingText() }
+            connection.commitText("  a b  ", 1)
+            connection.finishComposingText()
+            assertEquals("中文  a b  ", input.toString())
+            assertEquals("", connection.getTextBeforeCursor(1000, 0).toString())
+            assertEquals(0, connection.getExtractedText(ExtractedTextRequest(), 0).selectionStart)
+        }
+    }
+
+    @Test fun wrappedInputUsesCharacterArrowsAcrossRows() {
+        terminalContent()
+        compose.runOnIdle { feed("x".repeat(emulator.mColumns + 6)) }
+        val width = terminal.mRenderer.fontWidth
+        touch(MotionEvent.ACTION_DOWN, 6 * width, rowY(1))
+        SystemClock.sleep(ViewConfiguration.getLongPressTimeout().toLong() + 150)
+        touch(MotionEvent.ACTION_MOVE, (emulator.mColumns - 2) * width, rowY(0))
+        touch(MotionEvent.ACTION_MOVE, (emulator.mColumns - 2) * width, rowY(0))
+        compose.runOnIdle { assertEquals("\u001b[D".repeat(8), input.toString()) }
+        touch(MotionEvent.ACTION_MOVE, 2 * width, rowY(1))
+        compose.runOnIdle { assertEquals("\u001b[D".repeat(8) + "\u001b[C".repeat(4), input.toString()) }
+        touch(MotionEvent.ACTION_UP, 2 * width, rowY(1))
     }
 
     @Test fun fileMenuIsAnchoredToRowAndActionsDismiss() {

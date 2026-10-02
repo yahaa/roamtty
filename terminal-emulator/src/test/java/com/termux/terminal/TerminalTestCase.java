@@ -20,6 +20,8 @@ public abstract class TerminalTestCase extends TestCase {
 		final ByteArrayOutputStream baos = new ByteArrayOutputStream();
 		public final List<ChangedTitle> titleChanges = new ArrayList<>();
 		public final List<String> clipboardPuts = new ArrayList<>();
+        public final List<String> workingDirectories = new ArrayList<>();
+        @Override public void onWorkingDirectoryChanged(String uri) { workingDirectories.add(uri); }
 		public int bellsRung = 0;
 		public int colorsChanged = 0;
 

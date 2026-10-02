@@ -21,6 +21,28 @@ import java.io.File
 class TransferProgressUiTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun successfulDownloadKeepsTheSummaryShortAndExpandsItsFullPath() {
+        val path = "/storage/emulated/0/Documents/" + "long-directory/".repeat(5) + "app.apk"
+        compose.setContent {
+            MaterialTheme {
+                TransferStatusDialog("app.apk", 1024, 1024, false, tr("传输完成"), {}, {},
+                    downloads = listOf(DownloadItem("/work/dist/app.apk", 1024, 1024,
+                        DownloadPhase.COMPLETE, localPath = path)))
+            }
+        }
+        compose.onNodeWithText(tr("下载完成")).assertIsDisplayed()
+        compose.onNodeWithTag("transfer-count").assertDoesNotExist()
+        compose.onNodeWithText(tr("已完成")).assertDoesNotExist()
+        compose.onNodeWithText(trf("来源目录：%s", "/work/dist")).assertDoesNotExist()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        File(context.getExternalFilesDir(null), "download-result-compact.png").outputStream().use {
+            compose.onNodeWithTag("transfer-dialog").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
+        compose.onNodeWithTag("download-result-details").performClick()
+        compose.onNodeWithText(trf("来源目录：%s", "/work/dist")).assertIsDisplayed()
+        compose.onNodeWithTag("download-local-path-/work/dist/app.apk").assertTextEquals(trf("下载路径：%s", path))
+    }
+
     @Test fun batchProgressShowsCountsPercentageSpeedAndPerFileStates() {
         compose.setContent {
             MaterialTheme {
