@@ -29,7 +29,7 @@ class TerminalConnectionProgressTest {
         for (busy in listOf(Phase.CONNECTING, Phase.VERIFYING, Phase.AUTHENTICATING)) {
             compose.runOnIdle { phase = busy }
             compose.onNodeWithTag("terminal-connection-progress").assertIsDisplayed()
-            compose.onNodeWithTag("terminal-connection-spinner").assert(
+            compose.onNodeWithTag("terminal-connection-motion").assert(
                 SemanticsMatcher.expectValue(SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo.Indeterminate))
         }
         compose.onNodeWithTag("terminal-connection-cancel").performClick()
@@ -46,9 +46,9 @@ class TerminalConnectionProgressTest {
         compose.mainClock.autoAdvance = false
         compose.setContent { MaterialTheme { TerminalConnectionProgress(Phase.CONNECTING, {}) } }
         compose.mainClock.advanceTimeBy(100)
-        val first = compose.onNodeWithTag("terminal-connection-spinner").captureToImage().asAndroidBitmap()
+        val first = compose.onNodeWithTag("terminal-connection-motion").captureToImage().asAndroidBitmap()
         compose.mainClock.advanceTimeBy(400)
-        val second = compose.onNodeWithTag("terminal-connection-spinner").captureToImage().asAndroidBitmap()
+        val second = compose.onNodeWithTag("terminal-connection-motion").captureToImage().asAndroidBitmap()
         assertFalse("Connection progress must animate", first.sameAs(second))
     }
 }

@@ -1,6 +1,8 @@
 <animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:drawable="@drawable/ic_startup">
-    <target android:name="prompt" android:animation="@animator/startup_prompt" />
+    <target android:name="tile" android:animation="@animator/startup_tile" />
     <target android:name="cursor" android:animation="@animator/startup_cursor" />
-    <target android:name="progress" android:animation="@animator/startup_progress" />
+    <target android:name="signal_one" android:animation="@animator/startup_signal_one" />
+    <target android:name="signal_two" android:animation="@animator/startup_signal_two" />
+    <target android:name="signal_three" android:animation="@animator/startup_signal_three" />
 </animated-vector>
