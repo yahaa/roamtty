@@ -4,6 +4,7 @@ import android.content.Context;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
+import android.view.ViewConfiguration;
 
 /** A combination of {@link GestureDetector} and {@link ScaleGestureDetector}. */
 final class GestureAndScaleRecognizer {
@@ -30,9 +31,12 @@ final class GestureAndScaleRecognizer {
     private final ScaleGestureDetector mScaleDetector;
     final Listener mListener;
     boolean isAfterLongPress;
+    private boolean mDoubleTapPending;
+    private float mDoubleTapX, mDoubleTapY;
 
     public GestureAndScaleRecognizer(Context context, Listener listener) {
         mListener = listener;
+        final int touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
 
         mGestureDetector = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
             @Override
@@ -52,6 +56,7 @@ final class GestureAndScaleRecognizer {
 
             @Override
             public void onLongPress(MotionEvent e) {
+                mDoubleTapPending = false;
                 mListener.onLongPress(e);
                 isAfterLongPress = true;
             }
@@ -65,11 +70,25 @@ final class GestureAndScaleRecognizer {
 
             @Override
             public boolean onDoubleTap(MotionEvent e) {
-                return mListener.onDoubleTap(e);
+                mDoubleTapPending = true;
+                return true;
             }
 
             @Override
             public boolean onDoubleTapEvent(MotionEvent e) {
+                if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                    mDoubleTapX = e.getX();
+                    mDoubleTapY = e.getY();
+                } else if (e.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                    float dx = e.getX() - mDoubleTapX, dy = e.getY() - mDoubleTapY;
+                    if (dx * dx + dy * dy > touchSlop * touchSlop) mDoubleTapPending = false;
+                } else if (e.getActionMasked() == MotionEvent.ACTION_UP) {
+                    // Commit only a completed tap; a drag, pinch, hold or cancellation must not paste.
+                    boolean completed = mDoubleTapPending &&
+                        e.getEventTime() - e.getDownTime() < ViewConfiguration.getLongPressTimeout();
+                    mDoubleTapPending = false;
+                    if (completed) return mListener.onDoubleTap(e);
+                }
                 return true;
             }
         });
@@ -89,6 +108,8 @@ final class GestureAndScaleRecognizer {
     }
 
     public void onTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_CANCEL || event.getPointerCount() > 1)
+            mDoubleTapPending = false;
         mGestureDetector.onTouchEvent(event);
         mScaleDetector.onTouchEvent(event);
         switch (event.getAction()) {

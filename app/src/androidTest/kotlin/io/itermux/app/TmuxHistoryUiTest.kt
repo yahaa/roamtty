@@ -1,5 +1,8 @@
 package io.itermux.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
@@ -141,6 +144,34 @@ class TmuxHistoryUiTest {
             }
             assertNull(session.tmuxHistory.value)
             assertEquals("unsent draft", session.draft)
+
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val previousClip = withContext(Dispatchers.Main) { clipboard.primaryClip }
+            try {
+                withContext(Dispatchers.Main) {
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Fixture", "printf 'PASTE_%s\\n' OK"))
+                    session.enterTmuxHistory()
+                }
+                withTimeout(8000) { while (session.tmuxHistory.value?.active != true) delay(40) }
+                compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
+                withTimeout(8000) {
+                    while (!withContext(Dispatchers.Main) {
+                        session.tmuxHistory.value == null && session.emulator.screen.transcriptText.contains("printf 'PASTE_%s")
+                    }) delay(40)
+                }
+                withContext(Dispatchers.Main) {
+                    assertFalse("Paste must not submit the shell command", session.emulator.screen.transcriptText.contains("PASTE_OK"))
+                    assertEquals("unsent draft", session.draft)
+                    session.write("\r")
+                }
+                withTimeout(8000) {
+                    while (!withContext(Dispatchers.Main) { session.emulator.screen.transcriptText.contains("PASTE_OK") }) delay(40)
+                }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    clipboard.setPrimaryClip(previousClip ?: ClipData.newPlainText("", ""))
+                }
+            }
         } finally {
             prompts.cancel()
             withContext(Dispatchers.Main) { session.write("exit\r"); service.close(session.id); service.forget(session.id) }

@@ -26,3 +26,8 @@ Debug / AndroidTest builds and lint passed.
 JVM: 263 passed, 32 optional tests skipped, 0 failed.
 API 36 emulator: 17 passed, 0 failed: TerminalGesturesTest (6), DownloadFilesTest (4), DownloadDestinationTest (4), TransferProgressUiTest (3).
 The separate double-tap/reconnect PR is not required for this branch.
+
+PR #9 conflict resolution after merging main cb4243b:
+README input/scrolling section keeps both the IME fix and main's double-tap/reconnect descriptions.
+Debug / AndroidTest builds and lint passed.
+API 36 emulator: TerminalGesturesTest (9) + TerminalClipboardTest (5): 14 passed, 0 failed.

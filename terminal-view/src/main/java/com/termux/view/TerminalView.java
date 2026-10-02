@@ -283,8 +283,12 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onDoubleTap(MotionEvent event) {
-                // Do not treat is as a single confirmed tap - it may be followed by zoom.
-                return false;
+                if (mEmulator == null || mTermSession == null || mTermSession.isReadOnly()
+                    || mGestureRecognizer.isInProgress()) return false;
+                if (isSelectingText()) stopTextSelectionMode();
+                requestFocus();
+                mClient.onDoubleTap(event);
+                return true;
             }
 
             @Override

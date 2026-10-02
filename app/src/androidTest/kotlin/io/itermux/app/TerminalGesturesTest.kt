@@ -31,6 +31,8 @@ class TerminalGesturesTest {
     @get:Rule val compose = createComposeRule()
     private lateinit var terminal: TerminalView
     private val input = StringBuilder()
+    private var doubleTaps = 0
+    private var readOnly = false
     private val emulator = TerminalEmulator(object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) { input.append(String(data, offset, count)) }
         override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
@@ -40,6 +42,7 @@ class TerminalGesturesTest {
         override fun onColorsChanged() = Unit
     }, 80, 24, 8, 16, 400, SilentTerminalClient())
     private val session = object : TerminalSession {
+        override fun isReadOnly() = readOnly
         override fun getEmulator(): TerminalEmulator = this@TerminalGesturesTest.emulator
         override fun updateSize(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {
             this@TerminalGesturesTest.emulator.resize(columns, rows, cellWidthPixels, cellHeightPixels)
@@ -71,7 +74,8 @@ class TerminalGesturesTest {
                         terminal = it
                         it.setTextSize(36)
                         it.setTypeface(android.graphics.Typeface.MONOSPACE)
-                        it.setTerminalViewClient(MobileTerminalClient(it, {}, { false }, {}))
+                        it.setTerminalViewClient(MobileTerminalClient(it, {}, { false }, {},
+                            onDoubleTap = { doubleTaps++ }))
                         it.isFocusableInTouchMode = true
                         it.attachSession(session)
                         it.setCursorDraggingEnabled(true)
@@ -82,6 +86,44 @@ class TerminalGesturesTest {
         compose.waitForIdle()
     }
     private fun rowY(row: Int) = (row + 0.8f) * terminal.mRenderer.fontLineSpacing
+
+    @Test fun completedDoubleTapFiresOnceAndReadOnlyHistoryNeverFires() {
+        terminalContent()
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { doubleClick() }
+        compose.runOnIdle { assertEquals(1, doubleTaps); readOnly = true }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { doubleClick() }
+        compose.runOnIdle { assertEquals(1, doubleTaps) }
+    }
+
+    @Test fun secondTapCancellationOrDragDoesNotTriggerPaste() {
+        terminalContent()
+        compose.onNodeWithTag("gesture-terminal").performTouchInput {
+            click(); advanceEventTime(80); down(center); advanceEventTime(40); cancel()
+        }
+        compose.runOnIdle { assertEquals(0, doubleTaps) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.onNodeWithTag("gesture-terminal").performTouchInput {
+            click(); advanceEventTime(80); down(center)
+            moveTo(center.copy(y = center.y + 100)); up()
+        }
+        compose.runOnIdle { assertEquals(0, doubleTaps) }
+    }
+
+    @Test fun secondTapPinchOrHoldDoesNotTriggerPaste() {
+        terminalContent()
+        compose.onNodeWithTag("gesture-terminal").performTouchInput {
+            click(); advanceEventTime(80); down(0, center)
+            down(1, center.copy(x = center.x + 100)); up(1); up(0)
+        }
+        compose.runOnIdle { assertEquals(0, doubleTaps) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.onNodeWithTag("gesture-terminal").performTouchInput {
+            click(); advanceEventTime(80); down(center)
+            advanceEventTime(ViewConfiguration.getLongPressTimeout().toLong() + 50); up()
+        }
+        compose.runOnIdle { assertEquals(0, doubleTaps) }
+    }
 
     @Test fun longPressShowsLensAndDragSendsArrowsWithoutRepeatingDelayedEcho() {
         terminalContent()

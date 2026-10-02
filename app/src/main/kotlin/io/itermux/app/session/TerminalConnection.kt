@@ -117,6 +117,11 @@ class TerminalConnection(
         }
         parser.paste(text)
     }
+    /** Explicit paste exits remote history before writing, without sending application shortcuts. */
+    suspend fun pasteIntoLiveTerminal(text: String) {
+        if (tmuxHistory.value?.active == true && !tmux.exitAndAwait()) return
+        paste(text)
+    }
     fun enterTmuxHistory() = tmux.enter()
     fun moveTmuxHistoryTo(position: Int) = tmux.moveTo(position)
     fun exitTmuxHistory() = tmux.exit()
