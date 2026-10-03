@@ -15,6 +15,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -160,7 +161,10 @@ internal fun GroupedDivider(start: Dp = Spacing.Page) {
         color = MaterialTheme.colorScheme.outlineVariant)
 }
 
-/** A grouped-panel row. Whole-row tap when [onClick] is set; trailing content sits on the end edge. */
+/**
+ * A grouped-panel row. Whole-row tap when [onClick] is set; trailing content sits on the end edge.
+ * A disabled row keeps its place but dims and ignores taps.
+ */
 @Composable
 internal fun GroupedRow(
     title: String,
@@ -169,9 +173,11 @@ internal fun GroupedRow(
     titleColor: Color = MaterialTheme.colorScheme.onSurface,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
 ) {
-    Row(modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    Row(modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier)
+        .alpha(if (enabled) 1f else 0.38f)
         .heightIn(min = 52.dp).padding(horizontal = Spacing.Page, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically) {
         leading?.let { it(); Spacer(Modifier.width(Spacing.Row)) }

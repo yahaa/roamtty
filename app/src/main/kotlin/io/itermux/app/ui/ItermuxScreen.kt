@@ -360,12 +360,11 @@ fun ItermuxScreen(
                             subtitle = "${session.host.username}@${session.host.address}:${session.host.port}",
                             leading = { HostSystemIcon(session.host.os, 40.dp) },
                             trailing = { Chevron() },
+                            enabled = state.phase == Phase.CONNECTED,
                             onClick = {
-                                if (state.phase == Phase.CONNECTED) {
-                                    val uris = shareUrisPending
-                                    dismissShare()
-                                    uploadSharedImages(session, uris)
-                                }
+                                val uris = shareUrisPending
+                                dismissShare()
+                                uploadSharedImages(session, uris)
                             })
                     }
                 }

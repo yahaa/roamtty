@@ -259,9 +259,9 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
 }
 
 /**
- * Two-line navigation title: the current folder (or the host at the root) reads as the page title,
- * and the trail of host and parent folders sits underneath as quiet, tappable text.
- * Long trails scroll to their end and fade at the leading edge instead of being clipped.
+ * One-line path title: host and parent folders as quiet tappable crumbs, ending in the current folder
+ * (the host at the root) in title weight. Long paths scroll to their end and fade at the leading edge
+ * instead of being clipped.
  */
 @Composable
 internal fun FileBrowserPathBar(path: String, host: String, enabled: Boolean, onNavigate: (String) -> Unit,
@@ -270,44 +270,39 @@ internal fun FileBrowserPathBar(path: String, host: String, enabled: Boolean, on
     val scroll = rememberScrollState()
     LaunchedEffect(path, scroll.maxValue) { scroll.animateScrollTo(scroll.maxValue) }
     val colors = MaterialTheme.colorScheme
-    Column(modifier.heightIn(min = 48.dp).testTag("files-breadcrumbs"), verticalArrangement = Arrangement.Center) {
-        Text(folders.lastOrNull()?.first ?: host, style = MaterialTheme.typography.titleMedium,
-            maxLines = 1, overflow = TextOverflow.MiddleEllipsis,
-            modifier = Modifier.padding(horizontal = 4.dp).semantics { heading() }.testTag("files-title"))
-        val fadeWidth = 24.dp
-        Row(Modifier.fillMaxWidth()
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithContent {
-                drawContent()
-                if (scroll.value > 0) drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.Black),
-                    endX = fadeWidth.toPx()), blendMode = BlendMode.DstIn)
-            }
-            .horizontalScroll(scroll), verticalAlignment = Alignment.CenterVertically) {
-            // The current folder is the title; the trail stops at its parent.
-            val trail = folders.dropLast(1)
-            // At the root the title already names the host, so the trail shows the root path instead.
-            Crumb(0, if (folders.isEmpty()) "/" else host, enabled && folders.isNotEmpty(), onClick = { onNavigate("/") }) {
-                Icon(painterResource(R.drawable.ic_os_server), contentDescription = null, Modifier.size(13.dp),
-                    tint = colors.onSurfaceVariant)
-                Spacer(Modifier.width(4.dp))
-            }
-            trail.forEachIndexed { index, (name, target) ->
-                Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null,
-                    modifier = Modifier.size(12.dp), tint = colors.outline)
-                Crumb(index + 1, name, enabled, onClick = { onNavigate(target) })
-            }
+    val fadeWidth = 24.dp
+    Row(modifier.heightIn(min = 48.dp).testTag("files-breadcrumbs")
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            if (scroll.value > 0) drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.Black),
+                endX = fadeWidth.toPx()), blendMode = BlendMode.DstIn)
+        }
+        .horizontalScroll(scroll), verticalAlignment = Alignment.CenterVertically) {
+        Crumb(0, host, current = folders.isEmpty(), enabled, onClick = { onNavigate("/") }) {
+            Icon(painterResource(R.drawable.ic_os_server), contentDescription = null, Modifier.size(16.dp),
+                tint = colors.onSurfaceVariant)
+            Spacer(Modifier.width(6.dp))
+        }
+        folders.forEachIndexed { index, (name, target) ->
+            Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null,
+                modifier = Modifier.size(14.dp), tint = colors.outline)
+            Crumb(index + 1, name, current = index == folders.lastIndex, enabled, onClick = { onNavigate(target) })
         }
     }
 }
 
 @Composable
-private fun Crumb(index: Int, label: String, enabled: Boolean, onClick: () -> Unit,
+private fun Crumb(index: Int, label: String, current: Boolean, enabled: Boolean, onClick: () -> Unit,
     leading: @Composable RowScope.() -> Unit = {}) {
-    Row(Modifier.clip(MaterialTheme.shapes.extraSmall).clickable(enabled = enabled, onClick = onClick)
-        .padding(horizontal = 4.dp, vertical = 3.dp).testTag("files-crumb-$index"), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.clip(MaterialTheme.shapes.extraSmall).clickable(enabled = enabled && !current, onClick = onClick)
+        .padding(horizontal = 6.dp, vertical = 10.dp)
+        .then(if (current) Modifier.semantics { heading() } else Modifier)
+        .testTag(if (current) "files-title" else "files-crumb-$index"), verticalAlignment = Alignment.CenterVertically) {
         leading()
-        Text(label, maxLines = 1, softWrap = false, style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, maxLines = 1, softWrap = false,
+            style = if (current) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+            color = if (current) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
