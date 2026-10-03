@@ -31,6 +31,7 @@ class TerminalGesturesTest {
     @get:Rule val compose = createComposeRule()
     private lateinit var terminal: TerminalView
     private val input = StringBuilder()
+    private var doubleTaps = 0
     private var tripleTaps = 0
     private var readOnly = false
     private val emulator = TerminalEmulator(object : TerminalOutput() {
@@ -75,7 +76,7 @@ class TerminalGesturesTest {
                         it.setTextSize(36)
                         it.setTypeface(android.graphics.Typeface.MONOSPACE)
                         it.setTerminalViewClient(MobileTerminalClient(it, {}, { false }, {},
-                            onTripleTap = { tripleTaps++ }))
+                            onDoubleTap = { doubleTaps++ }, onTripleTap = { tripleTaps++ }))
                         it.isFocusableInTouchMode = true
                         it.attachSession(session)
                         it.setCursorDraggingEnabled(true)
@@ -93,10 +94,34 @@ class TerminalGesturesTest {
         SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
         compose.runOnIdle { assertEquals("A double tap must not paste", 0, tripleTaps) }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { tripleClick() }
-        compose.runOnIdle { assertEquals(1, tripleTaps); readOnly = true }
         SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.runOnIdle {
+            assertEquals(1, tripleTaps)
+            assertEquals("A triple tap must not also send the double-tap Tab", 1, doubleTaps)
+            readOnly = true
+        }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { tripleClick() }
-        compose.runOnIdle { assertEquals(1, tripleTaps) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { doubleClick() }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.runOnIdle { assertEquals(1, tripleTaps); assertEquals(1, doubleTaps) }
+    }
+
+    @Test fun completedDoubleTapFiresOnceAfterTheTripleTapWindow() {
+        terminalContent()
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { doubleClick() }
+        compose.runOnIdle { assertEquals("Tab waits until a third tap is ruled out", 0, doubleTaps) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.runOnIdle { assertEquals(1, doubleTaps); assertEquals(0, tripleTaps) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click() }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.runOnIdle { assertEquals("A single tap must not send Tab", 1, doubleTaps) }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput {
+            click(); advanceEventTime(80); down(center); moveTo(center.copy(y = center.y + 100)); up()
+        }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.runOnIdle { assertEquals("A tap followed by a drag must not send Tab", 1, doubleTaps) }
     }
 
     @Test fun thirdTapCancellationOrDragDoesNotTriggerPaste() {
@@ -110,7 +135,8 @@ class TerminalGesturesTest {
             click(); advanceEventTime(80); click(); advanceEventTime(80); down(center)
             moveTo(center.copy(y = center.y + 100)); up()
         }
-        compose.runOnIdle { assertEquals(0, tripleTaps) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.runOnIdle { assertEquals(0, tripleTaps); assertEquals("An aborted third tap sends nothing", 0, doubleTaps) }
     }
 
     @Test fun thirdTapPinchOrHoldDoesNotTriggerPaste() {
@@ -125,7 +151,8 @@ class TerminalGesturesTest {
             click(); advanceEventTime(80); click(); advanceEventTime(80); down(center)
             advanceEventTime(ViewConfiguration.getLongPressTimeout().toLong() + 50); up()
         }
-        compose.runOnIdle { assertEquals(0, tripleTaps) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
+        compose.runOnIdle { assertEquals(0, tripleTaps); assertEquals("An aborted third tap sends nothing", 0, doubleTaps) }
     }
 
     @Test fun longPressShowsLensAndDragSendsArrowsWithoutRepeatingDelayedEcho() {

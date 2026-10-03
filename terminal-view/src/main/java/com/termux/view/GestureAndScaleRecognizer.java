@@ -1,6 +1,8 @@
 package com.termux.view;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
@@ -11,6 +13,8 @@ final class GestureAndScaleRecognizer {
 
     public interface Listener {
         boolean onSingleTapUp(MotionEvent e);
+
+        boolean onDoubleTap(MotionEvent e);
 
         boolean onTripleTap(MotionEvent e);
 
@@ -37,6 +41,17 @@ final class GestureAndScaleRecognizer {
     private boolean mTapValid;
     private long mLastTapUpTime;
     private float mTapDownX, mTapDownY, mLastTapX, mLastTapY;
+    /** A completed double tap waits out the double-tap timeout so a third tap can still turn it into a triple tap. */
+    private final Handler mHandler = new Handler(Looper.getMainLooper());
+    private MotionEvent mPendingDoubleTap;
+    private final Runnable mFireDoubleTap = () -> {
+        MotionEvent e = mPendingDoubleTap;
+        mPendingDoubleTap = null;
+        if (e == null) return;
+        if (mTapCount == 2) resetTaps();
+        GestureAndScaleRecognizer.this.mListener.onDoubleTap(e);
+        e.recycle();
+    };
 
     public GestureAndScaleRecognizer(Context context, Listener listener) {
         mListener = listener;
@@ -76,7 +91,7 @@ final class GestureAndScaleRecognizer {
 
             @Override
             public boolean onDoubleTap(MotionEvent e) {
-                // Consumed so a second tap is not reported as a single tap; paste waits for a third tap.
+                // Consumed so a second tap is not reported as a single tap; Tab waits to rule out a third tap.
                 return true;
             }
 
@@ -104,7 +119,11 @@ final class GestureAndScaleRecognizer {
         trackTaps(event);
         mGestureDetector.onTouchEvent(event);
         mScaleDetector.onTouchEvent(event);
-        if (event.getActionMasked() == MotionEvent.ACTION_UP && mTapCount == 3) {
+        if (event.getActionMasked() == MotionEvent.ACTION_UP && mTapCount == 2) {
+            cancelPendingDoubleTap();
+            mPendingDoubleTap = MotionEvent.obtain(event);
+            mHandler.postDelayed(mFireDoubleTap, ViewConfiguration.getDoubleTapTimeout());
+        } else if (event.getActionMasked() == MotionEvent.ACTION_UP && mTapCount == 3) {
             resetTaps();
             mListener.onTripleTap(event);
         }
@@ -125,6 +144,15 @@ final class GestureAndScaleRecognizer {
     private void resetTaps() {
         mTapCount = 0;
         mTapValid = false;
+        cancelPendingDoubleTap();
+    }
+
+    private void cancelPendingDoubleTap() {
+        mHandler.removeCallbacks(mFireDoubleTap);
+        if (mPendingDoubleTap != null) {
+            mPendingDoubleTap.recycle();
+            mPendingDoubleTap = null;
+        }
     }
 
     private void trackTaps(MotionEvent event) {
@@ -140,6 +168,8 @@ final class GestureAndScaleRecognizer {
                     && event.getEventTime() - mLastTapUpTime <= ViewConfiguration.getDoubleTapTimeout()
                     && dx * dx + dy * dy <= (float) mDoubleTapSlop * mDoubleTapSlop;
                 if (!continues) mTapCount = 0;
+                // Any touch after a double tap supersedes it: a third tap pastes, anything else sends nothing.
+                cancelPendingDoubleTap();
                 mTapValid = true;
                 mTapDownX = x;
                 mTapDownY = y;

@@ -1,0 +1,7 @@
+Double-tap sends Tab (triple-tap still pastes)
+API 36 emulator (itermux-qa-api36):
+TerminalGesturesTest: 10 passed, 0 failed — double tap fires Tab once after the double-tap timeout, a triple tap pastes without
+also sending Tab, single tap / tap+drag / aborted third tap (cancel, drag, pinch, hold) send nothing, read-only history never fires.
+TerminalClipboardTest (ssh-key-echo fixture via adb reverse): 5 passed, 0 failed.
+:terminal-view:testDebugUnitTest, :app:compileDebugAndroidTestKotlin and :app:assembleDebug passed.
+Not covered: physical-device test.
