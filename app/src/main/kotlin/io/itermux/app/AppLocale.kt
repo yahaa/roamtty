@@ -426,6 +426,10 @@ private object EnglishText {
         "无结果" to "No results",
         "上一个" to "Previous match",
         "下一个" to "Next match",
+        "查看源码" to "View source",
+        "预览" to "Preview",
+        "代码" to "Code",
+        "复制代码" to "Copy code",
         "目录" to "Directory",
         "文件" to "File"
     )

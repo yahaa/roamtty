@@ -64,4 +64,11 @@ class FileBrowserModelTest {
         assertEquals(listOf(CodeMatch(0, 0, 5), CodeMatch(0, 6, 11), CodeMatch(1, 5, 10)), findCodeMatches(document, "alpha"))
         assertTrue(findCodeMatches(document, "").isEmpty())
     }
+
+    @Test fun relativeImagePathsResolveAgainstTheDocumentFolder() {
+        assertEquals("/srv/app/img/a.png", resolveRelativeRemotePath("/srv/app", "img/a.png"))
+        assertEquals("/srv/img/a.png", resolveRelativeRemotePath("/srv/app", "./../img/a.png?raw=1#x"))
+        assertEquals("/etc/logo.svg", resolveRelativeRemotePath("/srv/app", "/etc/logo.svg"))
+        assertEquals("/a.png", resolveRelativeRemotePath("/", "../../a.png"))
+    }
 }

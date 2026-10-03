@@ -80,7 +80,11 @@ class FilePreviewUiTest {
                 compose.waitUntil(10_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithTag("file-preview-download").assertIsEnabled()
             }
-            open("$prefix.md", "file-preview-text")
+            open("$prefix.md", "file-preview-markdown")
+            compose.onNodeWithText("Preview 中文").assertIsDisplayed()
+            compose.onNodeWithText("indent preserved").assertIsDisplayed()
+            compose.onNodeWithTag("file-preview-markdown-toggle").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("file-preview-text").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("# Preview 中文").assertIsDisplayed()
             compose.onNodeWithText("    indent preserved").assertIsDisplayed()
             compose.onNodeWithTag("file-preview-status").assertTextContains("Markdown", substring = true)

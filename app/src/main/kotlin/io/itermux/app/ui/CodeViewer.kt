@@ -102,6 +102,14 @@ private fun CodeLine.annotated(theme: CodeTheme, matches: List<CodeMatch>, curre
     }.toAnnotatedString()
 }
 
+/** A whole document as one string, for short snippets such as Markdown code blocks. */
+internal fun annotatedCode(document: CodeDocument, theme: CodeTheme): AnnotatedString = AnnotatedString.Builder().apply {
+    document.lines.forEachIndexed { index, line ->
+        if (index > 0 && line.number > 0) append('\n')
+        append(line.annotated(theme, emptyList(), null))
+    }
+}.toAnnotatedString()
+
 @Composable
 internal fun CodeViewer(document: CodeDocument, wrap: Boolean, fontSize: Float, listState: LazyListState,
     horizontalScroll: ScrollState, matches: List<CodeMatch>, currentMatch: Int, modifier: Modifier = Modifier) {

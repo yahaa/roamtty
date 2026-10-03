@@ -263,6 +263,14 @@ object SyntaxHighlighter {
                         if (word.length > 1 && word.all { it.isUpperCase() || it.isDigit() || it == '_' }) TokenType.CONSTANT else TokenType.TYPE
                     else -> null
                 }
+                if (word in language.pathKeywords) {
+                    out.add(i, j, TokenType.KEYWORD)
+                    // Skip the dotted path, but let a trailing comment still be highlighted.
+                    var k = j
+                    val end = lineEnd(text, j, to)
+                    while (k < end && !language.lineComments.any { text.startsWith(it, k) }) k++
+                    i = k; previousDeclarator = null; continue
+                }
                 if (type != null) out.add(i, if (type == TokenType.FUNCTION && language.macroBang && j < to && text[j] == '!') j + 1 else j, type)
                 previousDeclarator = language.declarators[word]
                 lastSignificant = 'a'

@@ -52,11 +52,11 @@ class FileBrowserLifecycleTest {
             compose.onNodeWithTag("files-title").assertTextEquals("phone-a")
             compose.onNodeWithTag("files-crumb-1").assertTextEquals("phone-a")
             compose.onNodeWithTag("files-entry-design-notes.md").performClick()
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("file-preview-text").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("# Design notes").assertIsDisplayed()
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("file-preview-markdown").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Design notes").assertIsDisplayed()
             compose.activityRule.scenario.recreate()
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("file-preview-text").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("# Design notes").assertIsDisplayed()
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("file-preview-markdown").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Design notes").assertIsDisplayed()
             compose.onNodeWithTag("file-preview-close").performClick()
             compose.onNodeWithTag("files-row-menu-design-notes.md").performClick()
             compose.onNodeWithTag("files-action-rename").performClick()

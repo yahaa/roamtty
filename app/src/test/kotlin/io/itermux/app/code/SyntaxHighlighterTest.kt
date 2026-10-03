@@ -176,4 +176,13 @@ class SyntaxHighlighterTest {
         assertTrue(document.lineCount > 5000)
         assertTrue("took $elapsedMs ms", elapsedMs < 2000)
     }
+
+    @Test fun importPathsStayPlainButTrailingCommentsDoNot() {
+        val result = tokens("package io.itermux.demo\nimport kotlinx.coroutines.* // all\nval x = a.b", Languages.KOTLIN)
+        assertEquals(TokenType.KEYWORD, result.typeOf("import"))
+        assertNull(result.typeOf("itermux"))
+        assertNull(result.typeOf("coroutines"))
+        assertEquals(TokenType.COMMENT, result.typeOf("// all"))
+        assertEquals(TokenType.PROPERTY, result.typeOf("b"))
+    }
 }

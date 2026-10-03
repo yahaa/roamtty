@@ -107,6 +107,47 @@ class FileBrowserDesignTest {
         > Tip: long-press a file for actions.
     """.trimIndent()
 
+    private val readme = """
+        # iTermux
+
+        A **mobile** SSH client with `tmux` support and [docs](https://example.com).
+
+        ## Features
+
+        - [x] Syntax highlighting
+        - [ ] Markdown preview
+          - nested item with *emphasis*
+        1. Connect
+        2. Browse files
+
+        > **Tip:** long-press a file for actions.
+
+        ```bash
+        ./gradlew assembleDebug  # build
+        export HOST=${'$'}USER@server
+        ```
+
+        | Key | Action | Default |
+        |:----|:------:|-------:|
+        | Tab | Complete | on |
+        | Ctrl+C | Interrupt | — |
+
+        ---
+
+        ![screenshot](https://example.com/shot.png)
+    """.trimIndent()
+
+    @Test fun markdownRenderedDark() {
+        val blocks = io.itermux.app.code.MarkdownParser.parse(readme)
+        compose.setContent {
+            MaterialTheme(colorScheme = DarkColors) {
+                Surface(Modifier.fillMaxSize().testTag("md")) { MarkdownView(blocks, null, Modifier.fillMaxSize()) }
+            }
+        }
+        compose.onNodeWithText("Features").assertIsDisplayed()
+        capture("md", "markdown-rendered-dark")
+    }
+
     private fun code(source: String, fileName: String, colors: ColorScheme, wrap: Boolean, name: String, query: String = "") {
         val document = SyntaxHighlighter.highlight(source, Languages.detect(fileName))
         val matches = findCodeMatches(document, query)

@@ -37,6 +37,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.itermux.app.R
 import io.itermux.app.code.CodeDocument
+import io.itermux.app.code.MarkdownParser
+import io.itermux.app.code.MdBlock
 import io.itermux.app.code.Languages
 import io.itermux.app.code.SyntaxHighlighter
 import io.itermux.app.tr
@@ -45,7 +47,7 @@ import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 
-private class FilePreview(val text: String? = null, val document: CodeDocument? = null, val image: ImageBitmap? = null,
+private class FilePreview(val text: String? = null, val document: CodeDocument? = null, val markdown: List<MdBlock>? = null, val image: ImageBitmap? = null,
     val imageWidth: Int = 0, val imageHeight: Int = 0, val truncated: Boolean = false, val size: Long = 0)
 
 @Composable
@@ -62,6 +64,7 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
     var matches by remember(path) { mutableStateOf(emptyList<CodeMatch>()) }
     var currentMatch by remember(path) { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
+    var rendered by remember(path) { mutableStateOf(true) }
     val listState = rememberLazyListState()
     val horizontal = rememberScrollState()
     LaunchedEffect(session.id, path, connected, revision) {
@@ -84,7 +87,8 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                             SyntaxHighlighter.highlight(it, Languages.detect(name, it.substringBefore('\n').take(200)))
                         }
                     }
-                    FilePreview(text, document, truncated = textContent.truncated, size = content.size)
+                    val markdown = if (document?.language == Languages.MARKDOWN) withContext(Dispatchers.Default) { MarkdownParser.parse(text) } else null
+                    FilePreview(text, document, markdown, truncated = textContent.truncated, size = content.size)
                 }
             }
         } catch (_: TimeoutCancellationException) {
@@ -96,6 +100,15 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
         }
     }
     val document = preview?.document
+    val showRendered = rendered && preview?.markdown != null
+    val loadImage: suspend (String) -> ImageBitmap? = { source ->
+        try {
+            withContext(Dispatchers.IO) {
+                val content = session.readFileContent(resolveRelativeRemotePath(path.substringBeforeLast('/', ""), source), IMAGE_PREVIEW_BYTES)
+                if (content.truncated) null else decodePreviewImage(content.bytes)?.first
+            }
+        } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+    }
     LaunchedEffect(document, query) {
         if (document == null || query.isEmpty()) { matches = emptyList(); return@LaunchedEffect }
         delay(150)
@@ -134,7 +147,12 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                                 maxLines = 1, overflow = TextOverflow.StartEllipsis)
                         }
                     }
-                    if (document != null) IconButton(onClick = { searching = true }, modifier = Modifier.testTag("file-preview-search")) {
+                    if (preview?.markdown != null) IconButton(onClick = { rendered = !rendered },
+                        modifier = Modifier.testTag("file-preview-markdown-toggle")) {
+                        Icon(painterResource(if (rendered) R.drawable.ic_file_code else R.drawable.ic_preview),
+                            tr(if (rendered) "查看源码" else "预览"))
+                    }
+                    if (document != null) IconButton(onClick = { rendered = false; searching = true }, modifier = Modifier.testTag("file-preview-search")) {
                         Icon(painterResource(R.drawable.ic_search), tr("在文件中查找"))
                     }
                     IconButton(onClick = onDownload, enabled = canDownload, modifier = Modifier.testTag("file-preview-download")) {
@@ -145,7 +163,7 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                             Icon(painterResource(R.drawable.ic_more), tr("更多操作"))
                         }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, modifier = Modifier.widthIn(min = 220.dp)) {
-                            if (document != null) {
+                            if (document != null && !showRendered) {
                                 DropdownMenuItem(text = { Text(tr("自动换行")) },
                                     leadingIcon = { Icon(painterResource(R.drawable.ic_wrap), null) },
                                     trailingIcon = { Checkbox(options.codeWrap, onCheckedChange = null) },
@@ -193,6 +211,7 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                                 .padding(horizontal = 16.dp, vertical = 8.dp).testTag("file-preview-truncated"),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                         if (value.document == null) PreviewMessage(tr("此文件为空"), Modifier.weight(1f))
+                        else if (showRendered) MarkdownView(value.markdown!!, loadImage, Modifier.weight(1f).fillMaxWidth())
                         else CodeViewer(value.document, options.codeWrap, options.codeFontSize, listState, horizontal,
                             matches, currentMatch, Modifier.weight(1f).fillMaxWidth())
                     }
@@ -292,4 +311,19 @@ private fun PreviewMessage(message: String, modifier: Modifier, actions: @Compos
         Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         actions()
     }
+}
+
+/** Resolves a document-relative link such as `../img/a.png` against [directory]; absolute paths pass through. */
+internal fun resolveRelativeRemotePath(directory: String, source: String): String {
+    val clean = source.substringBefore('#').substringBefore('?')
+    val segments = ArrayList<String>()
+    val absolute = clean.startsWith('/') || directory.startsWith('/')
+    (if (clean.startsWith('/')) clean else "$directory/$clean").split('/').forEach { part ->
+        when (part) {
+            "", "." -> Unit
+            ".." -> if (segments.isNotEmpty()) segments.removeAt(segments.lastIndex)
+            else -> segments += part
+        }
+    }
+    return (if (absolute) "/" else "") + segments.joinToString("/")
 }

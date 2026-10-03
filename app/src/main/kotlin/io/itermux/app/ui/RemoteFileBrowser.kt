@@ -123,10 +123,10 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                     leadingIcon = { Icon(painterResource(R.drawable.ic_copy), contentDescription = null) },
                     onClick = { clipboard.setText(AnnotatedString(currentPath)); dismissMenu() },
                     enabled = currentPath.isNotEmpty(), modifier = Modifier.testTag("files-copy-path"))
+                DropdownMenuItem(text = { Text(tr("返回主机列表")) },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = null) },
+                    onClick = { dismissMenu(); onBack() }, modifier = Modifier.testTag("files-close"))
                 HorizontalDivider()
-            }
-            IconButton(onClick = onBack, modifier = Modifier.testTag("files-close")) {
-                Icon(painterResource(R.drawable.ic_close), contentDescription = tr("返回主机列表"))
             }
         }
         if (currentPath.isNotEmpty()) Breadcrumbs(currentPath, enabled = connected) { browser.navigate(it) }
@@ -380,7 +380,7 @@ internal fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onMenu: () ->
             modifier = if (hidden) Modifier.alpha(0.6f) else Modifier)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
-            Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge,
+            Text(entry.name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis, style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (hidden) 0.7f else 1f))
             if (meta.isNotEmpty()) Text(meta, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -51,6 +51,8 @@ class CodeLanguage(
     val numbers: Boolean = true,
     /** CSS: words outside braces are selectors, `name:` inside braces are properties. */
     val css: Boolean = false,
+    /** Words like `import` whose dotted path to the end of the line stays plain text. */
+    val pathKeywords: Set<String> = emptySet(),
     val lineRules: List<LineRule> = emptyList(),
     val patterns: List<TokenPattern> = emptyList()
 ) {
@@ -81,14 +83,14 @@ object Languages {
         strings = listOf(StringRule("\"\"\"", escape = null, multiline = true)) + cStrings,
         words = wordMap(false, TokenType.KEYWORD to "package import class interface fun val var object typealias if else when for while do return break continue throw try catch finally in is as by get set constructor init companion data sealed enum annotation open abstract override private protected public internal lateinit inline noinline crossinline reified suspend operator infix tailrec external const vararg where out actual expect value this super it",
             TokenType.CONSTANT to "true false null"),
-        declarators = declare, annotationPrefix = '@', capitalizedTypes = true)
+        pathKeywords = setOf("package", "import"), declarators = declare, annotationPrefix = '@', capitalizedTypes = true)
 
     val JAVA = CodeLanguage("java", "Java", lineComments = slashComments, blockComments = cBlock,
         strings = listOf(StringRule("\"\"\"", escape = null, multiline = true)) + cStrings,
         words = wordMap(false, TokenType.KEYWORD to "abstract assert break case catch class continue default do else enum extends final finally for if implements import instanceof interface native new package private protected public return static strictfp super switch synchronized this throw throws transient try volatile while var record yield sealed permits",
             TokenType.TYPE to "void boolean byte char double float int long short",
             TokenType.CONSTANT to "true false null"),
-        declarators = declare, annotationPrefix = '@', capitalizedTypes = true, identifierExtra = "_$")
+        pathKeywords = setOf("package", "import"), declarators = declare, annotationPrefix = '@', capitalizedTypes = true, identifierExtra = "_$")
 
     private const val JS_KEYWORDS = "break case catch class const continue debugger default delete do else export extends finally for from function if import in instanceof let new of return static super switch this throw try typeof var void while with yield async await get set as"
     val JAVASCRIPT = CodeLanguage("javascript", "JavaScript", lineComments = slashComments, blockComments = cBlock,
