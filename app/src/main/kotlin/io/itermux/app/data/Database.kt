@@ -18,10 +18,19 @@ data class Host(
     val encryptedPassword: ByteArray? = null,
     val encryptedKey: ByteArray? = null,
     val keyLabel: String? = null,
-    @ColumnInfo(defaultValue = "'UNKNOWN'") val os: String = "UNKNOWN"
+    @ColumnInfo(defaultValue = "'UNKNOWN'") val os: String = "UNKNOWN",
+    /** Installed plugins as [HostPlugin.encode]; null until the host has been probed. */
+    val plugins: String? = null
 ) {
     fun target(modeOverride: SessionMode? = null) = Target(address, port, username, AuthMethod.valueOf(auth), modeOverride ?: SessionMode.valueOf(mode))
 }
+
+val Host.installedPlugins: Set<HostPlugin>? get() = HostPlugin.decode(plugins)
+/** New sessions use tmux when the host has it; before the first probe the saved mode applies. */
+val Host.newSessionMode: SessionMode get() = installedPlugins?.let { if (HostPlugin.TMUX in it) SessionMode.TMUX else SessionMode.SHELL }
+    ?: SessionMode.valueOf(mode)
+/** Terminals prefer mosh whenever the host has mosh-server. */
+val Host.prefersMosh: Boolean get() = installedPlugins?.contains(HostPlugin.MOSH) == true
 
 @Entity(tableName = "host_pins")
 data class StoredPin(@PrimaryKey val endpoint: String, val algorithm: String, val key: String) {
@@ -36,13 +45,15 @@ interface HostDao {
     // A probe for an old address must neither overwrite an edited host nor resurrect a deleted one.
     @Query("UPDATE hosts SET os = :os WHERE id = :id AND address = :address AND port = :port AND username = :username")
     suspend fun updateSystem(id: String, address: String, port: Int, username: String, os: String)
+    @Query("UPDATE hosts SET plugins = :plugins WHERE id = :id AND address = :address AND port = :port AND username = :username")
+    suspend fun updatePlugins(id: String, address: String, port: Int, username: String, plugins: String)
     @Query("DELETE FROM hosts WHERE id = :id") suspend fun delete(id: String)
     @Query("SELECT * FROM host_pins WHERE endpoint = :endpoint") suspend fun pin(endpoint: String): StoredPin?
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertPin(pin: StoredPin): Long
     @Query("DELETE FROM host_pins WHERE endpoint = :endpoint") suspend fun forgetPin(endpoint: String)
 }
 
-@Database(entities = [Host::class, StoredPin::class], version = 2, autoMigrations = [AutoMigration(from = 1, to = 2)], exportSchema = true)
+@Database(entities = [Host::class, StoredPin::class], version = 3, autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)], exportSchema = true)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun hosts(): HostDao
     companion object {

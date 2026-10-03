@@ -13,7 +13,9 @@ internal data class ConnectRequest(
     /** When set, reattach this journal entry (same remote tmux name) instead of opening a new session. */
     val reuseSessionId: String? = null,
     /** After connect succeeds, open the remote file browser instead of the terminal. */
-    val openFilesAfterConnect: Boolean = false
+    val openFilesAfterConnect: Boolean = false,
+    /** Credentials are for the plugin installer, not a terminal. */
+    val plugins: Boolean = false
 )
 
 internal fun authLabel(auth: String) = when (auth) {

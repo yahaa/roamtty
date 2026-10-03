@@ -24,12 +24,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.data.Host
+import io.itermux.app.data.installedPlugins
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.session.clipSessionTitle
 import io.itermux.ssh.SessionMode
 import io.itermux.ssh.HostSystem
+import io.itermux.ssh.HostPlugin
+import io.itermux.ssh.TerminalTransport
 
-@Composable internal fun HostCard(host: Host, connect: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit) {
+@Composable internal fun HostCard(host: Host, connect: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit,
+    managePlugins: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     ListCard(onClick = connect, onClickLabel = tr("连接"), modifier = Modifier.testTag("host-card-${host.id}")) {
@@ -51,6 +55,9 @@ import io.itermux.ssh.HostSystem
                     DropdownMenuItem(text = { Text(tr("查看文件")) }, onClick = { menu = false; browseFiles() },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null) },
                         modifier = Modifier.testTag("host-browse-files-${host.id}"))
+                    DropdownMenuItem(text = { Text(tr("安装插件")) }, onClick = { menu = false; managePlugins() },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_download), contentDescription = null) },
+                        modifier = Modifier.testTag("host-plugins-${host.id}"))
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text(tr("删除主机")) }, onClick = { menu = false; delete() },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null) },
@@ -60,7 +67,12 @@ import io.itermux.ssh.HostSystem
         }
         Row(Modifier.padding(top = Spacing.Row), horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            MetaTag(modeLabel(host.mode == SessionMode.TMUX.name))
+            // Once probed, the card lists only the plugins the host actually has.
+            val plugins = host.installedPlugins
+            if (plugins == null) MetaTag(modeLabel(host.mode == SessionMode.TMUX.name))
+            else HostPlugin.entries.filter { it in plugins }.forEach {
+                MetaTag(it.id, Modifier.testTag("host-plugin-${it.id}-${host.id}"))
+            }
             MetaTag(authLabel(host.auth))
             if (host.os == "UNKNOWN") MetaTag(tr("待检测系统"))
         }
@@ -70,6 +82,7 @@ import io.itermux.ssh.HostSystem
 @Composable internal fun SessionCard(session: TerminalConnection, onOpen: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {}) {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
+    val transport by session.transport.collectAsStateWithLifecycle()
     val colors = MaterialTheme.colorScheme
     var confirmClose by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
@@ -94,6 +107,10 @@ import io.itermux.ssh.HostSystem
             StatusLabel(state.phase)
             Spacer(Modifier.width(Spacing.Tight))
             MetaTag(modeLabel(session.mode == SessionMode.TMUX))
+            if (transport == TerminalTransport.MOSH) {
+                Spacer(Modifier.width(Spacing.Tight))
+                MetaTag("mosh", Modifier.testTag("session-mosh-${session.id}"))
+            }
             Spacer(Modifier.weight(1f))
             if (!state.active && session.mode == SessionMode.TMUX)
                 TextButton(onClick = { confirmForget = true }) { Text(tr("移除记录")) }
