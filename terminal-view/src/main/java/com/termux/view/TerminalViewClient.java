@@ -28,6 +28,9 @@ public interface TerminalViewClient {
      */
     void onSingleTapUp(MotionEvent e);
 
+    /** Explicit double-tap action on a writable terminal, fired only once no third tap follows. Read-only history never calls this. */
+    default void onDoubleTap(MotionEvent e) {}
+
     /** Explicit triple-tap action on a writable terminal. Read-only history never calls this. */
     default void onTripleTap(MotionEvent e) {}
 
