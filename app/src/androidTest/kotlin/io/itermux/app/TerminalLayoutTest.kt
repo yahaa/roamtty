@@ -113,26 +113,15 @@ class TerminalLayoutTest {
     private fun checkDock() {
         compose.onNodeWithTag("terminal-dock").assertExists()
         compose.onNodeWithTag("restore-dock").assertDoesNotExist()
-        compose.onNodeWithTag("terminal-keys").assertDoesNotExist()
-        val session = compose.onNodeWithTag("session-switcher").fetchSemanticsNode().boundsInRoot
-        val keyboard = compose.onNodeWithTag("keyboard-toggle").fetchSemanticsNode().boundsInRoot
-        val menu = compose.onNodeWithTag("terminal-menu").fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("keyboard-toggle").assertDoesNotExist()
+        compose.onNodeWithContentDescription(tr("终端设置")).assertExists()
         val dock = compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot
-        assertTrue("Operation rail must occupy visible space", dock.width > 0f && dock.height > 0f)
-        if (dock.width > 80 * compose.activity.resources.displayMetrics.density) {
-            assertTrue("Wide rail keeps the session above primary controls", session.bottom <= keyboard.top + 1f)
-            val transfer = compose.onNodeWithTag("upload-file").fetchSemanticsNode().boundsInRoot
-            assertEquals("Wide rail pairs keyboard and upload", keyboard.center.y, transfer.center.y, 2f)
-            assertTrue("Keyboard precedes upload in the wide rail", keyboard.right <= transfer.left + 1f)
-        } else {
-            assertEquals("Session and keyboard must align vertically", session.center.x, keyboard.center.x, 2f)
-            assertTrue("Keyboard follows the session", session.bottom <= keyboard.top + 1f)
-            // The short rail scrolls while the IME is open; the menu may be outside the viewport.
-            if (menu.width > 0f && menu.height > 0f && menu.top >= dock.top && menu.bottom <= dock.bottom + 1f) {
-                assertEquals("Keyboard and menu must align vertically", keyboard.center.x, menu.center.x, 2f)
-                assertTrue("Menu follows the keyboard", keyboard.bottom <= menu.top + 1f)
-            }
-        }
+        val viewport = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
+        val margin = 4 * compose.activity.resources.displayMetrics.density
+        val expectedTop = (viewport.top + viewport.height * 0.618f - dock.height / 2)
+            .coerceIn(viewport.top + margin, (viewport.bottom - margin - dock.height).coerceAtLeast(viewport.top + margin))
+        assertEquals("Dock follows the lower golden section and stays on screen", expectedTop, dock.top, 2f)
+        assertTrue(dock.bottom <= viewport.bottom && dock.top >= viewport.top)
     }
 
     private fun checkCollapsedDock() {
@@ -140,6 +129,8 @@ class TerminalLayoutTest {
         listOf("upload-file", "download-file", "select-image").forEach { compose.onNodeWithTag(it).assertDoesNotExist() }
         val more = compose.onNodeWithTag("restore-dock").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val density = compose.activity.resources.displayMetrics.density
+        val viewport = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
+        assertEquals("Collapsed button follows the lower golden section", viewport.top + viewport.height * 0.618f, more.center.y, 2f)
         assertEquals("Collapsed controls occupy one button", 48 * density, more.width, 1f)
         val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
         assertTrue("More leaves the scrollbar touch strip clear", more.right <= terminal.right - 20 * density)
@@ -213,43 +204,23 @@ class TerminalLayoutTest {
         }
     }
 
-    private suspend fun checkKeyboardToggle(name: String) {
+    private suspend fun checkKeyboardLayout(name: String) {
         checkDock()
-        val button = compose.onNodeWithTag("keyboard-toggle").fetchSemanticsNode().boundsInRoot
-        val dockWidth = compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot.width
-        repeat(3) { attempt ->
-            // Use real touch events to cover native terminal / Compose focus handoff.
-            compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
-            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
-            delay(500)
-            compose.onNodeWithContentDescription("收起键盘").assertIsDisplayed()
-            checkDock()
-            val opened = compose.onNodeWithTag("keyboard-toggle").fetchSemanticsNode().boundsInRoot
-            val openedDockWidth = compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot.width
-            if (kotlin.math.abs(dockWidth - openedDockWidth) < 2f) {
-                assertEquals("Keyboard button must not move horizontally", button.center.x, opened.center.x, 2f)
-                assertEquals("Keyboard button must not move vertically", button.center.y, opened.center.y, 2f)
-            }
-            val workspace = compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot
-            val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
-            assertTrue("Keyboard must leave the terminal visible", terminal.height > workspace.height * 0.99f)
-            if (attempt == 0) capture("$name-keyboard")
-            if (attempt == 1) shell("input keyevent 4")
-            else compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
-            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
-            delay(500)
-            compose.onNodeWithContentDescription("键盘", substring = false).assertIsDisplayed()
-            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
-            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
-            restoreDockAfterOutsideTap()
-            checkDock()
-            compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
-            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
-            compose.waitUntil(8000) {
-                compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot.height >
-                    compose.onRoot().fetchSemanticsNode().boundsInRoot.height * 0.8f
-            }
-        }
+        val before = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+        compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+        restoreDockAfterOutsideTap()
+        delay(500)
+        checkDock()
+        val opened = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
+        assertTrue("Keyboard reduces the available dock viewport", opened.height < before.height)
+        compose.onNodeWithTag("terminal-shortcuts").performScrollTo().assertIsDisplayed()
+        capture("$name-keyboard")
+        shell("input keyevent 4")
+        compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+        delay(500)
+        compose.onNodeWithTag("collapse-dock").performScrollTo()
+        checkDock()
     }
 
     private fun checkViewport(name: String, reservedWidthDp: Int = 0) {
@@ -344,14 +315,14 @@ class TerminalLayoutTest {
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
             restoreDockAfterOutsideTap()
             checkDock()
-            compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
+            shell("input keyevent 4")
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
-            checkKeyboardToggle("layout-portrait-floating")
+            checkKeyboardLayout("layout-portrait-floating")
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("快捷键", substring = true).assertDoesNotExist()
             compose.onNodeWithText("固定操作栏").performClick()
             checkViewport("layout-portrait-pinned", reservedWidthDp = 48)
-            checkKeyboardToggle("layout-portrait-pinned")
+            checkKeyboardLayout("layout-portrait-pinned")
             compose.activityRule.scenario.recreate()
             foreground()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal-dock").fetchSemanticsNodes().isNotEmpty() }
@@ -360,11 +331,11 @@ class TerminalLayoutTest {
             rotate(true)
             checkViewport("layout-landscape-pinned", reservedWidthDp = 96)
             assertTrue(withContext(Dispatchers.Main) { session.getEmulator().mColumns } > portraitColumns)
-            checkKeyboardToggle("layout-landscape-pinned")
+            checkKeyboardLayout("layout-landscape-pinned")
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("取消固定操作栏").performClick()
             checkViewport("layout-landscape-floating")
-            checkKeyboardToggle("layout-landscape-floating")
+            checkKeyboardLayout("layout-landscape-floating")
 
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("编辑文本").performClick()

@@ -17,6 +17,7 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
     var menuEntry by mutableStateOf<RemoteEntry?>(null)
     var renamePath by mutableStateOf<String?>(null)
     var renameDraft by mutableStateOf("")
+    var previewPath by mutableStateOf<String?>(null)
     var deletePath by mutableStateOf<String?>(null)
     var deleteIsDirectory by mutableStateOf(false)
     var operation by mutableStateOf<String?>(null)

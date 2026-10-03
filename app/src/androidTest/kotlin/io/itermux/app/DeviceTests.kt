@@ -404,22 +404,15 @@ class TerminalUiTest {
             shell("input keyevent 4")
             compose.waitUntil(8000) { !keyboardVisible() }
             showControls()
-            repeat(3) { attempt ->
-                compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
-                compose.waitUntil(8000) { keyboardVisible() }
-                delay(500)
-                compose.onNodeWithContentDescription("收起键盘").assertIsDisplayed()
-                compose.onNodeWithTag("terminal-keys").assertDoesNotExist()
-                if (attempt == 1) shell("input keyevent 4")
-                else compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
-                compose.waitUntil(8000) { !keyboardVisible() }
-                delay(500)
-                compose.onNodeWithContentDescription("键盘", substring = false).assertIsDisplayed()
+            repeat(3) {
+                compose.onNodeWithTag("keyboard-toggle").assertDoesNotExist()
                 compose.onNodeWithTag("terminal").performTouchInput { click(center) }
                 compose.waitUntil(8000) { keyboardVisible() }
-                compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
-                compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
+                compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+                shell("input keyevent 4")
                 compose.waitUntil(8000) { !keyboardVisible() }
+                showControls()
+                compose.onNodeWithContentDescription("终端设置").assertIsDisplayed()
             }
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id) }

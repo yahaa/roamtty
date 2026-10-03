@@ -29,6 +29,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -45,8 +46,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.view.SoftwareKeyboardControllerCompat
 import androidx.core.content.edit
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import com.termux.view.TerminalView
 import io.itermux.app.TerminalFonts
 import io.itermux.app.session.*
@@ -95,7 +94,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val composeView = LocalView.current
     val keyboard = remember(composeView) { SoftwareKeyboardControllerCompat(composeView) }
     val imeVisible = WindowInsets.isImeVisible
-    // Keep controls in the same place when the keyboard opens; only explicit pinning reserves space.
+    // Only explicit pinning reserves terminal width; placement follows the IME-sized viewport.
     val dockVisible = !editor && (dockPinned || dockExpanded)
     val dockReserved = dockVisible && dockPinned
     val floatingDock = dockVisible && !dockReserved
@@ -199,7 +198,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
     }
     val dock: @Composable (Dp) -> Unit = { availableHeight ->
-        TerminalDock(floatingDock, availableHeight, landscape, imeVisible, modifier = Modifier.onGloballyPositioned { dockBounds = it.boundsInRoot() }, collapseControl = {
+        TerminalDock(availableHeight, landscape, imeVisible, modifier = Modifier.onGloballyPositioned { dockBounds = it.boundsInRoot() }, collapseControl = {
             IconButton(onClick = {
                 ctrlArmed = false
                 shiftArmed = false
@@ -241,15 +240,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     "tmux-history", enabled = state.phase == Phase.CONNECTED, selected = tmuxHistory?.active == true,
                     onClick = { hideKeyboard(); if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
             }
-            IconButton(onClick = {
-                // Query native window state at click time, including IMEs with no bottom inset.
-                val visible = ViewCompat.getRootWindowInsets(composeView)?.isVisible(WindowInsetsCompat.Type.ime()) ?: imeVisible
-                if (visible) hideKeyboard()
-                else terminal?.let { view ->
-                    view.requestFocus()
-                    SoftwareKeyboardControllerCompat(view).show()
-                }
-            }, modifier = Modifier.testTag("keyboard-toggle")) { Icon(painterResource(R.drawable.ic_keyboard), contentDescription = if (imeVisible) tr("收起键盘") else tr("键盘"), modifier = Modifier.size(22.dp)) }
             fileControls()
             IconButton(
                 onClick = { hideKeyboard(); commonCommandsOpen = true },
@@ -259,7 +249,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 Icon(painterResource(R.drawable.ic_commands), contentDescription = tr("常用命令"))
             }
             Box {
-                IconButton(onClick = { ctrlArmed = false; shiftArmed = false; menu = true }, modifier = Modifier.semantics { contentDescription = tr("终端菜单") }.testTag("terminal-menu")) { Text("⋯", fontSize = 26.sp) }
+                IconButton(onClick = { ctrlArmed = false; shiftArmed = false; menu = true }, modifier = Modifier.testTag("terminal-menu")) {
+                    Icon(painterResource(R.drawable.ic_settings), contentDescription = tr("终端设置"))
+                }
                 DropdownMenu(menu, ::dismissDockMenus) {
                     DropdownMenuItem(text = { Text(tr("编辑文本")) }, onClick = { menu = false; editor = true; hideKeyboard() })
                     DropdownMenuItem(text = { Text(if (dockPinned) tr("取消固定操作栏") else tr("固定操作栏")) }, onClick = {
@@ -319,6 +311,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     BoxWithConstraints(modifier.fillMaxWidth().testTag("terminal-workspace")
         .onGloballyPositioned { workspaceOrigin = it.positionInRoot() }.then(outsideDockTouch)) {
         val workspaceHeight = maxHeight
+        val safeDockHeight = with(LocalDensity.current) {
+            workspaceHeight - WindowInsets.displayCutout.getTop(this).toDp() -
+                WindowInsets.displayCutout.getBottom(this).toDp() - 8.dp
+        }
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -389,24 +385,26 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     }
                 }
             }
-            if (dockReserved) dock(workspaceHeight)
+            if (dockReserved) TerminalDockPlacement(
+                Modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.End))
+                    .width(if (landscape && !imeVisible && safeDockHeight >= 320.dp) 96.dp else 48.dp),
+                endInset = 0.dp, content = dock)
         }
         if (floatingDock) {
-            // Offset (not end-padding) keeps the dock 24dp clear of the scrollbar hit strip
-            // without an invisible padded hit target covering that strip.
-            Surface(
-                modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding().padding(4.dp).offset(x = (-20).dp),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f),
-                shadowElevation = 4.dp
-            ) { dock(workspaceHeight) }
+            TerminalDockPlacement { height ->
+                Surface(shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f), shadowElevation = 4.dp
+                ) { dock(height) }
+            }
         } else if (!dockVisible && !editor) {
-            FilledTonalIconButton(
-                onClick = { dockExpanded = true },
-                modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding().padding(4.dp).offset(x = (-20).dp).size(48.dp).testTag("restore-dock"),
-                shape = CircleShape,
-                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
-            ) { Text("⋯", fontSize = 26.sp, modifier = Modifier.semantics { contentDescription = tr("显示操作栏") }) }
+            TerminalDockPlacement {
+                FilledTonalIconButton(
+                    onClick = { dockExpanded = true },
+                    modifier = Modifier.size(48.dp).testTag("restore-dock"),
+                    shape = CircleShape,
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
+                ) { Icon(painterResource(R.drawable.ic_settings), contentDescription = tr("显示操作栏")) }
+            }
         }
     }
     pending?.let { request -> PromptDialog(request) }

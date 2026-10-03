@@ -46,6 +46,38 @@ internal class SftpOperations(
         coroutineContext.ensureActive()
     }
 
+    suspend fun readFileContent(remotePath: String, maxBytes: Int): RemoteFileContent = withSftp { sftp ->
+        require(maxBytes in 1..IMAGE_PREVIEW_BYTES)
+        val path = literalSftpPath(validTransferPath(remotePath))
+        val attributes = sftp.stat(path)
+        require(attributes.isReg) { "只能预览普通文件" }
+        // Closing the preview cancels a blocked read without touching the terminal channel.
+        coroutineScope {
+            val cancellation = launch(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
+                try { awaitCancellation() } finally { sftp.disconnect() }
+            }
+            try {
+                val out = java.io.ByteArrayOutputStream(minOf(maxBytes, 8192))
+                sftp.get(path, transferMonitor(coroutineContext[Job]) {}).use { input ->
+                    val buffer = ByteArray(8192)
+                    var remaining = maxBytes + 1 // Detect growth after stat and exact-boundary files.
+                    while (remaining > 0) {
+                        coroutineContext.ensureActive()
+                        val count = input.read(buffer, 0, minOf(buffer.size, remaining))
+                        if (count < 0) break
+                        out.write(buffer, 0, count)
+                        remaining -= count
+                    }
+                }
+                coroutineContext.ensureActive()
+                val bytes = out.toByteArray()
+                RemoteFileContent(bytes.copyOf(minOf(bytes.size, maxBytes)), attributes.size, bytes.size > maxBytes)
+            } finally {
+                cancellation.cancel()
+            }
+        }
+    }
+
     /**
      * Read a remote text file (home-relative or absolute) without upload-path overwrite rules.
      * Returns null if missing. If larger than [maxBytes], keeps only the trailing bytes

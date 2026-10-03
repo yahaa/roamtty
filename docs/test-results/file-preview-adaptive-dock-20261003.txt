@@ -1,0 +1,41 @@
+File preview and adaptive terminal dock — 2026-10-03
+Base: origin/main 2e5fe40 (PR #12)
+Branch: feat/file-preview-adaptive-dock
+
+Implemented:
+- File browser title: current path followed by full-width parenthesized host name,
+  one line with ellipsis on overflow.
+- Floating entry, expanded dock and pinned controls centered at 61.8% of the safe
+  terminal viewport; clamped at the edges, scrollable in short windows, IME-aware.
+- Keyboard button removed; collapsed entry and dock settings use a gear icon.
+- Shared file-type icons in browser/download rows. Tap a file to preview; long
+  press and row menu retain download/save-as/rename/delete actions.
+- Read-only UTF-8 and BOM-marked UTF-16 preview (first 256 KiB), selectable text,
+  native raster image preview (up to 8 MiB, sampled to at most 2048 px per axis),
+  empty/unsupported/error states, retry and download. Preview path survives
+  Activity recreation. SFTP reads use independent channels and bounded buffers.
+- PDF, Office, audio/video and other binary formats have type icons and a
+  download fallback; no inline renderer for these formats.
+
+Validation:
+- assembleDebug, assembleDebugAndroidTest: PASS
+- app unit tests: 58 discovered; 57 passed, 1 optional benchmark skipped
+- ssh-core tests: 73 discovered; 49 passed, 24 optional environment tests skipped
+  ITERMUX_SFTP_FIXTURE=1 enabled real local SSH/SFTP preview/transfer tests.
+- lintDebug: PASS, 0 errors (17 warnings, 1 hint)
+- API 36 x86_64 emulator: 7/7 tests PASS on the final APK:
+  FilePreviewUiTest (2): single-line ellipsis; text/image/empty/binary/large/error/retry
+  FileBrowserLifecycleTest: navigation, preview recreation and rename draft
+  TerminalLayoutTest: lower golden-section geometry, portrait/landscape, keyboard,
+    floating/pinned/collapsed controls, editor and file picker regressions
+  TerminalExtraKeysTest: terminal byte delivery and one-shot Ctrl
+  FileTransferDeviceTest: Android document/SFTP round trip
+  DownloadDestinationTest#fileBrowserAndDownloadPanelUseTheSameDefault
+- git diff --check: PASS
+
+The first device run was interrupted by an emulator System UI ANR dialog.
+After closing the system dialog, the layout test and final 7-test suite passed.
+No physical device was attached, so no phone installation or phone validation.
+
+Logs and screenshots: .local/file-preview-validation/
+Delivery APK: /home/v/work/itermux/dist/iTermux-file-preview-20261003-debug.apk
