@@ -1,0 +1,5 @@
+Triple-tap paste (replaces double-tap paste)
+API 36 emulator (itermux-qa-api36):
+TerminalGesturesTest: passed, including "double tap does not paste" and third-tap cancel/drag/pinch/hold rejection.
+TerminalClipboardTest (ssh-key-echo fixture): 5 passed, 0 failed.
+:terminal-view:testDebugUnitTest and :app:assembleDebug passed.

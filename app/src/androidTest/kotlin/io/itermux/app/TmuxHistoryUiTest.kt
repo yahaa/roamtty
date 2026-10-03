@@ -153,7 +153,7 @@ class TmuxHistoryUiTest {
                     session.enterTmuxHistory()
                 }
                 withTimeout(8000) { while (session.tmuxHistory.value?.active != true) delay(40) }
-                compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
+                compose.onNodeWithTag("terminal").performTouchInput { tripleClick() }
                 withTimeout(8000) {
                     while (!withContext(Dispatchers.Main) {
                         session.tmuxHistory.value == null && session.emulator.screen.transcriptText.contains("printf 'PASTE_%s")
