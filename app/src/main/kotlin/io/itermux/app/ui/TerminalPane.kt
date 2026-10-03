@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -315,7 +316,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         })
     }
     // The workspace extends under the transparent status bar in the terminal's own background
-    // colour (including remote OSC 11 changes); text and controls stay below the bar.
+    // colour (including remote OSC 11 changes). In portrait the text runs under the bar too, faded
+    // by a scrim so the clock and icons stay legible; controls and notices stay below the bar.
     BoxWithConstraints(modifier.fillMaxWidth().testTag("terminal-workspace")
         .drawBehind { drawRect(terminalBackground(session, outputRevision.value)) }
         .onGloballyPositioned { workspaceOrigin = it.positionInRoot() }.then(outsideDockTouch)) {
@@ -326,7 +328,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                Box(Modifier.weight(1f).fillMaxWidth().statusBarsPadding().testTag("terminal-viewport")) {
+                Box(Modifier.weight(1f).fillMaxWidth().testTag("terminal-viewport")) {
                 AndroidView(modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 6.dp, top = 6.dp).clipToBounds()
                     .testTag("terminal"), factory = { ctx ->
                     // Session, theme, font and history are bound in update, which also runs after creation.
@@ -355,6 +357,16 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
                 if (showingOutput) OutputHistoryView(recordedOutput, fontSize, lightTheme)
+                // Hidden (landscape) status bars have no inset, so the scrim only appears under a visible bar.
+                val statusBars = WindowInsets.statusBars
+                Box(Modifier.fillMaxWidth().windowInsetsTopHeight(statusBars.add(WindowInsets(top = 12.dp)))
+                    .testTag("status-bar-scrim").drawBehind {
+                        val statusBar = statusBars.getTop(this).toFloat()
+                        if (statusBar <= 0f) return@drawBehind
+                        val background = terminalBackground(session, outputRevision.value)
+                        drawRect(Brush.verticalGradient(0f to background.copy(alpha = 0.85f),
+                            statusBar / size.height to background.copy(alpha = 0.55f), 1f to Color.Transparent))
+                    })
                 if (pending == null) {
                     if (state.phase != Phase.CONNECTED) TerminalNoticeOverlay {
                         if (state.active) TerminalConnectionProgress(state.phase, onCancel = session::disconnect)

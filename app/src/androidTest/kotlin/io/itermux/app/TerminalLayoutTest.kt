@@ -229,7 +229,7 @@ class TerminalLayoutTest {
     }
 
     private fun checkViewport(name: String, reservedWidthDp: Int = 0) {
-        // Portrait keeps the status bar visible above the terminal; landscape hides every system bar.
+        // Portrait keeps a transparent status bar over the terminal; landscape hides every system bar.
         val portrait = compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
         compose.waitUntil(8000) {
             val decor = compose.activity.window.decorView
@@ -250,13 +250,12 @@ class TerminalLayoutTest {
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
         // The text view keeps a small inner padding; bands are measured on the viewport that hosts it.
         val terminal = compose.onNodeWithTag("terminal-viewport").fetchSemanticsNode().boundsInRoot
-        val reservedBars = WindowInsetsCompat.Type.captionBar() or (if (portrait) WindowInsetsCompat.Type.statusBars() else 0)
         val insets = requireNotNull(ViewCompat.getRootWindowInsets(compose.activity.window.decorView))
-            .getInsets(reservedBars)
+            .getInsets(WindowInsetsCompat.Type.captionBar())
         val widthRatio = terminal.width / (root.width - insets.left - insets.right)
         val heightRatio = terminal.height / (root.height - insets.top - insets.bottom)
         measurements.appendLine("$name: root=${root.width}x${root.height}, terminal=${terminal.width}x${terminal.height}, width=$widthRatio, height=$heightRatio")
-        assertEquals("A camera cutout must not leave a blank band above the terminal", insets.top.toFloat(), terminal.top, 2f)
+        assertEquals("Neither a camera cutout nor the status bar may leave a band above the terminal", insets.top.toFloat(), terminal.top, 2f)
         assertEquals("A camera cutout must not leave a blank band beside the terminal", insets.left.toFloat(), terminal.left, 2f)
         val dockWidth = reservedWidthDp * compose.activity.resources.displayMetrics.density
         assertEquals("Only a pinned side rail may reserve terminal width", root.width - insets.left - insets.right - dockWidth, terminal.width, 2f)

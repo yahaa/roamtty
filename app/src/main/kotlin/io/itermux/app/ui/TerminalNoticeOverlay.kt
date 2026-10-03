@@ -26,7 +26,7 @@ import kotlin.math.roundToInt
  */
 @Composable
 internal fun TerminalNoticeOverlay(content: @Composable () -> Unit) {
-    Layout(content = content, modifier = Modifier.fillMaxSize().displayCutoutPadding()
+    Layout(content = content, modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout.union(WindowInsets.statusBars))
         .testTag("terminal-notice-viewport")) { measurables, constraints ->
         val width = constraints.maxWidth
         val height = constraints.maxHeight
