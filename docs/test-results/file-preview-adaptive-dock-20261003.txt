@@ -7,7 +7,8 @@ Implemented:
   one line with ellipsis on overflow.
 - Floating entry, expanded dock and pinned controls centered at 61.8% of the safe
   terminal viewport; clamped at the edges, scrollable in short windows, IME-aware.
-- Keyboard button removed; collapsed entry and dock settings use a gear icon.
+- Keyboard button removed; the collapsed entry keeps its three-dot icon and
+  the settings button inside the expanded dock uses a gear icon.
 - Shared file-type icons in browser/download rows. Tap a file to preview; long
   press and row menu retain download/save-as/rename/delete actions.
 - Read-only UTF-8 and BOM-marked UTF-16 preview (first 256 KiB), selectable text,
@@ -23,7 +24,7 @@ Validation:
 - ssh-core tests: 73 discovered; 49 passed, 24 optional environment tests skipped
   ITERMUX_SFTP_FIXTURE=1 enabled real local SSH/SFTP preview/transfer tests.
 - lintDebug: PASS, 0 errors (17 warnings, 1 hint)
-- API 36 x86_64 emulator: 7/7 tests PASS on the final APK:
+- API 36 x86_64 emulator: 7/7 tests PASS on commit 650d15f:
   FilePreviewUiTest (2): single-line ellipsis; text/image/empty/binary/large/error/retry
   FileBrowserLifecycleTest: navigation, preview recreation and rename draft
   TerminalLayoutTest: lower golden-section geometry, portrait/landscape, keyboard,
@@ -38,4 +39,7 @@ After closing the system dialog, the layout test and final 7-test suite passed.
 No physical device was attached, so no phone installation or phone validation.
 
 Logs and screenshots: .local/file-preview-validation/
-Delivery APK: /home/v/work/itermux/dist/iTermux-file-preview-20261003-debug.apk
+Follow-up: restored the collapsed entry to the existing ic_more drawable;
+  the internal settings icon and all behavior/placement are unchanged.
+  assembleDebug passed after this icon-only correction.
+Delivery APK: /home/v/work/itermux/dist/iTermux-file-preview-20261003-r2-debug.apk
