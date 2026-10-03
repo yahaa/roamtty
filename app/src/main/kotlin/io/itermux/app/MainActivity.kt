@@ -12,7 +12,10 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.itermux.app.session.SessionService
+import io.itermux.app.ui.DarkColors
 import io.itermux.app.ui.ItermuxScreen
+import io.itermux.app.ui.LightColors
+import androidx.compose.ui.graphics.toArgb
 
 class MainActivity : ComponentActivity() {
     private var service by mutableStateOf<SessionService?>(null)
@@ -66,10 +69,11 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
     private fun updateSystemBars() {
+        val background = (if (lightTheme) LightColors else DarkColors).background.toArgb()
         @Suppress("DEPRECATION")
-        window.statusBarColor = if (lightTheme) 0xFFF7F5F1.toInt() else 0xFF252728.toInt()
+        window.statusBarColor = background
         @Suppress("DEPRECATION")
-        window.navigationBarColor = if (lightTheme) 0xFFF7F5F1.toInt() else 0xFF252728.toInt()
+        window.navigationBarColor = background
         WindowCompat.getInsetsController(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             isAppearanceLightStatusBars = lightTheme
@@ -77,7 +81,7 @@ class MainActivity : ComponentActivity() {
             if (terminalVisible) hide(WindowInsetsCompat.Type.systemBars())
             else show(WindowInsetsCompat.Type.systemBars())
         }
-        window.decorView.setBackgroundColor(if (lightTheme) 0xFFF7F5F1.toInt() else 0xFF252728.toInt())
+        window.decorView.setBackgroundColor(background)
     }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)

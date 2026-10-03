@@ -57,20 +57,8 @@ internal class SftpOperations(
                 try { awaitCancellation() } finally { sftp.disconnect() }
             }
             try {
-                val out = java.io.ByteArrayOutputStream(minOf(maxBytes, 8192))
-                sftp.get(path, transferMonitor(coroutineContext[Job]) {}).use { input ->
-                    val buffer = ByteArray(8192)
-                    var remaining = maxBytes + 1 // Detect growth after stat and exact-boundary files.
-                    while (remaining > 0) {
-                        coroutineContext.ensureActive()
-                        val count = input.read(buffer, 0, minOf(buffer.size, remaining))
-                        if (count < 0) break
-                        out.write(buffer, 0, count)
-                        remaining -= count
-                    }
-                }
-                coroutineContext.ensureActive()
-                val bytes = out.toByteArray()
+                // One extra byte detects growth after stat and exact-boundary files.
+                val bytes = readBounded(sftp.get(path, transferMonitor(coroutineContext[Job]) {}), maxBytes + 1)
                 RemoteFileContent(bytes.copyOf(minOf(bytes.size, maxBytes)), attributes.size, bytes.size > maxBytes)
             } finally {
                 cancellation.cancel()
@@ -93,21 +81,7 @@ internal class SftpOperations(
         }
         if (attributes.isDir) return@withSftp null
         val offset = (attributes.size - maxBytes).coerceAtLeast(0)
-        val out = java.io.ByteArrayOutputStream(maxBytes)
-        // Bound both network reads and allocation even if the file grows after stat.
-        sftp.get(path, transferMonitor(coroutineContext[Job]) {}, offset).use { input ->
-            var remaining = maxBytes
-            val buffer = ByteArray(8192)
-            while (remaining > 0) {
-                coroutineContext.ensureActive()
-                val count = input.read(buffer, 0, minOf(buffer.size, remaining))
-                if (count < 0) break
-                out.write(buffer, 0, count)
-                remaining -= count
-            }
-        }
-        coroutineContext.ensureActive()
-        val bytes = out.toByteArray()
+        val bytes = readBounded(sftp.get(path, transferMonitor(coroutineContext[Job]) {}, offset), maxBytes)
         String(bytes, Charsets.UTF_8) to (offset > 0)
     }
 
@@ -199,6 +173,22 @@ internal class SftpOperations(
                 throw IllegalStateException("无法删除文件：$path（${e.message}）", e)
             }
         }
+    }
+
+    /** Bound both network reads and allocation, even if the file grows after stat. */
+    private suspend fun readBounded(source: InputStream, limit: Int): ByteArray = source.use { input ->
+        val out = java.io.ByteArrayOutputStream(minOf(limit, 8192))
+        val buffer = ByteArray(8192)
+        var remaining = limit
+        while (remaining > 0) {
+            coroutineContext.ensureActive()
+            val count = input.read(buffer, 0, minOf(buffer.size, remaining))
+            if (count < 0) break
+            out.write(buffer, 0, count)
+            remaining -= count
+        }
+        coroutineContext.ensureActive()
+        out.toByteArray()
     }
 
     private suspend fun <T> withSftp(block: suspend (ChannelSftp) -> T): T = withContext(Dispatchers.IO) {

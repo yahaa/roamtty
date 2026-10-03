@@ -33,23 +33,16 @@ internal class SessionQueues {
     fun currentSizes(): Channel<IntArray> = sizes
 
     @Synchronized fun reopen() {
-        accepting.set(false)
-        val previousInput = input
-        val previousSizes = sizes
+        close()
         input = Channel(64)
         sizes = Channel(Channel.CONFLATED)
-        previousInput.close()
-        previousSizes.close()
-        while (true) (previousInput.tryReceive().getOrNull() ?: break).fill(0)
-        while (true) previousSizes.tryReceive().getOrNull() ?: break
     }
 
+    /** Stop accepting and wipe any input that was never written. */
     @Synchronized fun close() {
         accepting.set(false)
-        val currentInput = input
-        val currentSizes = sizes
-        currentInput.close()
-        currentSizes.close()
-        while (true) (currentInput.tryReceive().getOrNull() ?: break).fill(0)
+        input.close()
+        sizes.close()
+        while (true) (input.tryReceive().getOrNull() ?: break).fill(0)
     }
 }

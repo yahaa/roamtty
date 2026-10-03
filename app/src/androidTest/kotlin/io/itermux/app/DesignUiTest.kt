@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.itermux.app.session.CommonCommandsState
+import io.itermux.app.session.TransferStatus
 import io.itermux.app.ui.*
 import io.itermux.ssh.RemoteEntry
 import org.junit.Assert.*
@@ -110,8 +111,8 @@ class DesignUiTest {
         var dismissed = false
         compose.setContent {
             MaterialTheme(colorScheme = DarkColors) {
-                TransferStatusDialog("preview.png", 128, 128, false, trf("已上传：%s", path), {},
-                    { dismissed = true }, remotePath = path, onInsertPath = { inserted = it })
+                TransferStatusDialog(TransferStatus("preview.png", 128, 128, result = trf("已上传：%s", path),
+                    remotePath = path), {}, { dismissed = true }, onInsertPath = { inserted = it })
             }
         }
         compose.onNodeWithTag("copy-upload-path").performScrollTo().performClick()

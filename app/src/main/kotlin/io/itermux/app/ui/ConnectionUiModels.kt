@@ -22,6 +22,8 @@ internal fun authLabel(auth: String) = when (auth) {
     else -> tr("密码")
 }
 
+internal fun modeLabel(tmux: Boolean) = if (tmux) tr("tmux · 可恢复") else tr("SSH · 普通会话")
+
 internal fun phaseLabel(phase: Phase) = when (phase) {
     Phase.CONNECTING -> tr("连接中")
     Phase.VERIFYING -> tr("待验证")

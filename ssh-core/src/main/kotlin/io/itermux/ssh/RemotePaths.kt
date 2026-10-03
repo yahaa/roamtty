@@ -96,7 +96,7 @@ fun remotePathSearch(directory: String, query: String): RemotePathSearch {
     return RemotePathSearch((if (path.startsWith('/')) "/" else "") + parts.joinToString("/"), query.substring(slash + 1))
 }
 
-internal fun validWorkingDirectory(output: String?): String? = output?.removeSuffix("\n")?.removeSuffix("\r")
+fun validWorkingDirectory(output: String?): String? = output?.removeSuffix("\n")?.removeSuffix("\r")
     ?.takeIf { it.startsWith('/') && it.length <= 4096 && it.none { c -> c == '\u0000' || c == '\n' || c == '\r' } }
 
 /** Find the login shell belonging to this SSH transport, without writing commands into its PTY. */
