@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
-/** Center on the lower golden section of the current safe viewport, then clamp to its edges. */
+/** Center on the upper golden section of the current safe viewport, then clamp to its edges. */
 @Composable
 internal fun TerminalDockPlacement(modifier: Modifier = Modifier, endInset: Dp = 24.dp,
     content: @Composable (Dp) -> Unit) {
@@ -25,7 +25,7 @@ internal fun TerminalDockPlacement(modifier: Modifier = Modifier, endInset: Dp =
             val inset = endInset.roundToPx().coerceAtMost(constraints.maxWidth)
             val child = measurables.single().measure(Constraints(
                 maxWidth = constraints.maxWidth - inset, maxHeight = constraints.maxHeight - 2 * margin))
-            val top = (constraints.maxHeight * 0.618f - child.height / 2f).roundToInt()
+            val top = (constraints.maxHeight * 0.382f - child.height / 2f).roundToInt()
                 .coerceIn(margin, (constraints.maxHeight - margin - child.height).coerceAtLeast(margin))
             layout(constraints.maxWidth, constraints.maxHeight) {
                 child.placeRelative(constraints.maxWidth - inset - child.width, top)

@@ -118,9 +118,9 @@ class TerminalLayoutTest {
         val dock = compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot
         val viewport = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
         val margin = 4 * compose.activity.resources.displayMetrics.density
-        val expectedTop = (viewport.top + viewport.height * 0.618f - dock.height / 2)
+        val expectedTop = (viewport.top + viewport.height * 0.382f - dock.height / 2)
             .coerceIn(viewport.top + margin, (viewport.bottom - margin - dock.height).coerceAtLeast(viewport.top + margin))
-        assertEquals("Dock follows the lower golden section and stays on screen", expectedTop, dock.top, 2f)
+        assertEquals("Dock follows the upper golden section and stays on screen", expectedTop, dock.top, 2f)
         assertTrue(dock.bottom <= viewport.bottom && dock.top >= viewport.top)
     }
 
@@ -132,7 +132,7 @@ class TerminalLayoutTest {
         compose.waitUntil(8000) {
             val button = compose.onNodeWithTag("restore-dock").fetchSemanticsNode().boundsInRoot
             val viewport = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
-            kotlin.math.abs(viewport.top + viewport.height * 0.618f - button.center.y) <= 2f
+            kotlin.math.abs(viewport.top + viewport.height * 0.382f - button.center.y) <= 2f
         }
         val more = compose.onNodeWithTag("restore-dock").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val density = compose.activity.resources.displayMetrics.density

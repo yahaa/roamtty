@@ -5,7 +5,7 @@ Branch: feat/file-preview-adaptive-dock
 Implemented:
 - File browser title: current path followed by full-width parenthesized host name,
   one line with ellipsis on overflow.
-- Floating entry, expanded dock and pinned controls centered at 61.8% of the safe
+- Floating entry, expanded dock and pinned controls centered at 38.2% from the top of the safe
   terminal viewport; clamped at the edges, scrollable in short windows, IME-aware.
 - Keyboard button removed; the collapsed entry keeps its three-dot icon and
   the settings button inside the expanded dock uses a gear icon.
@@ -66,3 +66,18 @@ Follow-up (r3):
 - Delivery APK: /home/v/work/itermux/dist/iTermux-0.1.0-dots-r3-debug.apk
 - Verified screenshot: /home/v/work/itermux/dist/iTermux-0.1.0-dots-r3-verified.png
 - Logs: .local/file-preview-validation/dots-r3-*. No physical device tested.
+
+Follow-up (r4):
+- Moved the collapsed three-dot entry, expanded dock and pinned controls to the
+  upper golden section: 38.2% from the top of the safe terminal viewport.
+  Insets, edge clamping, scrolling and keyboard adaptation continue to apply.
+- Updated the existing layout assertions and README for the new position.
+- assembleDebug and assembleDebugAndroidTest with
+  -PitermuxVersionName=0.1.0-dock-r4: PASS.
+- Installed the exact delivery APK on the API 36 emulator and confirmed version
+  0.1.0-dock-r4. Delivered/installed SHA-256 both:
+  a6cc6b422a0c28e71b8202051a99ee2cb98543d57c18b1918c465e346b0ee370.
+- TerminalLayoutTest: PASS (portrait/landscape, IME, collapsed/expanded/pinned
+  positions, editor and file picker regressions). Screenshots visually checked.
+- Latest APK: /home/v/work/itermux/dist/iTermux-0.1.0-dock-r4-debug.apk
+- Logs/screenshots: .local/file-preview-validation/dock-r4-*
