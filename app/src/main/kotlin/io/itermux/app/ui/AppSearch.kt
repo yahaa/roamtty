@@ -20,7 +20,7 @@ internal fun AppSearchField(value: String, onValueChange: (String) -> Unit, plac
     modifier: Modifier = Modifier, keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default) {
     OutlinedTextField(value, onValueChange, placeholder = { Text(placeholder) },
-        leadingIcon = { Text("⌕", fontSize = 23.sp) },
+        leadingIcon = { Icon(painterResource(R.drawable.ic_search), contentDescription = null) },
         trailingIcon = { if (value.isNotEmpty()) TextButton(onClick = { onValueChange("") }) { Text(tr("清除")) } },
         singleLine = true, modifier = modifier, shape = RoundedCornerShape(14.dp),
         keyboardOptions = keyboardOptions, keyboardActions = keyboardActions)

@@ -50,6 +50,7 @@ import com.termux.view.TerminalView
 import io.itermux.app.TerminalFonts
 import io.itermux.app.session.*
 import io.itermux.app.R
+import io.itermux.ssh.HistorySource
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.launch
@@ -62,7 +63,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val pending by session.pending.collectAsStateWithLifecycle()
     val warning by session.inputWarning.collectAsStateWithLifecycle()
     val tmuxHistory by session.tmuxHistory.collectAsStateWithLifecycle()
-    val showingOutput = tmuxHistory?.let { it.active && it.source == io.itermux.ssh.HistorySource.OUTPUT } == true
+    val showingOutput = tmuxHistory?.let { it.active && it.source == HistorySource.OUTPUT } == true
     val recordedOutput = remember(session, showingOutput) { if (showingOutput) session.outputHistorySnapshot() else emptyList() }
     BackHandler(showingOutput) { session.exitTmuxHistory() }
     val sessionTitle by session.title.collectAsStateWithLifecycle()
@@ -126,18 +127,14 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         session.draft = draft.text
     }
     fun terminalKey(keyCode: Int) {
-        val arrow = keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ||
-            keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
-        // Sticky Shift applies to arrows (e.g. Shift+Left → CSI ESC[1;2D); Ctrl stays keyboard-only.
-        if (!arrow) {
+        // Sticky modifiers apply to arrows (e.g. Shift+Left → CSI ESC[1;2D); other keys are sent unmodified.
+        if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) {
             ctrlArmed = false
             shiftArmed = false
         }
         terminal?.sendInputControlKey(keyCode)
-        if (arrow) {
-            shiftArmed = false
-            ctrlArmed = false
-        }
+        ctrlArmed = false
+        shiftArmed = false
     }
     fun hideKeyboard() {
         // Clear Compose/native focus before hiding so focus transfer cannot reopen the IME.
@@ -157,27 +154,22 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         if ((text.contains('\n') || text.contains('\r')) && !session.getEmulator().isBracketedPasteEnabled) confirmPaste = text
         else sendPaste(text)
     }
+    fun clipboardText(): String? = context.getSystemService(ClipboardManager::class.java).primaryClip
+        ?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.takeIf { it.isNotEmpty() }
     fun showClipboard() {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.let {
-            // Stage clipboard content in the editor; reading clipboard requires a user gesture.
-            updateDraft(insertDraftText(draft, it, 128 * 1024)); editor = true; hideKeyboard()
-        }
+        // Stage clipboard content in the editor; reading clipboard requires a user gesture.
+        clipboardText()?.let { updateDraft(insertDraftText(draft, it, 128 * 1024)); editor = true; hideKeyboard() }
     }
     // AndroidView can outlive a recomposition/reconnection. Always paste into the current session.
     val pasteClipboard by rememberUpdatedState {
-        if (session.state.value.phase == Phase.CONNECTED) {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
-                ?.takeIf { it.isNotEmpty() }?.let { text ->
-                    ctrlArmed = false
-                    shiftArmed = false
-                    paste(text)
-                }
+        if (session.state.value.phase == Phase.CONNECTED) clipboardText()?.let { text ->
+            ctrlArmed = false
+            shiftArmed = false
+            paste(text)
         }
     }
     DisposableEffect(session) {
-        session.copyToClipboard = { text -> (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(tr("终端选区"), text)) }
+        session.copyToClipboard = { text -> context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(tr("终端选区"), text)) }
         session.pasteFromClipboard = { showClipboard() }
         onDispose {
             session.onScreenChanged = null; session.copyToClipboard = null; session.pasteFromClipboard = null
@@ -324,24 +316,19 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                 AndroidView(modifier = Modifier.fillMaxSize().clipToBounds().background(MaterialTheme.colorScheme.background).testTag("terminal"), factory = { ctx ->
+                    // Session, theme, font and history are bound in update, which also runs after creation.
                     TerminalView(ctx, null).apply {
-                        session.getEmulator().mColors.setLightTheme(lightTheme)
                         terminal = this
-                        setTextSize((fontSize * ctx.resources.displayMetrics.scaledDensity).toInt())
-                        setTypeface(TerminalFonts.resolveTypeface(ctx))
                         setTerminalViewClient(MobileTerminalClient(this,
                             onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
                             shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
                             onDoubleTap = { pasteClipboard() }))
-                        attachSession(session)
-                        setRemoteHistory(0, 0, null)
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
-                        session.onScreenChanged = { onScreenUpdated() }
                         isFocusableInTouchMode = true
                     }
                 }, update = { view ->
-                    // Harden against Compose reuse: always rebind session + screen callback (factory alone is not enough).
+                    // Compose may reuse the view: always rebind the session and its screen callback.
                     view.attachSession(session)
                     view.setCursorDraggingEnabled(state.phase == Phase.CONNECTED)
                     session.onScreenChanged = { view.onScreenUpdated() }
@@ -350,8 +337,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     view.setTypeface(TerminalFonts.resolveTypeface(view.context))
                     checkNotNull(terminalFontKey)
                     val activeHistory = tmuxHistory?.takeIf { it.active }
-                    val history = activeHistory?.takeIf { it.source == io.itermux.ssh.HistorySource.TMUX }
-                    view.setApplicationHistory(false)
+                    val history = activeHistory?.takeIf { it.source == HistorySource.TMUX }
                     view.setRemoteHistory(history?.rows ?: 0, history?.position ?: 0,
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
@@ -418,7 +404,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     pending?.let { request -> PromptDialog(request) }
     if (editSessionTitle) SessionTitleDialog(session) { editSessionTitle = false }
     FileTransferUi(session, fileAction, onInsertPath = { path ->
-        updateDraft(insertDraftText(draft, io.itermux.app.session.CodexImageAttach.pathForPaste(path), 128 * 1024)); editor = true; hideKeyboard()
+        updateDraft(insertDraftText(draft, CodexImageAttach.pathForPaste(path), 128 * 1024)); editor = true; hideKeyboard()
     }) { fileAction = null }
     if (commonCommandsOpen) CommonCommandsSheet(session, onSelect = { command ->
         commonCommandsOpen = false

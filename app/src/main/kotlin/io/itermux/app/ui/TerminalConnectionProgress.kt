@@ -38,7 +38,10 @@ internal fun TerminalConnectionProgress(phase: Phase, onCancel: () -> Unit, modi
         shape = RoundedCornerShape(20.dp), color = colors.surface.copy(alpha = 0.97f),
         border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.55f)), shadowElevation = 2.dp) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            ConnectionPulse(label)
+            ItermuxLogo(Modifier.size(52.dp).testTag("terminal-connection-motion").semantics {
+                contentDescription = label
+                progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
+            }, animated = true)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("SSH", color = colors.onSurfaceVariant, fontFamily = FontFamily.Monospace,
@@ -54,12 +57,4 @@ internal fun TerminalConnectionProgress(phase: Phase, onCancel: () -> Unit, modi
             }
         }
     }
-}
-
-@Composable
-private fun ConnectionPulse(label: String) {
-    ItermuxLogo(Modifier.size(52.dp).testTag("terminal-connection-motion").semantics {
-        contentDescription = label
-        progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
-    }, animated = true)
 }

@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.ssh.RemoteEntry
+import io.itermux.ssh.isSafeRemoteEntryName
 import io.itermux.ssh.joinRemotePath
 import kotlinx.coroutines.*
 
@@ -82,5 +83,4 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
     }
 }
 
-internal fun validRemoteRename(name: String): Boolean = name.isNotBlank() && name != "." && name != ".." &&
-    name.none { it == '/' || it == '\\' || it == '\u0000' || it == '\n' || it == '\r' }
+internal fun validRemoteRename(name: String): Boolean = name.isNotBlank() && isSafeRemoteEntryName(name)

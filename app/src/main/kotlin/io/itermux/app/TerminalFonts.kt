@@ -52,14 +52,7 @@ object TerminalFonts {
     fun initialize(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = TerminalFontId.from(prefs.getString(KEY_FONT, null))
-        selection = when {
-            stored == TerminalFontId.CUSTOM && !customFontFile(context).isFile -> TerminalFontId.DEFAULT
-            else -> stored
-        }
-        // Persist default explicitly the first time so later analysis sees an intentional choice.
-        if (!prefs.contains(KEY_FONT)) {
-            prefs.edit { putString(KEY_FONT, selection.id) }
-        }
+        selection = if (stored == TerminalFontId.CUSTOM && !hasCustomFont(context)) TerminalFontId.DEFAULT else stored
     }
 
     fun setSelection(context: Context, id: TerminalFontId) {

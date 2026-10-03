@@ -13,7 +13,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.itermux.app.data.Host
 import io.itermux.app.session.TerminalConnection
-import io.itermux.app.ui.FileAction
 import io.itermux.app.ui.RemotePathDropdown
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
@@ -49,7 +48,7 @@ class UploadDirectoryUiTest {
             compose.setContent {
                 MaterialTheme {
                     Column {
-                        RemotePathDropdown(session, FileAction.UPLOAD, "sample.bin") { selected = it }
+                        RemotePathDropdown(session, "sample.bin") { selected = it }
                         Text(selected, Modifier.testTag("selected-upload-path"))
                     }
                 }

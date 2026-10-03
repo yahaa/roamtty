@@ -130,17 +130,11 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                         items(entries, key = { it.name }) { entry ->
                             val path = joinRemotePath(current.path, entry.name)
-                            RemoteFileRow(entry,
-                                onOpen = {
-                                    if (entry.isDirectory) browser.navigate(path)
-                                    else browser.previewPath = path
-                                }, onMenu = { browser.showMenu(current.path, entry) }) {
+                            fun open() { if (entry.isDirectory) browser.navigate(path) else browser.previewPath = path }
+                            RemoteFileRow(entry, onOpen = ::open, onMenu = { browser.showMenu(current.path, entry) }) {
                                 FileActionsMenu(entry, expanded = browser.menuPath == path,
                                     busy = browser.operation != null || transferStatus.running || downloads.busy || connection.phase != Phase.CONNECTED,
-                                    onOpen = {
-                                        browser.dismissMenu()
-                                        if (entry.isDirectory) browser.navigate(path) else browser.previewPath = path
-                                    },
+                                    onOpen = { browser.dismissMenu(); open() },
                                     onDownload = {
                                         browser.dismissMenu()
                                         downloads.start(listOf(DownloadItem(path, entry.size)), false)

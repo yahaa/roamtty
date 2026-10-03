@@ -8,6 +8,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.itermux.app.session.TransferStatus
 import io.itermux.app.ui.TransferStatusDialog
 import io.itermux.app.session.DownloadItem
 import io.itermux.app.session.DownloadPhase
@@ -25,9 +26,9 @@ class TransferProgressUiTest {
         val path = "/storage/emulated/0/Documents/" + "long-directory/".repeat(5) + "app.apk"
         compose.setContent {
             MaterialTheme {
-                TransferStatusDialog("app.apk", 1024, 1024, false, tr("传输完成"), {}, {},
+                TransferStatusDialog(TransferStatus("app.apk", 1024, 1024, result = tr("传输完成"),
                     downloads = listOf(DownloadItem("/work/dist/app.apk", 1024, 1024,
-                        DownloadPhase.COMPLETE, localPath = path)))
+                        DownloadPhase.COMPLETE, localPath = path))), {}, {})
             }
         }
         compose.onNodeWithText(tr("下载完成")).assertIsDisplayed()
@@ -46,11 +47,11 @@ class TransferProgressUiTest {
     @Test fun batchProgressShowsCountsPercentageSpeedAndPerFileStates() {
         compose.setContent {
             MaterialTheme {
-                TransferStatusDialog("", 512 * 1024L, 1024 * 1024L, true, null, {}, {},
+                TransferStatusDialog(TransferStatus("", 512 * 1024L, 1024 * 1024L, running = true,
                     downloads = listOf(
                         DownloadItem("/notes/README.md", 200, 200, DownloadPhase.COMPLETE),
                         DownloadItem("/reports/quarterly-report.pdf", 1024 * 1024L, 512 * 1024L, DownloadPhase.RUNNING),
-                        DownloadItem("/images/photo.png", 4 * 1024 * 1024L)), bytesPerSecond = 256 * 1024.0)
+                        DownloadItem("/images/photo.png", 4 * 1024 * 1024L)), bytesPerSecond = 256 * 1024.0), {}, {})
             }
         }
         compose.onNodeWithTag("transfer-count").assertTextEquals(trf("已完成 %d/%d · 失败 %d", 1, 3, 0))
@@ -72,8 +73,8 @@ class TransferProgressUiTest {
             compose.runOnUiThread { AppLocale.set(context, AppLanguage.ENGLISH) }
             compose.setContent {
                 MaterialTheme {
-                    TransferStatusDialog("Uploading sample.bin", 512 * 1024L, 1024 * 1024L,
-                        true, null, onCancel = {}, onDismiss = {})
+                    TransferStatusDialog(TransferStatus("Uploading sample.bin", 512 * 1024L, 1024 * 1024L,
+                        running = true), onCancel = {}, onDismiss = {})
                 }
             }
             compose.onNodeWithTag("transfer-progress").assertIsDisplayed()

@@ -52,7 +52,7 @@ import io.itermux.ssh.SessionMode
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${host.username}@${host.address}:${host.port}", color = colors.onSurfaceVariant,
                     fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${if (host.mode == "TMUX") "tmux · 可恢复" else "SSH · 普通会话"}  /  ${authLabel(host.auth)}",
+                Text("${modeLabel(host.mode == SessionMode.TMUX.name)}  /  ${authLabel(host.auth)}",
                     color = colors.primary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text(tr("连接 →"), color = colors.primary, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
@@ -69,7 +69,7 @@ import io.itermux.ssh.SessionMode
             }
             Spacer(Modifier.height(14.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(if (host.mode == "TMUX") tr("tmux · 可恢复") else tr("SSH · 普通会话"), fontSize = 11.sp, color = colors.primary)
+                Text(modeLabel(host.mode == SessionMode.TMUX.name), fontSize = 11.sp, color = colors.primary)
                 Text("/", color = colors.onSurfaceVariant)
                 Text(authLabel(host.auth), fontSize = 11.sp, color = colors.onSurfaceVariant)
                 Spacer(Modifier.weight(1f))
@@ -101,7 +101,7 @@ import io.itermux.ssh.SessionMode
                 }
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (session.mode == SessionMode.TMUX) tr("tmux · 可恢复") else tr("SSH · 普通会话"),
+                Text(modeLabel(session.mode == SessionMode.TMUX),
                     color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.width(10.dp))
                 Text("● ${phaseLabel(state.phase)}", color = if (state.phase == Phase.CONNECTED) colors.primary else colors.onSurfaceVariant,

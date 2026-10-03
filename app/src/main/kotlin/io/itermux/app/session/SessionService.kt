@@ -68,17 +68,21 @@ class SessionService : Service() {
     suspend fun open(host: Host, mode: SessionMode, credentials: Credentials): TerminalConnection {
         awaitRestoration()
         check(mutableSessions.value.size < 8) { tr("最多保留 8 个会话，请先关闭旧会话") }
-        ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
-        val remoteName = if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION
         val connection = TerminalConnection(
             host, mode, credentials, (application as ItermuxApp).pins, scope,
             sessionNumber = nextSessionNumber(mutableSessions.value.filter { it.host.id == host.id }.map { it.sessionNumber }),
-            remoteSessionName = remoteName, onRename = ::saveSessions
+            onRename = ::saveSessions
         )
         mutableSessions.value += connection
+        track(connection)
+        return connection
+    }
+
+    /** Keeps the foreground notification and wake lock in step with an active connection. */
+    private fun track(connection: TerminalConnection) {
+        ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
         saveSessions()
         stateWatchers[connection.id] = scope.launch { connection.state.collect { refreshNotification() } }
-        return connection
     }
 
     /**
@@ -91,7 +95,6 @@ class SessionService : Service() {
             ?: error(tr("会话不存在"))
         stateWatchers.remove(id)?.cancel()
         existing.disconnect()
-        ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
         val replacement = TerminalConnection(
             existing.host, existing.mode, credentials, (application as ItermuxApp).pins, scope,
             id = existing.id,
@@ -101,9 +104,7 @@ class SessionService : Service() {
             onRename = ::saveSessions
         )
         mutableSessions.value = mutableSessions.value.map { if (it.id == id) replacement else it }
-        saveSessions()
-        stateWatchers[id] = scope.launch { replacement.state.collect { refreshNotification() } }
-        refreshNotification()
+        track(replacement)
         return replacement
     }
 

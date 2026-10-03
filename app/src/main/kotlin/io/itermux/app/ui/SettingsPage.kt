@@ -60,9 +60,7 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
         }
     }
 
-    val backgroundSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        exempt = power.isIgnoringBatteryOptimizations(context.packageName)
-    }
+    // Also refreshes after returning from the system battery settings.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         exempt = power.isIgnoringBatteryOptimizations(context.packageName)
     }
@@ -120,9 +118,9 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
             if (exempt) Text(tr("已允许不受电池优化限制"), modifier = Modifier.testTag("battery-exempt"))
             else OutlinedButton(onClick = {
                 try {
-                    backgroundSettings.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 } catch (_: ActivityNotFoundException) {
-                    backgroundSettings.launch(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         "package:${context.packageName}".toUri()))
                 }
             }, modifier = Modifier.testTag("allow-background")) { Text(tr("允许后台运行")) }

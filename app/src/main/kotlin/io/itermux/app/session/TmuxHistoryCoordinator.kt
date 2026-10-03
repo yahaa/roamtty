@@ -118,11 +118,7 @@ internal class TmuxHistoryCoordinator(
     }
 
     fun disconnect() {
-        ++requestGeneration
-        requested = false
-        positionPending = false
-        poller?.cancel()
-        history.value = null
+        onConnectionEnded()
         positions.close()
         worker?.cancel()
     }

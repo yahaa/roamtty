@@ -96,8 +96,13 @@ fun remotePathSearch(directory: String, query: String): RemotePathSearch {
     return RemotePathSearch((if (path.startsWith('/')) "/" else "") + parts.joinToString("/"), query.substring(slash + 1))
 }
 
-internal fun validWorkingDirectory(output: String?): String? = output?.removeSuffix("\n")?.removeSuffix("\r")
-    ?.takeIf { it.startsWith('/') && it.length <= 4096 && it.none { c -> c == '\u0000' || c == '\n' || c == '\r' } }
+/** An absolute path with no control characters that could alter or truncate it. Never normalizes. */
+fun isValidRemoteDirectory(path: String): Boolean =
+    path.startsWith('/') && path.length <= 4096 && path.none { it == '\u0000' || it == '\n' || it == '\r' }
+
+/** Command output ends with one line terminator; strip only that before the strict check. */
+internal fun validWorkingDirectory(output: String?): String? =
+    output?.removeSuffix("\n")?.removeSuffix("\r")?.takeIf(::isValidRemoteDirectory)
 
 /** Find the login shell belonging to this SSH transport, without writing commands into its PTY. */
 internal val shellWorkingDirectoryCommand = """

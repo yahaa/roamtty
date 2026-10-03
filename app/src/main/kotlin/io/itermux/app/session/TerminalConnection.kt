@@ -141,7 +141,7 @@ class TerminalConnection(
     private var reportedDirectory: String? = null
     override fun onWorkingDirectoryChanged(uri: String) {
         reportedDirectory = runCatching { java.net.URI(uri) }.getOrNull()?.takeIf { it.scheme == "file" }
-            ?.path?.takeIf { it.startsWith('/') && it.length <= 4096 && it.none { c -> c == '\u0000' || c == '\n' || c == '\r' } }
+            ?.path?.takeIf(::isValidRemoteDirectory)
     }
     suspend fun currentWorkingDirectory(): String? = ssh.currentWorkingDirectory() ?: reportedDirectory
 

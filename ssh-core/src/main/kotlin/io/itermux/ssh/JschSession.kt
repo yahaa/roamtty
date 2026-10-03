@@ -58,8 +58,7 @@ class JschSession(
                 queues.reopen()
                 tmuxHistoryController.reset()
                 when (runAttempt(onOutput, reattaching = attempt > 0)) {
-                    AttemptOutcome.STOPPED -> break
-                    AttemptOutcome.FATAL -> break
+                    AttemptOutcome.STOPPED, AttemptOutcome.FATAL -> break
                     AttemptOutcome.REMOTE_EXIT -> {
                         update(Phase.DISCONNECTED, "连接已关闭")
                         break
@@ -67,12 +66,7 @@ class JschSession(
                     AttemptOutcome.TRANSPORT_ENDED -> {
                         if (stopped.get()) break
                         // Prefer keepalive to prevent idle drops; only auto-reattach tmux after transient death.
-                        if (target.mode != SessionMode.TMUX) {
-                            if (!stopped.get()) update(Phase.DISCONNECTED, "SSH 已断开，请手动重连。未发送的输入已丢弃。")
-                            break
-                        }
-                        attempt++
-                        if (attempt > 10) {
+                        if (target.mode != SessionMode.TMUX || ++attempt > 10) {
                             update(Phase.DISCONNECTED, "SSH 已断开，请手动重连。未发送的输入已丢弃。")
                             break
                         }
@@ -309,11 +303,11 @@ class JschSession(
 
     override suspend fun exitTmuxHistory(): TmuxHistory? = tmuxHistoryController.exit()
 
+    private fun connectedSession(): Session? =
+        session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
+
     private val files = SftpOperations(
-        connectedSession = {
-            session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
-                ?: throw IllegalStateException("SSH 连接未就绪")
-        },
+        connectedSession = { connectedSession() ?: throw IllegalStateException("SSH 连接未就绪") },
         isStopped = stopped::get,
         connectTimeoutMs = connectTimeoutMs
     )
@@ -338,8 +332,7 @@ class JschSession(
     suspend fun deleteFile(path: String) = files.deleteFile(path)
 
     private suspend fun runCommand(command: String): String? = withContext(Dispatchers.IO) {
-        val ssh = session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
-            ?: return@withContext null
+        val ssh = connectedSession() ?: return@withContext null
         val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
         try {
             exec.setCommand(command)

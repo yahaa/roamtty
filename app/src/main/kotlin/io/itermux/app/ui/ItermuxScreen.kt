@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -140,7 +139,9 @@ fun ItermuxScreen(
                 page = if (request.openFilesAfterConnect) "files" else "terminal"
             } catch (e: Exception) {
                 credentials?.clear()
-                toast(if (e is IllegalStateException) tr("最多保留 8 个会话，请先关闭旧会话") else tr("无法读取凭据，请重新导入密钥或保存密码。"))
+                if (e is CancellationException) throw e
+                // Session limits and missing entries are reported by check()/error() with localized text.
+                toast((e as? IllegalStateException)?.message ?: tr("无法读取凭据，请重新导入密钥或保存密码。"))
             }
         }
     }
@@ -298,13 +299,9 @@ fun ItermuxScreen(
                     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                         if (!landscape) Text(if (sessionSearch.isBlank()) tr("会话列表") else tr("搜索结果"),
                             style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 8.dp))
-                        if (searchExpanded) OutlinedTextField(sessionSearch, { sessionSearch = it },
-                            placeholder = { Text(tr("标题、主机、地址或用户名")) },
-                            leadingIcon = { Icon(painterResource(R.drawable.ic_search), contentDescription = null) },
-                            trailingIcon = { if (sessionSearch.isNotEmpty()) TextButton(onClick = { sessionSearch = "" }) { Text(tr("清除")) } },
-                            singleLine = true, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
-                                .focusRequester(searchFocus).testTag("session-search"),
-                            shape = RoundedCornerShape(14.dp))
+                        if (searchExpanded) AppSearchField(sessionSearch, { sessionSearch = it }, tr("标题、主机、地址或用户名"),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                                .focusRequester(searchFocus).testTag("session-search"))
                         val filteredSessions = sessions.filter {
                             "${it.displayTitle} ${it.host.name} ${it.host.address} ${it.host.username}".contains(sessionSearch, true)
                         }

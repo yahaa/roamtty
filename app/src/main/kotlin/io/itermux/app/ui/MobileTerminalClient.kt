@@ -28,13 +28,15 @@ internal class MobileTerminalClient(
     override fun isTerminalViewSelected() = view.hasFocus()
     override fun copyModeChanged(copyMode: Boolean) = Unit
     override fun onKeyDown(keyCode: Int, e: KeyEvent?, session: TerminalSession?) = false
+    /** Sticky modifiers apply to one key, then reset. */
+    private fun consumeModifiers() {
+        if (controlArmed()) consumeControl()
+        if (shiftArmed()) consumeShift()
+    }
     override fun onKeyUp(keyCode: Int, e: KeyEvent?): Boolean {
         val modifierKey = keyCode == KeyEvent.KEYCODE_CTRL_LEFT || keyCode == KeyEvent.KEYCODE_CTRL_RIGHT ||
             keyCode == KeyEvent.KEYCODE_SHIFT_LEFT || keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT
-        if (!modifierKey) {
-            if (controlArmed()) consumeControl()
-            if (shiftArmed()) consumeShift()
-        }
+        if (!modifierKey) consumeModifiers()
         return false
     }
     override fun onLongPress(event: MotionEvent?) = false
@@ -43,8 +45,7 @@ internal class MobileTerminalClient(
     override fun readShiftKey() = shiftArmed()
     override fun readFnKey() = false
     override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: TerminalSession?): Boolean {
-        if (controlArmed()) consumeControl()
-        if (shiftArmed()) consumeShift()
+        consumeModifiers()
         return false
     }
     override fun onEmulatorSet() = Unit

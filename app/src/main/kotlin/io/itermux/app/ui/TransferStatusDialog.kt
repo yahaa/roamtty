@@ -18,21 +18,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.itermux.app.tr
 import io.itermux.app.trf
-import io.itermux.app.session.DownloadItem
 import io.itermux.app.session.DownloadPhase
 import io.itermux.app.session.TransferStatus
 import io.itermux.ssh.formatRemoteSize
 
 @Composable
 internal fun TransferStatusDialog(status: TransferStatus, onCancel: () -> Unit, onDismiss: () -> Unit,
-    onInsertPath: ((String) -> Unit)? = null) = TransferStatusDialog(status.name, status.bytes, status.total,
-    status.running, status.result, onCancel, onDismiss, status.remotePath, onInsertPath, status.downloads, status.bytesPerSecond)
-
-@Composable
-internal fun TransferStatusDialog(name: String, transferred: Long, totalBytes: Long,
-    transferring: Boolean, result: String?, onCancel: () -> Unit, onDismiss: () -> Unit,
-    remotePath: String? = null, onInsertPath: ((String) -> Unit)? = null,
-    downloads: List<DownloadItem> = emptyList(), bytesPerSecond: Double = 0.0) {
+    onInsertPath: ((String) -> Unit)? = null) {
+    val name = status.name
+    val transferred = status.bytes
+    val totalBytes = status.total
+    val transferring = status.running
+    val result = status.result
+    val remotePath = status.remotePath
+    val downloads = status.downloads
+    val bytesPerSecond = status.bytesPerSecond
     val context = LocalContext.current
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.52f).dp
     val active = downloads.firstOrNull { it.phase == DownloadPhase.RUNNING }
