@@ -275,7 +275,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             Box {
                 InputControlButton("⌘", tr("快捷键"), "terminal-shortcuts", selected = ctrlArmed || shiftArmed,
                     icon = R.drawable.ic_keys, onClick = { shortcutMenu = true })
-                DropdownMenu(shortcutMenu, ::dismissDockMenus, shape = RoundedCornerShape(18.dp)) {
+                DropdownMenu(shortcutMenu, ::dismissDockMenus, shape = MaterialTheme.shapes.large) {
                     FlowRow(Modifier.widthIn(max = 264.dp).padding(horizontal = 10.dp, vertical = 2.dp), maxItemsInEachRow = 4,
                         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         InputControlButton("Esc", keycap = true, description = tr("发送 Esc"), tag = "terminal-escape", enabled = state.phase == Phase.CONNECTED,
@@ -389,7 +389,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
         if (floatingDock) {
             TerminalDockPlacement { height ->
-                Surface(shape = RoundedCornerShape(24.dp),
+                Surface(shape = RoundedCornerShape(percent = 50),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f), shadowElevation = 4.dp
                 ) { dock(height) }
             }

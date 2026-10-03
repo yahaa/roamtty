@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import android.content.Intent
@@ -21,7 +20,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.res.painterResource
+import io.itermux.app.R
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -65,65 +66,60 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
         exempt = power.isIgnoringBatteryOptimizations(context.packageName)
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text(tr("设置"), style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(24.dp))
-            Text(tr("外观"), style = MaterialTheme.typography.titleMedium)
-            Text(tr("选择应用的显示主题"), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.selectableGroup()) {
-                    AppTheme.entries.forEachIndexed { index, option ->
-                        if (index > 0) HorizontalDivider(Modifier.padding(start = 16.dp))
-                        ListItem(headlineContent = { Text(tr(option.label)) },
-                            trailingContent = { RadioButton(selected = theme == option, onClick = null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.selectable(selected = theme == option,
-                                onClick = { onThemeChange(option) }, role = Role.RadioButton)
-                                .testTag("settings-theme-${option.name.lowercase()}"))
+        Column(Modifier.widthIn(max = 600.dp).fillMaxWidth().verticalScroll(rememberScrollState())
+            .padding(bottom = Spacing.Section)) {
+            LargeTitle(tr("设置"), Modifier.padding(bottom = Spacing.Tight))
+            Column(Modifier.padding(horizontal = Spacing.Page), verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
+                GroupedSection(header = tr("外观")) {
+                    Column(Modifier.selectableGroup()) {
+                        AppTheme.entries.forEachIndexed { index, option ->
+                            if (index > 0) GroupedDivider()
+                            CheckRow(tr(option.label), theme == option, Modifier.testTag("settings-theme-${option.name.lowercase()}")) {
+                                onThemeChange(option)
+                            }
+                        }
                     }
                 }
-            }
-            Spacer(Modifier.height(24.dp))
-            TerminalFontSetting(fontSelection, fontRevision, hasCustom, customName, fontImportError,
-                onImport = { pickFont.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream", "*/*")) },
-                onClear = { TerminalFonts.clearCustomFont(context); fontImportError = null },
-                onSelect = { TerminalFonts.setSelection(context, it); fontImportError = null })
-            Spacer(Modifier.height(24.dp))
-            Text(tr("语言"), style = MaterialTheme.typography.titleMedium)
-            Text(tr("选择应用的显示语言"), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.selectableGroup()) {
-                    AppLanguage.entries.forEachIndexed { index, option ->
-                        if (index > 0) HorizontalDivider(Modifier.padding(start = 16.dp))
-                        ListItem(headlineContent = { Text(option.label) },
-                            trailingContent = { RadioButton(selected = language == option, onClick = null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.selectable(selected = language == option,
-                                onClick = { onLanguageChange(option) }, role = Role.RadioButton)
-                                .testTag("settings-language-${option.name.lowercase()}"))
+                TerminalFontSetting(fontSelection, fontRevision, hasCustom, customName, fontImportError,
+                    onImport = { pickFont.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream", "*/*")) },
+                    onClear = { TerminalFonts.clearCustomFont(context); fontImportError = null },
+                    onSelect = { TerminalFonts.setSelection(context, it); fontImportError = null })
+                GroupedSection(header = tr("语言")) {
+                    Column(Modifier.selectableGroup()) {
+                        AppLanguage.entries.forEachIndexed { index, option ->
+                            if (index > 0) GroupedDivider()
+                            CheckRow(option.label, language == option, Modifier.testTag("settings-language-${option.name.lowercase()}")) {
+                                onLanguageChange(option)
+                            }
+                        }
                     }
                 }
-            }
-            Spacer(Modifier.height(24.dp))
-            DownloadDirectorySetting()
-            Spacer(Modifier.height(24.dp))
-            Text(tr("后台连接"), style = MaterialTheme.typography.titleMedium)
-            Text(tr("锁屏后保持 SSH 需要允许后台运行，可能增加耗电。部分手机还需在系统设置中允许自启动。"),
-                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 8.dp))
-            if (exempt) Text(tr("已允许不受电池优化限制"), modifier = Modifier.testTag("battery-exempt"))
-            else OutlinedButton(onClick = {
-                try {
-                    context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                } catch (_: ActivityNotFoundException) {
-                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        "package:${context.packageName}".toUri()))
+                DownloadDirectorySetting()
+                GroupedSection(header = tr("后台连接"),
+                    footer = tr("锁屏后保持 SSH 需要允许后台运行，可能增加耗电。部分手机还需在系统设置中允许自启动。")) {
+                    if (exempt) GroupedRow(tr("已允许不受电池优化限制"), Modifier.testTag("battery-exempt"),
+                        trailing = { Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = StatusColors.success) })
+                    else GroupedRow(tr("允许后台运行"), Modifier.testTag("allow-background"),
+                        titleColor = MaterialTheme.colorScheme.primary, trailing = { Chevron() }, onClick = {
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                            } catch (_: ActivityNotFoundException) {
+                                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    "package:${context.packageName}".toUri()))
+                            }
+                        })
                 }
-            }, modifier = Modifier.testTag("allow-background")) { Text(tr("允许后台运行")) }
+            }
         }
     }
+}
+
+/** Single-choice row: a trailing check mark marks the selection, as in grouped settings lists. */
+@Composable
+internal fun CheckRow(title: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    GroupedRow(title, modifier.selectable(selected = selected, onClick = onClick, role = Role.RadioButton),
+        trailing = {
+            Icon(painterResource(R.drawable.ic_check), contentDescription = null, modifier = Modifier.size(20.dp)
+                .alpha(if (selected) 1f else 0f), tint = MaterialTheme.colorScheme.primary)
+        })
 }

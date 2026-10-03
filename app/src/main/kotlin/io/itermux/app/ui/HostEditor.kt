@@ -18,7 +18,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import io.itermux.app.R
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -85,63 +91,79 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
         }
     }
     val connectionSection: @Composable () -> Unit = {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(tr("连接信息"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            OutlinedTextField(name, { name = it }, label = { Text(tr("名称")) }, placeholder = { Text(tr("例如：开发工作站")) }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("host-name"))
-            OutlinedTextField(address, { address = it }, label = { Text(tr("地址 / IP")) }, placeholder = { Text(tr("例如：dev.example.com")) }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("host-address"), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(username, { username = it }, label = { Text(tr("用户名")) }, singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) }, label = { Text(tr("端口")) }, singleLine = true, modifier = Modifier.width(100.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        GroupedSection(header = tr("连接信息")) {
+            FormField(name, { name = it }, tr("名称"), tr("例如：开发工作站"), Modifier.testTag("host-name"))
+            GroupedDivider()
+            FormField(address, { address = it }, tr("地址 / IP"), tr("例如：dev.example.com"), Modifier.testTag("host-address"),
+                KeyboardOptions(keyboardType = KeyboardType.Uri))
+            GroupedDivider()
+            Row(Modifier.height(IntrinsicSize.Min)) {
+                FormField(username, { username = it }, tr("用户名"), modifier = Modifier.weight(1f))
+                VerticalDivider(Modifier.padding(vertical = 10.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                FormField(port, { port = it.filter(Char::isDigit).take(5) }, tr("端口"), modifier = Modifier.width(96.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
             }
         }
     }
     val systemSection: @Composable () -> Unit = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("远端系统"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("LINUX" to "Linux", "WINDOWS" to "Windows", "MACOS" to "macOS", "OTHER" to tr("其他")).forEach { (value, label) ->
-                    FilterChip(os == value, { os = value }, label = { Text(label) })
-                }
-            }
-            if (os == "UNKNOWN") Text(tr("旧主机尚未设置系统类型，请选择后保存。"), style = MaterialTheme.typography.bodySmall)
+        GroupedSection(header = tr("远端系统"),
+            footer = if (os == "UNKNOWN") tr("旧主机尚未设置系统类型，请选择后保存。") else null) {
+            SegmentedControl(listOf("LINUX" to "Linux", "WINDOWS" to "Windows", "MACOS" to "macOS", "OTHER" to tr("其他")).map { (value, label) ->
+                Segment(label, os == value) { os = value }
+            }, Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
         }
     }
     val authenticationSection: @Composable () -> Unit = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("认证方式"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("PASSWORD", "KEY", "INTERACTIVE").forEach { value ->
-                    FilterChip(auth == value, { auth = value }, label = { Text(authLabel(value)) })
-                }
-            }
+        GroupedSection(header = tr("认证方式"), footer = when (auth) {
+            "PASSWORD" -> tr("默认每次连接时输入密码。")
+            "KEY" -> tr("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅在连接时输入，不会保存。")
+            else -> tr("连接时显示服务器的认证问题，支持一次性验证码和多轮交互。")
+        }) {
+            SegmentedControl(listOf("PASSWORD", "KEY", "INTERACTIVE").map { value ->
+                Segment(authLabel(value), auth == value) { auth = value }
+            }, Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
             if (auth == "PASSWORD") {
-                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(savePassword, { savePassword = it }, modifier = Modifier.testTag("save-password")); Text(tr("在本机加密保存密码")) }
-                if (savePassword) OutlinedTextField(password, { password = it }, label = { Text(if (original?.encryptedPassword != null) tr("新密码（留空保留原密码）") else tr("密码")) }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth().testTag("host-password"))
-                Text(tr("默认每次连接时输入密码。"), style = MaterialTheme.typography.bodySmall)
+                GroupedDivider()
+                GroupedRow(tr("在本机加密保存密码"), trailing = {
+                    Switch(savePassword, { savePassword = it }, modifier = Modifier.testTag("save-password"))
+                })
+                if (savePassword) {
+                    GroupedDivider()
+                    FormField(password, { password = it }, if (original?.encryptedPassword != null) tr("新密码（留空保留原密码）") else tr("密码"),
+                        modifier = Modifier.testTag("host-password"), visualTransformation = PasswordVisualTransformation())
+                }
             } else if (auth == "KEY") {
-                OutlinedButton(onClick = { keyPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Text(if (keyLabel == null) tr("导入 Ed25519 / RSA 私钥") else tr("更换私钥")) }
-                keyLabel?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                Text(tr("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅在连接时输入，不会保存。"), style = MaterialTheme.typography.bodySmall)
-            } else Text(tr("连接时显示服务器的认证问题，支持一次性验证码和多轮交互。"), style = MaterialTheme.typography.bodySmall)
+                GroupedDivider()
+                GroupedRow(keyLabel ?: tr("尚未导入私钥"), subtitle = if (keyLabel == null) null else tr("已导入私钥"),
+                    leading = { Icon(painterResource(R.drawable.ic_keys), contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp)) },
+                    trailing = {
+                        TextButton(onClick = { keyPicker.launch(arrayOf("*/*")) }, enabled = !busy) {
+                            Text(if (keyLabel == null) tr("导入 Ed25519 / RSA 私钥") else tr("更换私钥"))
+                        }
+                    })
+            }
         }
     }
     val modeSection: @Composable () -> Unit = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("会话模式"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(mode == "TMUX", { mode = "TMUX" }, label = { Text(tr("tmux · 推荐")) })
-                FilterChip(mode == "SHELL", { mode = "SHELL" }, label = { Text(tr("普通 SSH")) })
-            }
-            Text(if (mode == "TMUX") tr("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux。") else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。"), style = MaterialTheme.typography.bodySmall)
+        GroupedSection(header = tr("会话模式"), footer = if (mode == "TMUX") tr("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux。") else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。")) {
+            SegmentedControl(listOf(
+                Segment(tr("tmux · 推荐"), mode == "TMUX") { mode = "TMUX" },
+                Segment(tr("普通 SSH"), mode == "SHELL") { mode = "SHELL" },
+            ), Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
         }
     }
-    Dialog(onDismissRequest = { if (!busy) { draft.close(); onDismiss() } }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxSize().safeDrawingPadding().imePadding().testTag("host-editor")) {
+    Dialog(onDismissRequest = { if (!busy) { draft.close(); onDismiss() } }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        SheetSystemBars(MaterialTheme.colorScheme.background)
+        Surface(Modifier.fillMaxSize().testTag("host-editor"), color = MaterialTheme.colorScheme.background) {
+            Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
             Column(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { draft.close(); onDismiss() }, enabled = !busy) { Text(tr("取消")) }
-                    Text(if (original == null) tr("添加主机") else tr("编辑主机"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).padding(start = 12.dp))
-                    Button(enabled = !busy, onClick = {
+                // Modal form bar: cancel and save stay on opposite edges, the title is centered.
+                Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), contentAlignment = Alignment.Center) {
+                    TextButton(onClick = { draft.close(); onDismiss() }, enabled = !busy, modifier = Modifier.align(Alignment.CenterStart)) { Text(tr("取消")) }
+                    Text(if (original == null) tr("添加主机") else tr("编辑主机"), style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 96.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    TextButton(enabled = !busy, modifier = Modifier.align(Alignment.CenterEnd), onClick = {
                         scope.launch {
                             busy = true
                             try {
@@ -162,19 +184,21 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                             catch (e: Exception) { error = tr("保存失败，无法使用本机加密存储。请重试。") }
                             finally { busy = false }
                         }
-                    }) { Text(if (busy) tr("处理中") else tr("保存")) }
+                    }) { Text(if (busy) tr("处理中") else tr("保存"), fontWeight = FontWeight.SemiBold) }
                 }
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                     val wide = maxWidth >= 600.dp
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                        if (wide) Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                        .padding(horizontal = Spacing.Page, vertical = Spacing.Tight),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
+                        error?.let { Text(tr(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = Spacing.Page)) }
+                        if (wide) Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Section)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
                                 connectionSection()
                                 systemSection()
                             }
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
                                 authenticationSection()
                                 modeSection()
                             }
@@ -182,13 +206,27 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                             connectionSection()
                             systemSection()
                             authenticationSection()
-                            HorizontalDivider()
                             modeSection()
                         }
-                        error?.let { Text(tr(it), color = MaterialTheme.colorScheme.error) }
                     }
                 }
             }
         }
     }
+    }
+}
+
+/** A borderless field for grouped forms: the panel supplies the shape, dividers separate rows. */
+@Composable
+private fun FormField(value: String, onValueChange: (String) -> Unit, label: String, placeholder: String? = null,
+    modifier: Modifier = Modifier, keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None) {
+    TextField(value, onValueChange, label = { Text(label) }, placeholder = placeholder?.let { { Text(it) } },
+        singleLine = true, keyboardOptions = keyboardOptions, visualTransformation = visualTransformation,
+        modifier = modifier.fillMaxWidth(),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+            disabledContainerColor = Color.Transparent, errorContainerColor = Color.Transparent,
+            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+            disabledIndicatorColor = Color.Transparent))
 }

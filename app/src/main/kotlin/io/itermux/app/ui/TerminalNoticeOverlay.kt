@@ -3,7 +3,6 @@ package io.itermux.app.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -85,7 +84,7 @@ private fun TerminalNoticeCard(
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(Modifier.fillMaxWidth().testTag(tag).semantics { paneTitle = title },
-        shape = RoundedCornerShape(24.dp), color = colors.surface,
+        shape = MaterialTheme.shapes.large, color = colors.surface,
         border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.55f)), shadowElevation = 6.dp) {
         BoxWithConstraints {
             // Landscape IMEs can leave less than 160dp. Put actions beside the text there,

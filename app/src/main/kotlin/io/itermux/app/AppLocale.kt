@@ -35,6 +35,10 @@ fun trf(pattern: String, vararg args: Any): String = tr(pattern).format(*args)
 
 private object EnglishText {
     val values: Map<String, String> = mapOf(
+        "打开终端" to "Open terminal",
+        "系统未设置" to "System not set",
+        "尚未导入私钥" to "No private key imported",
+        "连接已关闭，请从主机列表重新打开文件。" to "The connection was closed. Open files again from the host list.",
         "可执行文件" to "Executable",
         "演示文稿" to "Presentation",
         "表格" to "Spreadsheet",
@@ -212,8 +216,6 @@ private object EnglishText {
         "显示更多" to "Show more",
         "编辑主机" to "Edit host",
         "删除主机" to "Delete host",
-        "连接 →" to "Connect →",
-        "系统未设置 · 编辑主机可选择" to "System not set · Choose one when editing",
         "tmux · 可恢复" to "tmux · Resumable",
         "SSH · 普通会话" to "SSH · Plain session",
         "关闭" to "Close",
@@ -245,7 +247,6 @@ private object EnglishText {
         "收起搜索" to "Close search",
         "搜索主机" to "Search hosts",
         "搜索会话" to "Search sessions",
-        "＋ 主机" to "＋ Host",
         "关闭设置" to "Close settings",
         "名称、地址或用户名" to "Name, address, or username",
         "清除" to "Clear",

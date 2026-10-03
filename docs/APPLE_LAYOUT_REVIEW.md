@@ -62,3 +62,26 @@ PLU110 上拍摄：[竖屏编辑](screenshots/adaptive-editor-portrait-phone.png
 
 <img src="screenshots/pr6-design-files-dark.png" width="280" alt="320 dp 深色服务器文件页：目录路径、文件名称及次要信息清晰分层">
 <img src="screenshots/pr6-design-fonts-dark.png" width="280" alt="字体选择面板沿用既有深色主题及暖色强调色，提供即时字形预览">
+
+## 统一设计系统（2026-10-03）
+
+以 `main`（ac712f8）为基础，把各页面零散的字号、圆角、按钮和文字符号收拢到一套规则里。暖灰底色与暖色强调色保持不变；组件仍是 Compose Material 3，只借用 Apple HIG 的信息层级与控件语义。
+
+| 规则 | 落地 |
+| --- | --- |
+| 每页一个大标题，操作放进工具栏 | 主机/会话页：工具栏为「导航 · 分段控件 · 搜索 · 添加」，下方大标题；横屏省去大标题，只保留工具栏。设置页保留导航按钮，右侧关闭按钮换成矢量图标。 |
+| 并列视图用分段控件 | 主机/会话切换、主机编辑中的系统、认证、会话模式都改为带滑块的 `SegmentedControl`，选中项有 Tab 语义。 |
+| 设置与表单用嵌入式分组 | `GroupedSection`：标题在上、说明在下，行间分隔线缩进到文字列；单选项用尾部勾号，开关用 Switch，跳转行带箭头。 |
+| 图标而不是文字符号 | `•••`、`✎`、`×`、`＋ 主机`、`连接 →` 换成同一描边风格的矢量图标（新增 add/edit/delete/clear）。 |
+| 状态不只靠颜色 | `StatusLabel` 用圆点加文字表示连接状态，成功/进行中/失败各有深浅两套色值。 |
+| 字号不低于 12 sp | `AppTypography`：大标题 30、行标题 16 半粗、说明 13；去掉卡片里 11 sp 的彩色元信息，改为中性的小标签。 |
+| 一套圆角 | 输入框/菜单 10、行 12、卡片与分组 16、浮层 20、对话框与底部面板 28，页面不再自定圆角。 |
+| 文件页导航栏不用填充色块 | 原来的灰色路径胶囊在左侧截断、和其他页面不一致；改为单行路径：主机与上级目录为轻量可点击文字，当前目录以标题字重接在末尾；过长时滚动到末尾并在左侧渐隐。 |
+| 一种搜索框 | 主机、会话、常用命令、目录筛选、文件内查找共用填充式 `AppSearchField`，清除按钮是图标。 |
+
+浅色主题底色从 `#F7F5F1` 调为 `#F3F0EB`，让白色分组面板与页面分开；终端浅色背景同步调整，终端区域与界面底色保持一致。主机编辑页改为无边框全屏对话框，状态栏跟随页面配色。
+
+<img src="screenshots/design-system-hosts-light.png" width="200" alt="浅色主机页：工具栏分段控件、大标题与白色主机卡片">
+<img src="screenshots/design-system-hosts-dark.png" width="200" alt="深色主机页：同一布局在深色主题下的层级">
+<img src="screenshots/design-system-editor-light.png" width="200" alt="主机编辑：分组表单、分段控件与开关">
+<img src="screenshots/design-system-settings-dark.png" width="200" alt="深色设置页：分组列表与勾号单选">

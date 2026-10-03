@@ -560,7 +560,7 @@ class TerminalUiTest {
         compose.onNodeWithTag("host-search").assertDoesNotExist()
         compose.activity.runOnUiThread { compose.activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
         capture("hosts-compact")
-        compose.onNodeWithText("＋ 主机").performClick()
+        compose.onNodeWithTag("add-host").performClick()
         compose.onNodeWithText("名称").performTextInput(label)
         compose.onNodeWithText("地址 / IP").performTextInput("dev.example.com")
         compose.onNodeWithText("用户名").performTextInput("developer")

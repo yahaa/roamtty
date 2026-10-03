@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -75,7 +74,7 @@ internal fun InputControlButton(
 ) {
     Box(
         Modifier.then(if (keycap) Modifier.size(width = 56.dp, height = 44.dp) else Modifier.size(size))
-            .clip(if (keycap) RoundedCornerShape(10.dp) else CircleShape)
+            .clip(if (keycap) MaterialTheme.shapes.extraSmall else CircleShape)
             .background(when {
                 selected -> MaterialTheme.colorScheme.primaryContainer
                 keycap -> MaterialTheme.colorScheme.surfaceContainerHighest

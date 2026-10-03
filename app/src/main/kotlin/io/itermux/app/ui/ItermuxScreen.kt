@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
@@ -28,14 +29,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.edit
 import io.itermux.app.ItermuxApp
@@ -201,7 +195,7 @@ fun ItermuxScreen(
         onShareImagesConsumed()
     }
     LaunchedEffect(searchExpanded, page) { if (searchExpanded && navigationVisible) searchFocus.requestFocus() }
-    MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors, shapes = AppShapes) {
+    MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors, shapes = AppShapes, typography = AppTypography) {
         if (loadedHosts == null) {
             StartupLoading()
             return@MaterialTheme
@@ -226,93 +220,73 @@ fun ItermuxScreen(
             // Only desktop window chrome reserves a whole edge; terminal controls avoid cutouts locally.
             val contentInsets = if (terminalVisible) WindowInsets.captionBar else WindowInsets.safeDrawing
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).imePadding()) {
-                if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files") Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (landscape) 0.dp else 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = {
-                        focusManager.clearFocus(force = true)
-                        keyboardController?.hide()
-                        scope.launch { drawerState.open() }
-                    }, modifier = Modifier.size(48.dp).testTag("brand-logo")) {
-                        Icon(painterResource(R.drawable.ic_sidebar), contentDescription = tr("打开导航"),
-                            tint = colors.onSurface, modifier = Modifier.size(24.dp))
-                    }
-                    if (landscape && configuration.screenWidthDp >= 700) {
-                        Text(if (page == "hosts") {
-                            if (search.isBlank()) tr("已保存的主机") else tr("搜索结果")
-                        } else if (page == "sessions") tr("会话列表")
-                        else tr("设置"),
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(start = 16.dp), maxLines = 1)
-                    }
-                    Spacer(Modifier.weight(1f))
-                    if (landscape && navigationVisible) {
-                        NavigationTabs(page, hosts.size, sessions.size) { page = it }
-                    }
-                    if (navigationVisible) {
-                        AppSearchToggle(searchExpanded, onToggle = {
-                            if (searchExpanded) {
-                                search = ""
-                                sessionSearch = ""
-                                focusManager.clearFocus(force = true)
-                                keyboardController?.hide()
-                            }
-                            searchExpanded = !searchExpanded
-                        }, searchDescription = if (page == "hosts") tr("搜索主机") else tr("搜索会话"),
-                            modifier = Modifier.testTag("search-toggle"))
-                        if (page == "hosts" && landscape) FilledTonalButton(onClick = { editHostId = null; editorOpen = true },
-                            modifier = Modifier.padding(start = 4.dp).heightIn(min = 48.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp)) { Text(tr("＋ 主机")) }
-                    }
-                    if (page == "settings") IconButton(onClick = { page = settingsReturnPage },
-                        modifier = Modifier.testTag("close-settings")) {
-                        Text("×", fontSize = 26.sp, modifier = Modifier.semantics { contentDescription = tr("关闭设置") })
-                    }
-                }
-                if (navigationVisible && (!landscape || imeVisible)) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    NavigationTabs(page, hosts.size, sessions.size, 10.dp) { page = it }
-                }
-                if (page == "hosts") {
-                    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                        if (!landscape) Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (search.isBlank()) tr("已保存的主机") else tr("搜索结果"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                            FilledTonalButton(onClick = { editHostId = null; editorOpen = true },
-                                modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { Text(tr("＋ 主机")) }
+                if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files") AppToolbar(
+                    navigation = {
+                        ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo")) {
+                            focusManager.clearFocus(force = true)
+                            keyboardController?.hide()
+                            scope.launch { drawerState.open() }
                         }
+                    },
+                    actions = {
+                        if (navigationVisible) {
+                            Box(Modifier.weight(1f).padding(horizontal = Spacing.Tight), contentAlignment = Alignment.Center) {
+                                NavigationTabs(page, hosts.size, sessions.size, Modifier.widthIn(max = 280.dp).fillMaxWidth()) { page = it }
+                            }
+                            AppSearchToggle(searchExpanded, onToggle = {
+                                if (searchExpanded) {
+                                    search = ""
+                                    sessionSearch = ""
+                                    focusManager.clearFocus(force = true)
+                                    keyboardController?.hide()
+                                }
+                                searchExpanded = !searchExpanded
+                            }, searchDescription = if (page == "hosts") tr("搜索主机") else tr("搜索会话"),
+                                modifier = Modifier.testTag("search-toggle"))
+                            if (page == "hosts") ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
+                                editHostId = null; editorOpen = true
+                            } else Spacer(Modifier.width(48.dp))
+                        } else {
+                            // Settings is a drawer destination: closing returns to the page it was opened from.
+                            Spacer(Modifier.weight(1f))
+                            ToolbarIcon(R.drawable.ic_close, tr("关闭设置"), Modifier.testTag("close-settings")) { page = settingsReturnPage }
+                        }
+                    })
+                // Landscape phones have little height: the toolbar segment already names the page.
+                val largeTitle = !landscape && !imeVisible
+                if (page == "hosts") {
+                    Column(Modifier.fillMaxSize()) {
+                        if (largeTitle) LargeTitle(if (search.isBlank()) tr("已保存的主机") else tr("搜索结果"))
                         if (searchExpanded) {
                             AppSearchField(search, { search = it }, tr("名称、地址或用户名"),
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(bottom = Spacing.Tight)
                                     .focusRequester(searchFocus).testTag("host-search"))
                         }
                         val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
                         if (filtered.isEmpty()) {
-                            Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                                if (hosts.isEmpty()) ItermuxLogo(Modifier.size(48.dp).testTag("empty-logo"),
-                                    contentDescription = "iTermux")
-                                Spacer(Modifier.height(12.dp))
-                                Text(if (hosts.isEmpty()) tr("从第一台主机开始") else tr("没有匹配的主机"), fontSize = 20.sp)
-                                Text(if (hosts.isEmpty()) tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。") else tr("试试其他名称或地址"), color = colors.onSurfaceVariant, modifier = Modifier.padding(16.dp), lineHeight = 23.sp)
-                            }
-                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = if (landscape) 8.dp else 0.dp, bottom = 12.dp)) {
-                            items(filtered, key = { it.id }) { host -> HostCard(host, landscape, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }) }
+                            if (hosts.isEmpty()) EmptyState(tr("从第一台主机开始"), tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
+                                Modifier.weight(1f),
+                                artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "iTermux") },
+                                action = { Button(onClick = { editHostId = null; editorOpen = true }) { Text(tr("添加主机")) } })
+                            else EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.weight(1f))
+                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
+                            items(filtered, key = { it.id }) { host -> HostCard(host, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }) }
                         }
                     }
                 } else if (page == "sessions") {
-                    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                        if (!landscape) Text(if (sessionSearch.isBlank()) tr("会话列表") else tr("搜索结果"),
-                            style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 8.dp))
+                    Column(Modifier.fillMaxSize()) {
+                        if (largeTitle) LargeTitle(if (sessionSearch.isBlank()) tr("会话列表") else tr("搜索结果"))
                         if (searchExpanded) AppSearchField(sessionSearch, { sessionSearch = it }, tr("标题、主机、地址或用户名"),
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(bottom = Spacing.Tight)
                                 .focusRequester(searchFocus).testTag("session-search"))
                         val filteredSessions = sessions.filter {
                             "${it.displayTitle} ${it.host.name} ${it.host.address} ${it.host.username}".contains(sessionSearch, true)
                         }
                         if (filteredSessions.isEmpty()) {
-                            Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(if (sessions.isEmpty()) tr("暂无会话") else tr("没有匹配的会话"), fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-                                Text(if (sessions.isEmpty()) tr("连接一台主机后，会话会显示在这里。") else tr("试试其他标题或主机信息"),
-                                    color = colors.onSurfaceVariant, modifier = Modifier.padding(16.dp))
-                                if (sessions.isEmpty()) Button(onClick = { page = "hosts" }) { Text(tr("选择主机")) }
-                            }
-                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = sessionGridState, modifier = Modifier.weight(1f).testTag("session-grid"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = if (landscape) 8.dp else 0.dp, bottom = 12.dp)) {
+                            if (sessions.isEmpty()) EmptyState(tr("暂无会话"), tr("连接一台主机后，会话会显示在这里。"), Modifier.weight(1f),
+                                action = { FilledTonalButton(onClick = { page = "hosts" }) { Text(tr("选择主机")) } })
+                            else EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.weight(1f))
+                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = sessionGridState, modifier = Modifier.weight(1f).testTag("session-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
                             items(filteredSessions, key = { it.id }) { session ->
                                 SessionCard(session, onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) }, onForget = { service?.forget(session.id) })
                             }
@@ -325,10 +299,8 @@ fun ItermuxScreen(
                             RemoteFileBrowserPage(filesSession, onBack = { page = "hosts" }, Modifier.weight(1f))
                         }
                     } else {
-                        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(tr("会话不存在"), fontSize = 18.sp)
-                            Button(onClick = { page = "hosts" }, modifier = Modifier.padding(top = 16.dp)) { Text(tr("返回主机列表")) }
-                        }
+                        EmptyState(tr("会话不存在"), tr("连接已关闭，请从主机列表重新打开文件。"), Modifier.fillMaxSize(),
+                            action = { FilledTonalButton(onClick = { page = "hosts" }) { Text(tr("返回主机列表")) } })
                     }
                 } else if (page == "settings") {
                     SettingsPage(theme, { option ->
@@ -336,11 +308,8 @@ fun ItermuxScreen(
                         prefs.edit { putString("theme", option.name) }
                     }, AppLocale.language, { option -> AppLocale.set(context, option); service?.refreshLanguage() })
                 } else if (sessions.isEmpty()) {
-                    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(tr("终端已就绪"), fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
-                        Text(tr("连接一台主机，开始远端工作。"), color = colors.onSurfaceVariant, modifier = Modifier.padding(vertical = 16.dp))
-                        Button(onClick = { page = "sessions" }) { Text(tr("返回会话列表")) }
-                    }
+                    EmptyState(tr("终端已就绪"), tr("连接一台主机，开始远端工作。"), Modifier.fillMaxSize(),
+                        action = { FilledTonalButton(onClick = { page = "sessions" }) { Text(tr("返回会话列表")) } })
                 } else {
                     val active = sessions.find { it.id == selected }
                     // Manual reconnect preserves the journal id but replaces the transport and emulator.
@@ -385,19 +354,18 @@ fun ItermuxScreen(
                         val session = choices[index]
                         val title by session.title.collectAsStateWithLifecycle()
                         val state by session.state.collectAsStateWithLifecycle()
-                        TextButton(onClick = {
-                            val uris = shareUrisPending
-                            dismissShare()
-                            uploadSharedImages(session, uris)
-                        }, enabled = state.phase == Phase.CONNECTED,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("share-session-${session.id}")) {
-                            Column(Modifier.fillMaxWidth().padding(8.dp)) {
-                                Text(session.titleForDisplay(title), style = MaterialTheme.typography.bodyLarge,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${session.host.username}@${session.host.address}:${session.host.port}",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+                        GroupedRow(session.titleForDisplay(title),
+                            Modifier.padding(horizontal = Spacing.Tight).clip(MaterialTheme.shapes.small)
+                                .testTag("share-session-${session.id}"),
+                            subtitle = "${session.host.username}@${session.host.address}:${session.host.port}",
+                            leading = { HostSystemIcon(session.host.os, 40.dp) },
+                            trailing = { Chevron() },
+                            enabled = state.phase == Phase.CONNECTED,
+                            onClick = {
+                                val uris = shareUrisPending
+                                dismissShare()
+                                uploadSharedImages(session, uris)
+                            })
                     }
                 }
             }
@@ -407,13 +375,9 @@ fun ItermuxScreen(
 }
 
 @Composable
-private fun NavigationTabs(page: String, hostCount: Int, sessionCount: Int, spacing: Dp = 8.dp, onPageChange: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(spacing)) {
-        FilterChip(page == "hosts", { onPageChange("hosts") }, label = { Text(trf("主机  %d", hostCount)) },
-            leadingIcon = { Icon(painterResource(R.drawable.ic_hosts), contentDescription = null, modifier = Modifier.size(18.dp)) },
-            modifier = Modifier.testTag("hosts-tab"))
-        FilterChip(page == "sessions", { onPageChange("sessions") }, label = { Text(trf("会话  %d", sessionCount)) },
-            leadingIcon = { Icon(painterResource(R.drawable.ic_sessions), contentDescription = null, modifier = Modifier.size(18.dp)) },
-            modifier = Modifier.testTag("sessions-tab"))
-    }
+private fun NavigationTabs(page: String, hostCount: Int, sessionCount: Int, modifier: Modifier = Modifier, onPageChange: (String) -> Unit) {
+    SegmentedControl(listOf(
+        Segment(trf("主机  %d", hostCount), page == "hosts", "hosts-tab") { onPageChange("hosts") },
+        Segment(trf("会话  %d", sessionCount), page == "sessions", "sessions-tab") { onPageChange("sessions") },
+    ), modifier)
 }

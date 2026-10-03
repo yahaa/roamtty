@@ -8,9 +8,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,7 +28,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -251,11 +248,12 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, count: Int, curr
         IconButton(onClick = onClose, modifier = Modifier.testTag("file-preview-search-close")) {
             Icon(painterResource(R.drawable.ic_chevron_left), tr("关闭查找"))
         }
-        OutlinedTextField(query, onQuery, singleLine = true, shape = RoundedCornerShape(12.dp),
-            placeholder = { Text(tr("在文件中查找")) },
-            suffix = { if (query.isNotEmpty()) Text(if (count == 0) tr("无结果") else "${current + 1}/$count",
-                style = MaterialTheme.typography.labelMedium, modifier = Modifier.testTag("file-preview-search-count")) },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        AppSearchField(query, onQuery, tr("在文件中查找"),
+            trailing = if (query.isEmpty()) null else { {
+                Text(if (count == 0) tr("无结果") else "${current + 1}/$count", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 12.dp).testTag("file-preview-search-count"))
+            } },
             keyboardActions = KeyboardActions(onSearch = { onStep(1) }),
             modifier = Modifier.weight(1f).focusRequester(focus).testTag("file-preview-search-input"))
         IconButton(onClick = { onStep(-1) }, enabled = count > 0, modifier = Modifier.testTag("file-preview-search-previous")) {

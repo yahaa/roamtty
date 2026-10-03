@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -21,18 +19,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -92,7 +95,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
     }
     val currentPath = listing?.path ?: browser.directory
     Column(modifier.fillMaxSize().testTag("remote-file-browser")) {
-        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = ::navigateBack, modifier = Modifier.testTag("files-back")) {
                 Icon(painterResource(R.drawable.ic_chevron_left),
                     contentDescription = tr(if (browser.canGoBack) "返回上一目录" else "返回主机列表"))
@@ -256,8 +259,9 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
 }
 
 /**
- * Host and folders in one pill: the server is the root crumb, the current folder is emphasized,
- * and the row scrolls so the current folder is always visible.
+ * One-line path title: host and parent folders as quiet tappable crumbs, ending in the current folder
+ * (the host at the root) in title weight. Long paths scroll to their end and fade at the leading edge
+ * instead of being clipped.
  */
 @Composable
 internal fun FileBrowserPathBar(path: String, host: String, enabled: Boolean, onNavigate: (String) -> Unit,
@@ -265,19 +269,25 @@ internal fun FileBrowserPathBar(path: String, host: String, enabled: Boolean, on
     val folders = remember(path) { breadcrumbSegments(path).drop(if (path.startsWith('/')) 1 else 0) }
     val scroll = rememberScrollState()
     LaunchedEffect(path, scroll.maxValue) { scroll.animateScrollTo(scroll.maxValue) }
-    Surface(modifier.heightIn(min = 40.dp).testTag("files-breadcrumbs"), shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-        Row(Modifier.horizontalScroll(scroll).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Crumb(0, host, folders.isEmpty(), enabled, onClick = { onNavigate("/") }) {
-                Icon(painterResource(R.drawable.ic_os_server), contentDescription = null, Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(6.dp))
-            }
-            folders.forEachIndexed { index, (name, target) ->
-                Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null,
-                    modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.outline)
-                Crumb(index + 1, name, index == folders.lastIndex, enabled, onClick = { onNavigate(target) })
-            }
+    val colors = MaterialTheme.colorScheme
+    val fadeWidth = 24.dp
+    Row(modifier.heightIn(min = 48.dp).testTag("files-breadcrumbs")
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            if (scroll.value > 0) drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.Black),
+                endX = fadeWidth.toPx()), blendMode = BlendMode.DstIn)
+        }
+        .horizontalScroll(scroll), verticalAlignment = Alignment.CenterVertically) {
+        Crumb(0, host, current = folders.isEmpty(), enabled, onClick = { onNavigate("/") }) {
+            Icon(painterResource(R.drawable.ic_os_server), contentDescription = null, Modifier.size(16.dp),
+                tint = colors.onSurfaceVariant)
+            Spacer(Modifier.width(6.dp))
+        }
+        folders.forEachIndexed { index, (name, target) ->
+            Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null,
+                modifier = Modifier.size(14.dp), tint = colors.outline)
+            Crumb(index + 1, name, current = index == folders.lastIndex, enabled, onClick = { onNavigate(target) })
         }
     }
 }
@@ -285,11 +295,13 @@ internal fun FileBrowserPathBar(path: String, host: String, enabled: Boolean, on
 @Composable
 private fun Crumb(index: Int, label: String, current: Boolean, enabled: Boolean, onClick: () -> Unit,
     leading: @Composable RowScope.() -> Unit = {}) {
-    Row(Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled && !current, onClick = onClick)
-        .padding(horizontal = 6.dp, vertical = 8.dp).testTag(if (current) "files-title" else "files-crumb-$index"), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.clip(MaterialTheme.shapes.extraSmall).clickable(enabled = enabled && !current, onClick = onClick)
+        .padding(horizontal = 6.dp, vertical = 10.dp)
+        .then(if (current) Modifier.semantics { heading() } else Modifier)
+        .testTag(if (current) "files-title" else "files-crumb-$index"), verticalAlignment = Alignment.CenterVertically) {
         leading()
         Text(label, maxLines = 1, softWrap = false,
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal),
+            style = if (current) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
             color = if (current) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -298,11 +310,8 @@ private fun Crumb(index: Int, label: String, current: Boolean, enabled: Boolean,
 private fun FilterField(value: String, onValueChange: (String) -> Unit, onClose: () -> Unit) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    OutlinedTextField(value, onValueChange, singleLine = true, shape = RoundedCornerShape(12.dp),
-        placeholder = { Text(tr("筛选当前目录")) },
-        leadingIcon = { Icon(painterResource(R.drawable.ic_filter), contentDescription = null, Modifier.size(20.dp)) },
-        trailingIcon = { IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_close), tr("关闭筛选")) } },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+    AppSearchField(value, onValueChange, tr("筛选当前目录"), leadingIcon = R.drawable.ic_filter,
+        trailing = { IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_close), tr("关闭筛选")) } },
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).focusRequester(focus).testTag("files-filter"))
 }
 
