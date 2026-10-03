@@ -201,7 +201,7 @@ fun ItermuxScreen(
         onShareImagesConsumed()
     }
     LaunchedEffect(searchExpanded, page) { if (searchExpanded && navigationVisible) searchFocus.requestFocus() }
-    MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors) {
+    MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors, shapes = AppShapes) {
         if (loadedHosts == null) {
             StartupLoading()
             return@MaterialTheme

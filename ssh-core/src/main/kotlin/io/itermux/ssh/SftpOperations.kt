@@ -125,6 +125,20 @@ internal class SftpOperations(
         sftp.rename(from, to)
     }
 
+    /** Create one directory; fails if the name already exists. */
+    suspend fun makeDirectory(path: String) = withSftp { sftp ->
+        val target = validTransferPath(path)
+        require(isSafeRemoteEntryName(target.trimEnd('/').substringAfterLast('/'))) { "无效的文件夹名称" }
+        val remote = literalSftpPath(target)
+        require(!sftp.exists(remote)) { "已存在同名文件或文件夹" }
+        sftp.mkdir(remote)
+    }
+
+    /** Follows symlinks, so a link to a folder can be opened as a folder. */
+    suspend fun isDirectory(path: String): Boolean = withSftp { sftp ->
+        sftp.stat(literalSftpPath(validTransferPath(path))).isDir
+    }
+
     /**
      * Delete a remote file or directory. Directories are removed recursively
      * (contents first, then rmdir). Empty directories are removed directly.

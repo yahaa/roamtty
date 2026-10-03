@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
@@ -203,14 +204,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 dockPinned = false
                 prefs.edit { putBoolean("dockPinned", false) }
             }, modifier = Modifier.testTag("collapse-dock")) {
-                Text("×", fontSize = 24.sp, modifier = Modifier.semantics { contentDescription = tr("收起操作栏") })
+                Icon(painterResource(R.drawable.ic_close), contentDescription = tr("收起操作栏"), modifier = Modifier.size(20.dp))
             }
         }, sessionControl = { sessionModifier ->
             Box(sessionModifier) {
                 TextButton(onClick = { hideKeyboard(); sessionMenu = true }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = trf("切换会话：%s", session.titleForDisplay(sessionTitle)) }.testTag("session-switcher"), contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text("●", color = if (state.phase == Phase.CONNECTED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, fontSize = 9.sp)
-                    Spacer(Modifier.width(6.dp))
-                    Text("▤", fontSize = 18.sp)
+                    // The dot on the sessions icon doubles as the connection indicator.
+                    Box {
+                        Icon(painterResource(R.drawable.ic_sessions), contentDescription = null, modifier = Modifier.size(22.dp))
+                        Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp).size(8.dp).clip(CircleShape)
+                            .background(if (state.phase == Phase.CONNECTED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error))
+                    }
                 }
                 DropdownMenu(sessionMenu, ::dismissDockMenus) {
                     DropdownMenuItem(text = { Text(tr("返回会话列表")) }, onClick = { sessionMenu = false; onSessions() })
@@ -270,14 +274,15 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }, keyControls = {
             Box {
                 InputControlButton("⌘", tr("快捷键"), "terminal-shortcuts", selected = ctrlArmed || shiftArmed,
-                    onClick = { shortcutMenu = true })
-                DropdownMenu(shortcutMenu, ::dismissDockMenus) {
-                    FlowRow(Modifier.widthIn(max = 224.dp).padding(horizontal = 8.dp), maxItemsInEachRow = 4) {
-                        InputControlButton("Esc", tr("发送 Esc"), "terminal-escape", enabled = state.phase == Phase.CONNECTED,
+                    icon = R.drawable.ic_keys, onClick = { shortcutMenu = true })
+                DropdownMenu(shortcutMenu, ::dismissDockMenus, shape = RoundedCornerShape(18.dp)) {
+                    FlowRow(Modifier.widthIn(max = 264.dp).padding(horizontal = 10.dp, vertical = 2.dp), maxItemsInEachRow = 4,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        InputControlButton("Esc", keycap = true, description = tr("发送 Esc"), tag = "terminal-escape", enabled = state.phase == Phase.CONNECTED,
                             onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_ESCAPE) })
-                        InputControlButton("Tab", tr("发送 Tab"), "terminal-tab", enabled = state.phase == Phase.CONNECTED,
+                        InputControlButton("Tab", keycap = true, description = tr("发送 Tab"), tag = "terminal-tab", enabled = state.phase == Phase.CONNECTED,
                             onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_TAB) })
-                        InputControlButton("Ctrl", tr("Ctrl，作用于下一次键盘字符"), "terminal-control",
+                        InputControlButton("Ctrl", keycap = true, description = tr("Ctrl，作用于下一次键盘字符"), tag = "terminal-control",
                             enabled = state.phase == Phase.CONNECTED, selected = ctrlArmed, onClick = {
                                 shortcutMenu = false
                                 shiftArmed = false
@@ -287,17 +292,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                                     SoftwareKeyboardControllerCompat(view).show()
                                 }
                             })
-                        InputControlButton("Shift", tr("Shift，与方向键组合发送；也可作用于下一次键盘字符"), "terminal-shift",
+                        InputControlButton("Shift", keycap = true, description = tr("Shift，与方向键组合发送；也可作用于下一次键盘字符"), tag = "terminal-shift",
                             enabled = state.phase == Phase.CONNECTED, selected = shiftArmed, onClick = {
                                 ctrlArmed = false
                                 shiftArmed = !shiftArmed
                                 if (shiftArmed) terminal?.requestFocus()
                             })
-                        InputControlButton("←", tr("光标左移"), "terminal-left", enabled = state.phase == Phase.CONNECTED,
+                        InputControlButton("←", keycap = true, description = tr("光标左移"), tag = "terminal-left", enabled = state.phase == Phase.CONNECTED,
                             onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) })
-                        InputControlButton("→", tr("光标右移"), "terminal-right", enabled = state.phase == Phase.CONNECTED,
+                        InputControlButton("→", keycap = true, description = tr("光标右移"), tag = "terminal-right", enabled = state.phase == Phase.CONNECTED,
                             onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) })
-                        InputControlButton("⌫", tr("删除字符，长按清空当前输入"), "terminal-delete", enabled = state.phase == Phase.CONNECTED,
+                        InputControlButton("⌫", keycap = true, description = tr("删除字符，长按清空当前输入"), tag = "terminal-delete", enabled = state.phase == Phase.CONNECTED,
                             onLongClick = { shortcutMenu = false; ctrlArmed = false; shiftArmed = false; terminal?.clearCurrentInput() },
                             onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DEL) })
                     }
@@ -314,8 +319,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                AndroidView(modifier = Modifier.fillMaxSize().clipToBounds().background(MaterialTheme.colorScheme.background).testTag("terminal"), factory = { ctx ->
+                Box(Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+                AndroidView(modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 6.dp, top = 6.dp).clipToBounds()
+                    .testTag("terminal"), factory = { ctx ->
                     // Session, theme, font and history are bound in update, which also runs after creation.
                     TerminalView(ctx, null).apply {
                         terminal = this
@@ -395,8 +401,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     shape = CircleShape,
                     colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
                 ) {
-                    Text("⋯", fontSize = 26.sp,
-                        modifier = Modifier.semantics { contentDescription = tr("显示操作栏") })
+                    Icon(painterResource(R.drawable.ic_more), contentDescription = tr("显示操作栏"))
                 }
             }
         }

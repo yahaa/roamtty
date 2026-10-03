@@ -31,19 +31,17 @@ class FilePreviewUiTest {
     @get:Rule val compose = createComposeRule()
     @get:Rule val serviceRule = ServiceTestRule()
 
-    @Test fun titleStaysOnOneLineAndEllipsizesInNarrowWindows() {
-        var width by mutableStateOf(140.dp)
+    @Test fun pathBarKeepsTheCurrentFolderVisibleInNarrowWindows() {
+        var width by mutableStateOf(160.dp)
+        var opened: String? = null
         val path = "/home/developer/projects/a-very-long-folder-name/source"
-        compose.setContent { MaterialTheme { Box(Modifier.width(width)) { FileBrowserTitle(path, "开发服务器") } } }
-        compose.onNodeWithTag("files-title").assertTextEquals("$path（开发服务器）")
-        val layouts = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithTag("files-title").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertEquals(1, layouts.single().lineCount)
-        assertTrue(layouts.single().isLineEllipsized(0))
-        compose.runOnIdle { width = 300.dp }
-        layouts.clear()
-        compose.onNodeWithTag("files-title").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertEquals(1, layouts.single().lineCount)
+        compose.setContent { MaterialTheme { Box(Modifier.width(width)) { FileBrowserPathBar(path, "开发服务器", true, { opened = it }) } } }
+        compose.onNodeWithTag("files-title").assertTextEquals("source").assertIsDisplayed()
+        compose.onNodeWithTag("files-breadcrumbs").assertHeightIsAtLeast(40.dp)
+        compose.runOnIdle { width = 600.dp }
+        compose.onNodeWithTag("files-crumb-0").assertTextEquals("开发服务器").performClick()
+        compose.onNodeWithTag("files-crumb-2").performClick()
+        compose.runOnIdle { assertEquals("/home/developer", opened) }
     }
 
     @Test fun previewsTextImagesEmptyBinaryLargeFilesAndReadErrors() = runBlocking {
@@ -79,9 +77,19 @@ class FilePreviewUiTest {
                 compose.waitUntil(10_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithTag("file-preview-download").assertIsEnabled()
             }
-            open("$prefix.md", "file-preview-text")
+            open("$prefix.md", "file-preview-markdown")
+            compose.onNodeWithText("Preview 中文").assertIsDisplayed()
+            compose.onNodeWithText("indent preserved").assertIsDisplayed()
+            compose.onNodeWithTag("file-preview-markdown-toggle").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("file-preview-text").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("# Preview 中文").assertIsDisplayed()
             compose.onNodeWithText("    indent preserved").assertIsDisplayed()
+            compose.onNodeWithTag("file-preview-status").assertTextContains("Markdown", substring = true)
+            compose.onNodeWithTag("file-preview-search").performClick()
+            compose.onNodeWithTag("file-preview-search-input").performTextInput("preview")
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("1/1").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("file-preview-search-close").performClick()
+            compose.onNodeWithTag("file-preview-title").assertIsDisplayed()
             compose.onNodeWithTag("file-preview").captureToImage().asAndroidBitmap().let { bitmap ->
                 File(context.getExternalFilesDir(null), "file-preview-text.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             }

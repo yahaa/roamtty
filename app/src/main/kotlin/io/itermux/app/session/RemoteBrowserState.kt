@@ -19,6 +19,9 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
     var renamePath by mutableStateOf<String?>(null)
     var renameDraft by mutableStateOf("")
     var previewPath by mutableStateOf<String?>(null)
+    var newFolderDraft by mutableStateOf<String?>(null)
+    var filtering by mutableStateOf(false)
+    var filter by mutableStateOf("")
     var deletePath by mutableStateOf<String?>(null)
     var deleteIsDirectory by mutableStateOf(false)
     var operation by mutableStateOf<String?>(null)
@@ -27,17 +30,22 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
     var revision by mutableIntStateOf(0)
         private set
     private var actionJob: Job? = null
+    private var linkJob: Job? = null
 
     fun navigate(path: String) {
+        cancelPendingOpen()
         if (path == directory) return
         backStack = backStack + directory
         directory = path
+        clearFilter()
         dismissMenu()
     }
     fun goBack(): Boolean {
+        cancelPendingOpen()
         if (!canGoBack) return false
         directory = backStack.last()
         backStack = backStack.dropLast(1)
+        clearFilter()
         dismissMenu()
         return true
     }
@@ -46,6 +54,7 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
         menuEntry = entry
     }
     fun dismissMenu() { menuPath = null; menuEntry = null }
+    fun clearFilter() { filtering = false; filter = "" }
     fun refresh() { revision++ }
     fun cancel() { actionJob?.cancel() }
 
@@ -62,6 +71,37 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
         val path = deletePath ?: return
         deletePath = null
         runAction(tr("正在删除…")) { action(path) }
+    }
+
+    fun createFolder(directory: String, action: suspend (String) -> Unit) {
+        val name = newFolderDraft?.trim() ?: return
+        if (!validRemoteRename(name)) return
+        newFolderDraft = null
+        runAction(tr("正在创建文件夹…")) { action(joinRemotePath(directory, name)) }
+    }
+
+    /** SFTP listings describe the link itself; resolve it before choosing folder or preview. */
+    /** Only the latest link tap may act, and only if the user is still in the folder it was tapped in. */
+    fun openLink(path: String, isDirectory: suspend (String) -> Boolean) {
+        cancelPendingOpen()
+        val from = directory
+        linkJob = scope.launch {
+            val folder = try { isDirectory(path) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    if (directory == from) actionError = trf("无法打开链接：%s", tr(e.message ?: "链接目标不存在"))
+                    return@launch
+                }
+            if (directory != from || previewPath != null) return@launch
+            linkJob = null
+            if (folder) navigate(path) else previewPath = path
+        }
+    }
+
+    /** Any newer navigation, preview or leaving the browser supersedes a pending link resolution. */
+    fun cancelPendingOpen() {
+        linkJob?.cancel()
+        linkJob = null
     }
 
     private fun runAction(label: String, action: suspend () -> Unit) {
@@ -81,6 +121,18 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
         actionJob = job
         job.start()
     }
+}
+
+/** Clickable path segments from the root to [path], each with its absolute target. */
+internal fun breadcrumbSegments(path: String): List<Pair<String, String>> {
+    if (!path.startsWith('/')) return if (path.isEmpty()) emptyList() else listOf(path to path)
+    val segments = mutableListOf("/" to "/")
+    var current = ""
+    path.split('/').filter { it.isNotEmpty() }.forEach { name ->
+        current += "/$name"
+        segments += name to current
+    }
+    return segments
 }
 
 internal fun validRemoteRename(name: String): Boolean = name.isNotBlank() && isSafeRemoteEntryName(name)

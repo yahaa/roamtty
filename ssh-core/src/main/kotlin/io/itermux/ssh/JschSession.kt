@@ -330,6 +330,8 @@ class JschSession(
         else shellWorkingDirectoryCommand))
     suspend fun rename(oldPath: String, newPath: String) = files.rename(oldPath, newPath)
     suspend fun deleteFile(path: String) = files.deleteFile(path)
+    suspend fun makeDirectory(path: String) = files.makeDirectory(path)
+    suspend fun isDirectory(path: String) = files.isDirectory(path)
 
     private suspend fun runCommand(command: String): String? = withContext(Dispatchers.IO) {
         val ssh = connectedSession() ?: return@withContext null
