@@ -9,6 +9,7 @@ import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
@@ -31,7 +32,8 @@ class TerminalConnection(
     val sessionNumber: Int = 1,
     /** Unique remote tmux session for this local entry; legacy restorations use [Tmux.LEGACY_SESSION]. */
     val remoteSessionName: String = if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION,
-    private val onRename: () -> Unit = {}
+    private val onRename: () -> Unit = {},
+    private val onHostSystemDetected: suspend (HostSystem) -> Unit = {}
 ) : TerminalOutput(), TerminalSession {
     val pending = MutableStateFlow<PendingPrompt?>(null)
     val inputWarning = MutableStateFlow<String?>(null)
@@ -68,6 +70,14 @@ class TerminalConnection(
     )
     val state = if (credentials != null) ssh.state else MutableStateFlow(ConnectionState(
         Phase.DISCONNECTED, "连接已中断，请手动重连。会话记录已恢复，未发送的输入不会重发。" )).asStateFlow()
+    val detectedSystem = ssh.detectedSystem
+    private val systemWatcher = if (credentials == null) null else scope.launch {
+        detectedSystem.filterNotNull().collect { system ->
+            try { onHostSystemDetected(system) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Metadata persistence must never tear down a terminal. */ }
+        }
+    }
     private val tmux = TmuxHistoryCoordinator(credentials != null && mode == SessionMode.TMUX, ssh, scope) { inputWarning.value = it }
     val tmuxHistory = tmux.history
     private val mutableCommonCommands = MutableStateFlow<CommonCommandsState>(CommonCommandsState.Idle)
@@ -208,6 +218,7 @@ class TerminalConnection(
         transfers.cancel()
         commonCommandsJob?.cancel()
         commonCommandsWatcher?.cancel()
+        systemWatcher?.cancel()
         pending.value?.answer?.complete(null)
         tmux.disconnect()
         ssh.disconnect()

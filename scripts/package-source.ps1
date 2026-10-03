@@ -3,7 +3,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zipPath = Join-Path $root 'dist/iTermux-0.1.0-source.zip'
-$folders = @('app','ssh-core','terminal-emulator','terminal-view','scripts','docs','licenses','gradle')
+$folders = @('app','ssh-core','terminal-emulator','terminal-view','scripts','docs','licenses','gradle','artwork')
 $rootNames = @('.gitignore','.gitattributes','settings.gradle.kts','build.gradle.kts','gradle.properties','gradlew','gradlew.bat','LICENSE','NOTICE','README.md','THIRD_PARTY_NOTICES.md','toolchains.lock.json','test-tool.lock.json')
 $files = @($rootNames | ForEach-Object { Get-Item -LiteralPath (Join-Path $root $_) })
 foreach ($folder in $folders) {

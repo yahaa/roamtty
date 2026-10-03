@@ -35,6 +35,13 @@ fun trf(pattern: String, vararg args: Any): String = tr(pattern).format(*args)
 
 private object EnglishText {
     val values: Map<String, String> = mapOf(
+        "自动检测" to "Detect automatically",
+        "正在检测系统…" to "Detecting system…",
+        "跳过检测" to "Skip detection",
+        "待检测系统" to "System pending detection",
+        "保存时自动检测系统。未填写凭据或暂时无法连接时，将在下次连接成功后更新。" to "Detect the system when saving. If credentials are missing or the host is unavailable, update it after the next successful connection.",
+        "密码用于检测系统；仅勾选后才会在本机保存。留空可在连接时输入。" to "Use the password to detect the system. It is saved only when enabled. Leave it blank to enter it when connecting.",
+        "私钥口令（仅用于检测，可留空）" to "Key passphrase (detection only, optional)",
         "打开终端" to "Open terminal",
         "系统未设置" to "System not set",
         "尚未导入私钥" to "No private key imported",
@@ -307,7 +314,7 @@ private object EnglishText {
         "默认每次连接时输入密码。" to "By default, enter the password on each connection.",
         "导入 Ed25519 / RSA 私钥" to "Import Ed25519 / RSA private key",
         "更换私钥" to "Replace private key",
-        "支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅在连接时输入，不会保存。" to "Supports OpenSSH and PEM keys. The file is stored encrypted; the passphrase is entered only when connecting and is never saved.",
+        "支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅用于本次检测或连接，不会保存。" to "Supports OpenSSH and PEM keys. The file is stored encrypted; the passphrase is used only for detection or connection and is never saved.",
         "连接时显示服务器的认证问题，支持一次性验证码和多轮交互。" to "Shows the server's authentication prompts when connecting, including one-time codes and multiple rounds.",
         "会话模式" to "Session mode",
         "tmux · 推荐" to "tmux · Recommended",

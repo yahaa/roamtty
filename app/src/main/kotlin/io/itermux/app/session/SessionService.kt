@@ -71,11 +71,17 @@ class SessionService : Service() {
         val connection = TerminalConnection(
             host, mode, credentials, (application as ItermuxApp).pins, scope,
             sessionNumber = nextSessionNumber(mutableSessions.value.filter { it.host.id == host.id }.map { it.sessionNumber }),
-            onRename = ::saveSessions
+            onRename = ::saveSessions,
+            onHostSystemDetected = { updateHostSystem(host, it) }
         )
         mutableSessions.value += connection
         track(connection)
         return connection
+    }
+
+    private suspend fun updateHostSystem(host: Host, system: HostSystem) {
+        (application as ItermuxApp).database.hosts().updateSystem(
+            host.id, host.address, host.port, host.username, system.name)
     }
 
     /** Keeps the foreground notification and wake lock in step with an active connection. */
@@ -101,7 +107,8 @@ class SessionService : Service() {
             initialTitle = existing.title.value,
             sessionNumber = existing.sessionNumber,
             remoteSessionName = existing.remoteSessionName,
-            onRename = ::saveSessions
+            onRename = ::saveSessions,
+            onHostSystemDetected = { updateHostSystem(existing.host, it) }
         )
         mutableSessions.value = mutableSessions.value.map { if (it.id == id) replacement else it }
         track(replacement)

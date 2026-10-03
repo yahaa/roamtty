@@ -51,6 +51,10 @@ class Server(paramiko.ServerInterface):
                 channel.send_exit_status(1 if mode == "missing-tmux" and self.attempt > 1 else 0)
                 channel.close()
                 return
+            if not command.startswith(b"exec tmux "):
+                channel.send_exit_status(127)
+                channel.close()
+                return
             channel.sendall(b"READY:" + command + b"\r\n")
             channel.recv(1024)
             if mode.startswith("exit"):

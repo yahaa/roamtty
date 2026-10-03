@@ -16,6 +16,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.graphics.Color
@@ -31,9 +33,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.ViewModelProvider
 import io.itermux.app.ItermuxApp
 import io.itermux.app.data.Host
-import io.itermux.ssh.AuthMethod
-import io.itermux.ssh.SessionMode
-import io.itermux.ssh.Target
+import io.itermux.ssh.HostSystem
 import kotlinx.coroutines.*
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -41,26 +41,31 @@ import kotlinx.coroutines.*
 fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val activity = remember(context) {
         generateSequence(context) { (it as? ContextWrapper)?.baseContext }
             .filterIsInstance<ComponentActivity>().first()
     }
     val draft = remember(activity) { ViewModelProvider(activity)[HostEditorDraft::class.java] }
     draft.open(original)
-    val id = draft.id
     var name by draft.name
     var address by draft.address
     var port by draft.port
     var username by draft.username
     var auth by draft.auth
     var mode by draft.mode
-    var os by draft.os
+    val os by draft.os
     var savePassword by draft.savePassword
     var password by draft.password
+    var passphrase by draft.passphrase
     var imported by draft.imported
     var keyLabel by draft.keyLabel
-    var error by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
+    var error by draft.error
+    var busy by draft.busy
+    val detecting by draft.detecting
+    val saved by draft.saved
+    LaunchedEffect(saved) { if (saved) { draft.close(); onSaved() } }
     val keyPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             busy = true
@@ -92,46 +97,44 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
     }
     val connectionSection: @Composable () -> Unit = {
         GroupedSection(header = tr("连接信息")) {
-            FormField(name, { name = it }, tr("名称"), tr("例如：开发工作站"), Modifier.testTag("host-name"))
+            FormField(name, { name = it }, tr("名称"), tr("例如：开发工作站"), Modifier.testTag("host-name"), enabled = !busy)
             GroupedDivider()
             FormField(address, { address = it }, tr("地址 / IP"), tr("例如：dev.example.com"), Modifier.testTag("host-address"),
-                KeyboardOptions(keyboardType = KeyboardType.Uri))
+                KeyboardOptions(keyboardType = KeyboardType.Uri), enabled = !busy)
             GroupedDivider()
             Row(Modifier.height(IntrinsicSize.Min)) {
-                FormField(username, { username = it }, tr("用户名"), modifier = Modifier.weight(1f))
+                FormField(username, { username = it }, tr("用户名"), modifier = Modifier.weight(1f).testTag("host-username"), enabled = !busy)
                 VerticalDivider(Modifier.padding(vertical = 10.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                FormField(port, { port = it.filter(Char::isDigit).take(5) }, tr("端口"), modifier = Modifier.width(96.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                FormField(port, { port = it.filter(Char::isDigit).take(5) }, tr("端口"), modifier = Modifier.width(96.dp).testTag("host-port"),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
             }
         }
     }
     val systemSection: @Composable () -> Unit = {
         GroupedSection(header = tr("远端系统"),
-            footer = if (os == "UNKNOWN") tr("旧主机尚未设置系统类型，请选择后保存。") else null) {
-            SegmentedControl(listOf("LINUX" to "Linux", "WINDOWS" to "Windows", "MACOS" to "macOS", "OTHER" to tr("其他")).map { (value, label) ->
-                Segment(label, os == value) { os = value }
-            }, Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
+            footer = tr("保存时自动检测系统。未填写凭据或暂时无法连接时，将在下次连接成功后更新。")) {
+            GroupedRow(if (detecting) tr("正在检测系统…") else if (os == "UNKNOWN") tr("自动检测") else tr(HostSystem.fromStored(os).label),
+                leading = { HostSystemIcon(os, 32.dp) },
+                trailing = { if (detecting) TextButton(onClick = draft::skipDetection) { Text(tr("跳过检测")) } })
         }
     }
     val authenticationSection: @Composable () -> Unit = {
         GroupedSection(header = tr("认证方式"), footer = when (auth) {
-            "PASSWORD" -> tr("默认每次连接时输入密码。")
-            "KEY" -> tr("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅在连接时输入，不会保存。")
+            "PASSWORD" -> tr("密码用于检测系统；仅勾选后才会在本机保存。留空可在连接时输入。")
+            "KEY" -> tr("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅用于本次检测或连接，不会保存。")
             else -> tr("连接时显示服务器的认证问题，支持一次性验证码和多轮交互。")
         }) {
             SegmentedControl(listOf("PASSWORD", "KEY", "INTERACTIVE").map { value ->
-                Segment(authLabel(value), auth == value) { auth = value }
+                Segment(authLabel(value), auth == value) { if (!busy) auth = value }
             }, Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
             if (auth == "PASSWORD") {
                 GroupedDivider()
                 GroupedRow(tr("在本机加密保存密码"), trailing = {
-                    Switch(savePassword, { savePassword = it }, modifier = Modifier.testTag("save-password"))
+                    Switch(savePassword, { savePassword = it }, modifier = Modifier.testTag("save-password"), enabled = !busy)
                 })
-                if (savePassword) {
-                    GroupedDivider()
-                    FormField(password, { password = it }, if (original?.encryptedPassword != null) tr("新密码（留空保留原密码）") else tr("密码"),
-                        modifier = Modifier.testTag("host-password"), visualTransformation = PasswordVisualTransformation())
-                }
+                GroupedDivider()
+                FormField(password, { password = it }, if (original?.encryptedPassword != null) tr("新密码（留空保留原密码）") else tr("密码"),
+                    modifier = Modifier.testTag("host-password"), visualTransformation = PasswordVisualTransformation(), enabled = !busy)
             } else if (auth == "KEY") {
                 GroupedDivider()
                 GroupedRow(keyLabel ?: tr("尚未导入私钥"), subtitle = if (keyLabel == null) null else tr("已导入私钥"),
@@ -142,14 +145,17 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                             Text(if (keyLabel == null) tr("导入 Ed25519 / RSA 私钥") else tr("更换私钥"))
                         }
                     })
+                GroupedDivider()
+                FormField(passphrase, { passphrase = it }, tr("私钥口令（仅用于检测，可留空）"),
+                    visualTransformation = PasswordVisualTransformation(), modifier = Modifier.testTag("host-passphrase"), enabled = !busy)
             }
         }
     }
     val modeSection: @Composable () -> Unit = {
         GroupedSection(header = tr("会话模式"), footer = if (mode == "TMUX") tr("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux。") else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。")) {
             SegmentedControl(listOf(
-                Segment(tr("tmux · 推荐"), mode == "TMUX") { mode = "TMUX" },
-                Segment(tr("普通 SSH"), mode == "SHELL") { mode = "SHELL" },
+                Segment(tr("tmux · 推荐"), mode == "TMUX") { if (!busy) mode = "TMUX" },
+                Segment(tr("普通 SSH"), mode == "SHELL") { if (!busy) mode = "SHELL" },
             ), Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
         }
     }
@@ -163,28 +169,10 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                     TextButton(onClick = { draft.close(); onDismiss() }, enabled = !busy, modifier = Modifier.align(Alignment.CenterStart)) { Text(tr("取消")) }
                     Text(if (original == null) tr("添加主机") else tr("编辑主机"), style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(horizontal = 96.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    TextButton(enabled = !busy, modifier = Modifier.align(Alignment.CenterEnd), onClick = {
-                        scope.launch {
-                            busy = true
-                            try {
-                                require(name.trim().isNotEmpty() && name.length <= 80) { tr("名称需为 1–80 个字符") }
-                                val target = Target(address.trim(), port.toIntOrNull() ?: 0, username.trim(), AuthMethod.valueOf(auth), SessionMode.valueOf(mode))
-                                require(auth != "KEY" || imported != null || original?.encryptedKey != null) { tr("请先导入私钥") }
-                                require(!savePassword || auth != "PASSWORD" || password.isNotEmpty() || original?.encryptedPassword != null) { tr("请输入要保存的密码") }
-                                withContext(Dispatchers.IO) {
-                                    val encryptedPassword = if (auth == "PASSWORD" && savePassword) {
-                                        if (password.isEmpty()) original?.encryptedPassword else password.toByteArray().let { bytes -> try { app.vault.encrypt(bytes, "$id:password") } finally { bytes.fill(0) } }
-                                    } else null
-                                    val encryptedKey = if (auth == "KEY") imported?.let { app.vault.encrypt(it, "$id:key") } ?: original?.encryptedKey else null
-                                    app.database.hosts().save(Host(id, name.trim(), target.address, target.port, target.username, auth, mode, encryptedPassword, encryptedKey, keyLabel.takeIf { auth == "KEY" }, os))
-                                }
-                                draft.close()
-                                onSaved()
-                            } catch (e: IllegalArgumentException) { error = e.message }
-                            catch (e: Exception) { error = tr("保存失败，无法使用本机加密存储。请重试。") }
-                            finally { busy = false }
-                        }
-                    }) { Text(if (busy) tr("处理中") else tr("保存"), fontWeight = FontWeight.SemiBold) }
+                    TextButton(enabled = !busy, modifier = Modifier.align(Alignment.CenterEnd).testTag("save-host"),
+                        onClick = { focusManager.clearFocus(); keyboard?.hide(); draft.save(app, original) }) {
+                        Text(if (busy) tr("处理中") else tr("保存"), fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                     val wide = maxWidth >= 600.dp
@@ -214,15 +202,16 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
         }
     }
     }
+    draft.pending.value?.let { PromptDialog(it) }
 }
 
 /** A borderless field for grouped forms: the panel supplies the shape, dividers separate rows. */
 @Composable
 private fun FormField(value: String, onValueChange: (String) -> Unit, label: String, placeholder: String? = null,
     modifier: Modifier = Modifier, keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    visualTransformation: VisualTransformation = VisualTransformation.None) {
+    visualTransformation: VisualTransformation = VisualTransformation.None, enabled: Boolean = true) {
     TextField(value, onValueChange, label = { Text(label) }, placeholder = placeholder?.let { { Text(it) } },
-        singleLine = true, keyboardOptions = keyboardOptions, visualTransformation = visualTransformation,
+        enabled = enabled, singleLine = true, keyboardOptions = keyboardOptions, visualTransformation = visualTransformation,
         modifier = modifier.fillMaxWidth(),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
