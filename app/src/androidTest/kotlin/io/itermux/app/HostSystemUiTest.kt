@@ -137,12 +137,14 @@ class HostSystemUiTest {
     @Test fun supportedLogosAndGenericPenguinRenderInHostList() = runBlocking<Unit> {
         val preferences = context.getSharedPreferences("app-settings", android.content.Context.MODE_PRIVATE)
         val previousTheme = preferences.getString("theme", null)
-        val hosts = listOf("UBUNTU", "DEBIAN", "CENTOS", "LINUX").map {
+        val hosts = listOf("UBUNTU", "DEBIAN", "CENTOS", "LINUX", "WINDOWS", "MACOS", "REDHAT", "FEDORA").map {
             Host(name = HostSystem.fromStored(it).label, address = "${it.lowercase()}.example", username = "dev", os = it)
         }
+        // The list sorts by name; wait for the first row, since later rows may be off screen.
+        val first = hosts.minBy { it.name.lowercase() }
         try {
             hosts.forEach { app.database.hosts().save(it) }
-            compose.waitUntil(5000) { compose.onAllNodesWithTag("host-card-${hosts[0].id}").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(5000) { compose.onAllNodesWithTag("host-card-${first.id}").fetchSemanticsNodes().isNotEmpty() }
             hosts.forEach {
                 compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${it.id}"))
                 compose.onNodeWithTag("host-card-${it.id}").assert(hasContentDescription(HostSystem.fromStored(it.os).label))
@@ -150,7 +152,8 @@ class HostSystemUiTest {
             for (theme in listOf("DARK", "LIGHT")) {
                 preferences.edit().putString("theme", theme).commit()
                 compose.activityRule.scenario.recreate()
-                compose.waitUntil(5000) { compose.onAllNodesWithTag("host-card-${hosts[0].id}").fetchSemanticsNodes().isNotEmpty() }
+                compose.waitUntil(5000) { compose.onAllNodesWithTag("host-grid").fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${first.id}"))
                 compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
                 File(context.getExternalFilesDir(null), "host-system-icons-${theme.lowercase()}.png").outputStream().use {
                     compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
