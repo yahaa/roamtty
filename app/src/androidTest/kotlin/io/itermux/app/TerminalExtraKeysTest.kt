@@ -266,10 +266,8 @@ class TerminalExtraKeysTest {
             compose.onNodeWithTag("download-file").performClick()
             compose.onNodeWithTag("download-remote-path").assertDoesNotExist()
             compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
-            compose.waitUntil(8_000) {
-                // Hidden files are disabled by default; wait for a visible fixture directory.
-                compose.onAllNodesWithTag("download-entry-phone-a").fetchSemanticsNodes().isNotEmpty()
-            }
+            // Hidden files are disabled by default; wait for a visible fixture directory.
+            compose.waitForDownloadEntry("phone-a", 8_000)
             compose.onNodeWithTag("remote-use-directory").assertDoesNotExist()
             compose.waitForIdle()
             delay(250)
@@ -281,9 +279,7 @@ class TerminalExtraKeysTest {
             compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.onNodeWithTag("download-files-list").performScrollToNode(hasTestTag("download-entry-phone-a"))
             compose.onNodeWithTag("download-entry-phone-a").performClick()
-            compose.waitUntil(8_000) {
-                compose.onAllNodesWithTag("download-entry-assets").fetchSemanticsNodes().isNotEmpty()
-            }
+            compose.waitForDownloadEntry("assets", 8_000)
             assertTrue("Browsing a directory does not select it as a download", session.transfers.selectedDownloads.isEmpty())
             compose.onNodeWithTag("download-files-list").performScrollToNode(hasTestTag("download-entry-README.md"))
             compose.onNodeWithTag("download-entry-README.md").performClick()

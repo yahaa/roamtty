@@ -10,6 +10,10 @@ import android.content.res.Configuration
 import android.view.KeyEvent
 import android.view.View
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -58,6 +62,7 @@ import io.itermux.app.R
 import io.itermux.ssh.HistorySource
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -116,14 +121,27 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         ctrlArmed = false
         shiftArmed = false
     }
+    // The collapsed toolbox fades out after a quiet spell and returns on the next touch.
+    var toolboxAwake by remember { mutableStateOf(true) }
+    var touches by remember { mutableIntStateOf(0) }
+    LaunchedEffect(touches, dockAvailable, dockVisible) {
+        toolboxAwake = true
+        val hideAfter = TerminalToolbox.autoHideMillis
+        if (dockAvailable && !dockVisible && hideAfter > 0) {
+            delay(hideAfter)
+            toolboxAwake = false
+        }
+    }
     // Observe the first press without consuming it: the same tap still reaches the terminal,
     // including its keyboard, selection and scrolling gestures. Pinned controls stay visible.
-    val outsideDockTouch = Modifier.pointerInput(floatingDock) {
-        if (floatingDock) awaitPointerEventScope {
+    val workspaceTouch = Modifier.pointerInput(dockAvailable, floatingDock) {
+        if (dockAvailable) awaitPointerEventScope {
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
-                if (event.changes.any { it.pressed && !it.previousPressed &&
-                        !dockBounds.contains(it.position + workspaceOrigin) }) {
+                val presses = event.changes.filter { it.pressed && !it.previousPressed }
+                if (presses.isEmpty()) continue
+                touches++
+                if (floatingDock && presses.any { !dockBounds.contains(it.position + workspaceOrigin) }) {
                     dismissDockMenus()
                 }
             }
@@ -320,7 +338,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     // by a scrim so the clock and icons stay legible; controls and notices stay below the bar.
     BoxWithConstraints(modifier.fillMaxWidth().testTag("terminal-workspace")
         .drawBehind { drawRect(terminalBackground(session, outputRevision.value)) }
-        .onGloballyPositioned { workspaceOrigin = it.positionInRoot() }.then(outsideDockTouch)) {
+        .onGloballyPositioned { workspaceOrigin = it.positionInRoot() }.then(workspaceTouch)) {
         val workspaceHeight = maxHeight
         val safeDockHeight = with(LocalDensity.current) {
             val edges = WindowInsets.displayCutout.union(WindowInsets.statusBars)
@@ -413,14 +431,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 ) { dock(height) }
             }
         } else if (dockAvailable && !dockVisible) {
-            TerminalDockPlacement {
-                FilledTonalIconButton(
-                    onClick = { dockExpanded = true },
-                    modifier = Modifier.size(48.dp).testTag("restore-dock"),
-                    shape = CircleShape,
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
-                ) {
-                    Icon(painterResource(R.drawable.ic_toolbox), contentDescription = tr("显示操作栏"))
+            // Leave the composition while hidden so taps on that edge reach the terminal.
+            AnimatedVisibility(toolboxAwake, enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
+                TerminalDockPlacement {
+                    FilledTonalIconButton(
+                        onClick = { dockExpanded = true },
+                        modifier = Modifier.size(48.dp).testTag("restore-dock"),
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
+                    ) {
+                        Icon(painterResource(R.drawable.ic_toolbox), contentDescription = tr("显示操作栏"))
+                    }
                 }
             }
         }
@@ -439,6 +460,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }, onDismiss = { commonCommandsOpen = false })
     confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text(tr("发送多行文本？")) }, text = { Text(tr("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。")) }, confirmButton = { TextButton(onClick = { sendPaste(text); confirmPaste = null }, enabled = state.phase == Phase.CONNECTED) { Text(tr("发送")) } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text(tr("取消")) } }) }
     if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text(tr("关闭此连接？")) }, text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")) }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text(tr("关闭连接")) } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text(tr("取消")) } })
+}
+
+/** Idle timeout of the collapsed toolbox button; 0 keeps it visible (instrumentation tests). */
+internal object TerminalToolbox {
+    @Volatile var autoHideMillis = 5_000L
 }
 
 /** The colour the terminal renderer fills its canvas with, so the status bar area matches it. */

@@ -101,7 +101,8 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
                 Triple(joinRemotePath(directory.path, entry.name), entry, rank)
             }
         } }.distinctBy { it.first }.sortedWith(compareBy<Triple<String, RemoteEntry, Int>> { it.third }
-            .thenByDescending { it.second.isDirectory }
+            // Newest first, files and folders alike: the file just produced in the terminal is on top.
+            .thenByDescending { it.second.mtimeSeconds }
             .thenBy(String.CASE_INSENSITIVE_ORDER) { it.second.name })
     }
     val selectedMatches = remember(selected, query) {
@@ -162,7 +163,8 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
             verticalAlignment = Alignment.CenterVertically) {
             AppSearchField(query, { query = it }, tr("文件名或路径"),
                 modifier = Modifier.weight(1f).focusRequester(searchFocus).testTag("download-search"),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                // Autocorrect and suggestions rewrite long, word-like file names before they reach the filter.
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { finishSearch() }))
             if (editingCompact) TextButton(onClick = ::finishSearch) { Text(tr("完成")) }
         }

@@ -13,7 +13,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.itermux.app.data.Host
 import io.itermux.app.session.TerminalConnection
-import io.itermux.app.ui.RemotePathDropdown
+import io.itermux.app.ui.RemoteDirectoryPicker
+import io.itermux.app.ui.uploadTargetPath
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -44,20 +45,19 @@ class UploadDirectoryUiTest {
         try {
             assertEquals(Phase.CONNECTED,
                 withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            var selected by mutableStateOf("sample.bin")
+            var directory by mutableStateOf<String?>("")
             compose.setContent {
                 MaterialTheme {
                     Column {
-                        RemotePathDropdown(session, "sample.bin") { selected = it }
-                        Text(selected, Modifier.testTag("selected-upload-path"))
+                        RemoteDirectoryPicker(session, directory, { directory = it }, Modifier.weight(1f))
+                        Text(uploadTargetPath(directory.orEmpty(), "sample.bin"), Modifier.testTag("selected-upload-path"))
                     }
                 }
             }
-            compose.onNodeWithTag("remote-path-dropdown").performClick()
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("remote-entry-phone-a").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("remote-entry-phone-a").performClick()
             compose.onNodeWithTag("selected-upload-path").assertTextContains("/phone-a/sample.bin")
-            compose.waitUntil(8_000) { compose.onAllNodesWithTag("remote-parent-directory").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("upload-directory").assertTextContains("/phone-a", substring = true)
             compose.onNodeWithTag("remote-parent-directory").performClick()
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("remote-entry-phone-b").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("remote-entry-phone-b").performClick()
