@@ -61,7 +61,7 @@ class FileBrowserDesignTest {
             MaterialTheme(colorScheme = colors) {
                 Surface(Modifier.fillMaxSize().testTag("rows")) {
                     Column {
-                        FileBrowserTitle("/home/dev/project", "dev-server", Modifier.padding(16.dp))
+                        FileBrowserPathBar("/home/dev/project", "dev-server", true, {}, Modifier.padding(16.dp))
                         entries.forEach { RemoteFileRow(it, {}, {}) }
                     }
                 }
@@ -147,6 +147,25 @@ class FileBrowserDesignTest {
         compose.onNodeWithText("Features").assertIsDisplayed()
         capture("md", "markdown-rendered-dark")
     }
+
+    private fun transfer(status: io.itermux.app.session.TransferStatus, name: String) {
+        compose.setContent { MaterialTheme(colorScheme = DarkColors, shapes = AppShapes) { TransferStatusDialog(status, {}, {}) } }
+        compose.onNodeWithTag("transfer-dialog").assertIsDisplayed()
+        capture("transfer-dialog", name)
+    }
+
+    @Test fun downloadResultsDark() = transfer(io.itermux.app.session.TransferStatus("", 0, 0, result = "", downloads = listOf(
+        io.itermux.app.session.DownloadItem("/srv/app/release.tar.gz", 921_600, 921_600, io.itermux.app.session.DownloadPhase.COMPLETE,
+            localPath = "/storage/emulated/0/Download/iTermux/release.tar.gz"),
+        io.itermux.app.session.DownloadItem("/srv/app/README.md", 22_630, 22_630, io.itermux.app.session.DownloadPhase.COMPLETE,
+            localPath = "/storage/emulated/0/Download/iTermux/README.md"),
+        io.itermux.app.session.DownloadItem("/srv/app/server.log", -1, 4096, io.itermux.app.session.DownloadPhase.FAILED,
+            error = "Permission denied"))), "transfer-results-dark")
+
+    @Test fun downloadProgressDark() = transfer(io.itermux.app.session.TransferStatus("", 512 * 1024L, 1024 * 1024L, running = true,
+        downloads = listOf(io.itermux.app.session.DownloadItem("/a/README.md", 200, 200, io.itermux.app.session.DownloadPhase.COMPLETE),
+            io.itermux.app.session.DownloadItem("/a/quarterly-report.pdf", 1024 * 1024L, 512 * 1024L, io.itermux.app.session.DownloadPhase.RUNNING),
+            io.itermux.app.session.DownloadItem("/a/photo.png", 4 * 1024 * 1024L)), bytesPerSecond = 256 * 1024.0), "transfer-progress-dark")
 
     private fun code(source: String, fileName: String, colors: ColorScheme, wrap: Boolean, name: String, query: String = "") {
         val document = SyntaxHighlighter.highlight(source, Languages.detect(fileName))

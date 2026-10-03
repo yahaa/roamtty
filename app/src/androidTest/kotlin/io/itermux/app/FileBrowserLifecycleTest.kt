@@ -40,8 +40,7 @@ class FileBrowserLifecycleTest {
             compose.onNodeWithContentDescription(trf("主机选项：%s", host.name)).performClick()
             compose.onNodeWithTag("host-browse-files-${host.id}").performClick()
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("files-entry-phone-a").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("files-title").assertTextEquals("/")
-            compose.onNodeWithTag("files-subtitle").assertTextEquals(host.name)
+            compose.onNodeWithTag("files-title").assertTextEquals(host.name)
             compose.onNodeWithText(tr("服务器文件")).assertDoesNotExist()
             compose.onNode(hasText("File browser task", substring = true) and
                 hasAnyAncestor(hasTestTag("remote-file-browser"))).assertDoesNotExist()
@@ -50,7 +49,7 @@ class FileBrowserLifecycleTest {
             // Other SFTP tests leave files in this directory; the target may be outside the lazy viewport.
             compose.onNodeWithTag("files-list").performScrollToNode(hasTestTag("files-entry-design-notes.md"))
             compose.onNodeWithTag("files-title").assertTextEquals("phone-a")
-            compose.onNodeWithTag("files-crumb-1").assertTextEquals("phone-a")
+            compose.onNodeWithTag("files-crumb-0").assertTextEquals(host.name)
             compose.onNodeWithTag("files-entry-design-notes.md").performClick()
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("file-preview-markdown").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Design notes").assertIsDisplayed()

@@ -412,8 +412,9 @@ private object EnglishText {
         "文件夹名称" to "Folder name",
         "创建" to "Create",
         "关闭筛选" to "Close filter",
-        "%d 个文件夹 · %d 个文件" to "%d folders · %d files",
-        "（另有 %d 项未显示）" to " (%d hidden)",
+        "%d 个文件夹" to "%d folders",
+        "%d 个文件" to "%d files",
+        "%d 项未显示" to "%d hidden",
         "链接" to "Link",
         "在文件中查找" to "Find in file",
         "更多操作" to "More actions",
@@ -430,6 +431,7 @@ private object EnglishText {
         "预览" to "Preview",
         "代码" to "Code",
         "复制代码" to "Copy code",
+        "保存到 %s" to "Saved to %s",
         "目录" to "Directory",
         "文件" to "File"
     )

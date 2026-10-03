@@ -1,8 +1,11 @@
 package io.itermux.app.ui
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 internal enum class AppTheme(val label: String) {
     SYSTEM("跟随系统"), DARK("深色"), LIGHT("浅色");
@@ -43,3 +46,6 @@ internal val LightColors = lightColorScheme(
     outline = Color(0xFF827A70), outlineVariant = Color(0xFFD8D1C8),
     error = Color(0xFFB32631), onError = Color.White
 )
+
+/** Menus and text fields use extraSmall; the default 4dp corner looks square next to the rounded cards. */
+internal val AppShapes = Shapes(extraSmall = RoundedCornerShape(10.dp))

@@ -31,20 +31,17 @@ class FilePreviewUiTest {
     @get:Rule val compose = createComposeRule()
     @get:Rule val serviceRule = ServiceTestRule()
 
-    @Test fun titleStaysOnOneLineAndEllipsizesInNarrowWindows() {
-        var width by mutableStateOf(140.dp)
-        val path = "/home/developer/projects/a-very-long-folder-name-for-source"
-        compose.setContent { MaterialTheme { Box(Modifier.width(width)) { FileBrowserTitle(path, "开发服务器") } } }
-        compose.onNodeWithTag("files-title").assertTextEquals("a-very-long-folder-name-for-source")
-        compose.onNodeWithTag("files-subtitle").assertTextEquals("开发服务器")
-        val layouts = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithTag("files-title").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertEquals(1, layouts.single().lineCount)
-        assertTrue(layouts.single().isLineEllipsized(0))
-        compose.runOnIdle { width = 400.dp }
-        layouts.clear()
-        compose.onNodeWithTag("files-title").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertEquals(1, layouts.single().lineCount)
+    @Test fun pathBarKeepsTheCurrentFolderVisibleInNarrowWindows() {
+        var width by mutableStateOf(160.dp)
+        var opened: String? = null
+        val path = "/home/developer/projects/a-very-long-folder-name/source"
+        compose.setContent { MaterialTheme { Box(Modifier.width(width)) { FileBrowserPathBar(path, "开发服务器", true, { opened = it }) } } }
+        compose.onNodeWithTag("files-title").assertTextEquals("source").assertIsDisplayed()
+        compose.onNodeWithTag("files-breadcrumbs").assertHeightIsAtLeast(40.dp)
+        compose.runOnIdle { width = 600.dp }
+        compose.onNodeWithTag("files-crumb-0").assertTextEquals("开发服务器").performClick()
+        compose.onNodeWithTag("files-crumb-2").performClick()
+        compose.runOnIdle { assertEquals("/home/developer", opened) }
     }
 
     @Test fun previewsTextImagesEmptyBinaryLargeFilesAndReadErrors() = runBlocking {

@@ -10,6 +10,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,12 +68,19 @@ internal fun insertDraftText(value: TextFieldValue, inserted: String, maxLength:
 @Composable
 internal fun InputControlButton(
     symbol: String, description: String, tag: String, enabled: Boolean = true,
-    size: Dp = 48.dp, selected: Boolean = false,
+    size: Dp = 48.dp, selected: Boolean = false, icon: Int? = null,
+    /** Rounded key shape for keyboard-like panels. */
+    keycap: Boolean = false,
     onLongClick: (() -> Unit)? = null, onClick: () -> Unit
 ) {
     Box(
-        Modifier.size(size).clip(CircleShape)
-            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+        Modifier.then(if (keycap) Modifier.size(width = 56.dp, height = 44.dp) else Modifier.size(size))
+            .clip(if (keycap) RoundedCornerShape(10.dp) else CircleShape)
+            .background(when {
+                selected -> MaterialTheme.colorScheme.primaryContainer
+                keycap -> MaterialTheme.colorScheme.surfaceContainerHighest
+                else -> Color.Transparent
+            })
             .testTag(tag)
             .semantics {
                 contentDescription = description
@@ -79,8 +91,10 @@ internal fun InputControlButton(
                 onLongClick = onLongClick, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(symbol, fontSize = if (symbol.length > 1) 14.sp else 22.sp,
-            color = (if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface).copy(alpha = if (enabled) 1f else 0.38f))
+        val color = (if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface).copy(alpha = if (enabled) 1f else 0.38f)
+        if (icon != null) Icon(painterResource(icon), contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
+        else Text(symbol, fontSize = if (symbol.length > 1) (if (keycap) 13.sp else 14.sp) else if (keycap) 18.sp else 22.sp, color = color,
+            fontFamily = if (keycap) FontFamily.Monospace else null, fontWeight = if (keycap) FontWeight.Medium else null)
     }
 }
 
