@@ -1,6 +1,8 @@
-"""Loopback metadata fixture; never executes client commands. Optional fixed port for Android QA."""
+"""Loopback metadata fixture; optional shell modes execute probes via real login shells."""
 import logging
+import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -14,6 +16,12 @@ except ImportError:
 logging.disable(logging.CRITICAL)
 mode = sys.argv[1]
 events = sys.argv[2]
+login_shell = None
+if mode.startswith("shell:"):
+    login_shell = shutil.which(mode.split(":", 1)[1])
+    if not login_shell or sys.platform != "linux":
+        print("SKIP: shell fixture requires Linux and " + mode, flush=True)
+        sys.exit(0)
 key = paramiko.RSAKey.generate(2048)
 
 
@@ -65,6 +73,10 @@ class Server(paramiko.ServerInterface):
             try:
                 result = b""
                 status = 0
+                script = b""
+                if command == b"/bin/sh -s":
+                    channel.settimeout(5)
+                    script = channel.makefile("rb").read(8192)
                 if mode == "slow":
                     time.sleep(30)
                 elif mode == "denied":
@@ -76,7 +88,11 @@ class Server(paramiko.ServerInterface):
                         result = b"\r\nMicrosoft Windows [Version 10.0.20348.2402]\r\n"
                     else:
                         status = 1
-                elif b"__ITERMUX_KERNEL__" in command:
+                elif login_shell:
+                    process = subprocess.run([login_shell, "-c", command.decode()], input=script,
+                                             capture_output=True, timeout=3)
+                    result, status = process.stdout, process.returncode
+                elif command == b"/bin/sh -s" and b"__ITERMUX_KERNEL__" in script:
                     kernel = "Darwin" if mode == "macos" else "Linux"
                     distro = "custom" if mode == "linux" else mode
                     result = ("Login banner\n__ITERMUX_KERNEL__\n" + kernel +

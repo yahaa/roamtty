@@ -52,6 +52,16 @@ class HostSystemIntegrationTest {
     @Test fun restrictedExecReturnsUnknown() = detects("denied", HostSystem.UNKNOWN)
     @Test fun excessiveOutputIsBounded() = detects("oversized", HostSystem.UNKNOWN)
 
+    private fun detectsLinuxThroughShell(shell: String) = fixture("shell:$shell") { port, _ ->
+        val ssh = session(port)
+        try { assertTrue("OS detection through $shell", ssh.detectHostSystem().isLinux) }
+        finally { ssh.disconnect() }
+    }
+
+    @Test fun detectsLinuxWithFishLoginShell() = detectsLinuxThroughShell("fish")
+    @Test fun detectsLinuxWithTcshLoginShell() = detectsLinuxThroughShell("tcsh")
+    @Test fun detectsLinuxWithNushellLoginShell() = detectsLinuxThroughShell("nu")
+
     @Test fun untrustedHostCannotRunProbe() = fixture("ubuntu") { port, events ->
         val ssh = session(port, trust = false)
         assertEquals(HostSystem.UNKNOWN, ssh.detectHostSystem())

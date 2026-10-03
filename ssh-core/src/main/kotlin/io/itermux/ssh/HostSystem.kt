@@ -23,7 +23,10 @@ internal object HostSystemProbe {
     const val KERNEL = "__ITERMUX_KERNEL__"
     const val RELEASE = "__ITERMUX_OS_RELEASE__"
     const val LEGACY = "__ITERMUX_LEGACY_RELEASE__"
-    val command = """
+    // Keep the script out of the login shell's parser (fish, csh, nu, etc.).
+    // The exec channel supplies it on stdin to a POSIX shell instead.
+    const val command = "/bin/sh -s"
+    val script = """
         printf '$KERNEL\n'; uname -s 2>/dev/null
         printf '$RELEASE\n'
         if [ -r /etc/os-release ]; then head -c 4096 /etc/os-release

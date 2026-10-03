@@ -41,3 +41,33 @@ Validation:
 Logs (ignored local artifacts):
 .local/host-os-core-tests.log, .local/host-os-device-tests.log,
 .local/host-icons-standard-device.log, .local/host-icons-standard-final-build.log.
+
+PR #17 review follow-up — 2026-10-03
+
+- Execute /bin/sh -s and send the Unix probe through the exec channel's stdin,
+  so the login shell never parses POSIX conditionals, redirections or quoting.
+  Windows still uses cmd.exe /c ver when the Unix probe is unavailable.
+- Session cards, navigation drawer entries and the share-session chooser all
+  collect detectedSystem through SessionSystemIcon, falling back to saved OS.
+- Reproduced the old command's failure with fish 3.3.1, tcsh 6.21.00 and
+  Nushell 0.107.0. The stdin probe detects Ubuntu with all three real shells.
+  tcsh returns status 0 but loses the kernel output; fish and nu exit nonzero.
+
+Validation after the review fixes:
+1. :ssh-core:test: 93 tests, 72 passed and 21 optional service tests skipped.
+   All 13 HostSystemIntegrationTest cases passed, including the three real
+   login-shell regressions, Windows fallback, cancellation and terminal output isolation.
+   Python paramiko supplied through PYTHONPATH=.local/ssh-tools; local fish,
+   tcsh and nu binaries supplied through PATH (fish libraries via LD_LIBRARY_PATH).
+2. :app:testDebugUnitTest: 92 tests, 91 passed and 1 optional benchmark skipped.
+3. :app:assembleDebug, :app:assembleDebugAndroidTest and :app:lintDebug passed.
+   Build property: -PitermuxApplicationId=io.itermux.pr17check.
+4. API 36 emulator: HostSystemUiTest (5) and HostSystemStorageTest (1) all passed.
+   The existing authenticated-connection test now observes a visible drawer
+   change from Linux to Ubuntu, then checks session-card and share-chooser icons
+   without recreating the session. Existing host persistence checks still pass.
+5. git diff --check passed.
+
+Review follow-up logs (ignored local artifacts):
+.local/pr17-validation.log, .local/pr17-device-tests.log,
+.local/pr17-shell-reproduction.txt, .local/pr17-device-events.log.

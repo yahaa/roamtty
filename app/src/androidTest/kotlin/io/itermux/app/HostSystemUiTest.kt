@@ -2,6 +2,7 @@ package io.itermux.app
 
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.view.WindowManager
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
@@ -107,12 +108,27 @@ class HostSystemUiTest {
         try {
             val request = withTimeout(10_000) { session.pending.first { it != null }!! }
             assertTrue(request.prompt is Prompt.VerifyHost)
+            compose.onNodeWithTag("brand-logo").performClick()
+            compose.onNodeWithTag("drawer-session-${session.id}").assert(hasContentDescription("Linux"))
             request.answer.complete(listOf("trust"))
             withTimeout(10_000) { app.database.hosts().observe().first { hosts -> hosts.any { it.id == host.id && it.os == "UBUNTU" } } }
             assertEquals(HostSystem.UBUNTU, session.detectedSystem.value)
+            // An already visible drawer must refresh without recreating the session.
+            compose.onNodeWithTag("drawer-session-${session.id}").assert(hasContentDescription("Ubuntu"))
+            compose.onNodeWithTag("drawer-hosts").performClick()
             compose.onNodeWithTag("host-card-${host.id}").assert(hasContentDescription("Ubuntu"))
+            compose.onNodeWithTag("sessions-tab").performClick()
+            compose.onNodeWithTag("session-${session.id}").assert(hasContentDescription("Ubuntu"))
+            withTimeout(10_000) { session.state.first { it.phase == Phase.CONNECTED } }
+            withContext(Dispatchers.Main) {
+                service.pendingSharedImages.value = listOf(Uri.parse("content://io.itermux.test/shared-image"))
+            }
+            compose.onNodeWithTag("share-session-${session.id}").assert(hasContentDescription("Ubuntu"))
         } finally {
-            withContext(Dispatchers.Main) { service.close(session.id) }
+            withContext(Dispatchers.Main) {
+                service.pendingSharedImages.value = emptyList()
+                service.close(session.id)
+            }
             app.database.hosts().delete(host.id)
             app.database.hosts().forgetPin(endpoint)
         }

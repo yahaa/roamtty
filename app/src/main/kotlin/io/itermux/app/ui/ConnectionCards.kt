@@ -68,7 +68,6 @@ import io.itermux.ssh.HostSystem
 @Composable internal fun SessionCard(session: TerminalConnection, onOpen: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {}) {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
-    val detectedSystem by session.detectedSystem.collectAsStateWithLifecycle()
     val colors = MaterialTheme.colorScheme
     var confirmClose by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
@@ -76,7 +75,7 @@ import io.itermux.ssh.HostSystem
     ListCard(onClick = onOpen, onClickLabel = tr("打开终端"), modifier = Modifier.testTag("session-${session.id}"),
         bottomPadding = 4.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            HostSystemIcon(detectedSystem?.name ?: session.host.os)
+            SessionSystemIcon(session)
             Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
                 Text(session.titleForDisplay(title), style = MaterialTheme.typography.titleMedium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -136,6 +135,11 @@ import io.itermux.ssh.HostSystem
         } },
         confirmButton = { TextButton(onClick = { session.rename(title); finish() }) { Text(tr("保存")) } },
         dismissButton = { TextButton(onClick = ::finish) { Text(tr("取消")) } })
+}
+
+@Composable internal fun SessionSystemIcon(session: TerminalConnection, size: Dp = 44.dp) {
+    val detectedSystem by session.detectedSystem.collectAsStateWithLifecycle()
+    HostSystemIcon(detectedSystem?.name ?: session.host.os, size)
 }
 
 /** Brand marks need a light tile in both themes; generic servers use the accent container. */

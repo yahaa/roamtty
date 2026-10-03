@@ -95,7 +95,7 @@ class JschSession(
     }
 
     private suspend fun probeHostSystem(ssh: Session) {
-        val unix = runCommand(ssh, HostSystemProbe.command)?.replace("\r\n", "\n")
+        val unix = runCommand(ssh, HostSystemProbe.command, HostSystemProbe.script)?.replace("\r\n", "\n")
         var result = HostSystemProbe.parse(unix)
         if (result == HostSystem.UNKNOWN) {
             result = HostSystemProbe.parse(unix, runCommand(ssh, HostSystemProbe.windowsCommand))
@@ -361,10 +361,11 @@ class JschSession(
     private suspend fun runCommand(command: String): String? =
         connectedSession()?.let { runCommand(it, command) }
 
-    private suspend fun runCommand(ssh: Session, command: String): String? = withContext(Dispatchers.IO) {
+    private suspend fun runCommand(ssh: Session, command: String, input: String? = null): String? = withContext(Dispatchers.IO) {
         val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
         try {
             exec.setCommand(command)
+            exec.setInputStream(input?.byteInputStream(Charsets.UTF_8))
             val output = exec.inputStream
             exec.connect(5000)
             val bytes = java.io.ByteArrayOutputStream()
