@@ -154,41 +154,40 @@ class TerminalLayoutTest {
         }
     }
 
-    private fun checkAutoHide() {
-        compose.mainClock.autoAdvance = false
-        try {
-            compose.onNodeWithTag("restore-dock").performClick()
-            compose.mainClock.advanceTimeByFrame()
-            compose.mainClock.advanceTimeBy(4_000)
-            compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
-            // Semantic clicks (including accessibility actions) reset the timer too.
-            compose.onNodeWithTag("terminal-menu").performClick()
-            compose.mainClock.advanceTimeByFrame()
-            compose.mainClock.advanceTimeBy(4_000)
-            compose.onNodeWithText("固定操作栏").assertIsDisplayed()
-            compose.mainClock.advanceTimeBy(1_100)
-            checkCollapsedDock()
-            compose.onNodeWithText("固定操作栏").assertDoesNotExist()
+    private fun checkOutsideDismiss() {
+        compose.onNodeWithTag("restore-dock").performTouchInput { click() }
+        compose.mainClock.advanceTimeBy(6_000)
+        compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+        compose.onNodeWithTag("terminal-menu").performTouchInput { click() }
+        compose.mainClock.advanceTimeBy(6_000)
+        compose.onNodeWithText("固定操作栏").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+        compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+        compose.onNodeWithTag("terminal-menu").performClick()
+        compose.onNodeWithText("取消固定操作栏").performClick()
+        compose.mainClock.advanceTimeBy(6_000)
+        compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+        compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+        checkCollapsedDock()
+        // Close the keyboard opened by the same outside tap, proving the tap was not swallowed.
+        compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+            ?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+        shell("input keyevent 4")
+        compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+            ?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+        compose.onNodeWithTag("restore-dock").performClick()
+        compose.onNodeWithTag("terminal-menu").performClick()
+        compose.onNodeWithText("固定操作栏").assertIsDisplayed()
+        // A popup owns a separate Android window; exercise an actual outside screen tap.
+        shell("input tap 16 200")
+        compose.onNodeWithText("固定操作栏").assertDoesNotExist()
+        checkCollapsedDock()
+    }
 
-            compose.onNodeWithTag("restore-dock").performClick()
-            compose.mainClock.advanceTimeByFrame()
-            compose.onNodeWithTag("terminal-menu").performTouchInput { down(center) }
-            compose.mainClock.advanceTimeByFrame()
-            compose.mainClock.advanceTimeBy(6_000)
-            compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
-            compose.onNodeWithTag("terminal-menu").performTouchInput { up() }
-            compose.mainClock.advanceTimeBy(300)
-            compose.onNodeWithText("固定操作栏").performClick()
-            compose.mainClock.advanceTimeBy(6_000)
-            compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
-            compose.onNodeWithTag("terminal-menu").performClick()
-            compose.mainClock.advanceTimeBy(300)
-            compose.onNodeWithText("取消固定操作栏").performClick()
-            compose.mainClock.advanceTimeByFrame()
-            compose.mainClock.advanceTimeBy(5_100)
+    private fun restoreDockAfterOutsideTap() {
+        if (compose.onAllNodesWithTag("restore-dock").fetchSemanticsNodes().isNotEmpty()) {
             checkCollapsedDock()
-        } finally {
-            compose.mainClock.autoAdvance = true
+            compose.onNodeWithTag("restore-dock").performTouchInput { click() }
         }
     }
 
@@ -242,6 +241,7 @@ class TerminalLayoutTest {
             compose.onNodeWithContentDescription("键盘", substring = false).assertIsDisplayed()
             compose.onNodeWithTag("terminal").performTouchInput { click(center) }
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            restoreDockAfterOutsideTap()
             checkDock()
             compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
@@ -317,11 +317,12 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("restore-dock").assertIsDisplayed()
             checkViewport("layout-portrait-default-hidden")
             checkCollapsedDock()
-            checkAutoHide()
+            checkOutsideDismiss()
             compose.onNodeWithTag("restore-dock").performClick()
             checkFileActions()
             compose.onNodeWithTag("terminal").performTouchInput { click(center) }
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            restoreDockAfterOutsideTap()
             checkFileActions()
             checkPicker("upload-file", Intent.ACTION_OPEN_DOCUMENT, "*/*")
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
@@ -341,6 +342,7 @@ class TerminalLayoutTest {
             assertTrue("Floating controls must not span the screen", floating.width < compose.onRoot().fetchSemanticsNode().boundsInRoot.width * 0.7f)
             compose.onNodeWithTag("terminal").performTouchInput { click(center) }
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            restoreDockAfterOutsideTap()
             checkDock()
             compose.onNodeWithTag("keyboard-toggle").performTouchInput { click() }
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
@@ -366,7 +368,7 @@ class TerminalLayoutTest {
 
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("编辑文本").performClick()
-            compose.onNodeWithTag("prompt-editor").performClick()
+            compose.onNodeWithTag("prompt-editor").performTouchInput { click() }
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
             compose.onNodeWithTag("prompt-editor").performTextInput("检查横屏布局\n保留终端空间")
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
@@ -392,7 +394,7 @@ class TerminalLayoutTest {
             checkDock()
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("编辑文本").performClick()
-            compose.onNodeWithTag("prompt-editor").performClick()
+            compose.onNodeWithTag("prompt-editor").performTouchInput { click() }
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
             compose.onNodeWithTag("prompt-editor").performTextInput("竖屏草稿")
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()

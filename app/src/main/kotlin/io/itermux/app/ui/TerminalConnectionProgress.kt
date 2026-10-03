@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -33,7 +34,7 @@ internal fun TerminalConnectionProgress(phase: Phase, onCancel: () -> Unit, modi
         else -> return
     }
     val colors = MaterialTheme.colorScheme
-    Surface(modifier.widthIn(max = 300.dp).fillMaxWidth().testTag("terminal-connection-progress"),
+    Surface(modifier.widthIn(max = 300.dp).fillMaxWidth().testTag("terminal-connection-progress").semantics { paneTitle = label },
         shape = RoundedCornerShape(20.dp), color = colors.surface.copy(alpha = 0.97f),
         border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.55f)), shadowElevation = 2.dp) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {

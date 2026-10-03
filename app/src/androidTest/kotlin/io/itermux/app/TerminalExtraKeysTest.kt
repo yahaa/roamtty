@@ -157,8 +157,13 @@ class TerminalExtraKeysTest {
                 val minimum = 48 * context.resources.displayMetrics.density - 1
                 assertTrue("$tag retains a 48dp target", bounds.width >= minimum && bounds.height >= minimum)
             }
-            compose.onNodeWithTag("terminal-shift").performClick()
-            shortcut("terminal-left")
+            compose.onNodeWithTag("terminal-shift").performTouchInput { click() }
+            compose.onNodeWithTag("terminal-shift").performTouchInput { click() }
+            compose.onNodeWithTag("terminal-shift").assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
+            compose.onNodeWithTag("terminal-shift").performTouchInput { click() }
+            compose.onNodeWithTag("terminal-shift").assert(
+                SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "已启用"))
+            compose.onNodeWithTag("terminal-left").assertIsDisplayed().performTouchInput { click() }
             outputContains("KEY_32") // Shift+Left includes the modifier 2 in ESC [ 1 ; 2 D.
             outputContains("KEY_44")
 
@@ -237,7 +242,6 @@ class TerminalExtraKeysTest {
                 up()
             }
             assertEquals("Dragging the thumb to the live edge resumes output", 0, historyView.topRow)
-            compose.onNodeWithTag("collapse-dock").performClick()
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithTag("restore-dock").performClick()
             compose.onNodeWithTag("collapse-dock").assertIsDisplayed()

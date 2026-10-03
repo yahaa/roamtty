@@ -1,5 +1,13 @@
 # iTermux 0.1.0 测试与交付记录
 
+## 2026-10-03 工具栏外部点击与自适应连接提示
+
+基线为已合并 PR #10 的 `9363165`。悬浮操作栏取消 5 秒倒计时，点击外部收起；固定模式、栏内操作和滚动保持展开。Shift 保留快捷键面板，接着点方向键发送一次组合键。
+
+连接、断开、失败及输入提示改为对话框样式浮层，中心位于可见安全区域上方 38.2%；键盘开关和横竖屏切换会重新布局，不占用终端行列。短屏将按钮放到文字旁，长内容可滚动。[竖屏键盘截图](screenshots/terminal-notice-portrait-ime.png) · [横屏键盘截图](screenshots/terminal-notice-landscape-ime.png)。
+
+Debug/AndroidTest 构建和 Lint 通过，app 单元测试 57 项通过、1 项可选性能基准跳过。API 36 模拟器 10 项回归通过，覆盖真实 SSH 的 Shift＋左方向键字节、外部点击和固定模式、144dp 提示高度、键盘开关、旋转、重连动画及文件/编辑入口。完整日志见 [专项测试记录](test-results/terminal-dismiss-dialogs-20261003.txt)。本轮未做实体手机测试。
+
 ## 2026-10-01 双击粘贴与重连动画
 
 基线为拉取后的 `origin/main`（`6c3892b`），工作分支为 `feat/terminal-paste-reconnect-animation`。

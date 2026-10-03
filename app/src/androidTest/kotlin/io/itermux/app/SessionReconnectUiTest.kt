@@ -1,8 +1,11 @@
 package io.itermux.app
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -13,6 +16,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithText
+import androidx.core.view.SoftwareKeyboardControllerCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
@@ -47,7 +53,83 @@ class SessionReconnectUiTest {
         return null
     }
 
-    @Test fun reconnectShowsCenteredAnimationAndCanBeCancelled() = runBlocking {
+    @Test fun disconnectedDialogTracksKeyboardAndRotationWithoutShrinkingTerminal() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val session = withContext(Dispatchers.Main) {
+            service.open(Host(name = "Dialog layout", address = "127.0.0.1", port = 1, username = "test"),
+                SessionMode.SHELL, Credentials("fixture-only".toByteArray())).also { it.disconnect() }
+        }
+        fun imeVisible() = ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+            ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+        fun checkNotice() {
+            val viewport = compose.onNodeWithTag("terminal-notice-viewport").fetchSemanticsNode().boundsInRoot
+            val card = compose.onNodeWithTag("terminal-connection-notice").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val workspace = compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot
+            val grid = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
+            assertEquals("Connection notices must not remove terminal rows", workspace.height, grid.height, 1f)
+            assertTrue("Dialog stays inside the area above the IME", card.top >= viewport.top && card.bottom <= viewport.bottom)
+            assertEquals(viewport.center.x, card.center.x, 1f)
+            if (card.height / 2 + 16 * context.resources.displayMetrics.density < viewport.height * 0.382f) {
+                assertEquals(viewport.top + viewport.height * 0.382f, card.center.y, 1f)
+            }
+            compose.onNodeWithText(tr("手动重连")).assertIsDisplayed()
+        }
+        try {
+            compose.waitUntil(8_000) { compose.onAllNodesWithTag("sessions-tab").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("sessions-tab").performClick()
+            compose.onNodeWithTag("session-${session.id}").performClick()
+            for (landscape in listOf(false, true)) {
+                compose.activityRule.scenario.onActivity {
+                    it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    it.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
+                compose.waitUntil(8_000) {
+                    (compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) == landscape
+                }
+                compose.waitForIdle()
+                checkNotice()
+                val fullHeight = compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot.height
+                compose.activityRule.scenario.onActivity { activity ->
+                    requireNotNull(terminal(activity.window.decorView)).let { view ->
+                        view.requestFocus()
+                        SoftwareKeyboardControllerCompat(view).show()
+                    }
+                }
+                compose.waitUntil(8_000) {
+                    imeVisible() && compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot.height < fullHeight - 50
+                }
+                compose.waitForIdle()
+                checkNotice()
+                InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
+                    File(context.getExternalFilesDir(null), "terminal-notice-${if (landscape) "landscape" else "portrait"}-display.png")
+                        .outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    bitmap.recycle()
+                }
+                compose.activityRule.scenario.onActivity { activity ->
+                    val root = activity.window.decorView
+                    val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+                    root.draw(Canvas(bitmap))
+                    File(context.getExternalFilesDir(null), "terminal-notice-${if (landscape) "landscape" else "portrait"}-ime.png")
+                        .outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    bitmap.recycle()
+                    SoftwareKeyboardControllerCompat(root).hide()
+                }
+                compose.waitUntil(8_000) { !imeVisible() &&
+                    compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot.height >= fullHeight - 2 }
+                compose.waitForIdle()
+                checkNotice()
+            }
+        } finally {
+            withContext(Dispatchers.Main) { service.close(session.id) }
+            compose.activityRule.scenario.onActivity {
+                it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
+
+    @Test fun reconnectShowsGoldenPositionAnimationAndCanBeCancelled() = runBlocking {
         // An accepting TCP socket without an SSH banner keeps the handshake pending deterministically.
         ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { listener ->
             val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -71,9 +153,9 @@ class SessionReconnectUiTest {
                 compose.onNodeWithTag("terminal-connection-motion").assertIsDisplayed()
                 compose.onNodeWithText(tr("手动重连")).assertDoesNotExist()
                 val progress = compose.onNodeWithTag("terminal-connection-progress").fetchSemanticsNode().boundsInRoot
-                val terminalBounds = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
+                val terminalBounds = compose.onNodeWithTag("terminal-notice-viewport").fetchSemanticsNode().boundsInRoot
                 assertEquals(terminalBounds.center.x, progress.center.x, 1f)
-                assertEquals(terminalBounds.center.y, progress.center.y, 1f)
+                assertEquals(terminalBounds.top + terminalBounds.height * 0.382f, progress.center.y, 1f)
                 val firstFrame = compose.onNodeWithTag("terminal-connection-motion").captureToImage().asAndroidBitmap()
                 compose.mainClock.advanceTimeBy(400)
                 val secondFrame = compose.onNodeWithTag("terminal-connection-motion").captureToImage().asAndroidBitmap()
