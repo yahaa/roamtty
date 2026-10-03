@@ -19,7 +19,6 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -74,15 +73,8 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                 modifier = Modifier.testTag("files-parent")) {
                 Icon(painterResource(R.drawable.ic_arrow_up), contentDescription = tr("↑ 上级目录"))
             }
-            Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
-                Text(session.host.name, style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("files-host-title"))
-                SelectionContainer {
-                    Text(currentPath.ifBlank { tr("主目录") }, fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("files-breadcrumb"))
-                }
-            }
+            FileBrowserTitle(currentPath.ifBlank { tr("主目录") }, session.host.name,
+                Modifier.weight(1f).padding(horizontal = 4.dp))
             RemoteFileOptionsMenu(options) { dismissMenu ->
                 DropdownMenuItem(text = { Text(tr("刷新")) },
                     leadingIcon = { Icon(painterResource(R.drawable.ic_refresh), contentDescription = null) },
@@ -141,11 +133,14 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                             RemoteFileRow(entry,
                                 onOpen = {
                                     if (entry.isDirectory) browser.navigate(path)
-                                    else browser.showMenu(current.path, entry)
+                                    else browser.previewPath = path
                                 }, onMenu = { browser.showMenu(current.path, entry) }) {
                                 FileActionsMenu(entry, expanded = browser.menuPath == path,
                                     busy = browser.operation != null || transferStatus.running || downloads.busy || connection.phase != Phase.CONNECTED,
-                                    onOpen = { browser.dismissMenu(); browser.navigate(path) },
+                                    onOpen = {
+                                        browser.dismissMenu()
+                                        if (entry.isDirectory) browser.navigate(path) else browser.previewPath = path
+                                    },
                                     onDownload = {
                                         browser.dismissMenu()
                                         downloads.start(listOf(DownloadItem(path, entry.size)), false)
@@ -164,6 +159,14 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                 }
             }
         }
+    }
+    browser.previewPath?.let { path ->
+        RemoteFilePreview(session, path, connection.phase == Phase.CONNECTED,
+            canDownload = connection.phase == Phase.CONNECTED && !transferStatus.running && !downloads.busy,
+            onDownload = {
+                browser.previewPath = null
+                downloads.start(listOf(DownloadItem(path)), false)
+            }, onDismiss = { browser.previewPath = null })
     }
     DownloadFilesUi(session, downloads)
     pending?.let { PromptDialog(it) }
@@ -195,6 +198,12 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
 }
 
 @Composable
+internal fun FileBrowserTitle(path: String, host: String, modifier: Modifier = Modifier) {
+    Text("$path（$host）", modifier.testTag("files-title"), style = MaterialTheme.typography.titleMedium,
+        maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+}
+
+@Composable
 private fun BrowserMessage(message: String, busy: Boolean, modifier: Modifier) {
     Column(modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center) {
@@ -209,9 +218,10 @@ internal fun FileActionsMenu(entry: RemoteEntry, expanded: Boolean, busy: Boolea
     onSaveAs: () -> Unit = onDownload) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss,
         modifier = Modifier.widthIn(min = 200.dp, max = 280.dp).testTag("files-actions-list")) {
-        DropdownMenuItem(text = { Text(tr(if (entry.isDirectory) "打开" else "下载")) },
-            onClick = if (entry.isDirectory) onOpen else onDownload, enabled = !busy,
-            modifier = Modifier.testTag("files-action-download"))
+        DropdownMenuItem(text = { Text(tr(if (entry.isDirectory) "打开" else "查看内容")) },
+            onClick = onOpen, enabled = !busy, modifier = Modifier.testTag("files-action-open"))
+        if (!entry.isDirectory) DropdownMenuItem(text = { Text(tr("下载")) }, onClick = onDownload,
+            enabled = !busy, modifier = Modifier.testTag("files-action-download"))
         if (!entry.isDirectory) DropdownMenuItem(text = { Text(tr("另存为…")) }, onClick = onSaveAs,
             enabled = !busy, modifier = Modifier.testTag("files-action-save-as"))
         DropdownMenuItem(text = { Text(tr("重命名")) }, onClick = onRename, enabled = !busy,
@@ -230,8 +240,7 @@ internal fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onMenu: () ->
     val meta = remember(entry) { listOfNotNull(if (entry.isDirectory) null else formatRemoteSize(entry.size),
         formatRemoteMtime(entry.mtimeSeconds).takeIf { it.isNotEmpty() }).joinToString(" · ") }
     ListItem(
-        leadingContent = { Icon(painterResource(if (entry.isDirectory) R.drawable.ic_folder else R.drawable.ic_file),
-            contentDescription = tr(if (entry.isDirectory) "目录" else "文件"), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        leadingContent = { RemoteFileIcon(entry.name, entry.isDirectory, entry.permissions) },
         headlineContent = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge) },
         supportingContent = if (meta.isEmpty()) null else { { Text(meta, maxLines = 2, style = MaterialTheme.typography.bodySmall) } },
         trailingContent = {

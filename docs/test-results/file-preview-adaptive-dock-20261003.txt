@@ -1,0 +1,104 @@
+File preview and adaptive terminal dock — 2026-10-03
+Base: origin/main 2e5fe40 (PR #12)
+Branch: feat/file-preview-adaptive-dock
+
+Implemented:
+- File browser title: current path followed by full-width parenthesized host name,
+  one line with ellipsis on overflow.
+- Floating entry, expanded dock and pinned controls centered at 38.2% from the top of the safe
+  terminal viewport; clamped at the edges, scrollable in short windows, IME-aware.
+- Keyboard button removed; the collapsed entry keeps its three-dot icon and
+  the settings button inside the expanded dock uses a gear icon.
+- Shared file-type icons in browser/download rows. Tap a file to preview; long
+  press and row menu retain download/save-as/rename/delete actions.
+- Read-only UTF-8 and BOM-marked UTF-16 preview (first 256 KiB), selectable text,
+  native raster image preview (up to 8 MiB, sampled to at most 2048 px per axis),
+  empty/unsupported/error states, retry and download. Preview path survives
+  Activity recreation. SFTP reads use independent channels and bounded buffers.
+- PDF, Office, audio/video and other binary formats have type icons and a
+  download fallback; no inline renderer for these formats.
+
+Validation:
+- assembleDebug, assembleDebugAndroidTest: PASS
+- app unit tests: 58 discovered; 57 passed, 1 optional benchmark skipped
+- ssh-core tests: 73 discovered; 49 passed, 24 optional environment tests skipped
+  ITERMUX_SFTP_FIXTURE=1 enabled real local SSH/SFTP preview/transfer tests.
+- lintDebug: PASS, 0 errors (17 warnings, 1 hint)
+- API 36 x86_64 emulator: 7/7 tests PASS on commit 650d15f:
+  FilePreviewUiTest (2): single-line ellipsis; text/image/empty/binary/large/error/retry
+  FileBrowserLifecycleTest: navigation, preview recreation and rename draft
+  TerminalLayoutTest: lower golden-section geometry, portrait/landscape, keyboard,
+    floating/pinned/collapsed controls, editor and file picker regressions
+  TerminalExtraKeysTest: terminal byte delivery and one-shot Ctrl
+  FileTransferDeviceTest: Android document/SFTP round trip
+  DownloadDestinationTest#fileBrowserAndDownloadPanelUseTheSameDefault
+- git diff --check: PASS
+
+The first device run was interrupted by an emulator System UI ANR dialog.
+After closing the system dialog, the layout test and final 7-test suite passed.
+No physical device was attached, so no phone installation or phone validation.
+
+Logs and screenshots: .local/file-preview-validation/
+Follow-up (r2): restored the collapsed entry to the existing ic_more drawable;
+  the internal settings icon and all behavior/placement are unchanged.
+  assembleDebug passed after this icon-only correction.
+Delivery APK: /home/v/work/itermux/dist/iTermux-file-preview-20261003-r2-debug.apk
+
+Follow-up (r3):
+- Investigated the user's report of a gear in the collapsed entry. Installed the
+  exact delivered r2 APK (SHA-256 9b1922c8db561987ae744cadbaa76fe4763ebe596d079eff7e34bfab613302e3)
+  on the emulator: its screenshot showed three dots and TerminalLayoutTest passed.
+  The phone-specific discrepancy was not reproduced; no root cause established.
+- Restored the original literal three-dot text glyph for the collapsed entry.
+- Added the optional itermuxVersionName Gradle property for identifiable test
+  packages; the default remains 0.1.0. Delivered r3 identifies itself as
+  0.1.0-dots-r3 in Android application information.
+- Built with :app:clean :app:assembleDebug :app:assembleDebugAndroidTest,
+  -PitermuxVersionName=0.1.0-dots-r3 --no-build-cache: PASS.
+- Installed the delivery-path APK over r2. Confirmed installed versionName and
+  identical SHA-256 for the delivered APK and installed APK extracted from the
+  emulator: 6156baba5fad0edb604cc3979cf0a2c453175998545fe46cbd989964ab3e879f.
+- Visually checked the collapsed three-dot button. TerminalLayoutTest: PASS,
+  covering collapsed/expanded/pinned controls, rotation, IME, and editor.
+- The first r3 layout run sampled button bounds before an IME animation and
+  viewport bounds after it. Updated the geometry check to wait for matching
+  layout frames; the rerun passed. No app placement change was needed.
+- Delivery APK: /home/v/work/itermux/dist/iTermux-0.1.0-dots-r3-debug.apk
+- Verified screenshot: /home/v/work/itermux/dist/iTermux-0.1.0-dots-r3-verified.png
+- Logs: .local/file-preview-validation/dots-r3-*. No physical device tested.
+
+Follow-up (r4):
+- Moved the collapsed three-dot entry, expanded dock and pinned controls to the
+  upper golden section: 38.2% from the top of the safe terminal viewport.
+  Insets, edge clamping, scrolling and keyboard adaptation continue to apply.
+- Updated the existing layout assertions and README for the new position.
+- assembleDebug and assembleDebugAndroidTest with
+  -PitermuxVersionName=0.1.0-dock-r4: PASS.
+- Installed the exact delivery APK on the API 36 emulator and confirmed version
+  0.1.0-dock-r4. Delivered/installed SHA-256 both:
+  a6cc6b422a0c28e71b8202051a99ee2cb98543d57c18b1918c465e346b0ee370.
+- TerminalLayoutTest: PASS (portrait/landscape, IME, collapsed/expanded/pinned
+  positions, editor and file picker regressions). Screenshots visually checked.
+- Latest APK: /home/v/work/itermux/dist/iTermux-0.1.0-dock-r4-debug.apk
+- Logs/screenshots: .local/file-preview-validation/dock-r4-*
+
+Follow-up (r5):
+- Hide the collapsed three-dot entry, floating dock and pinned dock whenever the
+  SSH connection is not CONNECTED. This covers initial connection, reconnect,
+  verification/authentication and disconnected/error notices at the same anchor.
+- Close dock menus when leaving CONNECTED. Keep the pinned preference and restore
+  controls after successful connection; cancellation leaves the reconnect notice.
+- assembleDebug, assembleDebugAndroidTest and lintDebug with
+  -PitermuxVersionName=0.1.0-reconnect-r5: PASS (Lint: 0 errors).
+- Installed the delivery APK on the API 36 emulator; versionName matches.
+  Delivered/installed SHA-256: 82845002a2d36fac744f04a0ee392f7cda39acbdedfebd2b942994f416d70bfb.
+- 7 device tests PASS across the verified runs: TerminalLayoutTest (1),
+  TerminalConnectionProgressTest (2), SessionReconnectUiTest (4). The new real
+  SSH fixture test holds host verification, connects, pins controls, disconnects
+  with the settings menu open, reconnects and verifies the pinned dock returns.
+  Existing reconnect/cancel and disconnected-layout tests assert controls absent.
+- First instrumentation run found a non-Unit inferred return type in the new test;
+  corrected the test signature and reran all 4 reconnect tests successfully.
+- Visually checked reconnect screenshot: progress/cancel dialog, no dock or entry.
+- Latest APK: /home/v/work/itermux/dist/iTermux-0.1.0-reconnect-r5-debug.apk
+- Logs/screenshots: .local/file-preview-validation/reconnect-r5-*

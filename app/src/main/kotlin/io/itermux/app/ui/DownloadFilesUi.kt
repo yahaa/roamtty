@@ -252,7 +252,7 @@ internal fun DownloadFileRow(name: String, metadata: String, directory: Boolean,
     enabled: Boolean, tag: String, onClick: () -> Unit) {
     ListItem(headlineContent = { Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         supportingContent = { Text(metadata, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        leadingContent = { Icon(painterResource(if (directory) R.drawable.ic_folder else R.drawable.ic_file), null) },
+        leadingContent = { RemoteFileIcon(name, directory) },
         trailingContent = {
             if (directory) Icon(painterResource(R.drawable.ic_chevron_right), tr("打开"))
             else Checkbox(checked = selected, onCheckedChange = null, enabled = enabled)

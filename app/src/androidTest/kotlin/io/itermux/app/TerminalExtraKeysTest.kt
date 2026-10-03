@@ -202,8 +202,7 @@ class TerminalExtraKeysTest {
             outputContains("KEY_66")
 
             if (imeVisible()) {
-                if (emulator) shell("input keyevent 4")
-                else compose.onNodeWithTag("keyboard-toggle").performClick()
+                shell("input keyevent 4")
                 compose.waitUntil(8_000) { !imeVisible() }
             }
 
@@ -261,7 +260,7 @@ class TerminalExtraKeysTest {
             }
             compose.onNodeWithTag("terminal-escape").performTouchInput { click() }
             compose.onNodeWithTag("session-switcher").assertIsDisplayed()
-            compose.onNodeWithTag("keyboard-toggle").assertIsDisplayed()
+            compose.onNodeWithContentDescription(tr("终端设置")).assertIsDisplayed()
             compose.onNodeWithTag("download-file").assertIsDisplayed()
             compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.onNodeWithTag("download-file").performClick()
@@ -298,7 +297,7 @@ class TerminalExtraKeysTest {
             compose.waitForIdle()
             delay(500)
             val landscapeTags = listOf("terminal-workspace", "terminal-dock", "session-switcher",
-                "keyboard-toggle", "download-file", "terminal-menu", "terminal-shortcuts")
+                "upload-file", "download-file", "terminal-menu", "terminal-shortcuts")
             File(context.getExternalFilesDir(null), "extra-keys-landscape-bounds.txt").writeText(
                 landscapeTags.joinToString("\n") { tag ->
                     "$tag: ${compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot}"
@@ -322,7 +321,9 @@ class TerminalExtraKeysTest {
                 }
             }
 
-            compose.onNodeWithTag("keyboard-toggle").performClick()
+            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            if (compose.onAllNodesWithTag("restore-dock").fetchSemanticsNodes().isNotEmpty())
+                compose.onNodeWithTag("restore-dock").performClick()
             compose.waitUntil(8_000) { imeVisible() }
             compose.waitUntil(8_000) {
                 compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot.width <=

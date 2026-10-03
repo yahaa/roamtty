@@ -328,6 +328,8 @@ class JschSession(
         files.readRemoteText(remotePath, maxBytes)
 
     suspend fun listRemoteDirectory(remotePath: String = ""): RemoteDirectory = files.listRemoteDirectory(remotePath)
+
+    suspend fun readFileContent(remotePath: String, maxBytes: Int): RemoteFileContent = files.readFileContent(remotePath, maxBytes)
     suspend fun currentWorkingDirectory(): String? = validWorkingDirectory(runCommand(
         if (target.mode == SessionMode.TMUX)
             "tmux display-message -p -t ${Tmux.targetFlag(tmuxName)} '#{pane_current_path}'"

@@ -16,7 +16,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = providers.gradleProperty("itermuxVersionCode").orElse("1").get().toInt()
-        versionName = "0.1.0"
+        versionName = providers.gradleProperty("itermuxVersionName").orElse("0.1.0").get()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     if (signingFile.exists()) signingConfigs.create("localRelease") {

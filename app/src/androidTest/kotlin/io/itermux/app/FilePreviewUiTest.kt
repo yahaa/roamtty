@@ -1,0 +1,111 @@
+package io.itermux.app
+
+import android.content.Intent
+import android.graphics.Bitmap
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.dp
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.ServiceTestRule
+import io.itermux.app.data.Host
+import io.itermux.app.session.SessionService
+import io.itermux.app.ui.*
+import io.itermux.ssh.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.util.UUID
+
+class FilePreviewUiTest {
+    @get:Rule val compose = createComposeRule()
+    @get:Rule val serviceRule = ServiceTestRule()
+
+    @Test fun titleStaysOnOneLineAndEllipsizesInNarrowWindows() {
+        var width by mutableStateOf(140.dp)
+        val path = "/home/developer/projects/a-very-long-folder-name/source"
+        compose.setContent { MaterialTheme { Box(Modifier.width(width)) { FileBrowserTitle(path, "开发服务器") } } }
+        compose.onNodeWithTag("files-title").assertTextEquals("$path（开发服务器）")
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithTag("files-title").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(1, layouts.single().lineCount)
+        assertTrue(layouts.single().isLineEllipsized(0))
+        compose.runOnIdle { width = 300.dp }
+        layouts.clear()
+        compose.onNodeWithTag("files-title").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(1, layouts.single().lineCount)
+    }
+
+    @Test fun previewsTextImagesEmptyBinaryLargeFilesAndReadErrors() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val app = context.applicationContext as ItermuxApp
+        app.database.hosts().forgetPin("[127.0.0.1]:22228")
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val session = withContext(Dispatchers.Main) {
+            service.open(Host(name = "dev", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "SHELL"),
+                SessionMode.SHELL, Credentials("test-only".toByteArray()))
+        }
+        val prompts = launch { session.pending.collect { it?.answer?.complete(listOf("trust")) } }
+        val prefix = "/preview-${UUID.randomUUID()}"
+        val files = linkedMapOf(
+            "$prefix.md" to "# Preview 中文\n    indent preserved\n".toByteArray(),
+            "$prefix-empty.txt" to byteArrayOf(),
+            "$prefix.bin" to byteArrayOf(0, 1, 2, 3),
+            "$prefix-large.log" to ("BEGIN\n" + "sample line\n".repeat(30_000) + "END").toByteArray(),
+            "$prefix.PNG" to ByteArrayOutputStream().also { out ->
+                Bitmap.createBitmap(240, 160, Bitmap.Config.ARGB_8888).apply {
+                    eraseColor(android.graphics.Color.rgb(220, 120, 60))
+                    compress(Bitmap.CompressFormat.PNG, 100, out)
+                    recycle()
+                }
+            }.toByteArray()
+        )
+        try {
+            assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
+            files.forEach { (path, bytes) -> session.upload(path, bytes.inputStream()) }
+            compose.setContent { MaterialTheme(colorScheme = DarkColors) { RemoteFileBrowserPage(session, {}) } }
+            fun open(path: String, tag: String) {
+                compose.runOnIdle { session.fileBrowser.previewPath = path }
+                compose.waitUntil(10_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithTag("file-preview-download").assertIsEnabled()
+            }
+            open("$prefix.md", "file-preview-text")
+            compose.onNodeWithText("# Preview 中文").assertIsDisplayed()
+            compose.onNodeWithText("    indent preserved").assertIsDisplayed()
+            compose.onNodeWithTag("file-preview").captureToImage().asAndroidBitmap().let { bitmap ->
+                File(context.getExternalFilesDir(null), "file-preview-text.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+            open("$prefix-large.log", "file-preview-truncated")
+            compose.onNodeWithText("BEGIN").assertIsDisplayed()
+            compose.onNodeWithText("END").assertDoesNotExist()
+            open("$prefix.PNG", "file-preview-image")
+            compose.onNodeWithTag("file-preview-image").assertIsDisplayed()
+            open("$prefix.bin", "file-preview-unsupported")
+            open("$prefix-empty.txt", "file-preview-title")
+            compose.waitUntil(10_000) { compose.onAllNodesWithText(tr("此文件为空")).fetchSemanticsNodes().isNotEmpty() }
+            open("$prefix-missing.txt", "file-preview-retry")
+            compose.onNodeWithTag("file-preview-retry").assertIsEnabled()
+            // Retry after the remote file appears must replace the error with real content.
+            session.upload("$prefix-missing.txt", "Recovered".byteInputStream())
+            compose.onNodeWithTag("file-preview-retry").performClick()
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("Recovered").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("file-preview-close").performClick()
+            compose.onNodeWithTag("files-list").assertIsDisplayed()
+            assertEquals(Phase.CONNECTED, session.state.value.phase)
+        } finally {
+            (files.keys + "$prefix-missing.txt").forEach { runCatching { session.deleteRemoteFile(it) } }
+            withContext(Dispatchers.Main) { service.close(session.id) }
+            prompts.cancel()
+        }
+    }
+}
