@@ -5,7 +5,7 @@ serial=${1:?Usage: process-death-test.sh emulator-NNNN}
 [[ "$serial" =~ ^emulator-[0-9]+$ ]] || { echo 'Use a disposable emulator.' >&2; exit 1; }
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 adb_bin="${ANDROID_HOME:?Set ANDROID_HOME}/platform-tools/adb"
-runner=io.itermux.app.test/androidx.test.runner.AndroidJUnitRunner
+runner=io.itermux.app.test/io.itermux.app.ItermuxTestRunner
 ready=/sdcard/Android/data/io.itermux.app/files/lifecycle-ready.txt
 mkdir -p "$project_root/.local/fix-validation"
 "$adb_bin" -s "$serial" reverse tcp:22228 tcp:22228

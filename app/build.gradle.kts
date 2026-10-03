@@ -17,7 +17,7 @@ android {
         targetSdk = 36
         versionCode = providers.gradleProperty("itermuxVersionCode").orElse("1").get().toInt()
         versionName = providers.gradleProperty("itermuxVersionName").orElse("0.1.0").get()
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "io.itermux.app.ItermuxTestRunner"
     }
     if (signingFile.exists()) signingConfigs.create("localRelease") {
         storeFile = rootProject.file(signingValues.getProperty("storeFile"))

@@ -73,7 +73,7 @@ class DownloadFilesTest {
                 session.transfers.downloadDialog = true
             }
             compose.setContent { MaterialTheme(colorScheme = DarkColors) { DownloadFilesUi(session) } }
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("download-entry-assets").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForDownloadEntry("assets")
             compose.waitForIdle()
             val instrumentation = InstrumentationRegistry.getInstrumentation()
             val orientationBeforeSelection = instrumentation.targetContext.resources.configuration.orientation
@@ -95,14 +95,14 @@ class DownloadFilesTest {
             compose.onNodeWithTag("download-search").performTextClearance()
             compose.onNodeWithTag("download-search").performImeAction()
             compose.onNodeWithTag("download-parent").performClick()
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("download-entry-phone-a").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForDownloadEntry("phone-a")
             compose.onNodeWithTag("download-options").performClick()
             if (compose.onNodeWithTag("download-show-hidden").fetchSemanticsNode().config[
                     androidx.compose.ui.semantics.SemanticsProperties.ToggleableState] == androidx.compose.ui.state.ToggleableState.Off) {
                 compose.onNodeWithTag("download-show-hidden").performClick()
             }
             compose.onNodeWithTag("download-refresh").performClick()
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("download-entry-phone-a").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForDownloadEntry("phone-a")
             compose.onNodeWithTag("download-search").performTextReplacement(".bash_history")
             compose.onNodeWithTag("download-search").performImeAction()
             compose.onNodeWithTag("download-entry-.bash_history").performClick()
@@ -132,7 +132,7 @@ class DownloadFilesTest {
                 session.openTerminalDownloads()
             }
             compose.setContent { MaterialTheme { DownloadFilesUi(session) } }
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("download-entry-assets").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForDownloadEntry("assets")
             compose.onNodeWithTag("download-directory").assertTextEquals("/phone-a")
             compose.onNodeWithTag("download-search-toggle").performClick()
             compose.onNodeWithTag("download-search").performTextReplacement("../phone-a/README")
@@ -170,7 +170,7 @@ class DownloadFilesTest {
                 session.transfers.downloadDialog = true
             }
             compose.setContent { MaterialTheme { DownloadFilesUi(session) } }
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("download-entry-assets").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForDownloadEntry("assets")
             compose.onNodeWithTag("download-search-toggle").performClick()
             compose.onNodeWithTag("download-search").performTextReplacement("RDME")
             compose.onNodeWithTag("download-search").performImeAction()
@@ -187,6 +187,40 @@ class DownloadFilesTest {
             compose.onNodeWithTag("download-search").performTextReplacement("does-not-exist")
             compose.onNodeWithTag("download-search").performImeAction()
             compose.onNodeWithText(tr("无匹配文件")).assertIsDisplayed()
+        }
+    }
+
+    @Test fun newestFilesComeFirstAndLongNamesStaySearchable() = runBlocking {
+        withSession { session ->
+            val id = UUID.randomUUID().toString().take(8)
+            val older = "/phone-b/older-$id.txt"
+            val longName = "release-candidate-$id-build-arm64-v8a-signed-final-with-a-very-long-descriptive-name.apk"
+            try {
+                session.upload(older, "old".byteInputStream())
+                delay(1_100) // SFTP mtimes have one-second resolution.
+                session.upload("/phone-b/$longName", "new".byteInputStream())
+                withContext(Dispatchers.Main) {
+                    session.transfers.downloadDirectory = "/phone-b"
+                    session.transfers.downloadDialog = true
+                }
+                compose.setContent { MaterialTheme { DownloadFilesUi(session) } }
+                compose.waitForDownloadEntry(longName)
+                val rows = compose.onNodeWithTag("download-files-list").onChildren()
+                rows[0].assert(hasTestTag("download-entry-$longName"))
+                compose.waitForDownloadEntry("older-$id.txt")
+                compose.onNodeWithTag("download-search-toggle").performClick()
+                // An autocomplete space and a wrapped terminal copy must not hide the file.
+                compose.onNodeWithTag("download-search").performTextReplacement("candidate-$id-build-arm64-v8a-signed ")
+                compose.onNodeWithTag("download-entry-$longName").assertIsDisplayed()
+                compose.onNodeWithTag("download-search").performTextReplacement("release-candidate-$id-build-arm64-v8a-sig\nned-final")
+                compose.onNodeWithTag("download-entry-$longName").assertIsDisplayed()
+                compose.onNodeWithTag("download-entry-older-$id.txt").assertDoesNotExist()
+            } finally {
+                withContext(NonCancellable) {
+                    runCatching { session.deleteRemoteFile(older) }
+                    runCatching { session.deleteRemoteFile("/phone-b/$longName") }
+                }
+            }
         }
     }
 

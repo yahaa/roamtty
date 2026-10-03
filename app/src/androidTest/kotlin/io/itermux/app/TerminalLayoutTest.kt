@@ -308,7 +308,7 @@ class TerminalLayoutTest {
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
             if (Build.VERSION.SDK_INT >= 33) checkPicker("select-image", "android.provider.action.PICK_IMAGES", "image/*")
             compose.onNodeWithTag("download-file").performTouchInput { click() }
-            compose.waitUntil(8000) { compose.onAllNodesWithTag("download-entry-phone-a").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForDownloadEntry("phone-a", 8000)
             compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
             // The closed navigation drawer also composes a "关闭" button off screen.
             compose.onNode(hasContentDescription("关闭") and !hasAnyAncestor(hasTestTag("navigation-drawer"))).performClick()

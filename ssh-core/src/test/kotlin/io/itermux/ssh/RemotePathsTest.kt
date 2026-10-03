@@ -16,6 +16,20 @@ class RemotePathsTest {
         assertNull(remoteNameMatchRank("release.apk", "missing"))
     }
 
+    @Test fun longNamesMatchAcrossImeSpacesWrappedCopiesAndFullWidthInput() {
+        val name = "2026-10-03_itermux-release-candidate-build-arm64-v8a-signed-final.apk"
+        assertEquals(0, remoteNameMatchRank(name, name))
+        assertEquals(0, remoteNameMatchRank(name, " $name "))
+        assertEquals(2, remoteNameMatchRank(name, "release-candidate-build-arm64"))
+        // Autocomplete appends a space; a terminal copy of a wrapped name carries a line break.
+        assertEquals(1, remoteNameMatchRank(name, "2026-10-03_itermux "))
+        assertNotNull(remoteNameMatchRank(name, "2026-10-03_itermux-release-candi\ndate-build-arm64-v8a"))
+        assertNotNull(remoteNameMatchRank(name, "release arm64 signed"))
+        assertNotNull(remoteNameMatchRank(name, "ＲＥＬＥＡＳＥ"))
+        assertNotNull(remoteNameMatchRank("测试 报告 最终版.pdf", "测试 最终版"))
+        assertNull(remoteNameMatchRank(name, "release x86"))
+    }
+
     private val tree = mapOf(
         "/work" to listOf(RemoteEntry("dist", true), RemoteEntry("dist-backup", true),
             RemoteEntry(".dist", true), RemoteEntry("docs", true)),

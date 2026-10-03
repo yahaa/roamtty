@@ -27,6 +27,9 @@ class FileTransferController(private val scope: CoroutineScope) {
     var uploadUri by mutableStateOf<Uri?>(null)
     var uploadName by mutableStateOf("")
     var uploadPath by mutableStateOf("")
+    var uploadSize by mutableStateOf(-1L)
+    /** Target directory of the pending upload; null while the terminal's directory is being resolved. */
+    var uploadDirectory by mutableStateOf<String?>(null)
     var downloadDialog by mutableStateOf(false)
     var downloadDirectory by mutableStateOf("")
     var resolvingDownloadDirectory by mutableStateOf(false)

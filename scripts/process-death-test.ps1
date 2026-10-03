@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 if ($Serial -notmatch '^emulator-[0-9]+$') { throw 'Process-death test is restricted to disposable emulators.' }
 $adb = "$env:ANDROID_HOME/platform-tools/adb.exe"
 $ready = '/sdcard/Android/data/io.itermux.app/files/lifecycle-ready.txt'
-$runner = 'io.itermux.app.test/androidx.test.runner.AndroidJUnitRunner'
+$runner = 'io.itermux.app.test/io.itermux.app.ItermuxTestRunner'
 & $adb -s $Serial reverse tcp:22228 tcp:22228
 & $adb -s $Serial shell am force-stop io.itermux.app
 & $adb -s $Serial shell rm -f $ready

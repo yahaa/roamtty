@@ -3,13 +3,35 @@ package io.itermux.ssh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import java.text.Normalizer
 import java.util.Locale
 
-/** Exact names rank first, followed by prefixes, substrings, and ordered abbreviations. */
+/**
+ * Exact names rank first, followed by prefixes, substrings, and ordered abbreviations.
+ * Matching ignores case and width (NFKC), and a query of several words matches when every word does,
+ * so IME-inserted spaces, autocomplete suffixes and names copied across a wrapped terminal line still match.
+ */
 fun remoteNameMatchRank(name: String, query: String): Int? {
-    val value = name.lowercase(Locale.ROOT)
-    val needle = query.lowercase(Locale.ROOT)
+    val value = normalizeSearchText(name)
+    val needle = normalizeSearchText(query).trim()
     if (needle.isEmpty() || value == needle) return 0
+    singleTermRank(value, needle)?.let { return it }
+    val terms = needle.split(searchWhitespace).filter { it.isNotEmpty() }
+    if (terms.size < 2) return null
+    var rank = 2
+    for (term in terms) rank = maxOf(rank, singleTermRank(value, term) ?: return null)
+    return rank
+}
+
+private val searchWhitespace = Regex("\\s+")
+private val searchSeparators = Regex("[\\p{Cntrl}\\p{Zs}]+")
+
+private fun normalizeSearchText(text: String): String =
+    Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
+        .replace(searchSeparators, " ")
+
+private fun singleTermRank(value: String, needle: String): Int? {
+    if (value == needle) return 0
     if (value.startsWith(needle)) return 1
     if (value.contains(needle)) return 2
     var next = 0
