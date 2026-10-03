@@ -32,6 +32,8 @@ import io.itermux.ssh.Phase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -53,6 +55,69 @@ class SessionReconnectUiTest {
         return null
     }
 
+    private fun assertControlsHidden() {
+        compose.onNodeWithTag("restore-dock").assertDoesNotExist()
+        compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+        compose.onNodeWithTag("terminal-menu").assertDoesNotExist()
+        compose.onNodeWithTag("terminal-shortcuts").assertDoesNotExist()
+    }
+
+    @Test fun controlsWaitForConnectionAndPinnedDockReturnsAfterReconnect() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val app = context.applicationContext as ItermuxApp
+        val prefs = context.getSharedPreferences("terminal-settings", android.content.Context.MODE_PRIVATE)
+        val previousPinned = if (prefs.contains("dockPinned")) prefs.getBoolean("dockPinned", false) else null
+        prefs.edit().putBoolean("dockPinned", false).commit()
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        app.database.hosts().forgetPin("[127.0.0.1]:22228")
+        val original = withContext(Dispatchers.Main) {
+            service.open(Host(name = "Reconnect controls", address = "127.0.0.1", port = 22228, username = "itermux_test"),
+                SessionMode.SHELL, Credentials("test-only".toByteArray()))
+        }
+        try {
+            // Hold real host verification to inspect the page before it can connect.
+            val firstPrompt = withTimeout(15_000) { original.pending.first { it != null } }!!
+            compose.waitUntil(8_000) { compose.onAllNodesWithTag("sessions-tab").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("sessions-tab").performClick()
+            compose.onNodeWithTag("session-${original.id}").performClick()
+            assertControlsHidden()
+            firstPrompt.answer.complete(listOf("trust"))
+            withTimeout(15_000) { original.state.first { it.phase == Phase.CONNECTED } }
+            compose.onNodeWithTag("restore-dock").assertIsDisplayed().performClick()
+            compose.onNodeWithTag("terminal-menu").performClick()
+            compose.onNodeWithText(tr("固定操作栏")).performClick()
+            compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+            compose.onNodeWithTag("terminal-menu").performClick()
+            compose.onNodeWithText(tr("取消固定操作栏")).assertIsDisplayed()
+
+            withContext(Dispatchers.Main) { original.disconnect() }
+            compose.onNodeWithText(tr("手动重连")).assertIsDisplayed()
+            assertControlsHidden()
+            compose.onNodeWithText(tr("取消固定操作栏")).assertDoesNotExist()
+            assertTrue(prefs.getBoolean("dockPinned", false))
+
+            app.database.hosts().forgetPin("[127.0.0.1]:22228")
+            val replacement = withContext(Dispatchers.Main) {
+                service.reconnect(original.id, Credentials("test-only".toByteArray()))
+            }
+            val retryPrompt = withTimeout(15_000) { replacement.pending.first { it != null } }!!
+            assertControlsHidden()
+            retryPrompt.answer.complete(listOf("trust"))
+            withTimeout(15_000) { replacement.state.first { it.phase == Phase.CONNECTED } }
+            compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+            compose.onNodeWithTag("restore-dock").assertDoesNotExist()
+            compose.onNodeWithText(tr("取消固定操作栏")).assertDoesNotExist()
+            compose.onNodeWithTag("collapse-dock").performClick()
+            compose.onNodeWithTag("restore-dock").assertIsDisplayed()
+        } finally {
+            withContext(Dispatchers.Main) { service.close(original.id) }
+            prefs.edit().apply {
+                previousPinned?.let { putBoolean("dockPinned", it) } ?: remove("dockPinned")
+            }.commit()
+        }
+        Unit
+    }
+
     @Test fun disconnectedDialogTracksKeyboardAndRotationWithoutShrinkingTerminal() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
@@ -63,6 +128,7 @@ class SessionReconnectUiTest {
         fun imeVisible() = ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
             ?.isVisible(WindowInsetsCompat.Type.ime()) == true
         fun checkNotice() {
+            assertControlsHidden()
             val viewport = compose.onNodeWithTag("terminal-notice-viewport").fetchSemanticsNode().boundsInRoot
             val card = compose.onNodeWithTag("terminal-connection-notice").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             val workspace = compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot
@@ -151,6 +217,7 @@ class SessionReconnectUiTest {
                 }
                 compose.mainClock.advanceTimeBy(100)
                 compose.onNodeWithTag("terminal-connection-motion").assertIsDisplayed()
+                assertControlsHidden()
                 compose.onNodeWithText(tr("手动重连")).assertDoesNotExist()
                 val progress = compose.onNodeWithTag("terminal-connection-progress").fetchSemanticsNode().boundsInRoot
                 val terminalBounds = compose.onNodeWithTag("terminal-notice-viewport").fetchSemanticsNode().boundsInRoot
@@ -175,6 +242,7 @@ class SessionReconnectUiTest {
                 compose.onNodeWithTag("terminal-connection-progress").assertDoesNotExist()
                 compose.onNodeWithText(tr("手动重连")).assertIsDisplayed()
                 assertEquals(Phase.DISCONNECTED, replacement.state.value.phase)
+                assertControlsHidden()
             } finally {
                 withContext(Dispatchers.Main) { service.close(original.id) }
             }

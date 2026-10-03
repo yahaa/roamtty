@@ -95,7 +95,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val keyboard = remember(composeView) { SoftwareKeyboardControllerCompat(composeView) }
     val imeVisible = WindowInsets.isImeVisible
     // Only explicit pinning reserves terminal width; placement follows the IME-sized viewport.
-    val dockVisible = !editor && (dockPinned || dockExpanded)
+    // Connection notices use the same golden-section anchor; show controls only when ready.
+    val dockAvailable = state.phase == Phase.CONNECTED && !editor
+    val dockVisible = dockAvailable && (dockPinned || dockExpanded)
     val dockReserved = dockVisible && dockPinned
     val floatingDock = dockVisible && !dockReserved
     fun dismissDockMenus() {
@@ -185,7 +187,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     LaunchedEffect(session.id) { hideKeyboard() }
     LaunchedEffect(showingOutput) { if (showingOutput) { editor = false; hideKeyboard() } }
     LaunchedEffect(state.phase) {
-        if (state.phase != Phase.CONNECTED) { ctrlArmed = false; shiftArmed = false; confirmPaste = null }
+        if (state.phase != Phase.CONNECTED) {
+            ctrlArmed = false; shiftArmed = false; confirmPaste = null
+            menu = false; sessionMenu = false; shortcutMenu = false
+        }
         else session.inputWarning.value = null
     }
     // Opening the arrow menu can hide the IME. Keep Shift armed until the arrow is sent.
@@ -396,7 +401,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f), shadowElevation = 4.dp
                 ) { dock(height) }
             }
-        } else if (!dockVisible && !editor) {
+        } else if (dockAvailable && !dockVisible) {
             TerminalDockPlacement {
                 FilledTonalIconButton(
                     onClick = { dockExpanded = true },
