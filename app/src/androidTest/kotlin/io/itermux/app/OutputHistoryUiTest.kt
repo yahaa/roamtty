@@ -229,6 +229,15 @@ class OutputHistoryUiTest {
         compose.onNodeWithTag("output-history-scrollbar").assertDoesNotExist()
     }
 
+    /** A reattached tmux pane records about one screen: taller than the initial 24-row viewport, not taller than the view. */
+    @Test fun oneScreenOfRecordsAfterReattachDoesNotCrash() {
+        val records = lines(List(30) { "REATTACH_%02d".format(it) })
+        compose.setContent { MaterialTheme(colorScheme = DarkColors) { OutputHistoryView(records, 13) } }
+        compose.runOnIdle { assertTrue(terminal().currentSession.emulator.mRows >= records.size) }
+        assertVisible("REATTACH_29")
+        compose.onNodeWithTag("output-history-scrollbar").assertDoesNotExist()
+    }
+
     @Test fun capturedBoxDrawingMatchesLiveRendererPixelForPixelAcrossThemes() {
         val source = emulator(40)
         source.feed("\u001b[?25l\u001b[1;38;5;2m╭" + "─".repeat(38) + "╮\u001b[0m\r\n" +

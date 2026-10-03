@@ -91,7 +91,10 @@ internal fun OutputHistoryView(lines: List<OutputHistoryLine>, fontSize: Int, li
         if (canScroll) Box(Modifier.align(Alignment.CenterEnd)
             .width(24.dp).fillMaxHeight().testTag("output-history-scrollbar").semantics {
                 contentDescription = description
-                progressBarRangeInfo = ProgressBarRangeInfo(viewport.first.toFloat() / viewport.last, 0f..1f)
+                // Semantics re-run before recomposition removes this bar, so a layout that shrinks
+                // the history to one screen (last == 0) must not divide by zero.
+                progressBarRangeInfo = ProgressBarRangeInfo(
+                    if (viewport.last > 0) (viewport.first.toFloat() / viewport.last).coerceIn(0f, 1f) else 1f, 0f..1f)
                 setProgress { value ->
                     if (!value.isFinite()) false else {
                         snapshot.showFirstLine((value.coerceIn(0f, 1f) * snapshot.lastFirstLine).roundToInt()); true
