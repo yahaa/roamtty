@@ -210,6 +210,7 @@ private object EnglishText {
         "首次选择目录后，后续下载自动保存到此处。" to "Choose a folder once. Future downloads save here automatically.",
         "首次选择后将记住此目录" to "This folder will be remembered for future downloads",
         "保存到：%s" to "Save to: %s",
+        "更改" to "Change",
         "来源目录：%s" to "Source folder: %s",
         "下载路径：%s" to "Download path: %s",
         "未完成文件：%s" to "Incomplete file: %s",

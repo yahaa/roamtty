@@ -40,8 +40,24 @@ internal fun rememberDownloadDirectory(): DownloadDirectory {
 private fun initialDirectory(directory: DownloadDirectory): Uri = directory.uri
     ?: DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Documents")
 
-internal class DownloadActions(val busy: Boolean, val directoryLabel: String,
+internal class DownloadActions(val busy: Boolean, val directoryLabel: String, val changeDirectory: () -> Unit,
     val start: (files: List<DownloadItem>, saveAs: Boolean) -> Unit)
+
+/** Picks a new default download directory; the pending result survives rotation like the download request. */
+@Composable
+private fun rememberDownloadDirectoryChooser(directory: DownloadDirectory, onSaved: (Boolean) -> Unit): () -> Unit {
+    var pickedUri by rememberSaveable { mutableStateOf<String?>(null) }
+    val saved by rememberUpdatedState(onSaved)
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) pickedUri = uri.toString()
+    }
+    LaunchedEffect(pickedUri) {
+        val uri = pickedUri?.let(Uri::parse) ?: return@LaunchedEffect
+        saved(directory.save(uri))
+        pickedUri = null
+    }
+    return { if (pickedUri == null) picker.launch(initialDirectory(directory)) }
+}
 
 /** Both download entry points use the same pending request and destination policy. */
 @Composable
@@ -74,6 +90,9 @@ internal fun rememberDownloadActions(session: TerminalConnection): DownloadActio
     }
     val singlePicker = rememberLauncherForActivityResult(CreateDownloadDocument(initialDirectory(directory)), ::onPicked)
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree(), ::onPicked)
+    val changeDirectory = rememberDownloadDirectoryChooser(directory) { saved ->
+        if (!saved) message("无法保存此目录的访问权限，请选择其他目录或使用另存为。")
+    }
 
     // Saveable stages resume validation/result handling after rotation; an open picker is not relaunched.
     LaunchedEffect(mode, pickedUri, pickerOpen) {
@@ -121,7 +140,7 @@ internal fun rememberDownloadActions(session: TerminalConnection): DownloadActio
             }
         }
     }
-    return DownloadActions(mode != null, directory.label) { files, saveAs ->
+    return DownloadActions(mode != null, directory.label, { if (mode == null) changeDirectory() }) { files, saveAs ->
         if (mode == null && files.isNotEmpty() && canStart()) {
             transfer.pendingDownloads = files.toList()
             transfer.selectedDownloads = files.toList()
@@ -135,16 +154,8 @@ internal fun rememberDownloadActions(session: TerminalConnection): DownloadActio
 @Composable
 internal fun DownloadDirectorySetting() {
     val directory = rememberDownloadDirectory()
-    var pickedUri by rememberSaveable { mutableStateOf<String?>(null) }
     var error by rememberSaveable { mutableStateOf(false) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) { pickedUri = uri.toString(); error = false }
-    }
-    LaunchedEffect(pickedUri) {
-        val uri = pickedUri?.let(Uri::parse) ?: return@LaunchedEffect
-        error = !directory.save(uri)
-        pickedUri = null
-    }
+    val chooseDirectory = rememberDownloadDirectoryChooser(directory) { saved -> error = !saved }
     GroupedSection(header = tr("下载"), footer = if (error) null else tr("首次选择目录后，后续下载自动保存到此处。")) {
         GroupedRow(directory.label.ifEmpty { tr("尚未设置下载目录") }, Modifier.testTag("settings-download-directory"),
             leading = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null,
@@ -152,7 +163,7 @@ internal fun DownloadDirectorySetting() {
         GroupedDivider()
         GroupedRow(tr(if (directory.uri == null) "选择下载目录" else "更换下载目录"),
             Modifier.testTag("settings-download-change"), titleColor = MaterialTheme.colorScheme.primary,
-            onClick = { if (pickedUri == null) picker.launch(initialDirectory(directory)) })
+            onClick = chooseDirectory)
     }
     if (error) Text(tr("无法保存此目录的访问权限，请选择其他目录或使用另存为。"), color = MaterialTheme.colorScheme.error,
         style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = Spacing.Page))

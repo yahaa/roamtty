@@ -279,6 +279,29 @@ class DownloadDestinationTest {
         }
     }
 
+    @Test fun tappingDestinationInDownloadPanelChangesDefault() = runBlocking {
+        withSession { session, files ->
+            content(session, mutableStateOf(files.take(1)))
+            compose.onNodeWithTag("settings-download-change").performClick()
+            acceptPicker(folderName)
+            compose.waitUntil(10_000) { DownloadDirectory(context).uri != null }
+            val original = requireNotNull(DownloadDirectory(context).uri)
+            withContext(Dispatchers.Main) {
+                session.transfers.selectedDownloads = files.take(1)
+                session.transfers.downloadDialog = true
+            }
+            compose.onNodeWithTag("download-destination").assert(hasText(folderName, substring = true)).performClick()
+            acceptPicker("alternate")
+            compose.waitUntil(10_000) { DownloadDirectory(context).uri != original }
+            val changed = requireNotNull(DownloadDirectory(context).uri)
+            compose.onNodeWithTag("download-destination").assert(hasText("$folderName/alternate", substring = true))
+            compose.onNodeWithTag("download-confirm").performClick()
+            completed(session, 1) // No picker: the new default is used directly.
+            assertEquals(files.first().name, contents(changed)[files.first().name])
+            assertFalse(files.first().name in contents(original))
+        }
+    }
+
     @Test fun fileBrowserAndDownloadPanelUseTheSameDefault() = runBlocking {
         withSession { session, files ->
             compose.setContent { MaterialTheme { RemoteFileBrowserPage(session, {}) } }
