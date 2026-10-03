@@ -18,6 +18,7 @@ import io.itermux.app.data.Host
 import io.itermux.app.session.SessionService
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.SessionMode
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -72,6 +73,9 @@ class NavigationThemeTest {
             compose.onNodeWithTag("navigation-drawer").assertIsDisplayed()
             compose.onNodeWithTag("drawer-guide").assertIsDisplayed()
             compose.onNodeWithText("帮助").assertIsDisplayed()
+            // Hosts show their count like sessions do.
+            val hostCount = app.database.hosts().observe().first().size
+            compose.onNodeWithTag("drawer-hosts").assert(hasText("$hostCount"))
             capture("navigation-drawer")
             compose.onNodeWithTag("drawer-sessions").performClick()
             compose.onNodeWithText("会话列表").assertIsDisplayed()

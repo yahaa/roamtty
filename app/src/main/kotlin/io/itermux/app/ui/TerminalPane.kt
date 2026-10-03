@@ -239,6 +239,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 InputControlButton(if (tmuxHistory?.active == true) tr("实时") else tr("历史"),
                     if (tmuxHistory?.active == true) tr("返回实时画面") else tr("浏览历史记录"),
                     "tmux-history", enabled = state.phase == Phase.CONNECTED, selected = tmuxHistory?.active == true,
+                    icon = if (tmuxHistory?.active == true) R.drawable.ic_live else R.drawable.ic_history,
                     onClick = { hideKeyboard(); if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
             }
             fileControls()
@@ -319,7 +320,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                Box(Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+                Box(Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.background).testTag("terminal-viewport")) {
                 AndroidView(modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 6.dp, top = 6.dp).clipToBounds()
                     .testTag("terminal"), factory = { ctx ->
                     // Session, theme, font and history are bound in update, which also runs after creation.
@@ -401,7 +402,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     shape = CircleShape,
                     colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
                 ) {
-                    Icon(painterResource(R.drawable.ic_more), contentDescription = tr("显示操作栏"))
+                    Icon(painterResource(R.drawable.ic_toolbox), contentDescription = tr("显示操作栏"))
                 }
             }
         }

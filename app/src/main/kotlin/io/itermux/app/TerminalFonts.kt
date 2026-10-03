@@ -2,6 +2,9 @@ package io.itermux.app
 
 import android.content.Context
 import android.graphics.Typeface
+import android.graphics.fonts.Font
+import android.graphics.fonts.FontFamily
+import android.os.Build
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -138,11 +141,7 @@ object TerminalFonts {
             TerminalFontId.SYSTEM -> Typeface.MONOSPACE
             TerminalFontId.CUSTOM -> {
                 val file = customFontFile(context)
-                if (file.isFile) {
-                    runCatching { Typeface.createFromFile(file) }.getOrNull() ?: fallbackAsset(context)
-                } else {
-                    fallbackAsset(context)
-                }
+                if (file.isFile) loadCustom(context, file) ?: fallbackAsset(context) else fallbackAsset(context)
             }
             else -> loadAsset(context, id.assetFile!!)
         }
@@ -153,8 +152,41 @@ object TerminalFonts {
 
     private fun loadAsset(context: Context, path: String): Typeface {
         assetCache[path]?.let { return it }
-        val face = Typeface.createFromAsset(context.assets, path)
+        val face = withSymbolFallback(context) { Font.Builder(context.assets, path).build() }
+            ?: Typeface.createFromAsset(context.assets, path)
         assetCache[path] = face
         return face
     }
+
+    private var customCache: Pair<String, Typeface>? = null
+
+    private fun loadCustom(context: Context, file: File): Typeface? {
+        val key = "${file.lastModified()}:${file.length()}:$revision"
+        customCache?.takeIf { it.first == key }?.let { return it.second }
+        val face = withSymbolFallback(context) { Font.Builder(file).build() }
+            ?: runCatching { Typeface.createFromFile(file) }.getOrNull() ?: return null
+        customCache = key to face
+        return face
+    }
+
+    /**
+     * Prompts and TUIs draw Nerd Font icons (Private Use Area) and symbols such as ⏵ that neither the
+     * bundled monospace faces nor most phones provide. Try the bundled symbol faces before the system
+     * chain so those cells render instead of showing tofu boxes.
+     */
+    private fun withSymbolFallback(context: Context, primary: () -> Font): Typeface? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return runCatching {
+            val builder = Typeface.CustomFallbackBuilder(FontFamily.Builder(primary()).build())
+            SYMBOL_FALLBACKS.forEach { path ->
+                builder.addCustomFallback(FontFamily.Builder(Font.Builder(context.assets, path).build()).build())
+            }
+            builder.setSystemFallback("monospace").build()
+        }.getOrNull()
+    }
+
+    private val SYMBOL_FALLBACKS = listOf(
+        "fonts/SymbolsNerdFontMono-Regular.ttf",
+        "fonts/NotoSansSymbols2-Regular.ttf",
+    )
 }

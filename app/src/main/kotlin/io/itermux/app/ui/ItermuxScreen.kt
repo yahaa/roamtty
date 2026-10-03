@@ -73,7 +73,7 @@ fun ItermuxScreen(
     val terminalVisible = page == "terminal" && sessions.isNotEmpty()
     val navigationVisible = page == "hosts" || page == "sessions"
     // Older IMEs reveal system bars without changing window focus. Restore immersive mode on close.
-    LaunchedEffect(terminalVisible, imeVisible, lightTheme) { onChromeChange(terminalVisible, lightTheme) }
+    LaunchedEffect(terminalVisible, imeVisible, lightTheme, landscape) { onChromeChange(terminalVisible, lightTheme) }
     BackHandler(page == "terminal") { page = "sessions" }
     BackHandler(page == "sessions") { page = "hosts" }
     BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
@@ -203,7 +203,7 @@ fun ItermuxScreen(
         val colors = MaterialTheme.colorScheme
         ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files",
             drawerContent = {
-                ItermuxDrawer(page, sessions,
+                ItermuxDrawer(page, hosts.size, sessions,
                     onHosts = { page = "hosts"; scope.launch { drawerState.close() } },
                     onSessions = { page = "sessions"; scope.launch { drawerState.close() } },
                     onOpenSession = { selected = it; page = "terminal"; scope.launch { drawerState.close() } },
@@ -217,8 +217,12 @@ fun ItermuxScreen(
             }) {
         Surface(Modifier.fillMaxSize(), color = colors.background) {
             // The terminal fills the display, including the area beside a camera cutout.
-            // Only desktop window chrome reserves a whole edge; terminal controls avoid cutouts locally.
-            val contentInsets = if (terminalVisible) WindowInsets.captionBar else WindowInsets.safeDrawing
+            // Only desktop window chrome and the portrait status bar reserve an edge; terminal controls avoid cutouts locally.
+            val contentInsets = when {
+                !terminalVisible -> WindowInsets.safeDrawing
+                landscape -> WindowInsets.captionBar
+                else -> WindowInsets.captionBar.union(WindowInsets.statusBars)
+            }
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).imePadding()) {
                 if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files") AppToolbar(
                     navigation = {

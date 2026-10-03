@@ -50,6 +50,11 @@ internal val ColorScheme.groupedContainer: Color
     @Composable @ReadOnlyComposable
     get() = if (background.luminance() > 0.5f) surfaceContainerLowest else surfaceContainer
 
+/** Panels inside a dialog sit one step brighter than its surfaceContainerHigh sheet, never darker. */
+internal val ColorScheme.dialogPanel: Color
+    @Composable @ReadOnlyComposable
+    get() = if (background.luminance() > 0.5f) surfaceContainerLowest else surfaceContainerHighest
+
 /**
  * A toolbar row: navigation on the leading edge, then [actions]. Without a [title], actions start right
  * after navigation, so callers decide where flexible space goes (a centered segment or a spacer).

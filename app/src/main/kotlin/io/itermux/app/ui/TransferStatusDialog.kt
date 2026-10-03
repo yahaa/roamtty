@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
@@ -99,8 +98,14 @@ internal fun TransferStatusDialog(status: TransferStatus, onCancel: () -> Unit, 
                             color = if (mood == TransferMood.PROBLEM) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                if (!transferring) items(downloads, key = { it.path }) { file ->
-                    DownloadResultCard(file, details && commonDirectory == null, details)
+                // Rows sit directly on the dialog sheet; hairlines separate them instead of boxed cards.
+                if (!transferring && downloads.isNotEmpty()) item {
+                    Column(Modifier.fillMaxWidth().testTag("download-result-list")) {
+                        downloads.forEachIndexed { index, file ->
+                            if (index > 0) GroupedDivider(start = 40.dp)
+                            DownloadResultRow(file, details && commonDirectory == null, details)
+                        }
+                    }
                 }
                 if (!transferring && downloads.isNotEmpty()) item {
                     Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -110,7 +115,7 @@ internal fun TransferStatusDialog(status: TransferStatus, onCancel: () -> Unit, 
                     }
                 }
                 if (!transferring) status.remotePath?.let { remotePath -> item {
-                    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.dialogPanel) {
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
                             SelectionContainer {
                                 Text(remotePath, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
@@ -163,31 +168,29 @@ private fun RoundedProgress(progress: (() -> Float)?, modifier: Modifier = Modif
 
 @Composable
 private fun ActiveTransfer(name: String, bytes: Long, total: Long, fraction: Float, bytesPerSecond: Double) {
-    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RemoteFileIcon(name, size = 28.dp)
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis, style = MaterialTheme.typography.bodyLarge)
-                    Text(if (total >= 0) "${formatRemoteSize(bytes)} / ${formatRemoteSize(total)}" else trf("已传输 %s", formatRemoteSize(bytes)),
-                        Modifier.testTag("transfer-status"), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RemoteFileIcon(name, size = 28.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis, style = MaterialTheme.typography.bodyLarge)
+                Text(if (total >= 0) "${formatRemoteSize(bytes)} / ${formatRemoteSize(total)}" else trf("已传输 %s", formatRemoteSize(bytes)),
+                    Modifier.testTag("transfer-status"), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            RoundedProgress(if (total >= 0) ({ fraction }) else null, Modifier.padding(top = 12.dp).testTag("transfer-progress"))
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (total >= 0) "${(fraction * 100).toInt()}%" else tr("正在传输…"), Modifier.weight(1f).testTag("transfer-percent"),
-                    style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                if (bytesPerSecond > 0) Text("${formatRemoteSize(bytesPerSecond.toLong())}/s", Modifier.testTag("transfer-speed"),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        }
+        RoundedProgress(if (total >= 0) ({ fraction }) else null, Modifier.padding(top = 12.dp).testTag("transfer-progress"))
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (total >= 0) "${(fraction * 100).toInt()}%" else tr("正在传输…"), Modifier.weight(1f).testTag("transfer-percent"),
+                style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            if (bytesPerSecond > 0) Text("${formatRemoteSize(bytesPerSecond.toLong())}/s", Modifier.testTag("transfer-speed"),
+                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-private fun DownloadResultCard(file: DownloadItem, showSource: Boolean, details: Boolean) {
+private fun DownloadResultRow(file: DownloadItem, showSource: Boolean, details: Boolean) {
     val problem = file.phase == DownloadPhase.FAILED || file.phase == DownloadPhase.CANCELLED
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val label = when (file.phase) {
@@ -199,22 +202,23 @@ private fun DownloadResultCard(file: DownloadItem, showSource: Boolean, details:
     }
     val size = if (file.phase == DownloadPhase.COMPLETE) formatRemoteSize(file.bytes)
         else "${formatRemoteSize(file.bytes)} / ${if (file.total < 0) tr("大小未知") else formatRemoteSize(file.total)}"
-    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RemoteFileIcon(file.name, size = 28.dp)
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(file.name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis, style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium)
-                    Text(listOfNotNull(size, label).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
-                        color = if (problem) MaterialTheme.colorScheme.error else muted)
-                }
-                if (file.phase == DownloadPhase.COMPLETE) Icon(painterResource(R.drawable.ic_check), contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                else if (problem) Icon(painterResource(R.drawable.ic_alert), contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RemoteFileIcon(file.name, size = 28.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(file.name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis, style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium)
+                Text(listOfNotNull(size, label).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
+                    color = if (problem) MaterialTheme.colorScheme.error else muted)
             }
+            if (file.phase == DownloadPhase.COMPLETE) Icon(painterResource(R.drawable.ic_check), contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            else if (problem) Icon(painterResource(R.drawable.ic_alert), contentDescription = null,
+                tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+        }
+        // Secondary lines align with the file name, not the icon.
+        Column(Modifier.padding(start = 40.dp)) {
             file.error?.let { message ->
                 SelectionContainer { Text(tr(message), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall) }

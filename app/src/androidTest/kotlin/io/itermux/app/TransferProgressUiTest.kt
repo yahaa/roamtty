@@ -9,6 +9,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.itermux.app.session.TransferStatus
+import io.itermux.app.ui.AppShapes
+import io.itermux.app.ui.AppTypography
+import io.itermux.app.ui.DarkColors
 import io.itermux.app.ui.TransferStatusDialog
 import io.itermux.app.session.DownloadItem
 import io.itermux.app.session.DownloadPhase
@@ -42,6 +45,28 @@ class TransferProgressUiTest {
         compose.onNodeWithTag("download-result-details").performClick()
         compose.onNodeWithText(trf("来源目录：%s", "/work/dist")).assertIsDisplayed()
         compose.onNodeWithTag("download-local-path-/work/dist/app.apk").assertTextEquals(trf("下载路径：%s", path))
+    }
+
+    @Test fun batchResultGroupsFilesInOnePanel() {
+        val folder = "/storage/emulated/0/Download/iTermux/"
+        compose.setContent {
+            MaterialTheme(colorScheme = DarkColors, shapes = AppShapes, typography = AppTypography) {
+                TransferStatusDialog(TransferStatus("", 0, 0, result = trf("已完成 %d 个，失败 %d 个", 2, 1),
+                    downloads = listOf(
+                        DownloadItem("/notes/README.md", 200, 200, DownloadPhase.COMPLETE, localPath = folder + "README.md"),
+                        DownloadItem("/notes/build.log", 4096, 4096, DownloadPhase.COMPLETE, localPath = folder + "build.log"),
+                        DownloadItem("/notes/photo.png", 4096, 1024, DownloadPhase.FAILED, localPath = folder + "photo.png",
+                            error = "连接已断开"))), {}, {})
+            }
+        }
+        // Rows share one grouped surface instead of each file drawing its own card.
+        compose.onAllNodesWithTag("download-result-list").assertCountEquals(1)
+        compose.onNodeWithText("README.md").assertIsDisplayed()
+        compose.onNodeWithText("photo.png").assertIsDisplayed()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        File(context.getExternalFilesDir(null), "download-result-batch.png").outputStream().use {
+            compose.onNodeWithTag("transfer-dialog").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
     }
 
     @Test fun batchProgressShowsCountsPercentageSpeedAndPerFileStates() {
