@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -45,6 +46,8 @@ internal fun DownloadFilesUi(session: TerminalConnection, actions: DownloadActio
     if (transfer.downloadDialog) DownloadFilesSheet(session,
         enabled = connection.phase == Phase.CONNECTED && !status.running && !actions.busy,
         directoryLabel = actions.directoryLabel,
+        canChangeDirectory = !actions.busy,
+        onChangeDirectory = actions.changeDirectory,
         onDismiss = transfer::dismissDownloads,
         onDownload = { actions.start(transfer.selectedDownloads.toList(), false) },
         onSaveAs = { actions.start(transfer.selectedDownloads.toList(), true) })
@@ -53,7 +56,7 @@ internal fun DownloadFilesUi(session: TerminalConnection, actions: DownloadActio
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, directoryLabel: String,
-    onDismiss: () -> Unit, onDownload: () -> Unit, onSaveAs: () -> Unit) {
+    canChangeDirectory: Boolean, onChangeDirectory: () -> Unit, onDismiss: () -> Unit, onDownload: () -> Unit, onSaveAs: () -> Unit) {
     val transfer = session.transfers
     val options = rememberRemoteFileOptions()
     val compact = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -237,12 +240,28 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
             if (compact) Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 summary(Modifier.weight(1f))
+                IconButton(onClick = onChangeDirectory, enabled = canChangeDirectory,
+                    modifier = Modifier.testTag("download-destination")) {
+                    Icon(painterResource(R.drawable.ic_folder),
+                        contentDescription = tr(if (directoryLabel.isEmpty()) "选择下载目录" else "更换下载目录"))
+                }
                 confirm(Modifier)
             } else Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
                 summary(Modifier.fillMaxWidth())
-                Text(if (directoryLabel.isEmpty()) tr("首次选择后将记住此目录") else trf("保存到：%s", directoryLabel),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 8.dp))
+                // The local destination is tappable so a download can go elsewhere without visiting Settings.
+                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(MaterialTheme.shapes.small)
+                    .clickable(enabled = canChangeDirectory, role = Role.Button,
+                        onClickLabel = tr(if (directoryLabel.isEmpty()) "选择下载目录" else "更换下载目录"),
+                        onClick = onChangeDirectory)
+                    .heightIn(min = 32.dp).testTag("download-destination"),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Icon(painterResource(R.drawable.ic_folder), contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                    Text(if (directoryLabel.isEmpty()) tr("首次选择后将记住此目录") else trf("保存到：%s", directoryLabel),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 6.dp))
+                    Text(tr("更改"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                }
                 confirm(Modifier.fillMaxWidth())
             }
         }
