@@ -22,7 +22,7 @@ internal class SessionJournal(context: Context) {
 
     fun read(): List<Entry> = runCatching {
         val array = JSONArray(preferences.getString("sessions", "[]"))
-        (0 until minOf(array.length(), 8)).mapNotNull { index ->
+        (0 until array.length()).mapNotNull { index ->
             runCatching {
                 val item = array.getJSONObject(index)
                 val remote = item.optString("remoteSessionName").ifBlank { Tmux.LEGACY_SESSION }
@@ -35,7 +35,11 @@ internal class SessionJournal(context: Context) {
                     item.optInt("sessionNumber", 0).coerceAtLeast(0)
                 )
             }.getOrNull()
-        }.distinctBy { it.id }
+        }.distinctBy { it.id }.let { entries ->
+            // Keeps list order while capping each host at the live per-host limit.
+            val perHost = HashMap<String, Int>()
+            entries.filter { perHost.merge(it.hostId, 1, Int::plus)!! <= SessionService.MAX_SESSIONS_PER_HOST }
+        }
     }.getOrDefault(emptyList())
 
     fun save(sessions: List<TerminalConnection>) {

@@ -573,7 +573,7 @@ class TerminalUiTest {
         capture("hosts-search")
         compose.onNodeWithTag("search-toggle").performClick()
         compose.onNodeWithTag("host-search").assertDoesNotExist()
-        compose.onNodeWithText("已保存的主机").assertIsDisplayed()
+        compose.onNodeWithText("主机列表").assertIsDisplayed()
         compose.activity.runOnUiThread { (compose.activity.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0) }
         compose.waitForIdle()
         capture("hosts")
