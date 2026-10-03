@@ -31,7 +31,7 @@ import io.itermux.app.code.CodeDocument
 import io.itermux.app.code.CodeLine
 import io.itermux.app.code.TokenType
 
-/** Token colors follow VS Code's Dark+ and Light+ themes. */
+/** Token colors follow VS Code Dark+ and GitHub Light. */
 internal class CodeTheme(val styles: Array<SpanStyle>, val gutter: Color, val match: Color, val currentMatch: Color) {
     companion object {
         private fun theme(colors: Map<TokenType, Long>, gutter: Long, match: Long, current: Long) = CodeTheme(
@@ -57,16 +57,17 @@ internal class CodeTheme(val styles: Array<SpanStyle>, val gutter: Color, val ma
             TokenType.INFO to 0xFF3794FF
         ), gutter = 0xFF858585, match = 0x66623315, current = 0xCC9E6A03)
 
+        /** GitHub Light: calmer than Light+'s pure blues next to the app's warm paper tones. */
         val Light = theme(mapOf(
-            TokenType.KEYWORD to 0xFF0000FF, TokenType.TYPE to 0xFF267F99, TokenType.STRING to 0xFFA31515,
-            TokenType.NUMBER to 0xFF098658, TokenType.COMMENT to 0xFF008000, TokenType.FUNCTION to 0xFF795E26,
-            TokenType.PROPERTY to 0xFF001080, TokenType.VARIABLE to 0xFF001080, TokenType.CONSTANT to 0xFF0000FF,
-            TokenType.META to 0xFFAF00DB, TokenType.TAG to 0xFF800000, TokenType.ATTRIBUTE to 0xFFE50000,
-            TokenType.PUNCTUATION to 0xFF800000, TokenType.HEADING to 0xFF800000, TokenType.STRONG to 0xFF1F1F1F,
-            TokenType.EMPHASIS to 0xFF1F1F1F, TokenType.LINK to 0xFF0451A5, TokenType.INSERTED to 0xFF098658,
-            TokenType.DELETED to 0xFFA31515, TokenType.ERROR to 0xFFCD3131, TokenType.WARNING to 0xFFBF8803,
-            TokenType.INFO to 0xFF1A85FF
-        ), gutter = 0xFF237893, match = 0x55F8C9A0, current = 0xCCF6B94D)
+            TokenType.KEYWORD to 0xFFCF222E, TokenType.TYPE to 0xFF953800, TokenType.STRING to 0xFF0A3069,
+            TokenType.NUMBER to 0xFF0550AE, TokenType.COMMENT to 0xFF6E7781, TokenType.FUNCTION to 0xFF8250DF,
+            TokenType.PROPERTY to 0xFF0550AE, TokenType.VARIABLE to 0xFF953800, TokenType.CONSTANT to 0xFF0550AE,
+            TokenType.META to 0xFF8250DF, TokenType.TAG to 0xFF116329, TokenType.ATTRIBUTE to 0xFF0550AE,
+            TokenType.PUNCTUATION to 0xFF6E7781, TokenType.HEADING to 0xFF0550AE, TokenType.STRONG to 0xFF1F2328,
+            TokenType.EMPHASIS to 0xFF1F2328, TokenType.LINK to 0xFF0969DA, TokenType.INSERTED to 0xFF116329,
+            TokenType.DELETED to 0xFF82071E, TokenType.ERROR to 0xFFCF222E, TokenType.WARNING to 0xFF9A6700,
+            TokenType.INFO to 0xFF0969DA
+        ), gutter = 0xFFA0A7AF, match = 0x55FFD33D, current = 0xCCFFB000)
     }
 }
 

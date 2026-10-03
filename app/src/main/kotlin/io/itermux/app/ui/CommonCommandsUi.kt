@@ -76,7 +76,7 @@ internal fun CommonCommandsContent(history: CommonCommandsState, connected: Bool
                     items(filtered, key = { "command:$it" }) { command ->
                         // A prompt-styled row reads as "run this", without a chevron on every line.
                         Row(Modifier.padding(horizontal = 20.dp, vertical = 3.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                             .clickable(enabled = connected) { onSelect(command) }
                             .padding(horizontal = 14.dp, vertical = 12.dp).testTag("common-command-$command")) {
                             Text("$", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,

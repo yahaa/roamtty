@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
@@ -129,7 +130,10 @@ private fun CodeBlock(block: MdBlock.Code) {
     val clipboard = LocalClipboardManager.current
     val language = remember(block.language) { Languages.forFence(block.language) ?: Languages.PLAIN }
     val text = remember(block.code, language, theme) { annotatedCode(SyntaxHighlighter.highlight(block.code, language), theme) }
-    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest,
+    // Dark pages sink code into a deeper well; light pages need a tinted block to stand out from the paper.
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    Surface(shape = RoundedCornerShape(10.dp),
+        color = if (dark) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth()) {
         Column {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {

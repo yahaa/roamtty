@@ -137,19 +137,22 @@ class FileBrowserDesignTest {
         ![screenshot](https://example.com/shot.png)
     """.trimIndent()
 
-    @Test fun markdownRenderedDark() {
+    @Test fun markdownRenderedDark() = markdown(DarkColors, "markdown-rendered-dark")
+    @Test fun markdownRenderedLight() = markdown(LightColors, "markdown-rendered-light")
+
+    private fun markdown(colors: ColorScheme, name: String) {
         val blocks = io.itermux.app.code.MarkdownParser.parse(readme)
         compose.setContent {
-            MaterialTheme(colorScheme = DarkColors) {
+            MaterialTheme(colorScheme = colors) {
                 Surface(Modifier.fillMaxSize().testTag("md")) { MarkdownView(blocks, null, Modifier.fillMaxSize()) }
             }
         }
         compose.onNodeWithText("Features").assertIsDisplayed()
-        capture("md", "markdown-rendered-dark")
+        capture("md", name)
     }
 
-    private fun transfer(status: io.itermux.app.session.TransferStatus, name: String) {
-        compose.setContent { MaterialTheme(colorScheme = DarkColors, shapes = AppShapes) { TransferStatusDialog(status, {}, {}) } }
+    private fun transfer(status: io.itermux.app.session.TransferStatus, name: String, colors: ColorScheme = DarkColors) {
+        compose.setContent { MaterialTheme(colorScheme = colors, shapes = AppShapes) { TransferStatusDialog(status, {}, {}) } }
         compose.onNodeWithTag("transfer-dialog").assertIsDisplayed()
         capture("transfer-dialog", name)
     }
@@ -161,6 +164,12 @@ class FileBrowserDesignTest {
             localPath = "/storage/emulated/0/Download/iTermux/README.md"),
         io.itermux.app.session.DownloadItem("/srv/app/server.log", -1, 4096, io.itermux.app.session.DownloadPhase.FAILED,
             error = "Permission denied"))), "transfer-results-dark")
+
+    @Test fun downloadResultsLight() = transfer(io.itermux.app.session.TransferStatus("", 0, 0, result = "", downloads = listOf(
+        io.itermux.app.session.DownloadItem("/srv/app/release.tar.gz", 921_600, 921_600, io.itermux.app.session.DownloadPhase.COMPLETE,
+            localPath = "/storage/emulated/0/Download/iTermux/release.tar.gz"),
+        io.itermux.app.session.DownloadItem("/srv/app/server.log", -1, 4096, io.itermux.app.session.DownloadPhase.FAILED,
+            error = "Permission denied"))), "transfer-results-light", LightColors)
 
     @Test fun downloadProgressDark() = transfer(io.itermux.app.session.TransferStatus("", 512 * 1024L, 1024 * 1024L, running = true,
         downloads = listOf(io.itermux.app.session.DownloadItem("/a/README.md", 200, 200, io.itermux.app.session.DownloadPhase.COMPLETE),
@@ -181,6 +190,7 @@ class FileBrowserDesignTest {
         capture("code", name)
     }
 
+    @Test fun yamlLight() = code("services:\n  web:\n    image: nginx:1.27  # proxy\n    ports: [\"8080:80\"]\n    restart: always\n", "compose.yml", LightColors, false, "code-yaml-light", query = "web")
     @Test fun kotlinDark() = code(kotlin, "Main.kt", DarkColors, false, "code-kotlin-dark", query = "host")
     @Test fun kotlinLightWrapped() = code(kotlin, "Main.kt", LightColors, true, "code-kotlin-light-wrap")
     @Test fun markdownDark() = code(markdown, "README.md", DarkColors, true, "code-markdown-dark")
