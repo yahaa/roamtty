@@ -45,4 +45,11 @@ class MoshClientTest {
             assertEquals(MoshClient.End.TIMED_OUT, withTimeout(2_000) { end.await() })
         }
     }
+
+    @Test fun clientGivesUpOneMinuteBeforeItsServer() {
+        // A tmux session resumes seamlessly after up to 14 minutes of sleep, and reattaches after that.
+        assertEquals(14 * 60_000L, JschSession.moshSilenceLimitMs(SessionMode.TMUX))
+        for (mode in SessionMode.entries)
+            assertEquals(JschSession.moshServerTimeoutSeconds(mode) * 1000 - 60_000, JschSession.moshSilenceLimitMs(mode))
+    }
 }

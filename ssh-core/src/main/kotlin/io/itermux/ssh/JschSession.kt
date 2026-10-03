@@ -323,7 +323,7 @@ class JschSession(
                 try {
                     client.run(queues.currentInput(), queues.currentSizes(), dimensions,
                         firstContactTimeoutMs = 8_000,
-                        silenceLimitMs = if (target.mode == SessionMode.TMUX) 10 * 60_000L else 12 * 3600_000L,
+                        silenceLimitMs = moshSilenceLimitMs(target.mode),
                         isStopped = stopped::get,
                         onConnected = {
                             mutableTransport.value = TerminalTransport.MOSH
@@ -356,7 +356,7 @@ class JschSession(
 
     private fun moshStartScript(locale: String): String {
         // Without a client mosh-server waits forever; tmux keeps the work, so its server may expire sooner.
-        val timeout = if (target.mode == SessionMode.TMUX) 15 * 60 else 12 * 3600 + 600
+        val timeout = moshServerTimeoutSeconds(target.mode)
         val command = if (target.mode == SessionMode.TMUX) " -- tmux new-session -A -s ${Tmux.targetFlag(tmuxName)}" else ""
         return """
             exec 2>&1
@@ -608,6 +608,17 @@ class JschSession(
     private fun closeTransport() { channel?.disconnect(); session?.disconnect() }
 
     companion object {
+        /** mosh-server exits after this long without hearing the client. */
+        internal fun moshServerTimeoutSeconds(mode: SessionMode): Long =
+            if (mode == SessionMode.TMUX) 15 * 60L else 12 * 3600L + 600
+
+        /**
+         * The client gives up just before its server would, so a wake from sleep inside the limit
+         * resumes seamlessly, and one past it reattaches instead of typing into a server that is gone.
+         */
+        internal fun moshSilenceLimitMs(mode: SessionMode): Long =
+            (moshServerTimeoutSeconds(mode) - 60) * 1000
+
         @Synchronized private fun configureCrypto() {
             // Android ships a reduced BC provider. Use the full library for modern SSH algorithms.
             if (Security.getProvider("BC") !is BouncyCastleProvider) {
