@@ -223,10 +223,16 @@ class TerminalExtraKeysTest {
                 historyBitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
             }
             historyBitmap.recycle()
+            val thumbCenterY = withContext(Dispatchers.Main) {
+                val emulator = session.getEmulator()
+                val track = historyView.height - 16 * density
+                val thumbHeight = maxOf(32 * density,
+                    track * emulator.mRows / (emulator.screen.activeTranscriptRows + emulator.mRows))
+                8 * density + thumbHeight / 2
+            }
             compose.onNodeWithTag("terminal").performTouchInput {
-                // At the oldest row the thumb starts at 8dp and is at least 32dp tall.
-                // A percentage of screen height can miss the faded thumb on narrow devices.
-                down(androidx.compose.ui.geometry.Offset(width - 6 * density, 24 * density))
+                // Grab the middle of the visible thumb, clear of Android's top-edge gestures.
+                down(androidx.compose.ui.geometry.Offset(width - 6 * density, thumbCenterY))
                 moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 8 * density), delayMillis = 400)
                 up()
             }
@@ -252,10 +258,9 @@ class TerminalExtraKeysTest {
             compose.onNodeWithTag("terminal-escape").performTouchInput { click() }
             compose.onNodeWithTag("session-switcher").assertIsDisplayed()
             compose.onNodeWithTag("keyboard-toggle").assertIsDisplayed()
-            compose.onNodeWithTag("file-transfer").assertIsDisplayed()
+            compose.onNodeWithTag("download-file").assertIsDisplayed()
             compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-            compose.onNodeWithTag("file-transfer").performClick()
-            compose.onNodeWithText("下载文件").performClick()
+            compose.onNodeWithTag("download-file").performClick()
             compose.onNodeWithTag("download-remote-path").assertDoesNotExist()
             compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
             compose.waitUntil(8_000) {
@@ -289,7 +294,7 @@ class TerminalExtraKeysTest {
             compose.waitForIdle()
             delay(500)
             val landscapeTags = listOf("terminal-workspace", "terminal-dock", "session-switcher",
-                "keyboard-toggle", "file-transfer", "terminal-menu", "terminal-shortcuts")
+                "keyboard-toggle", "download-file", "terminal-menu", "terminal-shortcuts")
             File(context.getExternalFilesDir(null), "extra-keys-landscape-bounds.txt").writeText(
                 landscapeTags.joinToString("\n") { tag ->
                     "$tag: ${compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot}"

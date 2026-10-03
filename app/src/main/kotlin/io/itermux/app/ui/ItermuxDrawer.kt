@@ -10,7 +10,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -36,8 +35,7 @@ internal fun ItermuxDrawer(
         Column(Modifier.fillMaxHeight()) {
             Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 24.dp, bottom = 20.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.ic_terminal), contentDescription = null,
-                    tint = Color.Unspecified, modifier = Modifier.size(48.dp))
+                ItermuxLogo(Modifier.size(48.dp))
                 Column(Modifier.weight(1f).padding(start = 14.dp)) {
                     Text("iTermux", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Text(tr("远程终端"), style = MaterialTheme.typography.bodySmall,

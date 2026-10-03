@@ -68,15 +68,15 @@ class SessionReconnectUiTest {
                     service.reconnect(original.id, Credentials("fixture-only".toByteArray()))
                 }
                 compose.mainClock.advanceTimeBy(100)
-                compose.onNodeWithTag("terminal-connection-spinner").assertIsDisplayed()
+                compose.onNodeWithTag("terminal-connection-motion").assertIsDisplayed()
                 compose.onNodeWithText(tr("手动重连")).assertDoesNotExist()
                 val progress = compose.onNodeWithTag("terminal-connection-progress").fetchSemanticsNode().boundsInRoot
                 val terminalBounds = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
                 assertEquals(terminalBounds.center.x, progress.center.x, 1f)
                 assertEquals(terminalBounds.center.y, progress.center.y, 1f)
-                val firstFrame = compose.onNodeWithTag("terminal-connection-spinner").captureToImage().asAndroidBitmap()
+                val firstFrame = compose.onNodeWithTag("terminal-connection-motion").captureToImage().asAndroidBitmap()
                 compose.mainClock.advanceTimeBy(400)
-                val secondFrame = compose.onNodeWithTag("terminal-connection-spinner").captureToImage().asAndroidBitmap()
+                val secondFrame = compose.onNodeWithTag("terminal-connection-motion").captureToImage().asAndroidBitmap()
                 assertFalse("The reconnect page must animate", firstFrame.sameAs(secondFrame))
                 compose.waitForIdle()
                 compose.activityRule.scenario.onActivity { activity ->

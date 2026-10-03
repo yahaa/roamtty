@@ -2,21 +2,22 @@
     android:width="432dp" android:height="432dp"
     android:viewportWidth="432" android:viewportHeight="432">
     <!-- The system fits this 432dp canvas into 288dp: the visible mark is only 64dp. -->
-    <group android:scaleX="2" android:scaleY="2" android:translateX="168" android:translateY="153">
-        <path android:fillColor="#D96C49"
-            android:pathData="M11,0H37A11,11 0,0 1,48 11V37A11,11 0,0 1,37 48H11A11,11 0,0 1,0 37V11A11,11 0,0 1,11 0Z" />
-        <path android:name="prompt" android:fillColor="@android:color/transparent"
-            android:strokeColor="#FFFFFF" android:strokeWidth="4.5"
+    <group android:scaleX="1.8461538" android:scaleY="1.8461538"
+        android:translateX="168" android:translateY="168">
+        <path android:name="tile" android:fillColor="@color/logo_accent" android:fillAlpha="0.07"
+            android:pathData="M14,0H38A14,14 0,0 1,52 14V38A14,14 0,0 1,38 52H14A14,14 0,0 1,0 38V14A14,14 0,0 1,14 0Z" />
+        <path android:fillColor="@android:color/transparent"
+            android:strokeColor="@color/logo_accent" android:strokeWidth="2.2"
             android:strokeLineCap="round" android:strokeLineJoin="round"
-            android:pathData="M9,13L20,24 9,35" />
+            android:pathData="M15,15L22,22 15,29" />
         <path android:name="cursor" android:fillColor="@android:color/transparent"
-            android:strokeColor="#FFFFFF" android:strokeWidth="4.5"
-            android:strokeLineCap="round" android:pathData="M25,35H39" />
-    </group>
-    <path android:strokeColor="#EFA783" android:strokeAlpha="0.18" android:strokeWidth="3"
-        android:strokeLineCap="round" android:pathData="M168,279H264" />
-    <group android:name="progress">
-        <path android:strokeColor="#EFA783" android:strokeWidth="3"
-            android:strokeLineCap="round" android:pathData="M168,279H190" />
+            android:strokeColor="@color/logo_accent" android:strokeWidth="2.2" android:strokeAlpha="0.5"
+            android:strokeLineCap="round" android:pathData="M28,29H37" />
+        <path android:name="signal_one" android:fillColor="@color/logo_accent" android:fillAlpha="0.9"
+            android:pathData="M16.4,39a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0" />
+        <path android:name="signal_two" android:fillColor="@color/logo_accent" android:fillAlpha="0.375"
+            android:pathData="M24.4,39a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0" />
+        <path android:name="signal_three" android:fillColor="@color/logo_accent" android:fillAlpha="0.375"
+            android:pathData="M32.4,39a1.6,1.6 0,1 0,3.2 0a1.6,1.6 0,1 0,-3.2 0" />
     </group>
 </vector>

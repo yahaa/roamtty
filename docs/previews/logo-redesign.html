@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iTermux · Logo</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #1b1d1e; color: #f3f0ea; font: 14px/1.6 system-ui, sans-serif; }
+  main { max-width: 960px; margin: auto; padding: 48px 32px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 32px; }
+  h1 { margin: 4px 0; font-size: 30px; font-weight: 550; letter-spacing: -.7px; }
+  p { margin: 0; color: #aaa9a3; }
+  .eyebrow { color: #efa783; font: 11px monospace; letter-spacing: 2px; }
+  button { flex: none; padding: 10px 16px; color: #efa783; background: #303230; border: 1px solid #50514b; border-radius: 12px; font: inherit; cursor: pointer; }
+  button:focus-visible { outline: 2px solid #efa783; outline-offset: 4px; }
+  .hero { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .panel { padding: 28px; border: 1px solid #3d3f3b; border-radius: 24px; background: #252728; }
+  .label { font-size: 12px; color: #aaa9a3; }
+  .launcher { display: grid; place-items: center; gap: 20px; padding: 32px 0 20px; }
+  .launcher svg { width: 148px; height: 148px; border-radius: 34px; box-shadow: 0 12px 32px #0002; }
+  .launcher span { font-size: 16px; letter-spacing: .2px; }
+  .stage { display: grid; place-items: center; min-height: 245px; }
+  .stage svg { width: 104px; height: 104px; }
+  .caption { text-align: center; font-size: 12px; color: #aaa9a3; }
+  .variants { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 20px; }
+  .variant { display: grid; place-items: center; gap: 20px; padding: 24px 12px; border-radius: 20px; background: #303230; color: #efa783; }
+  .variant svg { width: 64px; height: 64px; }
+  .variant p { font-size: 12px; }
+  .light { background: #f7f5f1; color: #9e462c; }
+  .light p { color: #5f5b54; }
+  .round { border-radius: 50%; }
+  .themed { color: #442315; background: #f4ded3; border-radius: 50%; --cursor: 1; --alpha1: 1; --alpha2: 1; --alpha3: 1; --r1: 1.6px; --r2: 1.6px; --r3: 1.6px; }
+  .glyph { fill: currentColor; }
+  .glyph .prompt { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .glyph .cursor { opacity: var(--cursor, .875); }
+  .glyph .one { opacity: var(--alpha1, .375); r: var(--r1, 1.425px); }
+  .glyph .two { opacity: var(--alpha2, .9); r: var(--r2, 1.8px); }
+  .glyph .three { opacity: var(--alpha3, .375); r: var(--r3, 1.425px); }
+  .tile { opacity: var(--tile, .0925); }
+  footer { margin-top: 24px; font-size: 12px; color: #85867f; }
+  @media (max-width: 620px) {
+    main { padding: 28px 16px; } header { flex-wrap: wrap; } h1 { font-size: 26px; }
+    .hero { grid-template-columns: 1fr; } .variants { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <!-- Same 52-unit geometry as ItermuxLogo.kt and the Android vector resources. -->
+    <g id="glyph" class="glyph">
+      <path class="prompt" d="M15 15L22 22L15 29"/>
+      <path class="prompt cursor" d="M28 29H37"/>
+      <circle class="one" cx="18" cy="39" r="1.425"/>
+      <circle class="two" cx="26" cy="39" r="1.8"/>
+      <circle class="three" cx="34" cy="39" r="1.425"/>
+    </g>
+    <g id="tile">
+      <rect class="tile" width="52" height="52" rx="14" fill="currentColor"/>
+      <use href="#glyph"/>
+    </g>
+    <g id="launcher">
+      <rect x="18" y="18" width="72" height="72" fill="#3d3a36"/>
+      <g transform="translate(7.2 3.6) scale(1.8)" color="#efa783"><use href="#glyph"/></g>
+    </g>
+  </defs>
+</svg>
+<main>
+  <header>
+    <div><div class="eyebrow">iTermux / SSH</div><h1>让连接成为标志。</h1><p>沿用重连时的提示符、呼吸光标与三颗信号光点。</p></div>
+    <button id="toggle" aria-pressed="false">暂停动效</button>
+  </header>
+  <div class="hero">
+    <section class="panel">
+      <div class="label">桌面图标</div>
+      <div class="launcher"><svg viewBox="18 18 72 72" role="img" aria-label="iTermux 新图标"><use href="#launcher"/></svg><span>iTermux</span></div>
+      <div class="caption">深灰底 · 暖橙色 · 静态信号</div>
+    </section>
+    <section class="panel">
+      <div class="label">启动 / SSH 重连</div>
+      <div class="stage"><svg class="motion" viewBox="0 0 52 52" color="#efa783" role="img" aria-label="呼吸光标与三个流动光点"><use href="#tile"/></svg></div>
+      <div class="caption">1.8 秒循环 · 柔和呼吸</div>
+    </section>
+  </div>
+  <div class="variants">
+    <div class="variant"><svg viewBox="0 0 52 52" role="img" aria-label="深色应用内标志"><use href="#tile"/></svg><p>深色界面</p></div>
+    <div class="variant light"><svg viewBox="0 0 52 52" role="img" aria-label="浅色应用内标志"><use href="#tile"/></svg><p>浅色界面</p></div>
+    <div class="variant"><svg class="round" viewBox="18 18 72 72" role="img" aria-label="圆形桌面图标"><use href="#launcher"/></svg><p>圆形裁切</p></div>
+    <div class="variant"><svg class="themed" viewBox="18 18 72 72" role="img" aria-label="系统主题单色图标"><g transform="translate(7.2 3.6) scale(1.8)"><use href="#glyph"/></g></svg><p>系统主题图标</p></div>
+  </div>
+  <footer>矢量设计预览，非设备截图。应用内标志随主题变色；桌面图标保持静态，启动与连接时显示动效。</footer>
+</main>
+<script>
+  const marks = [...document.querySelectorAll('.motion')];
+  const toggle = document.getElementById('toggle');
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  let playing = !reduceMotion.matches, start, frameId;
+  function render(phase) {
+    const breath = .5 - .5 * Math.cos(phase * 2 * Math.PI);
+    marks.forEach(mark => {
+      mark.style.setProperty('--tile', .07 + .03 * breath);
+      mark.style.setProperty('--cursor', .5 + .5 * breath);
+      for (let i = 0; i < 3; i++) {
+        const pulse = .5 + .5 * Math.cos((phase - i / 3) * 2 * Math.PI);
+        mark.style.setProperty(`--alpha${i + 1}`, .2 + .7 * pulse);
+        mark.style.setProperty(`--r${i + 1}`, `${1.3 + .5 * pulse}px`);
+      }
+    });
+  }
+  function frame(time) {
+    start ??= time;
+    render(((time - start) % 1800) / 1800);
+    if (playing) frameId = requestAnimationFrame(frame);
+  }
+  function update() {
+    cancelAnimationFrame(frameId);
+    toggle.textContent = playing ? '暂停动效' : '播放动效';
+    toggle.setAttribute('aria-pressed', String(!playing));
+    if (playing) { start = undefined; frameId = requestAnimationFrame(frame); }
+    else render(1 / 3);
+  }
+  toggle.onclick = () => { playing = !playing; update(); };
+  reduceMotion.addEventListener('change', () => { playing = !reduceMotion.matches; update(); });
+  update();
+</script>
+</html>

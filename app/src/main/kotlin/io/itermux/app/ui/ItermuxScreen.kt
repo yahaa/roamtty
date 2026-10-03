@@ -32,7 +32,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -285,8 +284,8 @@ fun ItermuxScreen(
                         val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
                         if (filtered.isEmpty()) {
                             Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                                if (hosts.isEmpty()) Icon(painterResource(R.drawable.ic_terminal), contentDescription = "iTermux",
-                                    tint = Color.Unspecified, modifier = Modifier.size(48.dp).testTag("empty-logo"))
+                                if (hosts.isEmpty()) ItermuxLogo(Modifier.size(48.dp).testTag("empty-logo"),
+                                    contentDescription = "iTermux")
                                 Spacer(Modifier.height(12.dp))
                                 Text(if (hosts.isEmpty()) tr("从第一台主机开始") else tr("没有匹配的主机"), fontSize = 20.sp)
                                 Text(if (hosts.isEmpty()) tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。") else tr("试试其他名称或地址"), color = colors.onSurfaceVariant, modifier = Modifier.padding(16.dp), lineHeight = 23.sp)

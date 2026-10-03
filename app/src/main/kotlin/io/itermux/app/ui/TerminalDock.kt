@@ -16,17 +16,18 @@ import androidx.compose.ui.unit.dp
     availableHeight: Dp,
     landscape: Boolean,
     imeVisible: Boolean,
+    modifier: Modifier = Modifier,
     collapseControl: @Composable () -> Unit,
     sessionControl: @Composable (Modifier) -> Unit,
     primaryControls: @Composable () -> Unit,
     keyControls: @Composable () -> Unit
 ) {
     val twoColumns = landscape && !imeVisible && availableHeight >= 320.dp
-    val modifier = Modifier.width(if (twoColumns) 96.dp else 48.dp)
+    val dockModifier = modifier.width(if (twoColumns) 96.dp else 48.dp)
         .then(if (floating) Modifier else Modifier.fillMaxHeight().windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Vertical)))
         .testTag("terminal-dock")
     if (twoColumns) {
-        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(dockModifier, horizontalAlignment = Alignment.CenterHorizontally) {
             Row {
                 collapseControl()
                 sessionControl(Modifier.size(48.dp))
@@ -38,7 +39,7 @@ import androidx.compose.ui.unit.dp
         }
     } else {
         // Measure every control naturally. New actions must not consume a fixed shortcut budget.
-        Column(modifier.heightIn(max = (availableHeight - 8.dp).coerceAtLeast(0.dp))
+        Column(dockModifier.heightIn(max = (availableHeight - 8.dp).coerceAtLeast(0.dp))
             .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally) {
             collapseControl()
