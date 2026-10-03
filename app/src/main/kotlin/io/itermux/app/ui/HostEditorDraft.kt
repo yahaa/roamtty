@@ -84,7 +84,8 @@ internal class HostEditorDraft : ViewModel() {
                             encryptedPassword = credentials?.password?.takeIf { target.auth == AuthMethod.PASSWORD && keepPassword }
                                 ?.let { app.vault.encrypt(it, "$id:password") },
                             encryptedKey = credentials?.privateKey?.let { app.vault.encrypt(it, "$id:key") },
-                            keyLabel = label, os = if (sameTarget) original!!.os else HostSystem.UNKNOWN.name)
+                            keyLabel = label, os = if (sameTarget) original!!.os else HostSystem.UNKNOWN.name,
+                            plugins = if (sameTarget) original!!.plugins else null)
                             .also { app.database.hosts().save(it) }
                     }
                 } finally { secret.fill(0); key?.fill(0); phrase?.fill(0) }
@@ -104,6 +105,9 @@ internal class HostEditorDraft : ViewModel() {
                     if (system != HostSystem.UNKNOWN) {
                         app.database.hosts().updateSystem(host.id, host.address, host.port, host.username, system.name)
                         os.value = system.name
+                    }
+                    probe.detectedPlugins.value?.let {
+                        app.database.hosts().updatePlugins(host.id, host.address, host.port, host.username, HostPlugin.encode(it))
                     }
                 }
                 saved.value = true

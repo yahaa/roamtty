@@ -36,7 +36,10 @@ class TerminalConnection(
     /** Unique remote tmux session for this local entry; legacy restorations use [Tmux.LEGACY_SESSION]. */
     val remoteSessionName: String = if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION,
     private val onRename: () -> Unit = {},
-    private val onHostSystemDetected: suspend (HostSystem) -> Unit = {}
+    private val onHostSystemDetected: suspend (HostSystem) -> Unit = {},
+    /** Carry the terminal over mosh when the host has it; SSH remains for files and history. */
+    preferMosh: Boolean = false,
+    private val onPluginsDetected: suspend (Set<HostPlugin>) -> Unit = {}
 ) : TerminalOutput(), TerminalSession {
     val pending = MutableStateFlow<PendingPrompt?>(null)
     val inputWarning = MutableStateFlow<String?>(null)
@@ -85,12 +88,23 @@ class TerminalConnection(
             pending.value = request
             try { request.answer.await() } finally { pending.compareAndSet(request, null) }
         },
-        remoteSessionName = remoteSessionName
+        remoteSessionName = remoteSessionName,
+        preferMosh = preferMosh
     )
     val state = if (credentials != null) ssh.state else MutableStateFlow(ConnectionState(
         Phase.DISCONNECTED, "连接已中断，请手动重连。会话记录已恢复，未发送的输入不会重发。" )).asStateFlow()
     val detectedSystem = ssh.detectedSystem
+    /** SSH or mosh once connected; null before the first connection. */
+    val transport = ssh.transport
     private val systemWatcher = if (credentials == null) null else scope.launch {
+        launch {
+            ssh.detectedPlugins.filterNotNull().collect { plugins ->
+                try { onPluginsDetected(plugins) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* Metadata persistence must never tear down a terminal. */ }
+            }
+        }
+        launch { ssh.moshFallback.filterNotNull().collect { inputWarning.value = it } }
         detectedSystem.filterNotNull().collect { system ->
             try { onHostSystemDetected(system) }
             catch (e: CancellationException) { throw e }

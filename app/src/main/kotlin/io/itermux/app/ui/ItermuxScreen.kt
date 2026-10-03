@@ -37,6 +37,8 @@ import io.itermux.app.AppLocale
 import io.itermux.app.trf
 import io.itermux.app.R
 import io.itermux.app.data.Host
+import io.itermux.app.data.newSessionMode
+import io.itermux.app.data.prefersMosh
 import io.itermux.app.session.*
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
@@ -107,6 +109,7 @@ fun ItermuxScreen(
     var connectRequest by remember { mutableStateOf<ConnectRequest?>(null) }
     var reverify by remember { mutableStateOf<TerminalConnection?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
+    var pluginTarget by remember { mutableStateOf<PluginTarget?>(null) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     fun toast(message: String) { Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
     fun start(request: ConnectRequest, password: String = "", passphrase: String = "") {
@@ -128,7 +131,8 @@ fun ItermuxScreen(
                 val session = if (request.reuseSessionId != null) {
                     bound.reconnect(request.reuseSessionId, credentials)
                 } else {
-                    bound.open(request.host, request.mode, credentials)
+                    // File browsing needs only SFTP, so it never starts a mosh server.
+                    bound.open(request.host, request.mode, credentials, preferMosh = request.host.prefersMosh && !request.openFilesAfterConnect)
                 }
                 if (request.title.isNotBlank()) session.rename(request.title)
                 selected = session.id
@@ -141,10 +145,16 @@ fun ItermuxScreen(
             }
         }
     }
-    fun connect(host: Host, mode: SessionMode = SessionMode.valueOf(host.mode), title: String = "", reuseSessionId: String? = null, openFilesAfterConnect: Boolean = false) {
+    fun connect(host: Host, mode: SessionMode = host.newSessionMode, title: String = "", reuseSessionId: String? = null, openFilesAfterConnect: Boolean = false) {
         val request = ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect)
         if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null)) connectRequest = request
         else start(request)
+    }
+
+    fun managePlugins(host: Host) {
+        if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null))
+            connectRequest = ConnectRequest(host, host.newSessionMode, plugins = true)
+        else pluginTarget = PluginTarget(host)
     }
 
     /** Open the SFTP browser: reuse a CONNECTED session for this host, else connect a SHELL session. */
@@ -279,7 +289,7 @@ fun ItermuxScreen(
                                 action = { Button(onClick = { editHostId = null; editorOpen = true }) { Text(tr("添加主机")) } })
                             else EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.weight(1f))
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
-                            items(filtered, key = { it.id }) { host -> HostCard(host, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }) }
+                            items(filtered, key = { it.id }) { host -> HostCard(host, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) }) }
                         }
                     }
                 } else if (page == "sessions") {
@@ -334,7 +344,8 @@ fun ItermuxScreen(
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
                             onSessions = { page = "sessions" }, onHosts = { page = "hosts" },
                             onReconnect = { connect(active.host, active.mode, active.title.value, reuseSessionId = active.id) },
-                            onNewSession = { connect(active.host, active.mode) },
+                            // A new session follows the host's current plugins (mosh first, tmux when installed).
+                            onNewSession = { connect(hosts.firstOrNull { it.id == active.host.id } ?: active.host) },
                             onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active }, onClose = { service?.close(active.id) })
                     }
@@ -351,7 +362,15 @@ fun ItermuxScreen(
         deleteHost?.let { host -> AlertDialog(onDismissRequest = { deleteHost = null }, title = { Text(trf("删除 %s？", host.name)) }, text = { Text(tr("将删除这台主机及保存的凭据，并关闭它的连接。远端 tmux 任务不受影响。")) },
             confirmButton = { TextButton(onClick = { scope.launch { sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }; app.database.hosts().delete(host.id); deleteHost = null } }) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { deleteHost = null }) { Text(tr("取消")) } }) }
-        connectRequest?.let { request -> CredentialsDialog(request, { connectRequest = null }) { password, phrase -> connectRequest = null; start(request, password, phrase) } }
+        connectRequest?.let { request -> CredentialsDialog(request, { connectRequest = null }) { password, phrase ->
+            connectRequest = null
+            if (request.plugins) pluginTarget = PluginTarget(request.host, password, phrase) else start(request, password, phrase)
+        } }
+        pluginTarget?.let { target ->
+            val controller = remember(target) { HostPluginsController(app, target, scope).also { it.start() } }
+            DisposableEffect(controller) { onDispose { controller.close() } }
+            HostPluginsSheet(controller) { pluginTarget = null }
+        }
         reverify?.let { session -> AlertDialog(onDismissRequest = { reverify = null }, title = { Text(tr("重新核验主机指纹")) }, text = { Text(trf("请先向服务器管理员确认新指纹。继续会移除此地址原有的信任记录，关闭该地址的连接，并在重连时重新展示指纹。\n\n%s", session.host.target().endpoint)) },
             confirmButton = { TextButton(onClick = { scope.launch {
                 val endpoint = session.host.target().endpoint
