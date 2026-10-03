@@ -1,0 +1,73 @@
+Host OS detection validation — 2026-10-03
+Base: origin/main bfa7857 (PR #16)
+Branch: feat/host-os-detection
+
+Behavior:
+- Host save probes over an authenticated SSH exec channel without a PTY or tmux.
+- Trust prompts survive activity recreation; temporary passwords are not stored.
+- Missing credentials, rejected trust, offline hosts and restricted exec do not prevent saving.
+- Authenticated terminal connections refresh existing host and session icons.
+- Ubuntu, Debian, CentOS, Fedora, Arch, RHEL, openSUSE, Rocky, AlmaLinux,
+  Gentoo, NixOS and Linux Mint have distribution-specific icons. Unknown Linux uses existing Tux.
+- Guarded database updates preserve edited endpoints and never recreate deleted hosts.
+
+Artwork:
+- Official Ubuntu round Circle of Friends, Debian unlabelled open-use swirl,
+  and current CentOS symbol; other distribution icons use pinned Devicon assets.
+- Original SVGs, attribution and SHA-256 provenance: artwork/host-icons/sources.json.
+- Reproduction: PYTHONPATH=.local/image-tools python3 scripts/render-host-icons.py
+  (CairoSVG 2.8.2). Original artwork colors and aspect ratios are preserved.
+- Source SVGs retain their upstream bytes through Git checkout for checksum validation.
+- Upstream attribution, CC BY-SA license texts and artwork are included in source archives.
+- Existing Linux Tux resource is byte-for-byte unchanged.
+
+Validation:
+1. PYTHONPATH=.local/ssh-tools ./gradlew :ssh-core:test --rerun-tasks
+   90 tests: 69 passed, 21 skipped (optional OpenSSH/SFTP/tmux fixtures unavailable).
+   Includes 6 new parser tests and 10 new loopback SSH integration tests, all passed.
+2. ./gradlew :app:testDebugUnitTest
+   92 tests: 91 passed, 1 skipped (optional benchmark).
+3. Android API 36 emulator, isolated io.itermux.hostoscheck package:
+   HostSystemUiTest (5) and HostSystemStorageTest (1): all 6 passed.
+   Fixture: PYTHONPATH=.local/ssh-tools python3 -u ssh-core/src/test/resources/host-system-server.py ubuntu .local/host-os-device-events.log 22238
+   Forward: adb reverse tcp:22238 tcp:22238
+4. Final artwork: HostSystemUiTest#supportedLogosAndGenericPenguinRenderInHostList
+   passed again; inspected docs/screenshots/host-system-icons-dark.png and
+   docs/screenshots/host-system-icons-light.png in both themes.
+5. ./gradlew :app:assembleDebug :app:lintDebug -PitermuxVersionName=0.1.0-host-os-icons
+   Passed. Package: io.itermux.app, debug signature.
+6. git diff --check: passed.
+
+Logs (ignored local artifacts):
+.local/host-os-core-tests.log, .local/host-os-device-tests.log,
+.local/host-icons-standard-device.log, .local/host-icons-standard-final-build.log.
+
+PR #17 review follow-up — 2026-10-03
+
+- Execute /bin/sh -s and send the Unix probe through the exec channel's stdin,
+  so the login shell never parses POSIX conditionals, redirections or quoting.
+  Windows still uses cmd.exe /c ver when the Unix probe is unavailable.
+- Session cards, navigation drawer entries and the share-session chooser all
+  collect detectedSystem through SessionSystemIcon, falling back to saved OS.
+- Reproduced the old command's failure with fish 3.3.1, tcsh 6.21.00 and
+  Nushell 0.107.0. The stdin probe detects Ubuntu with all three real shells.
+  tcsh returns status 0 but loses the kernel output; fish and nu exit nonzero.
+
+Validation after the review fixes:
+1. :ssh-core:test: 93 tests, 72 passed and 21 optional service tests skipped.
+   All 13 HostSystemIntegrationTest cases passed, including the three real
+   login-shell regressions, Windows fallback, cancellation and terminal output isolation.
+   Python paramiko supplied through PYTHONPATH=.local/ssh-tools; local fish,
+   tcsh and nu binaries supplied through PATH (fish libraries via LD_LIBRARY_PATH).
+2. :app:testDebugUnitTest: 92 tests, 91 passed and 1 optional benchmark skipped.
+3. :app:assembleDebug, :app:assembleDebugAndroidTest and :app:lintDebug passed.
+   Build property: -PitermuxApplicationId=io.itermux.pr17check.
+4. API 36 emulator: HostSystemUiTest (5) and HostSystemStorageTest (1) all passed.
+   The existing authenticated-connection test now observes a visible drawer
+   change from Linux to Ubuntu, then checks session-card and share-chooser icons
+   without recreating the session. Existing host persistence checks still pass.
+5. git diff --check passed.
+
+Review follow-up logs (ignored local artifacts):
+.local/pr17-validation.log, .local/pr17-device-tests.log,
+.local/pr17-shell-reproduction.txt, .local/pr17-device-events.log.

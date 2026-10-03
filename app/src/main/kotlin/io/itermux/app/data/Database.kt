@@ -33,6 +33,9 @@ interface HostDao {
     @Query("SELECT * FROM hosts ORDER BY name COLLATE NOCASE") fun observe(): Flow<List<Host>>
     @Query("SELECT * FROM hosts WHERE id = :id") suspend fun find(id: String): Host?
     @Upsert suspend fun save(host: Host)
+    // A probe for an old address must neither overwrite an edited host nor resurrect a deleted one.
+    @Query("UPDATE hosts SET os = :os WHERE id = :id AND address = :address AND port = :port AND username = :username")
+    suspend fun updateSystem(id: String, address: String, port: Int, username: String, os: String)
     @Query("DELETE FROM hosts WHERE id = :id") suspend fun delete(id: String)
     @Query("SELECT * FROM host_pins WHERE endpoint = :endpoint") suspend fun pin(endpoint: String): StoredPin?
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertPin(pin: StoredPin): Long

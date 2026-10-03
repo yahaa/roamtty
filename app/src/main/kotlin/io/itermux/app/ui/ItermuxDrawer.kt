@@ -65,7 +65,7 @@ internal fun ItermuxDrawer(
                 sessions.forEach { session ->
                     val title by session.title.collectAsStateWithLifecycle()
                     val state by session.state.collectAsStateWithLifecycle()
-                    NavigationDrawerItem(icon = { HostSystemIcon(session.host.os, 32.dp) },
+                    NavigationDrawerItem(icon = { SessionSystemIcon(session, 32.dp) },
                         label = { Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(session.titleForDisplay(title), maxLines = 1, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.titleSmall)

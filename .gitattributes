@@ -5,3 +5,5 @@ gradlew text eol=lf
 *.jar binary
 *.png binary
 *.apk binary
+# Keep downloaded SVGs byte-identical to the hashes in artwork/host-icons/sources.json.
+artwork/host-icons/*.svg binary

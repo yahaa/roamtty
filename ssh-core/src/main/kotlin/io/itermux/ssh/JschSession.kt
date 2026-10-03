@@ -28,6 +28,9 @@ class JschSession(
     override val historyConnected: Boolean get() = state.value.phase == Phase.CONNECTED
     private val mutableState = MutableStateFlow(ConnectionState(Phase.CONNECTING))
     override val state = mutableState.asStateFlow()
+    private val mutableDetectedSystem = MutableStateFlow<HostSystem?>(null)
+    val detectedSystem = mutableDetectedSystem.asStateFlow()
+    private var detectionOnly = false
     private val stopped = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
     private val queues = SessionQueues()
@@ -82,6 +85,22 @@ class JschSession(
             interactionJob.cancel()
             queues.close()
         }
+    }
+
+    /** A short, authenticated connection for the host editor; never opens a PTY or tmux. */
+    suspend fun detectHostSystem(): HostSystem {
+        detectionOnly = true
+        connect {}
+        return detectedSystem.value ?: HostSystem.UNKNOWN
+    }
+
+    private suspend fun probeHostSystem(ssh: Session) {
+        val unix = runCommand(ssh, HostSystemProbe.command, HostSystemProbe.script)?.replace("\r\n", "\n")
+        var result = HostSystemProbe.parse(unix)
+        if (result == HostSystem.UNKNOWN) {
+            result = HostSystemProbe.parse(unix, runCommand(ssh, HostSystemProbe.windowsCommand))
+        }
+        if (result != HostSystem.UNKNOWN) mutableDetectedSystem.value = result
     }
 
     private fun tcpKeepaliveFactory() = object : SocketFactory {
@@ -155,6 +174,10 @@ class JschSession(
             }
             coroutineContext.ensureActive()
             if (stopped.get()) return AttemptOutcome.STOPPED
+            if (detectionOnly) {
+                probeHostSystem(ssh)
+                return AttemptOutcome.REMOTE_EXIT
+            }
             if (target.mode == SessionMode.TMUX && !hasTmux(ssh)) {
                 update(Phase.TMUX_MISSING, "服务器未找到 tmux，可改用普通 SSH；不会自动安装软件。")
                 return AttemptOutcome.FATAL
@@ -183,6 +206,8 @@ class JschSession(
             reachedConnected = true
             try {
                 coroutineScope {
+                    // Metadata must not delay the terminal, enter shell history or steal PTY output.
+                    val systemProbe = launch { probeHostSystem(ssh) }
                     val writer = launch(Dispatchers.IO) {
                         try {
                             for (bytes in queues.currentInput()) {
@@ -208,7 +233,7 @@ class JschSession(
                             if (count < 0) break
                             if (count > 0) onOutput(buffer.copyOf(count))
                         }
-                    } finally { writer.cancel(); resizer.cancel() }
+                    } finally { writer.cancel(); resizer.cancel(); systemProbe.cancel() }
                 }
             } finally {
                 // Stop accepting before the exit-status grace wait so UI CONNECTED cannot queue dead writes.
@@ -333,11 +358,14 @@ class JschSession(
     suspend fun makeDirectory(path: String) = files.makeDirectory(path)
     suspend fun isDirectory(path: String) = files.isDirectory(path)
 
-    private suspend fun runCommand(command: String): String? = withContext(Dispatchers.IO) {
-        val ssh = connectedSession() ?: return@withContext null
+    private suspend fun runCommand(command: String): String? =
+        connectedSession()?.let { runCommand(it, command) }
+
+    private suspend fun runCommand(ssh: Session, command: String, input: String? = null): String? = withContext(Dispatchers.IO) {
         val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
         try {
             exec.setCommand(command)
+            exec.setInputStream(input?.byteInputStream(Charsets.UTF_8))
             val output = exec.inputStream
             exec.connect(5000)
             val bytes = java.io.ByteArrayOutputStream()

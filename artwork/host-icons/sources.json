@@ -1,0 +1,35 @@
+{
+  "downloaded": "2026-10-03",
+  "processing": "Unmodified upstream SVGs, rendered at 192 px with original colors and aspect ratio.",
+  "icons": [
+    {
+      "name": "ubuntu",
+      "file": "ubuntu.svg",
+      "source": "https://drive.google.com/uc?export=download&id=1FdksWTDREMNjnfBtN6HbxO7dZUQSchFm",
+      "reference": "https://discourse.ubuntu.com/t/ubuntu-merchandise-assets/67314",
+      "copyright": "Canonical Ltd.",
+      "terms": "https://canonical.com/legal/intellectual-property-policy",
+      "sha256": "19eb7347a17e95c8443e1db05a7baf646df81d8fec2aa4338ff7e467cd99c2cb"
+    },
+    {
+      "name": "debian",
+      "file": "debian.svg",
+      "source": "https://www.debian.org/logos/openlogo-nd.svg",
+      "reference": "https://www.debian.org/logos/",
+      "copyright": "Copyright (c) 1999 Software in the Public Interest, Inc.; Raul Silva",
+      "license": "CC-BY-SA-3.0",
+      "terms": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "sha256": "89a3ca1a1bc91610edcc637457e7275a159309f4621829b2a0170e28970cac20"
+    },
+    {
+      "name": "centos",
+      "file": "centos.svg",
+      "source": "https://gitlab.com/CentOS/artwork/centos-brand/-/raw/8ef4ff3ac2ffe0f84df4eb775329cca5b26b8626/Sources/centos-symbol.svg",
+      "reference": "https://gitlab.com/CentOS/artwork/centos-brand",
+      "copyright": "Copyright (c) 2022 Alain Reguera Delgado",
+      "license": "CC-BY-SA-4.0",
+      "terms": "https://www.centos.org/legal/trademarks/",
+      "sha256": "f3f482bfdfdcc422eebd9f4cefd1ead2a6905808f25f4929486668cb12f83f6f"
+    }
+  ]
+}

@@ -25,6 +25,7 @@ import io.itermux.app.data.Host
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.session.clipSessionTitle
 import io.itermux.ssh.SessionMode
+import io.itermux.ssh.HostSystem
 
 @Composable internal fun HostCard(host: Host, connect: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
@@ -59,7 +60,7 @@ import io.itermux.ssh.SessionMode
             verticalAlignment = Alignment.CenterVertically) {
             MetaTag(modeLabel(host.mode == SessionMode.TMUX.name))
             MetaTag(authLabel(host.auth))
-            if (host.os == "UNKNOWN") MetaTag(tr("系统未设置"))
+            if (host.os == "UNKNOWN") MetaTag(tr("待检测系统"))
         }
     }
 }
@@ -74,7 +75,7 @@ import io.itermux.ssh.SessionMode
     ListCard(onClick = onOpen, onClickLabel = tr("打开终端"), modifier = Modifier.testTag("session-${session.id}"),
         bottomPadding = 4.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            HostSystemIcon(session.host.os)
+            SessionSystemIcon(session)
             Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
                 Text(session.titleForDisplay(title), style = MaterialTheme.typography.titleMedium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -136,26 +137,45 @@ import io.itermux.ssh.SessionMode
         dismissButton = { TextButton(onClick = ::finish) { Text(tr("取消")) } })
 }
 
+@Composable internal fun SessionSystemIcon(session: TerminalConnection, size: Dp = 44.dp) {
+    val detectedSystem by session.detectedSystem.collectAsStateWithLifecycle()
+    HostSystemIcon(detectedSystem?.name ?: session.host.os, size)
+}
+
 /** Brand marks need a light tile in both themes; generic servers use the accent container. */
 @Composable internal fun HostSystemIcon(os: String, size: Dp = 44.dp) {
-    val branded = os == "LINUX" || os == "WINDOWS" || os == "MACOS"
+    val system = HostSystem.fromStored(os)
+    val branded = system.isLinux || system == HostSystem.WINDOWS || system == HostSystem.MACOS
     val inset = size * when (os) {
         "LINUX" -> 0.06f
         "WINDOWS" -> 0.12f
         "MACOS" -> 0.08f
-        else -> 0.22f
+        else -> if (branded) 0.12f else 0.22f
     }
-    val (icon, label) = when (os) {
-        "LINUX" -> R.drawable.ic_os_linux to "Linux"
-        "WINDOWS" -> R.drawable.ic_os_windows to "Windows"
-        "MACOS" -> R.drawable.ic_os_macos to "macOS"
-        "OTHER" -> R.drawable.ic_os_server to tr("其他系统")
-        else -> R.drawable.ic_os_server to tr("未知系统")
-    }
+    val icon = hostSystemIcon(system)
     Surface(color = if (branded) Color(0xFFF0EBE2) else MaterialTheme.colorScheme.primaryContainer,
         shape = RoundedCornerShape(size * 0.26f)) {
-        Icon(painterResource(icon), contentDescription = label,
+        Icon(painterResource(icon), contentDescription = tr(system.label),
             tint = if (branded) Color.Unspecified else MaterialTheme.colorScheme.onPrimaryContainer,
             modifier = Modifier.padding(inset).size(size - inset * 2))
     }
+}
+
+internal fun hostSystemIcon(system: HostSystem): Int = when (system) {
+    HostSystem.UBUNTU -> R.drawable.ic_os_ubuntu
+    HostSystem.DEBIAN -> R.drawable.ic_os_debian
+    HostSystem.CENTOS -> R.drawable.ic_os_centos
+    HostSystem.FEDORA -> R.drawable.ic_os_fedora
+    HostSystem.ARCH -> R.drawable.ic_os_archlinux
+    HostSystem.REDHAT -> R.drawable.ic_os_redhat
+    HostSystem.OPENSUSE -> R.drawable.ic_os_opensuse
+    HostSystem.ROCKY -> R.drawable.ic_os_rockylinux
+    HostSystem.ALMALINUX -> R.drawable.ic_os_almalinux
+    HostSystem.GENTOO -> R.drawable.ic_os_gentoo
+    HostSystem.NIXOS -> R.drawable.ic_os_nixos
+    HostSystem.LINUXMINT -> R.drawable.ic_os_linuxmint
+    HostSystem.LINUX -> R.drawable.ic_os_linux
+    HostSystem.WINDOWS -> R.drawable.ic_os_windows
+    HostSystem.MACOS -> R.drawable.ic_os_macos
+    HostSystem.UNKNOWN, HostSystem.OTHER -> R.drawable.ic_os_server
 }
