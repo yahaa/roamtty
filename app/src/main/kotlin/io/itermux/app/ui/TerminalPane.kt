@@ -403,7 +403,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     modifier = Modifier.size(48.dp).testTag("restore-dock"),
                     shape = CircleShape,
                     colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
-                ) { Icon(painterResource(R.drawable.ic_more), contentDescription = tr("显示操作栏")) }
+                ) {
+                    Text("⋯", fontSize = 26.sp,
+                        modifier = Modifier.semantics { contentDescription = tr("显示操作栏") })
+                }
             }
         }
     }

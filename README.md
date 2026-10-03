@@ -61,6 +61,8 @@ AI 工具安装、账号和模型服务由远端环境提供。可以在终端�
 ./gradlew :app:assembleDebug :ssh-core:test :terminal-emulator:testDebugUnitTest :app:lint
 ```
 
+可用 `-PitermuxVersionName=0.1.0-dots-r3` 标记测试安装包版本，安装后可在系统应用信息中核对。
+
 在 Windows PowerShell 上，本项目也提供本地工具安装脚本，所有下载与构建缓存都位于项目目录，不修改系统 PATH：
 
 ```powershell

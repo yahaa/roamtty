@@ -39,7 +39,30 @@ After closing the system dialog, the layout test and final 7-test suite passed.
 No physical device was attached, so no phone installation or phone validation.
 
 Logs and screenshots: .local/file-preview-validation/
-Follow-up: restored the collapsed entry to the existing ic_more drawable;
+Follow-up (r2): restored the collapsed entry to the existing ic_more drawable;
   the internal settings icon and all behavior/placement are unchanged.
   assembleDebug passed after this icon-only correction.
 Delivery APK: /home/v/work/itermux/dist/iTermux-file-preview-20261003-r2-debug.apk
+
+Follow-up (r3):
+- Investigated the user's report of a gear in the collapsed entry. Installed the
+  exact delivered r2 APK (SHA-256 9b1922c8db561987ae744cadbaa76fe4763ebe596d079eff7e34bfab613302e3)
+  on the emulator: its screenshot showed three dots and TerminalLayoutTest passed.
+  The phone-specific discrepancy was not reproduced; no root cause established.
+- Restored the original literal three-dot text glyph for the collapsed entry.
+- Added the optional itermuxVersionName Gradle property for identifiable test
+  packages; the default remains 0.1.0. Delivered r3 identifies itself as
+  0.1.0-dots-r3 in Android application information.
+- Built with :app:clean :app:assembleDebug :app:assembleDebugAndroidTest,
+  -PitermuxVersionName=0.1.0-dots-r3 --no-build-cache: PASS.
+- Installed the delivery-path APK over r2. Confirmed installed versionName and
+  identical SHA-256 for the delivered APK and installed APK extracted from the
+  emulator: 6156baba5fad0edb604cc3979cf0a2c453175998545fe46cbd989964ab3e879f.
+- Visually checked the collapsed three-dot button. TerminalLayoutTest: PASS,
+  covering collapsed/expanded/pinned controls, rotation, IME, and editor.
+- The first r3 layout run sampled button bounds before an IME animation and
+  viewport bounds after it. Updated the geometry check to wait for matching
+  layout frames; the rerun passed. No app placement change was needed.
+- Delivery APK: /home/v/work/itermux/dist/iTermux-0.1.0-dots-r3-debug.apk
+- Verified screenshot: /home/v/work/itermux/dist/iTermux-0.1.0-dots-r3-verified.png
+- Logs: .local/file-preview-validation/dots-r3-*. No physical device tested.

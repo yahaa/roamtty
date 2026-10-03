@@ -127,10 +127,15 @@ class TerminalLayoutTest {
     private fun checkCollapsedDock() {
         compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
         listOf("upload-file", "download-file", "select-image").forEach { compose.onNodeWithTag(it).assertDoesNotExist() }
+        // Native IME animation can resize the window between two semantics reads.
+        // Wait for the button and viewport to report the same layout frame.
+        compose.waitUntil(8000) {
+            val button = compose.onNodeWithTag("restore-dock").fetchSemanticsNode().boundsInRoot
+            val viewport = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
+            kotlin.math.abs(viewport.top + viewport.height * 0.618f - button.center.y) <= 2f
+        }
         val more = compose.onNodeWithTag("restore-dock").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val density = compose.activity.resources.displayMetrics.density
-        val viewport = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
-        assertEquals("Collapsed button follows the lower golden section", viewport.top + viewport.height * 0.618f, more.center.y, 2f)
         assertEquals("Collapsed controls occupy one button", 48 * density, more.width, 1f)
         val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
         assertTrue("More leaves the scrollbar touch strip clear", more.right <= terminal.right - 20 * density)
