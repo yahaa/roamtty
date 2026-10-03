@@ -356,7 +356,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
                             shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
-                            onDoubleTap = { pasteClipboard() }))
+                            onTripleTap = { pasteClipboard() }))
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                         isFocusableInTouchMode = true
                     }

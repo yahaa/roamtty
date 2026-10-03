@@ -73,7 +73,7 @@ class TerminalClipboardTest {
             .setPrimaryClip(ClipData.newPlainText("Fixture", text))
     }
 
-    private fun doubleTap() = compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
+    private fun tripleTap() = compose.onNodeWithTag("terminal").performTouchInput { tripleClick() }
 
     private suspend fun received(session: TerminalConnection): ByteArray = withContext(Dispatchers.Main) {
         Regex("KEY_([0-9A-F]{2})(?=\\s|$)").findAll(session.emulator.screen.transcriptText)
@@ -87,11 +87,11 @@ class TerminalClipboardTest {
         assertArrayEquals(bytes, received(session))
     }
 
-    @Test fun doubleTapPastesUnicodeOnceWithoutEnterOrChangingDraft() = runBlocking {
+    @Test fun tripleTapPastesUnicodeOnceWithoutEnterOrChangingDraft() = runBlocking {
         withSessions { session, _ ->
             compose.runOnIdle { session.draft = "keep this draft" }
             clipboard("粘贴🙂")
-            doubleTap()
+            tripleTap()
             awaitBytes(session, "粘贴🙂")
             assertEquals("keep this draft", session.draft)
             compose.onNodeWithTag("prompt-editor").assertDoesNotExist()
@@ -101,7 +101,7 @@ class TerminalClipboardTest {
     @Test fun multilineRequiresConfirmationAndBracketedPasteKeepsItsDelimiters() = runBlocking {
         withSessions { session, _ ->
             clipboard("first\nsecond")
-            doubleTap()
+            tripleTap()
             compose.onNodeWithText(tr("发送多行文本？")).assertIsDisplayed()
             assertTrue(received(session).isEmpty())
             compose.onNodeWithText(tr("取消")).performClick()
@@ -109,7 +109,7 @@ class TerminalClipboardTest {
                 val enable = "\u001b[?2004h".toByteArray()
                 session.emulator.append(enable, enable.size)
             }
-            doubleTap()
+            tripleTap()
             awaitBytes(session, "\u001b[200~first\rsecond\u001b[201~")
             compose.onNodeWithText(tr("发送多行文本？")).assertDoesNotExist()
         }
@@ -118,7 +118,7 @@ class TerminalClipboardTest {
     @Test fun confirmingMultilineSendsOnlyTheChosenText() = runBlocking {
         withSessions { session, _ ->
             clipboard("first\nsecond")
-            doubleTap()
+            tripleTap()
             compose.onNodeWithText(tr("发送")).performClick()
             awaitBytes(session, "first\rsecond")
         }
@@ -128,13 +128,13 @@ class TerminalClipboardTest {
         withSessions { original, replace ->
             val replacement = replace()
             clipboard("replacement")
-            doubleTap()
+            tripleTap()
             awaitBytes(replacement, "replacement")
             assertTrue(received(original).isEmpty())
             compose.runOnIdle { replacement.disconnect() }
             compose.waitForIdle()
             clipboard("must-not-send")
-            doubleTap()
+            tripleTap()
             compose.runOnIdle { assertNull(replacement.inputWarning.value) }
             assertArrayEquals("replacement".toByteArray(), received(replacement))
         }
@@ -143,7 +143,7 @@ class TerminalClipboardTest {
     @Test fun emptyClipboardDoesNothing() = runBlocking {
         withSessions { session, _ ->
             clipboard("")
-            doubleTap()
+            tripleTap()
             assertTrue(received(session).isEmpty())
             compose.onNodeWithTag("prompt-editor").assertDoesNotExist()
         }

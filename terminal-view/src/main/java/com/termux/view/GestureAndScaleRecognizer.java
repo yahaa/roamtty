@@ -12,7 +12,7 @@ final class GestureAndScaleRecognizer {
     public interface Listener {
         boolean onSingleTapUp(MotionEvent e);
 
-        boolean onDoubleTap(MotionEvent e);
+        boolean onTripleTap(MotionEvent e);
 
         boolean onScroll(MotionEvent e2, float dx, float dy);
 
@@ -31,12 +31,18 @@ final class GestureAndScaleRecognizer {
     private final ScaleGestureDetector mScaleDetector;
     final Listener mListener;
     boolean isAfterLongPress;
-    private boolean mDoubleTapPending;
-    private float mDoubleTapX, mDoubleTapY;
+    private final int mTouchSlop, mDoubleTapSlop;
+    /** Completed taps in the current sequence; a tap that drags, holds, pinches or cancels resets it. */
+    private int mTapCount;
+    private boolean mTapValid;
+    private long mLastTapUpTime;
+    private float mTapDownX, mTapDownY, mLastTapX, mLastTapY;
 
     public GestureAndScaleRecognizer(Context context, Listener listener) {
         mListener = listener;
-        final int touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        ViewConfiguration config = ViewConfiguration.get(context);
+        mTouchSlop = config.getScaledTouchSlop();
+        mDoubleTapSlop = config.getScaledDoubleTapSlop();
 
         mGestureDetector = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
             @Override
@@ -56,7 +62,7 @@ final class GestureAndScaleRecognizer {
 
             @Override
             public void onLongPress(MotionEvent e) {
-                mDoubleTapPending = false;
+                resetTaps();
                 mListener.onLongPress(e);
                 isAfterLongPress = true;
             }
@@ -70,25 +76,12 @@ final class GestureAndScaleRecognizer {
 
             @Override
             public boolean onDoubleTap(MotionEvent e) {
-                mDoubleTapPending = true;
+                // Consumed so a second tap is not reported as a single tap; paste waits for a third tap.
                 return true;
             }
 
             @Override
             public boolean onDoubleTapEvent(MotionEvent e) {
-                if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                    mDoubleTapX = e.getX();
-                    mDoubleTapY = e.getY();
-                } else if (e.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                    float dx = e.getX() - mDoubleTapX, dy = e.getY() - mDoubleTapY;
-                    if (dx * dx + dy * dy > touchSlop * touchSlop) mDoubleTapPending = false;
-                } else if (e.getActionMasked() == MotionEvent.ACTION_UP) {
-                    // Commit only a completed tap; a drag, pinch, hold or cancellation must not paste.
-                    boolean completed = mDoubleTapPending &&
-                        e.getEventTime() - e.getDownTime() < ViewConfiguration.getLongPressTimeout();
-                    mDoubleTapPending = false;
-                    if (completed) return mListener.onDoubleTap(e);
-                }
                 return true;
             }
         });
@@ -108,10 +101,13 @@ final class GestureAndScaleRecognizer {
     }
 
     public void onTouchEvent(MotionEvent event) {
-        if (event.getActionMasked() == MotionEvent.ACTION_CANCEL || event.getPointerCount() > 1)
-            mDoubleTapPending = false;
+        trackTaps(event);
         mGestureDetector.onTouchEvent(event);
         mScaleDetector.onTouchEvent(event);
+        if (event.getActionMasked() == MotionEvent.ACTION_UP && mTapCount == 3) {
+            resetTaps();
+            mListener.onTripleTap(event);
+        }
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
                 isAfterLongPress = false;
@@ -122,6 +118,49 @@ final class GestureAndScaleRecognizer {
                     // want to move the cursor when lifting finger after a long press.
                     mListener.onUp(event);
                 }
+                break;
+        }
+    }
+
+    private void resetTaps() {
+        mTapCount = 0;
+        mTapValid = false;
+    }
+
+    private void trackTaps(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_CANCEL || event.getPointerCount() > 1) {
+            resetTaps();
+            return;
+        }
+        float x = event.getX(), y = event.getY();
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN: {
+                float dx = x - mLastTapX, dy = y - mLastTapY;
+                boolean continues = mTapCount > 0
+                    && event.getEventTime() - mLastTapUpTime <= ViewConfiguration.getDoubleTapTimeout()
+                    && dx * dx + dy * dy <= (float) mDoubleTapSlop * mDoubleTapSlop;
+                if (!continues) mTapCount = 0;
+                mTapValid = true;
+                mTapDownX = x;
+                mTapDownY = y;
+                break;
+            }
+            case MotionEvent.ACTION_MOVE: {
+                float dx = x - mTapDownX, dy = y - mTapDownY;
+                if (dx * dx + dy * dy > (float) mTouchSlop * mTouchSlop) resetTaps();
+                break;
+            }
+            case MotionEvent.ACTION_UP:
+                // Count only a completed tap; a drag, pinch, hold or cancellation must not paste.
+                if (mTapValid && event.getEventTime() - event.getDownTime() < ViewConfiguration.getLongPressTimeout()) {
+                    mTapCount++;
+                    mLastTapUpTime = event.getEventTime();
+                    mLastTapX = x;
+                    mLastTapY = y;
+                } else {
+                    mTapCount = 0;
+                }
+                mTapValid = false;
                 break;
         }
     }

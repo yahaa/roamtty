@@ -280,12 +280,12 @@ public final class TerminalView extends View {
             }
 
             @Override
-            public boolean onDoubleTap(MotionEvent event) {
+            public boolean onTripleTap(MotionEvent event) {
                 if (mEmulator == null || mTermSession == null || mTermSession.isReadOnly()
                     || mGestureRecognizer.isInProgress()) return false;
                 if (isSelectingText()) stopTextSelectionMode();
                 requestFocus();
-                mClient.onDoubleTap(event);
+                mClient.onTripleTap(event);
                 return true;
             }
 
