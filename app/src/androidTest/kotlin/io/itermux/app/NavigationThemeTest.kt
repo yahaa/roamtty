@@ -111,7 +111,7 @@ class NavigationThemeTest {
             capture("navigation-light-hosts")
             compose.onNodeWithTag("host-grid").performTouchInput { swipeUp() }
             capture("navigation-light-os-icons")
-            compose.onNodeWithText("＋ 主机").performClick()
+            compose.onNodeWithTag("add-host").performClick()
             compose.onNodeWithTag("host-name").performTextInput("旋转未保存")
             compose.onNodeWithTag("host-address").performTextInput("rotation.example")
             compose.activityRule.scenario.onActivity { activity ->
@@ -147,7 +147,7 @@ class NavigationThemeTest {
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.onNodeWithTag("terminal").assertIsDisplayed()
             capture("navigation-light-terminal")
-            assertEquals(0xFFF7F5F1.toInt(), session.getEmulator().mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND])
+            assertEquals(0xFFF3F0EB.toInt(), session.getEmulator().mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND])
             assertEquals(true, WindowCompat.getInsetsController(compose.activity.window, compose.activity.window.decorView).isAppearanceLightStatusBars)
             compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             compose.onNodeWithText("会话列表").assertIsDisplayed()

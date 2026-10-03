@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,9 +45,7 @@ internal fun CommonCommandsContent(history: CommonCommandsState, connected: Bool
             item(key = "header") { SheetHeader(tr("常用命令"), tr("最近使用在前，点选后立即执行。"), onDismiss) }
             item(key = "search") {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(query, { query = it }, singleLine = true,
-                        placeholder = { Text(tr("搜索命令")) }, shape = RoundedCornerShape(14.dp),
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_search), contentDescription = null, Modifier.size(20.dp)) },
+                    AppSearchField(query, { query = it }, tr("搜索命令"),
                         modifier = Modifier.weight(1f).testTag("common-commands-search"))
                     IconButton(onClick = onRefresh, enabled = connected && history !is CommonCommandsState.Loading,
                         modifier = Modifier.padding(start = 8.dp).testTag("common-commands-refresh")) {
@@ -75,8 +72,8 @@ internal fun CommonCommandsContent(history: CommonCommandsState, connected: Bool
                     }
                     items(filtered, key = { "command:$it" }) { command ->
                         // A prompt-styled row reads as "run this", without a chevron on every line.
-                        Row(Modifier.padding(horizontal = 20.dp, vertical = 3.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        Row(Modifier.padding(horizontal = 20.dp, vertical = 3.dp).fillMaxWidth().clip(MaterialTheme.shapes.small)
+                            .background(MaterialTheme.colorScheme.groupedContainer)
                             .clickable(enabled = connected) { onSelect(command) }
                             .padding(horizontal = 14.dp, vertical = 12.dp).testTag("common-command-$command")) {
                             Text("$", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,

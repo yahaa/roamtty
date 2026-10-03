@@ -4,7 +4,6 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -35,7 +34,7 @@ internal fun TerminalConnectionProgress(phase: Phase, onCancel: () -> Unit, modi
     }
     val colors = MaterialTheme.colorScheme
     Surface(modifier.widthIn(max = 300.dp).fillMaxWidth().testTag("terminal-connection-progress").semantics { paneTitle = label },
-        shape = RoundedCornerShape(20.dp), color = colors.surface.copy(alpha = 0.97f),
+        shape = MaterialTheme.shapes.large, color = colors.surface.copy(alpha = 0.97f),
         border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.55f)), shadowElevation = 2.dp) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             ItermuxLogo(Modifier.size(52.dp).testTag("terminal-connection-motion").semantics {

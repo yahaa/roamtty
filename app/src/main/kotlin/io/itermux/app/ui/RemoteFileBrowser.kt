@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -32,7 +31,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -265,7 +263,7 @@ internal fun FileBrowserPathBar(path: String, host: String, enabled: Boolean, on
     val folders = remember(path) { breadcrumbSegments(path).drop(if (path.startsWith('/')) 1 else 0) }
     val scroll = rememberScrollState()
     LaunchedEffect(path, scroll.maxValue) { scroll.animateScrollTo(scroll.maxValue) }
-    Surface(modifier.heightIn(min = 40.dp).testTag("files-breadcrumbs"), shape = RoundedCornerShape(12.dp),
+    Surface(modifier.heightIn(min = 40.dp).testTag("files-breadcrumbs"), shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Row(Modifier.horizontalScroll(scroll).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Crumb(0, host, folders.isEmpty(), enabled, onClick = { onNavigate("/") }) {
@@ -298,11 +296,8 @@ private fun Crumb(index: Int, label: String, current: Boolean, enabled: Boolean,
 private fun FilterField(value: String, onValueChange: (String) -> Unit, onClose: () -> Unit) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    OutlinedTextField(value, onValueChange, singleLine = true, shape = RoundedCornerShape(12.dp),
-        placeholder = { Text(tr("筛选当前目录")) },
-        leadingIcon = { Icon(painterResource(R.drawable.ic_filter), contentDescription = null, Modifier.size(20.dp)) },
-        trailingIcon = { IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_close), tr("关闭筛选")) } },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+    AppSearchField(value, onValueChange, tr("筛选当前目录"), leadingIcon = R.drawable.ic_filter,
+        trailing = { IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_close), tr("关闭筛选")) } },
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).focusRequester(focus).testTag("files-filter"))
 }
 

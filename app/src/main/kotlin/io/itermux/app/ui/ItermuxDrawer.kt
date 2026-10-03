@@ -19,7 +19,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.session.TerminalConnection
-import io.itermux.ssh.Phase
 
 @Composable
 internal fun ItermuxDrawer(
@@ -44,7 +43,7 @@ internal fun ItermuxDrawer(
                     Text(tr("远程终端"), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onClose) { Text("×", style = MaterialTheme.typography.headlineSmall) }
+                ToolbarIcon(R.drawable.ic_close, tr("关闭"), tint = MaterialTheme.colorScheme.onSurfaceVariant, onClick = onClose)
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 NavigationDrawerItem(label = { Text(tr("主机")) }, selected = page == "hosts", onClick = onHosts,
@@ -52,10 +51,10 @@ internal fun ItermuxDrawer(
                     modifier = Modifier.padding(horizontal = 12.dp).testTag("drawer-hosts"))
                 NavigationDrawerItem(label = { Text(tr("会话")) }, selected = page == "sessions", onClick = onSessions,
                     icon = { Icon(painterResource(R.drawable.ic_sessions), contentDescription = null) },
-                    badge = { Text("${sessions.size}") },
+                    badge = { Text("${sessions.size}", style = MaterialTheme.typography.labelLarge) },
                     modifier = Modifier.padding(horizontal = 12.dp).testTag("drawer-sessions"))
                 HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
-                Text(tr("当前会话"), style = MaterialTheme.typography.labelMedium,
+                Text(tr("当前会话"), style = MaterialTheme.typography.sectionHeader,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
                 if (sessions.isEmpty()) {
@@ -66,16 +65,16 @@ internal fun ItermuxDrawer(
                 sessions.forEach { session ->
                     val title by session.title.collectAsStateWithLifecycle()
                     val state by session.state.collectAsStateWithLifecycle()
-                    NavigationDrawerItem(label = { Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    NavigationDrawerItem(icon = { HostSystemIcon(session.host.os, 32.dp) },
+                        label = { Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(session.titleForDisplay(title), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            style = MaterialTheme.typography.titleSmall)
                         Text("${session.host.username}@${session.host.address}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     } }, selected = false, onClick = { onOpenSession(session.id) },
-                        badge = { Text(phaseLabel(state.phase), style = MaterialTheme.typography.labelSmall,
-                            color = if (state.phase == Phase.CONNECTED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
+                        badge = { StatusLabel(state.phase) },
                         modifier = Modifier.padding(horizontal = 12.dp).testTag("drawer-session-${session.id}"))
                 }
             }

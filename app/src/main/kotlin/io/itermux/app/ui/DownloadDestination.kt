@@ -13,6 +13,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import io.itermux.app.R
 import androidx.compose.ui.unit.dp
 import io.itermux.app.DownloadDirectory
 import io.itermux.app.session.DownloadItem
@@ -143,13 +145,15 @@ internal fun DownloadDirectorySetting() {
         error = !directory.save(uri)
         pickedUri = null
     }
-    Text(tr("下载"), style = MaterialTheme.typography.titleMedium)
-    Text(tr("首次选择目录后，后续下载自动保存到此处。"), style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
-    Text(directory.label.ifEmpty { tr("尚未设置下载目录") }, modifier = Modifier.testTag("settings-download-directory"))
-    if (error) Text(tr("无法保存此目录的访问权限，请选择其他目录或使用另存为。"), color = MaterialTheme.colorScheme.error)
-    OutlinedButton(onClick = { picker.launch(initialDirectory(directory)) }, enabled = pickedUri == null,
-        modifier = Modifier.testTag("settings-download-change")) {
-        Text(tr(if (directory.uri == null) "选择下载目录" else "更换下载目录"))
+    GroupedSection(header = tr("下载"), footer = if (error) null else tr("首次选择目录后，后续下载自动保存到此处。")) {
+        GroupedRow(directory.label.ifEmpty { tr("尚未设置下载目录") }, Modifier.testTag("settings-download-directory"),
+            leading = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp)) })
+        GroupedDivider()
+        GroupedRow(tr(if (directory.uri == null) "选择下载目录" else "更换下载目录"),
+            Modifier.testTag("settings-download-change"), titleColor = MaterialTheme.colorScheme.primary,
+            onClick = { if (pickedUri == null) picker.launch(initialDirectory(directory)) })
     }
+    if (error) Text(tr("无法保存此目录的访问权限，请选择其他目录或使用另存为。"), color = MaterialTheme.colorScheme.error,
+        style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = Spacing.Page))
 }

@@ -82,7 +82,7 @@ public final class TerminalColorScheme {
         if (light) {
             System.arraycopy(LIGHT_ANSI, 0, destination, 0, LIGHT_ANSI.length);
             destination[TextStyle.COLOR_INDEX_FOREGROUND] = 0xff2b2a27;
-            destination[TextStyle.COLOR_INDEX_BACKGROUND] = 0xfff7f5f1;
+            destination[TextStyle.COLOR_INDEX_BACKGROUND] = 0xfff3f0eb;
             destination[TextStyle.COLOR_INDEX_CURSOR] = 0xff9e462c;
         }
     }

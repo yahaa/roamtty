@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -111,7 +110,7 @@ internal fun TransferStatusDialog(status: TransferStatus, onCancel: () -> Unit, 
                     }
                 }
                 if (!transferring) status.remotePath?.let { remotePath -> item {
-                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
                             SelectionContainer {
                                 Text(remotePath, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
@@ -164,7 +163,7 @@ private fun RoundedProgress(progress: (() -> Float)?, modifier: Modifier = Modif
 
 @Composable
 private fun ActiveTransfer(name: String, bytes: Long, total: Long, fraction: Float, bytesPerSecond: Double) {
-    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RemoteFileIcon(name, size = 28.dp)
@@ -200,7 +199,7 @@ private fun DownloadResultCard(file: DownloadItem, showSource: Boolean, details:
     }
     val size = if (file.phase == DownloadPhase.COMPLETE) formatRemoteSize(file.bytes)
         else "${formatRemoteSize(file.bytes)} / ${if (file.total < 0) tr("大小未知") else formatRemoteSize(file.total)}"
-    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RemoteFileIcon(file.name, size = 28.dp)

@@ -1,13 +1,14 @@
 package io.itermux.app.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
@@ -25,7 +26,7 @@ internal fun AppSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.()
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         sheetMaxWidth = 560.dp,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = MaterialTheme.shapes.extraLarge.copy(bottomStart = CornerSize(0), bottomEnd = CornerSize(0)),
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 0.dp,
     ) {
@@ -36,9 +37,9 @@ internal fun AppSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.()
 
 /** Material 3 1.3 uses the system theme for its dialog window, while our app can override it. */
 @Composable
-internal fun SheetSystemBars() {
+internal fun SheetSystemBars(background: Color = MaterialTheme.colorScheme.surfaceContainerLow) {
     val window = (LocalView.current.parent as? DialogWindowProvider)?.window
-    val light = MaterialTheme.colorScheme.surfaceContainerLow.luminance() > 0.5f
+    val light = background.luminance() > 0.5f
     SideEffect {
         window?.let {
             WindowCompat.getInsetsController(it, it.decorView).apply {
