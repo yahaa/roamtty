@@ -83,4 +83,12 @@ class RemotePathsTest {
             assertNull(validWorkingDirectory(it))
         }
     }
+
+    @Test fun reportedDirectoryIsNeverNormalized() {
+        assertTrue(isValidRemoteDirectory("/home/a b/project "))
+        // A decoded OSC 7 path ending in %0A or %0D must be rejected, not trimmed to another directory.
+        listOf("/tmp/project\n", "/tmp/project\r", "/tmp/project\r\n", "relative", "").forEach {
+            assertFalse(it, isValidRemoteDirectory(it))
+        }
+    }
 }
