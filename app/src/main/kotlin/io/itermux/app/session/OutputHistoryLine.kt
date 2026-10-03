@@ -16,6 +16,8 @@ internal class OutputHistoryLine private constructor(
 ) {
     val cost get() = text.length + 1
     val blank get() = text.isBlank() && firstStyle == TextStyle.NORMAL && styles == null
+    /** Text used to follow a row between frames: no trailing padding or scrollbar thumb. */
+    val key: String by lazy(LazyThreadSafetyMode.NONE) { text.trimEnd { it.isWhitespace() || it in SCROLLBAR_GLYPHS } }
 
     private fun styleAt(column: Int) = styles?.get(column) ?: firstStyle
 
@@ -39,6 +41,10 @@ internal class OutputHistoryLine private constructor(
         styles.contentHashCode() + wrapped.hashCode()
 
     companion object {
+        private const val SCROLLBAR_GLYPHS = "█▐▌▕▏┃║░▒▓"
+
+        fun blank(columns: Int) = OutputHistoryLine("", columns, TextStyle.NORMAL, null, false)
+
         fun capture(emulator: TerminalEmulator, row: Int): OutputHistoryLine {
             val source = emulator.screen.allocateFullLineIfNecessary(emulator.screen.externalToInternalRow(row))
             var rawStyle = source.getStyle(0)

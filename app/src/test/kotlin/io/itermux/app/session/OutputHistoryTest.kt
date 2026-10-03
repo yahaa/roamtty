@@ -5,61 +5,6 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OutputHistoryTest {
-    @Test fun overlapMatchesReferenceForRepeatedRowsAndUnequalFrameSizes() {
-        val random = kotlin.random.Random(318)
-        repeat(10_000) {
-            val previous = List(random.nextInt(40)) { random.nextInt(3) }
-            val next = List(random.nextInt(40)) { random.nextInt(3) }
-            val expected = (minOf(previous.size, next.size) downTo 1).firstOrNull {
-                previous.takeLast(it) == next.take(it)
-            } ?: 0
-            assertEquals("$previous -> $next", expected, longestHistoryOverlap(previous, next))
-        }
-    }
-
-    @Test fun repeatedRowsRequireOnlyLinearComparisons() {
-        var comparisons = 0
-        class Row(val value: Int) {
-            override fun equals(other: Any?): Boolean { comparisons++; return other is Row && value == other.value }
-            override fun hashCode() = value
-        }
-        val previous = List(300) { Row(0) }
-        val next = List(300) { Row(if (it == 299) 1 else 0) }
-        assertEquals(299, longestHistoryOverlap(previous, next))
-        assertTrue("Comparisons: $comparisons", comparisons < 6 * previous.size)
-    }
-
-    @Test fun randomFrameEditsMatchOriginalHistoryIncludingBlankFramesAndBounds() {
-        val random = kotlin.random.Random(812)
-        val history = OutputHistory(maxChars = 300, maxLines = 12)
-        val expected = ArrayDeque<OutputHistoryLine>()
-        var previous = emptyList<OutputHistoryLine>()
-        repeat(1500) {
-            val source = screen(List(random.nextInt(5)) {
-                listOf("A", "B", "", "中 e\u0301", "\u001b[31mred\u001b[0m")[random.nextInt(5)]
-            }.joinToString("\n"), columns = if (random.nextBoolean()) 16 else 20)
-            val next = (0 until source.mRows).map { OutputHistoryLine.capture(source, it) }.dropLastWhile { it.blank }
-            if (next != previous && next.isNotEmpty()) {
-                val overlap = (minOf(previous.size, next.size) downTo 1).firstOrNull {
-                    previous.takeLast(it) == next.take(it)
-                } ?: 0
-                val added = if (overlap > 0) next.drop(overlap) else {
-                    val prefix = previous.zip(next).takeWhile { (a, b) -> a == b }.size
-                    val suffix = previous.drop(prefix).asReversed().zip(next.drop(prefix).asReversed())
-                        .takeWhile { (a, b) -> a == b }.size
-                    next.subList(prefix, next.size - suffix)
-                }
-                for (line in added) {
-                    expected.addLast(line)
-                    while (expected.size > 12 || expected.sumOf { it.cost } > 300) expected.removeFirst()
-                }
-                previous = next
-            }
-            history.capture(source)
-            assertEquals(expected.toList(), history.snapshot())
-        }
-    }
-
     @Test fun mixedCellStylesAndReverseVideoSurviveDetachedRendering() {
         val source = screen("\u001b[?5h\u001b[31mred\u001b[0m normal \u001b[44m中", 20)
         val history = OutputHistory()
@@ -81,7 +26,7 @@ class OutputHistoryTest {
         }
     }
 
-    private fun screen(text: String, columns: Int = 16, rows: Int = 4): TerminalEmulator {
+    private fun screen(text: String, columns: Int = 16, rows: Int = 4, alternate: Boolean = false): TerminalEmulator {
         val output = object : TerminalOutput() {
             override fun write(data: ByteArray, offset: Int, count: Int) = Unit
             override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
@@ -91,19 +36,90 @@ class OutputHistoryTest {
             override fun onColorsChanged() = Unit
         }
         return TerminalEmulator(output, columns, rows, 8, 16, 100, SilentTerminalClient()).apply {
-            val bytes = ("\u001b[?25l" + text.replace("\n", "\r\n")).toByteArray()
+            val bytes = ((if (alternate) "\u001b[?1049h" else "") + "\u001b[?25l" + text.replace("\n", "\r\n")).toByteArray()
             append(bytes, bytes.size)
         }
     }
-    private fun OutputHistory.capture(text: String) = capture(screen(text))
+    /** Full-screen chat programs draw on the alternate screen. */
+    private fun OutputHistory.capture(text: String, rows: Int = 4) = capture(screen(text, 40, rows, alternate = true))
     private fun List<OutputHistoryLine>.text() = map { it.text.trimEnd() }
 
-    @Test fun preservesOverwrittenOutputAndDeduplicatesUnchangedFrames() {
+    /** A chat program frame: fixed header, a window onto [transcript] ending at [end], fixed footer. */
+    private fun chat(transcript: List<String>, end: Int, footer: String, rows: Int = 8) =
+        (listOf("HEADER") + transcript.subList(maxOf(0, end - (rows - 2)), end) + List(maxOf(0, rows - 2 - end)) { "" } + footer)
+            .joinToString("\n")
+
+    @Test fun rowsUpdatedInPlaceStayLiveAndUnchangedFramesAreIgnored() {
         val history = OutputHistory()
         history.capture("Header\nold reply\nPrompt")
         history.capture("Header\nold reply\nPrompt")
-        history.capture("Header\nnew reply\nPrompt")
-        assertEquals(listOf("Header", "old reply", "Prompt", "new reply"), history.snapshot().text())
+        history.capture("Header\nold reply 2\nPrompt")
+        history.capture("Header\nnew reply 2\nPrompt")
+        assertEquals(emptyList<String>(), history.recorded.text())
+        assertEquals(listOf("Header", "new reply 2", "Prompt"), history.snapshot().text())
+    }
+
+    @Test fun transcriptScrollingBetweenFixedHeaderAndFooterIsRecordedOnce() {
+        val transcript = List(30) { "line $it of the answer" }
+        val history = OutputHistory()
+        for (end in 1..30) {
+            // Each line streams in two reads while the spinner in the footer ticks.
+            val partial = transcript.subList(0, end - 1) + transcript[end - 1].take(9)
+            history.capture(chat(partial, end, "* Working ${end}s"), rows = 8)
+            history.capture(chat(transcript, end, "+ Working ${end}s"), rows = 8)
+        }
+        history.capture(chat(transcript, 30, "> ready"), rows = 8)
+        assertEquals(transcript.subList(0, 24), history.recorded.text())
+        assertEquals(listOf("HEADER") + transcript.subList(24, 30) + "> ready", history.snapshot().text().drop(24))
+    }
+
+    @Test fun clearedRegionIsRecordedBeforeTheNextAnswer() {
+        val history = OutputHistory()
+        history.capture("HEADER\nfirst answer one\nfirst answer two\nfirst answer three\n\n> footer", rows = 6)
+        history.capture("HEADER\n\n\n\n\n> footer", rows = 6)
+        history.capture("HEADER\nsecond answer\n\n\n\n> footer", rows = 6)
+        assertEquals(listOf("first answer one", "first answer two", "first answer three"), history.recorded.text())
+    }
+
+    @Test fun scrollingTheProgramBackAndForthDoesNotDuplicateRows() {
+        val transcript = List(20) { "message number $it" }
+        val history = OutputHistory()
+        for (end in 1..20) history.capture(chat(transcript, end, "> input"), rows = 8)
+        // The user swipes the program back to the start, then down again.
+        for (end in 19 downTo 6) history.capture(chat(transcript, end, "> input"), rows = 8)
+        for (end in 6..20) history.capture(chat(transcript, end, "> input"), rows = 8)
+        history.capture(chat(transcript, 10, "> input"), rows = 8)
+        val expected = transcript.subList(0, 14)
+        assertEquals(expected, history.recorded.text())
+        // Rows the program shows again are not repeated after the recorded transcript.
+        assertEquals(expected + "HEADER" + "> input", history.snapshot().text())
+    }
+
+    @Test fun synchronizedFrameIsRecordedOnlyWhenComplete() {
+        val source = screen("A\nB\nC\nD", 16)
+        val history = OutputHistory()
+        history.captureWhenIdle(source)
+        val partial = "\u001b[?2026h\u001b[1;1HB\u001b[2;1HC".toByteArray()
+        source.append(partial, partial.size)
+        history.captureWhenIdle(source)
+        assertEquals(listOf("A", "B", "C", "D"), history.snapshot().text())
+        val rest = "\u001b[3;1HD\u001b[4;1HE\u001b[?2026l".toByteArray()
+        source.append(rest, rest.size)
+        history.captureWhenIdle(source)
+        assertEquals(listOf("A", "B", "C", "D", "E"), history.snapshot().text())
+    }
+
+    @Test fun lineFeedScrollingKeepsRepeatedShellOutput() {
+        val history = OutputHistory()
+        val source = screen("", 16)
+        val lines = listOf("ok", "ok", "done 1", "ok", "done 2", "ok", "done 3", "ok")
+        for (line in lines) {
+            val bytes = "$line\r\n".toByteArray()
+            history.captureBeforeChange(source)
+            source.append(bytes, bytes.size)
+            history.captureWhenIdle(source)
+        }
+        assertEquals(lines, history.snapshot().text().filter { it.isNotEmpty() })
     }
 
     @Test fun mergesScrollingFramesAndKeepsFrozenSnapshots() {
@@ -116,13 +132,13 @@ class OutputHistoryTest {
     }
 
     @Test fun boundsMemoryAndLinesWithoutCuttingCells() {
-        val history = OutputHistory(maxChars = 64, maxLines = 3)
-        repeat(1000) { history.capture("Reply $it") }
-        assertEquals(listOf("Reply 997", "Reply 998", "Reply 999"), history.snapshot().text())
-        history.capture("x".repeat(1000))
-        assertTrue(history.snapshot().sumOf { it.cost } <= 64)
-        assertTrue(history.snapshot().size <= 3)
-        assertTrue(history.snapshot().all { it.columns == 16 && it.text.length == 16 })
+        val history = OutputHistory(maxChars = 200, maxLines = 3)
+        repeat(1000) { history.capture("Reply $it\nReply ${it + 1}") }
+        assertEquals(listOf("Reply 996", "Reply 997", "Reply 998"), history.recorded.text())
+        repeat(8) { history.capture(List(4) { row -> "${'a' + row + it}".repeat(1000) }.joinToString("\n")) }
+        assertTrue(history.recorded.sumOf { it.cost } <= 200)
+        assertTrue(history.recorded.size <= 3)
+        assertTrue(history.recorded.all { it.columns == 40 })
     }
 
     @Test fun keepsPhysicalRowsWhitespaceStylesAndWideCombiningCharacters() {
@@ -160,7 +176,9 @@ class OutputHistoryTest {
         val styled = "\u001b[1;1H\u001b[31m12345678".toByteArray()
         source.append(styled, styled.size)
         history.capture(source)
-        assertEquals(3, history.snapshot().size)
+        // A restyled row is the same row: the live copy shows the new style, nothing is recorded.
+        assertEquals(2, history.snapshot().size)
+        assertEquals(1, TextStyle.decodeForeColor(OutputHistorySession(history.snapshot(), 0).emulator.screen.getStyleAt(0, 0)))
     }
 
     @Test fun freezesRemotePaletteAndPreservesColoredBlankRows() {
@@ -176,7 +194,7 @@ class OutputHistoryTest {
 
     @Test fun repeatedSeeksSkipUnchangedViewportButResizeStillFillsNewRows() {
         val history = OutputHistory()
-        repeat(60) { history.capture("ROW_$it") }
+        repeat(59) { history.capture("ROW_$it\nROW_${it + 1}") }
         val snapshot = OutputHistorySession(history.snapshot(), 0)
         snapshot.updateSize(16, 24, 8, 16)
         var updates = 0

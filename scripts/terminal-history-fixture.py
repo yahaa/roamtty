@@ -41,11 +41,15 @@ try:
     if name != "codex":
         sys.stdout.write("\x1b[?1000h\x1b[?1006h")
     signal.signal(signal.SIGWINCH, render)
-    # Show output, then erase it as real full-screen tools do. No native history support.
-    for n in range(60):
-        sys.stdout.write(f"\x1b[H\x1b[2JOUTPUT_{n:03d}\r\nThis frame will be overwritten.\r\n")
+    # Repaint a fixed header, a scrolling transcript and a ticking status row with absolute
+    # moves, as Claude Code, Codex and Grok do. No native history support.
+    for n in range(120):
+        rows = os.get_terminal_size().lines
+        window = range(max(0, n + 1 - (rows - 3)), n + 1)
+        sys.stdout.write("\x1b[H\x1b[2JFixture transcript\r\n" + "\r\n".join(f"OUTPUT_{k:03d}" for k in window)
+                         + f"\x1b[{rows};1HWorking {n}s")
         sys.stdout.flush()
-        time.sleep(0.06)
+        time.sleep(0.03)
     render()
     while True:
         buffer += os.read(0, 4096)

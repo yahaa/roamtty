@@ -20,8 +20,8 @@ import kotlin.math.roundToInt
 @Composable
 internal fun TerminalDockPlacement(modifier: Modifier = Modifier, endInset: Dp = 8.dp,
     content: @Composable (Dp) -> Unit) {
-    BoxWithConstraints(modifier.fillMaxHeight().windowInsetsPadding(WindowInsets.displayCutout.only(
-        WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End))) {
+    BoxWithConstraints(modifier.fillMaxHeight().windowInsetsPadding(WindowInsets.displayCutout.union(WindowInsets.statusBars)
+        .only(WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End))) {
         val availableHeight = (maxHeight - 8.dp).coerceAtLeast(0.dp)
         Layout(content = { content(availableHeight) }, modifier = Modifier.fillMaxSize().testTag("terminal-dock-viewport")) { measurables, constraints ->
             val margin = 4.dp.roundToPx().coerceAtMost(constraints.maxHeight / 2)

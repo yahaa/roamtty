@@ -71,8 +71,9 @@ class MainActivity : ComponentActivity() {
     }
     private fun updateSystemBars() {
         val background = (if (lightTheme) LightColors else DarkColors).background.toArgb()
+        // The terminal draws its own background under a transparent status bar.
         @Suppress("DEPRECATION")
-        window.statusBarColor = background
+        window.statusBarColor = if (terminalVisible) android.graphics.Color.TRANSPARENT else background
         @Suppress("DEPRECATION")
         window.navigationBarColor = background
         WindowCompat.getInsetsController(window, window.decorView).apply {

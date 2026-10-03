@@ -3,5 +3,5 @@
     android:viewportWidth="24" android:viewportHeight="24">
     <path android:fillColor="@android:color/transparent" android:strokeColor="#FF000000"
         android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M12,4V15M7,10L12,15L17,10M5,20H19" />
+        android:pathData="M7,6L12,11L17,6M7,13L12,18L17,13" />
 </vector>

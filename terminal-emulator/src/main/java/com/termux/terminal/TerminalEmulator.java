@@ -251,6 +251,7 @@ public final class TerminalEmulator {
      * See http://www.xfree86.org/current/ctlseqs.html#The%20Alternate%20Screen%20Buffer
      */
     final TerminalBuffer mAltBuffer;
+    private boolean mSynchronizedOutput;
     /** The current screen buffer, pointing at either {@link #mMainBuffer} or {@link #mAltBuffer}. */
     private TerminalBuffer mScreen;
 
@@ -532,6 +533,11 @@ public final class TerminalEmulator {
 
     public int getCellHeightPixels() {
         return mCellHeightPixels;
+    }
+
+    /** True between "CSI ? 2026 h" and "CSI ? 2026 l", while the screen holds a partly painted frame. */
+    public boolean isSynchronizedOutput() {
+        return mSynchronizedOutput;
     }
 
     public boolean isAlternateBufferActive() {
@@ -1878,6 +1884,9 @@ public final class TerminalEmulator {
             }
             case 2004:
                 // Bracketed paste mode - setting bit is enough.
+                break;
+            case 2026: // Synchronized output: the application is painting one complete frame.
+                mSynchronizedOutput = setting;
                 break;
             default:
                 unknownParameter(externalBit);
@@ -3494,6 +3503,7 @@ public final class TerminalEmulator {
         mContinueSequence = false;
         mEscapeState = ESC_NONE;
         mInsertMode = false;
+        mSynchronizedOutput = false;
         mTopMargin = mLeftMargin = 0;
         mBottomMargin = mRows;
         mRightMargin = mColumns;
