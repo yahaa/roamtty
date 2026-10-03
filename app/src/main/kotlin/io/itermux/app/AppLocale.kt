@@ -155,6 +155,7 @@ private object EnglishText {
         "取消连接" to "Cancel connection",
         "手动重连" to "Reconnect manually",
         "改用普通 SSH" to "Use plain SSH",
+        "提示" to "Notice",
         "知道了" to "Got it",
         "输入文本后，在这里确认" to "Enter text and review it here",
         "收起" to "Collapse",
