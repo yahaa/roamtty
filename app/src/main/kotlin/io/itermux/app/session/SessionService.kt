@@ -67,7 +67,9 @@ class SessionService : Service() {
     /** Opens a new local entry. TMUX mode always allocates a fresh remote session name. */
     suspend fun open(host: Host, mode: SessionMode, credentials: Credentials): TerminalConnection {
         awaitRestoration()
-        check(mutableSessions.value.size < 8) { tr("最多保留 8 个会话，请先关闭旧会话") }
+        check(mutableSessions.value.count { it.host.id == host.id } < MAX_SESSIONS_PER_HOST) {
+            trf("每台主机最多保留 %d 个会话，请先关闭这台主机的旧会话", MAX_SESSIONS_PER_HOST)
+        }
         val connection = TerminalConnection(
             host, mode, credentials, (application as ItermuxApp).pins, scope,
             sessionNumber = nextSessionNumber(mutableSessions.value.filter { it.host.id == host.id }.map { it.sessionNumber }),
@@ -172,6 +174,7 @@ class SessionService : Service() {
         super.onDestroy()
     }
     companion object {
+        const val MAX_SESSIONS_PER_HOST = 8
         private const val CHANNEL = "ssh-sessions"
         private const val NOTIFICATION = 20
         private const val DISCONNECT_ALL = "io.itermux.DISCONNECT_ALL"
