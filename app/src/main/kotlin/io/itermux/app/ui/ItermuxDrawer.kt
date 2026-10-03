@@ -23,6 +23,7 @@ import io.itermux.app.session.TerminalConnection
 @Composable
 internal fun ItermuxDrawer(
     page: String,
+    hostCount: Int,
     sessions: List<TerminalConnection>,
     onHosts: () -> Unit,
     onSessions: () -> Unit,
@@ -48,6 +49,7 @@ internal fun ItermuxDrawer(
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 NavigationDrawerItem(label = { Text(tr("主机")) }, selected = page == "hosts", onClick = onHosts,
                     icon = { Icon(painterResource(R.drawable.ic_hosts), contentDescription = null) },
+                    badge = { Text("$hostCount", style = MaterialTheme.typography.labelLarge) },
                     modifier = Modifier.padding(horizontal = 12.dp).testTag("drawer-hosts"))
                 NavigationDrawerItem(label = { Text(tr("会话")) }, selected = page == "sessions", onClick = onSessions,
                     icon = { Icon(painterResource(R.drawable.ic_sessions), contentDescription = null) },

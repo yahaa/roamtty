@@ -13,9 +13,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
-/** Center on the upper golden section of the current safe viewport, then clamp to its edges. */
+/**
+ * Center on the upper golden section of the current safe viewport, then clamp to its edges.
+ * The default [endInset] keeps floating controls close to the screen edge, just off the rounded corner.
+ */
 @Composable
-internal fun TerminalDockPlacement(modifier: Modifier = Modifier, endInset: Dp = 24.dp,
+internal fun TerminalDockPlacement(modifier: Modifier = Modifier, endInset: Dp = 8.dp,
     content: @Composable (Dp) -> Unit) {
     BoxWithConstraints(modifier.fillMaxHeight().windowInsetsPadding(WindowInsets.displayCutout.only(
         WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End))) {

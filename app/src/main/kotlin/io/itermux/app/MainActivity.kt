@@ -1,6 +1,7 @@
 package io.itermux.app
 
 import android.content.*
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.*
 import android.view.WindowManager
@@ -78,8 +79,16 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             isAppearanceLightStatusBars = lightTheme
             isAppearanceLightNavigationBars = lightTheme
-            if (terminalVisible) hide(WindowInsetsCompat.Type.systemBars())
-            else show(WindowInsetsCompat.Type.systemBars())
+            // Portrait terminals keep the status bar (clock, battery, network); landscape gives every row to the terminal.
+            val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            when {
+                !terminalVisible -> show(WindowInsetsCompat.Type.systemBars())
+                landscape -> hide(WindowInsetsCompat.Type.systemBars())
+                else -> {
+                    show(WindowInsetsCompat.Type.statusBars())
+                    hide(WindowInsetsCompat.Type.navigationBars())
+                }
+            }
         }
         window.decorView.setBackgroundColor(background)
     }

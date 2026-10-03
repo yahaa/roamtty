@@ -137,8 +137,8 @@ class TerminalLayoutTest {
         val more = compose.onNodeWithTag("restore-dock").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val density = compose.activity.resources.displayMetrics.density
         assertEquals("Collapsed controls occupy one button", 48 * density, more.width, 1f)
-        val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
-        assertTrue("More leaves the scrollbar touch strip clear", more.right <= terminal.right - 20 * density)
+        val viewport = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
+        assertEquals("Collapsed controls hug the screen edge", viewport.right - 8 * density, more.right, 2f)
     }
 
     private fun checkFileActions() {
@@ -229,25 +229,30 @@ class TerminalLayoutTest {
     }
 
     private fun checkViewport(name: String, reservedWidthDp: Int = 0) {
+        // Portrait keeps the status bar visible above the terminal; landscape hides every system bar.
+        val portrait = compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
         compose.waitUntil(8000) {
             val decor = compose.activity.window.decorView
             ViewCompat.getRootWindowInsets(decor)?.let {
                 // Before API 30, visibility is inferred from inset sizes and can report stale bars.
-                val barsHidden = if (Build.VERSION.SDK_INT >= 30) {
-                    !it.isVisible(WindowInsetsCompat.Type.statusBars()) && !it.isVisible(WindowInsetsCompat.Type.navigationBars())
+                val barsExpected = if (Build.VERSION.SDK_INT >= 30) {
+                    it.isVisible(WindowInsetsCompat.Type.statusBars()) == portrait && !it.isVisible(WindowInsetsCompat.Type.navigationBars())
                 } else {
                     @Suppress("DEPRECATION")
-                    val hiddenFlags = android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    val fullscreen = (decor.systemUiVisibility and android.view.View.SYSTEM_UI_FLAG_FULLSCREEN) != 0
                     @Suppress("DEPRECATION")
-                    (decor.systemUiVisibility and hiddenFlags) == hiddenFlags
+                    val navigationHidden = (decor.systemUiVisibility and android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0
+                    fullscreen != portrait && navigationHidden
                 }
-                barsHidden && !it.isVisible(WindowInsetsCompat.Type.ime())
+                barsExpected && !it.isVisible(WindowInsetsCompat.Type.ime())
             } == true
         }
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
-        val terminal = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
+        // The text view keeps a small inner padding; bands are measured on the viewport that hosts it.
+        val terminal = compose.onNodeWithTag("terminal-viewport").fetchSemanticsNode().boundsInRoot
+        val reservedBars = WindowInsetsCompat.Type.captionBar() or (if (portrait) WindowInsetsCompat.Type.statusBars() else 0)
         val insets = requireNotNull(ViewCompat.getRootWindowInsets(compose.activity.window.decorView))
-            .getInsets(WindowInsetsCompat.Type.captionBar())
+            .getInsets(reservedBars)
         val widthRatio = terminal.width / (root.width - insets.left - insets.right)
         val heightRatio = terminal.height / (root.height - insets.top - insets.bottom)
         measurements.appendLine("$name: root=${root.width}x${root.height}, terminal=${terminal.width}x${terminal.height}, width=$widthRatio, height=$heightRatio")
@@ -306,7 +311,8 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("download-file").performTouchInput { click() }
             compose.waitUntil(8000) { compose.onAllNodesWithTag("download-entry-phone-a").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
-            compose.onNodeWithContentDescription("关闭").performClick()
+            // The closed navigation drawer also composes a "关闭" button off screen.
+            compose.onNode(hasContentDescription("关闭") and !hasAnyAncestor(hasTestTag("navigation-drawer"))).performClick()
             checkFileActions()
             checkDock()
             compose.onNodeWithTag("collapse-dock").performClick()
@@ -396,7 +402,8 @@ class TerminalLayoutTest {
             instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
                 File(context.getExternalFilesDir(null), "layout-failure.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
             }
-            File(context.getExternalFilesDir(null), "layout-failure.txt").writeText(compose.onRoot().printToString())
+            // Popups add their own roots; dumping all of them keeps the original failure visible.
+            File(context.getExternalFilesDir(null), "layout-failure.txt").writeText(compose.onAllNodes(isRoot()).printToString())
             throw failure
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id) }
