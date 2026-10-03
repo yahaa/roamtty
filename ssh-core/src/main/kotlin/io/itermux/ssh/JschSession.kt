@@ -4,6 +4,8 @@ import com.jcraft.jsch.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -157,48 +159,13 @@ class JschSession(
         try {
             coroutineContext.ensureActive()
             if (stopped.get()) return AttemptOutcome.STOPPED
-            configureCrypto()
-            jsch.hostKeyRepository = repository()
-            val ssh = jsch.getSession(target.username, target.hostname, target.port)
+            val ssh = newSession(jsch)
             session = ssh
-            ssh.setSocketFactory(tcpKeepaliveFactory())
-            ssh.setConfig("StrictHostKeyChecking", "yes")
-            ssh.setConfig("PreferredAuthentications", when (target.auth) {
-                AuthMethod.PASSWORD -> "password,keyboard-interactive"
-                AuthMethod.KEY -> "publickey"
-                AuthMethod.INTERACTIVE -> "keyboard-interactive"
-            })
-            ssh.setConfig("NumberOfPasswordPrompts", "1")
-            ssh.userInfo = object : UserInfo, UIKeyboardInteractive {
-                override fun getPassword(): String? = credentials.password?.toString(Charsets.UTF_8)
-                override fun getPassphrase(): String? = null
-                // setPassword supplies the initial attempt; never silently retry a rejected password.
-                override fun promptPassword(message: String?) = false
-                override fun promptPassphrase(message: String?) = false
-                override fun promptYesNo(message: String?) = false
-                override fun showMessage(message: String?) { /* Remote messages never go to logs. */ }
-                override fun promptKeyboardInteractive(destination: String?, name: String?, instruction: String?, prompt: Array<out String>?, echo: BooleanArray?): Array<String>? {
-                    update(Phase.AUTHENTICATING, "等待认证输入")
-                    val labels = prompt?.toList() ?: emptyList()
-                    require(labels.size <= 16) { "Too many authentication prompts" }
-                    val answers = ask(Prompt.Keyboard(instruction.orEmpty().take(2048), labels.map { it.take(512) }, echo?.toList() ?: List(labels.size) { false }))
-                    return answers?.takeIf { it.size == labels.size }?.toTypedArray()
-                }
-            }
-            if (target.auth == AuthMethod.KEY) {
-                val key = requireNotNull(credentials.privateKey) { "Missing key" }
-                // Keep originals for tmux auto-reattach; JSch receives copies.
-                jsch.addIdentity("session-key", key.copyOf(), null, credentials.passphrase?.copyOf())
-            } else if (target.auth == AuthMethod.PASSWORD) {
-                ssh.setPassword(credentials.password?.copyOf())
-            }
-            // SSH-level keepalive (~15s × 4 ≈ 1 min of silence before drop).
-            ssh.setServerAliveInterval(15_000)
-            ssh.setServerAliveCountMax(4)
             if (stopped.get()) return AttemptOutcome.STOPPED
             ssh.connect(connectTimeoutMs)
-            // Drop secrets for plain shell once authenticated; tmux may need them to reattach.
-            if (target.mode != SessionMode.TMUX) {
+            // Drop secrets for plain shell once authenticated; tmux may need them to reattach,
+            // and mosh to log the file/history connection back in after it drops.
+            if (target.mode != SessionMode.TMUX && !preferMosh) {
                 credentials.clear()
                 jsch.removeAllIdentity()
             }
@@ -226,6 +193,7 @@ class JschSession(
                 if (stopped.get()) return AttemptOutcome.STOPPED
                 // Keep this connection: the PTY below replaces mosh for the rest of the session.
                 moshUnavailable = true
+                if (target.mode != SessionMode.TMUX) { credentials.clear(); jsch.removeAllIdentity() }
                 mutableMoshFallback.value = "mosh 无法连接（可能未放行 UDP 60000–61000），已改用 SSH。"
             }
             val terminal: com.jcraft.jsch.Channel = if (target.mode == SessionMode.TMUX) {
@@ -338,6 +306,13 @@ class JschSession(
         val end = try {
             coroutineScope {
                 val systemProbe = launch { probeHostSystem(ssh) }
+                // Keep files and tmux history usable: quietly log back in after the SSH side drops.
+                val keeper = launch {
+                    while (true) {
+                        delay(20_000)
+                        if (mutableTransport.value == TerminalTransport.MOSH) auxiliarySession(interactive = false)
+                    }
+                }
                 try {
                     client.run(queues.currentInput(), queues.currentSizes(), dimensions,
                         firstContactTimeoutMs = 8_000,
@@ -349,7 +324,7 @@ class JschSession(
                             update(Phase.CONNECTED)
                         },
                         onOutput = onOutput)
-                } finally { systemProbe.cancel() }
+                } finally { systemProbe.cancel(); keeper.cancel() }
             }
         } finally { queues.setAccepting(false) }
         return when (end) {
@@ -425,6 +400,81 @@ class JschSession(
         finally { exec.disconnect() }
     }
 
+    /**
+     * Builds an unconnected session. The terminal login reports progress; an auxiliary login
+     * (files and history beside a live mosh terminal) must not touch the terminal's state.
+     */
+    private fun newSession(jsch: JSch, auxiliary: Boolean = false): Session {
+        configureCrypto()
+        jsch.hostKeyRepository = repository(reportPhase = !auxiliary)
+        val ssh = jsch.getSession(target.username, target.hostname, target.port)
+        ssh.setSocketFactory(tcpKeepaliveFactory())
+        ssh.setConfig("StrictHostKeyChecking", "yes")
+        ssh.setConfig("PreferredAuthentications", when (target.auth) {
+            AuthMethod.PASSWORD -> "password,keyboard-interactive"
+            AuthMethod.KEY -> "publickey"
+            AuthMethod.INTERACTIVE -> "keyboard-interactive"
+        })
+        ssh.setConfig("NumberOfPasswordPrompts", "1")
+        ssh.userInfo = object : UserInfo, UIKeyboardInteractive {
+            override fun getPassword(): String? = credentials.password?.toString(Charsets.UTF_8)
+            override fun getPassphrase(): String? = null
+            // setPassword supplies the initial attempt; never silently retry a rejected password.
+            override fun promptPassword(message: String?) = false
+            override fun promptPassphrase(message: String?) = false
+            override fun promptYesNo(message: String?) = false
+            override fun showMessage(message: String?) { /* Remote messages never go to logs. */ }
+            override fun promptKeyboardInteractive(destination: String?, name: String?, instruction: String?, prompt: Array<out String>?, echo: BooleanArray?): Array<String>? {
+                if (!auxiliary) update(Phase.AUTHENTICATING, "等待认证输入")
+                val labels = prompt?.toList() ?: emptyList()
+                require(labels.size <= 16) { "Too many authentication prompts" }
+                val answers = ask(Prompt.Keyboard(instruction.orEmpty().take(2048), labels.map { it.take(512) }, echo?.toList() ?: List(labels.size) { false }))
+                return answers?.takeIf { it.size == labels.size }?.toTypedArray()
+            }
+        }
+        if (target.auth == AuthMethod.KEY) {
+            val key = requireNotNull(credentials.privateKey) { "Missing key" }
+            // Keep originals for tmux auto-reattach; JSch receives copies.
+            jsch.addIdentity("session-key", key.copyOf(), null, credentials.passphrase?.copyOf())
+        } else if (target.auth == AuthMethod.PASSWORD) {
+            ssh.setPassword(credentials.password?.copyOf())
+        }
+        // SSH-level keepalive (~15s × 4 ≈ 1 min of silence before drop).
+        ssh.setServerAliveInterval(15_000)
+        ssh.setServerAliveCountMax(4)
+        return ssh
+    }
+
+    private val auxiliaryLock = Mutex()
+
+    /**
+     * The SSH connection for files, cwd and tmux history. Beside a live mosh terminal it may have
+     * dropped (sleep, network change) while mosh recovered, so it is logged in again on demand.
+     * [interactive] allows keyboard-interactive prompts; background refreshes never prompt.
+     */
+    private suspend fun auxiliarySession(interactive: Boolean = true): Session? {
+        connectedSession()?.let { return it }
+        if (mutableTransport.value != TerminalTransport.MOSH || stopped.get() || state.value.phase != Phase.CONNECTED) return null
+        if (!interactive && target.auth == AuthMethod.INTERACTIVE) return null
+        return auxiliaryLock.withLock {
+            connectedSession()?.let { return@withLock it }
+            withContext(Dispatchers.IO) {
+                val jsch = JSch()
+                try {
+                    val ssh = newSession(jsch, auxiliary = true)
+                    ssh.connect(connectTimeoutMs)
+                    if (stopped.get()) { ssh.disconnect(); return@withContext null }
+                    val old = session
+                    session = ssh
+                    old?.disconnect()
+                    ssh
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { null }
+                finally { jsch.removeAllIdentity() }
+            }
+        }
+    }
+
     private suspend fun hasTmux(ssh: Session): Boolean {
         val probe = ssh.openChannel("exec") as ChannelExec
         channel = probe
@@ -436,7 +486,7 @@ class JschSession(
         } finally { probe.disconnect() }
     }
 
-    private fun repository() = object : HostKeyRepository {
+    private fun repository(reportPhase: Boolean = true) = object : HostKeyRepository {
         override fun check(host: String?, key: ByteArray): Int {
             try {
                 val pin = HostPin(target.endpoint, HostKey(host, key).type, Base64.getEncoder().encodeToString(key))
@@ -446,7 +496,7 @@ class JschSession(
                         ask(Prompt.VerifyHost(it)) == listOf("trust")
                     }
                 }
-                update(Phase.AUTHENTICATING)
+                if (reportPhase) update(Phase.AUTHENTICATING)
                 return HostKeyRepository.OK
             } catch (e: Exception) { trustFailure = e; throw e }
         }
@@ -487,25 +537,28 @@ class JschSession(
         files.upload(remotePath, source, onProgress)
 
     suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {},
-        onSize: (Long) -> Unit = {}) = files.download(remotePath, destination, onProgress, onSize)
+        onSize: (Long) -> Unit = {}) = withFiles { files.download(remotePath, destination, onProgress, onSize) }
 
     suspend fun readRemoteText(remotePath: String, maxBytes: Int = 512 * 1024): Pair<String, Boolean>? =
         files.readRemoteText(remotePath, maxBytes)
 
-    suspend fun listRemoteDirectory(remotePath: String = ""): RemoteDirectory = files.listRemoteDirectory(remotePath)
+    suspend fun listRemoteDirectory(remotePath: String = ""): RemoteDirectory = withFiles { files.listRemoteDirectory(remotePath) }
 
-    suspend fun readFileContent(remotePath: String, maxBytes: Int): RemoteFileContent = files.readFileContent(remotePath, maxBytes)
+    suspend fun readFileContent(remotePath: String, maxBytes: Int): RemoteFileContent = withFiles { files.readFileContent(remotePath, maxBytes) }
     suspend fun currentWorkingDirectory(): String? = validWorkingDirectory(runCommand(
         if (target.mode == SessionMode.TMUX)
             "tmux display-message -p -t ${Tmux.targetFlag(tmuxName)} '#{pane_current_path}'"
         else shellWorkingDirectoryCommand))
-    suspend fun rename(oldPath: String, newPath: String) = files.rename(oldPath, newPath)
-    suspend fun deleteFile(path: String) = files.deleteFile(path)
-    suspend fun makeDirectory(path: String) = files.makeDirectory(path)
-    suspend fun isDirectory(path: String) = files.isDirectory(path)
+    suspend fun rename(oldPath: String, newPath: String) = withFiles { files.rename(oldPath, newPath) }
+    suspend fun deleteFile(path: String) = withFiles { files.deleteFile(path) }
+    suspend fun makeDirectory(path: String) = withFiles { files.makeDirectory(path) }
+    suspend fun isDirectory(path: String) = withFiles { files.isDirectory(path) }
+
+    /** File operations first restore the SSH side of a mosh session if it dropped. */
+    private suspend fun <T> withFiles(block: suspend () -> T): T { auxiliarySession(); return block() }
 
     private suspend fun runCommand(command: String): String? =
-        connectedSession()?.let { runCommand(it, command) }
+        auxiliarySession()?.let { runCommand(it, command) }
 
     private suspend fun runCommand(ssh: Session, command: String, input: String? = null): String? = withContext(Dispatchers.IO) {
         val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
