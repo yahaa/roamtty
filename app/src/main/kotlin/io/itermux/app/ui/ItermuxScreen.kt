@@ -216,13 +216,10 @@ fun ItermuxScreen(
                     onClose = { scope.launch { drawerState.close() } })
             }) {
         Surface(Modifier.fillMaxSize(), color = colors.background) {
-            // The terminal fills the display, including the area beside a camera cutout.
-            // Only desktop window chrome and the portrait status bar reserve an edge; terminal controls avoid cutouts locally.
-            val contentInsets = when {
-                !terminalVisible -> WindowInsets.safeDrawing
-                landscape -> WindowInsets.captionBar
-                else -> WindowInsets.captionBar.union(WindowInsets.statusBars)
-            }
+            // The terminal fills the display, including the area beside a camera cutout and under the
+            // transparent portrait status bar. Only desktop window chrome reserves an edge; the terminal
+            // keeps its text and controls clear of the status bar and cutouts itself.
+            val contentInsets = if (terminalVisible) WindowInsets.captionBar else WindowInsets.safeDrawing
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).imePadding()) {
                 if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files") AppToolbar(
                     navigation = {

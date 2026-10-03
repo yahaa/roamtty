@@ -21,6 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
@@ -47,6 +50,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.view.SoftwareKeyboardControllerCompat
 import androidx.core.content.edit
+import com.termux.terminal.TextStyle
 import com.termux.view.TerminalView
 import io.itermux.app.TerminalFonts
 import io.itermux.app.session.*
@@ -68,6 +72,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val recordedOutput = remember(session, showingOutput) { if (showingOutput) session.outputHistorySnapshot() else emptyList() }
     BackHandler(showingOutput) { session.exitTmuxHistory() }
     val sessionTitle by session.title.collectAsStateWithLifecycle()
+    // Read only while drawing: output redraws the background without recomposing the pane.
+    val outputRevision = session.revision.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val inputScope = rememberCoroutineScope()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -235,13 +241,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 }
             }
         }, primaryControls = {
-            if (session.mode == SessionMode.TMUX) {
-                InputControlButton(if (tmuxHistory?.active == true) tr("实时") else tr("历史"),
-                    if (tmuxHistory?.active == true) tr("返回实时画面") else tr("浏览历史记录"),
-                    "tmux-history", enabled = state.phase == Phase.CONNECTED, selected = tmuxHistory?.active == true,
-                    icon = if (tmuxHistory?.active == true) R.drawable.ic_live else R.drawable.ic_history,
-                    onClick = { hideKeyboard(); if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
-            }
+            InputControlButton(if (tmuxHistory?.active == true) tr("实时") else tr("历史"),
+                if (tmuxHistory?.active == true) tr("返回实时画面") else tr("浏览历史记录"),
+                "tmux-history", enabled = state.phase == Phase.CONNECTED, selected = tmuxHistory?.active == true,
+                icon = if (tmuxHistory?.active == true) R.drawable.ic_live else R.drawable.ic_history,
+                onClick = { hideKeyboard(); if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
             fileControls()
             IconButton(
                 onClick = { hideKeyboard(); commonCommandsOpen = true },
@@ -311,16 +315,20 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             }
         })
     }
+    // The workspace extends under the transparent status bar in the terminal's own background
+    // colour (including remote OSC 11 changes). In portrait the text runs under the bar too, faded
+    // by a scrim so the clock and icons stay legible; controls and notices stay below the bar.
     BoxWithConstraints(modifier.fillMaxWidth().testTag("terminal-workspace")
+        .drawBehind { drawRect(terminalBackground(session, outputRevision.value)) }
         .onGloballyPositioned { workspaceOrigin = it.positionInRoot() }.then(outsideDockTouch)) {
         val workspaceHeight = maxHeight
         val safeDockHeight = with(LocalDensity.current) {
-            workspaceHeight - WindowInsets.displayCutout.getTop(this).toDp() -
-                WindowInsets.displayCutout.getBottom(this).toDp() - 8.dp
+            val edges = WindowInsets.displayCutout.union(WindowInsets.statusBars)
+            workspaceHeight - edges.getTop(this).toDp() - edges.getBottom(this).toDp() - 8.dp
         }
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                Box(Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.background).testTag("terminal-viewport")) {
+                Box(Modifier.weight(1f).fillMaxWidth().testTag("terminal-viewport")) {
                 AndroidView(modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 6.dp, top = 6.dp).clipToBounds()
                     .testTag("terminal"), factory = { ctx ->
                     // Session, theme, font and history are bound in update, which also runs after creation.
@@ -349,6 +357,16 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
                 if (showingOutput) OutputHistoryView(recordedOutput, fontSize, lightTheme)
+                // Hidden (landscape) status bars have no inset, so the scrim only appears under a visible bar.
+                val statusBars = WindowInsets.statusBars
+                Box(Modifier.fillMaxWidth().windowInsetsTopHeight(statusBars.add(WindowInsets(top = 12.dp)))
+                    .testTag("status-bar-scrim").drawBehind {
+                        val statusBar = statusBars.getTop(this).toFloat()
+                        if (statusBar <= 0f) return@drawBehind
+                        val background = terminalBackground(session, outputRevision.value)
+                        drawRect(Brush.verticalGradient(0f to background.copy(alpha = 0.85f),
+                            statusBar / size.height to background.copy(alpha = 0.55f), 1f to Color.Transparent))
+                    })
                 if (pending == null) {
                     if (state.phase != Phase.CONNECTED) TerminalNoticeOverlay {
                         if (state.active) TerminalConnectionProgress(state.phase, onCancel = session::disconnect)
@@ -421,4 +439,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }, onDismiss = { commonCommandsOpen = false })
     confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text(tr("发送多行文本？")) }, text = { Text(tr("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。")) }, confirmButton = { TextButton(onClick = { sendPaste(text); confirmPaste = null }, enabled = state.phase == Phase.CONNECTED) { Text(tr("发送")) } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text(tr("取消")) } }) }
     if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text(tr("关闭此连接？")) }, text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")) }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text(tr("关闭连接")) } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text(tr("取消")) } })
+}
+
+/** The colour the terminal renderer fills its canvas with, so the status bar area matches it. */
+private fun terminalBackground(session: TerminalConnection, @Suppress("UNUSED_PARAMETER") revision: Long): Color {
+    val emulator = session.getEmulator()
+    return Color(emulator.mColors.mCurrentColors[if (emulator.isReverseVideo) TextStyle.COLOR_INDEX_FOREGROUND
+        else TextStyle.COLOR_INDEX_BACKGROUND])
 }

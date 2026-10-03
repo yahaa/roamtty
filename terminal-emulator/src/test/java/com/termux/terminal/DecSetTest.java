@@ -35,6 +35,19 @@ public class DecSetTest extends TerminalTestCase {
 		assertTrue(mTerminal.isCursorEnabled());
 	}
 
+	/** DECSET 2026, synchronized output: the application is painting one frame. */
+	public void testSynchronizedOutput() {
+		withTerminalSized(3, 3);
+		assertFalse(mTerminal.isSynchronizedOutput());
+		enterString("\033[?2026h");
+		assertTrue(mTerminal.isSynchronizedOutput());
+		enterString("\033[?2026l");
+		assertFalse(mTerminal.isSynchronizedOutput());
+		enterString("\033[?2026h");
+		mTerminal.reset();
+		assertFalse("Resetting the terminal ends a forgotten synchronized update", mTerminal.isSynchronizedOutput());
+	}
+
 	/** DECSET 2004, controls bracketed paste mode. */
 	public void testBracketedPasteMode() {
 		withTerminalSized(3, 3);
