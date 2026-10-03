@@ -11,6 +11,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -142,23 +144,61 @@ import io.itermux.ssh.HostSystem
     HostSystemIcon(detectedSystem?.name ?: session.host.os, size)
 }
 
-/** Brand marks need a light tile in both themes; generic servers use the accent container. */
+/**
+ * Brand marks sit on a soft wash of their own colour, so a list of hosts reads as a set of tinted
+ * tiles rather than bright stickers. Logos keep their original colours and are optically sized:
+ * square marks run smaller than discs, tall marks slightly larger. Generic servers use the accent.
+ */
 @Composable internal fun HostSystemIcon(os: String, size: Dp = 44.dp) {
     val system = HostSystem.fromStored(os)
-    val branded = system.isLinux || system == HostSystem.WINDOWS || system == HostSystem.MACOS
-    val inset = size * when (os) {
-        "LINUX" -> 0.06f
-        "WINDOWS" -> 0.12f
-        "MACOS" -> 0.08f
-        else -> if (branded) 0.12f else 0.22f
+    val colors = MaterialTheme.colorScheme
+    val brand = hostSystemBrand(system)
+    val dark = colors.background.luminance() <= 0.5f
+    val logo = size * when (system) {
+        HostSystem.WINDOWS -> 0.5f
+        HostSystem.LINUX, HostSystem.DEBIAN, HostSystem.MACOS -> 0.64f
+        HostSystem.OPENSUSE -> 0.68f
+        HostSystem.UNKNOWN, HostSystem.OTHER -> 0.5f
+        else -> 0.6f
     }
-    val icon = hostSystemIcon(system)
-    Surface(color = if (branded) Color(0xFFF0EBE2) else MaterialTheme.colorScheme.primaryContainer,
-        shape = RoundedCornerShape(size * 0.26f)) {
-        Icon(painterResource(icon), contentDescription = tr(system.label),
-            tint = if (branded) Color.Unspecified else MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.padding(inset).size(size - inset * 2))
+    // Debian's dark red, Tux's black body and Red Hat's black disc vanish on a dark wash, so in the
+    // dark theme those keep a muted light tile; light-theme tiles are a pale wash over the card.
+    val container = when {
+        brand == null -> colors.primaryContainer
+        !dark -> brand.copy(alpha = 0.12f)
+        system in darkInkSystems -> brand.copy(alpha = 0.14f).compositeOver(Color(0xFFE6E1D8))
+        else -> brand.copy(alpha = 0.22f)
     }
+    Surface(color = container,
+        shape = RoundedCornerShape(size * 0.28f), modifier = Modifier.size(size)) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(painterResource(hostSystemIcon(system)), contentDescription = tr(system.label),
+                tint = if (brand != null) Color.Unspecified else colors.onPrimaryContainer,
+                modifier = Modifier.size(logo))
+        }
+    }
+}
+
+private val darkInkSystems = setOf(HostSystem.DEBIAN, HostSystem.LINUX, HostSystem.REDHAT)
+
+/** The wash behind each logo: the brand's primary colour, or null for the generic server glyph. */
+private fun hostSystemBrand(system: HostSystem): Color? = when (system) {
+    HostSystem.UBUNTU -> Color(0xFFE95420)
+    HostSystem.DEBIAN -> Color(0xFFD70A53)
+    HostSystem.CENTOS -> Color(0xFF9C4C99)
+    HostSystem.FEDORA -> Color(0xFF51A2DA)
+    HostSystem.ARCH -> Color(0xFF1793D1)
+    HostSystem.REDHAT -> Color(0xFFEE0000)
+    HostSystem.OPENSUSE -> Color(0xFF73BA25)
+    HostSystem.ROCKY -> Color(0xFF10B981)
+    HostSystem.ALMALINUX -> Color(0xFF0F8BD6)
+    HostSystem.GENTOO -> Color(0xFF8E7FC4)
+    HostSystem.NIXOS -> Color(0xFF7EBAE4)
+    HostSystem.LINUXMINT -> Color(0xFF87CF3E)
+    HostSystem.LINUX -> Color(0xFFF2B705)
+    HostSystem.WINDOWS -> Color(0xFF0078D4)
+    HostSystem.MACOS -> Color(0xFF9A9A9F)
+    HostSystem.UNKNOWN, HostSystem.OTHER -> null
 }
 
 internal fun hostSystemIcon(system: HostSystem): Int = when (system) {
