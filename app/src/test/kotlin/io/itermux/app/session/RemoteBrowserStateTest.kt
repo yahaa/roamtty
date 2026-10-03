@@ -57,4 +57,38 @@ class RemoteBrowserStateTest {
         assertEquals(4, nextSessionNumber(listOf(1, 2, 3)))
         assertEquals(2, nextSessionNumber(listOf(1, 3)))
     }
+
+    @Test fun staleLinkResolutionCannotOverrideNewerNavigation() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val state = RemoteBrowserState(scope)
+        try {
+            state.navigate("/srv")
+            val slow = CompletableDeferred<Boolean>()
+            state.openLink("/srv/current") { slow.await() }
+            state.navigate("/home")
+            slow.complete(true)
+            yield()
+            assertEquals("/home", state.directory)
+            assertNull(state.previewPath)
+
+            // A second tap replaces the first; only the latest result applies.
+            val first = CompletableDeferred<Boolean>()
+            state.openLink("/home/a") { first.await() }
+            state.openLink("/home/b.txt") { false }
+            first.complete(true)
+            yield()
+            assertEquals("/home", state.directory)
+            assertEquals("/home/b.txt", state.previewPath)
+
+            // Leaving the browser cancels a pending resolution.
+            state.previewPath = null
+            val pending = CompletableDeferred<Boolean>()
+            state.openLink("/home/c") { pending.await() }
+            state.cancelPendingOpen()
+            pending.complete(true)
+            yield()
+            assertEquals("/home", state.directory)
+            assertNull(state.previewPath)
+        } finally { scope.cancel() }
+    }
 }

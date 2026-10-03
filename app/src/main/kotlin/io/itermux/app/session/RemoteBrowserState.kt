@@ -30,8 +30,10 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
     var revision by mutableIntStateOf(0)
         private set
     private var actionJob: Job? = null
+    private var linkJob: Job? = null
 
     fun navigate(path: String) {
+        cancelPendingOpen()
         if (path == directory) return
         backStack = backStack + directory
         directory = path
@@ -39,6 +41,7 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
         dismissMenu()
     }
     fun goBack(): Boolean {
+        cancelPendingOpen()
         if (!canGoBack) return false
         directory = backStack.last()
         backStack = backStack.dropLast(1)
@@ -78,12 +81,27 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
     }
 
     /** SFTP listings describe the link itself; resolve it before choosing folder or preview. */
+    /** Only the latest link tap may act, and only if the user is still in the folder it was tapped in. */
     fun openLink(path: String, isDirectory: suspend (String) -> Boolean) {
-        scope.launch {
-            try { if (isDirectory(path)) navigate(path) else previewPath = path }
-            catch (e: CancellationException) { throw e }
-            catch (e: Exception) { actionError = trf("无法打开链接：%s", tr(e.message ?: "链接目标不存在")) }
+        cancelPendingOpen()
+        val from = directory
+        linkJob = scope.launch {
+            val folder = try { isDirectory(path) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    if (directory == from) actionError = trf("无法打开链接：%s", tr(e.message ?: "链接目标不存在"))
+                    return@launch
+                }
+            if (directory != from || previewPath != null) return@launch
+            linkJob = null
+            if (folder) navigate(path) else previewPath = path
         }
+    }
+
+    /** Any newer navigation, preview or leaving the browser supersedes a pending link resolution. */
+    fun cancelPendingOpen() {
+        linkJob?.cancel()
+        linkJob = null
     }
 
     private fun runAction(label: String, action: suspend () -> Unit) {

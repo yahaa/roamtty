@@ -67,6 +67,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
         if (browser.filtering) browser.clearFilter() else if (!browser.goBack()) onBack()
     }
     BackHandler(onBack = ::navigateBack)
+    DisposableEffect(browser) { onDispose { browser.cancelPendingOpen() } }
 
     LaunchedEffect(session.id, browser.directory, browser.revision, connection.phase) {
         error = null
@@ -172,6 +173,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                             items(entries, key = { it.name }) { entry ->
                                 val path = joinRemotePath(current.path, entry.name)
                                 fun open() {
+                                    browser.cancelPendingOpen()
                                     when {
                                         entry.isDirectory -> browser.navigate(path)
                                         entry.permissions.startsWith('l') -> browser.openLink(path, session::isRemoteDirectory)
