@@ -33,14 +33,15 @@ class FilePreviewUiTest {
 
     @Test fun titleStaysOnOneLineAndEllipsizesInNarrowWindows() {
         var width by mutableStateOf(140.dp)
-        val path = "/home/developer/projects/a-very-long-folder-name/source"
+        val path = "/home/developer/projects/a-very-long-folder-name-for-source"
         compose.setContent { MaterialTheme { Box(Modifier.width(width)) { FileBrowserTitle(path, "开发服务器") } } }
-        compose.onNodeWithTag("files-title").assertTextEquals("$path（开发服务器）")
+        compose.onNodeWithTag("files-title").assertTextEquals("a-very-long-folder-name-for-source")
+        compose.onNodeWithTag("files-subtitle").assertTextEquals("开发服务器")
         val layouts = mutableListOf<TextLayoutResult>()
         compose.onNodeWithTag("files-title").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertEquals(1, layouts.single().lineCount)
         assertTrue(layouts.single().isLineEllipsized(0))
-        compose.runOnIdle { width = 300.dp }
+        compose.runOnIdle { width = 400.dp }
         layouts.clear()
         compose.onNodeWithTag("files-title").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertEquals(1, layouts.single().lineCount)
@@ -82,6 +83,12 @@ class FilePreviewUiTest {
             open("$prefix.md", "file-preview-text")
             compose.onNodeWithText("# Preview 中文").assertIsDisplayed()
             compose.onNodeWithText("    indent preserved").assertIsDisplayed()
+            compose.onNodeWithTag("file-preview-status").assertTextContains("Markdown", substring = true)
+            compose.onNodeWithTag("file-preview-search").performClick()
+            compose.onNodeWithTag("file-preview-search-input").performTextInput("preview")
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("1/1").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("file-preview-search-close").performClick()
+            compose.onNodeWithTag("file-preview-title").assertIsDisplayed()
             compose.onNodeWithTag("file-preview").captureToImage().asAndroidBitmap().let { bitmap ->
                 File(context.getExternalFilesDir(null), "file-preview-text.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             }

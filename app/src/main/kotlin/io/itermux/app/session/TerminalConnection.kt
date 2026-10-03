@@ -149,6 +149,8 @@ class TerminalConnection(
     /** Rename a remote path; distinct from [rename] which only changes the local session title. */
     suspend fun renameRemoteFile(oldPath: String, newPath: String) = ssh.rename(oldPath, newPath)
     suspend fun deleteRemoteFile(path: String) = ssh.deleteFile(path)
+    suspend fun makeRemoteDirectory(path: String) = ssh.makeDirectory(path)
+    suspend fun isRemoteDirectory(path: String) = ssh.isDirectory(path)
 
     fun refreshCommonCommands() {
         commonCommandsJob?.cancel()

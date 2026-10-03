@@ -19,6 +19,9 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
     var renamePath by mutableStateOf<String?>(null)
     var renameDraft by mutableStateOf("")
     var previewPath by mutableStateOf<String?>(null)
+    var newFolderDraft by mutableStateOf<String?>(null)
+    var filtering by mutableStateOf(false)
+    var filter by mutableStateOf("")
     var deletePath by mutableStateOf<String?>(null)
     var deleteIsDirectory by mutableStateOf(false)
     var operation by mutableStateOf<String?>(null)
@@ -32,12 +35,14 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
         if (path == directory) return
         backStack = backStack + directory
         directory = path
+        clearFilter()
         dismissMenu()
     }
     fun goBack(): Boolean {
         if (!canGoBack) return false
         directory = backStack.last()
         backStack = backStack.dropLast(1)
+        clearFilter()
         dismissMenu()
         return true
     }
@@ -46,6 +51,7 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
         menuEntry = entry
     }
     fun dismissMenu() { menuPath = null; menuEntry = null }
+    fun clearFilter() { filtering = false; filter = "" }
     fun refresh() { revision++ }
     fun cancel() { actionJob?.cancel() }
 
@@ -62,6 +68,22 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
         val path = deletePath ?: return
         deletePath = null
         runAction(tr("正在删除…")) { action(path) }
+    }
+
+    fun createFolder(directory: String, action: suspend (String) -> Unit) {
+        val name = newFolderDraft?.trim() ?: return
+        if (!validRemoteRename(name)) return
+        newFolderDraft = null
+        runAction(tr("正在创建文件夹…")) { action(joinRemotePath(directory, name)) }
+    }
+
+    /** SFTP listings describe the link itself; resolve it before choosing folder or preview. */
+    fun openLink(path: String, isDirectory: suspend (String) -> Boolean) {
+        scope.launch {
+            try { if (isDirectory(path)) navigate(path) else previewPath = path }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { actionError = trf("无法打开链接：%s", tr(e.message ?: "链接目标不存在")) }
+        }
     }
 
     private fun runAction(label: String, action: suspend () -> Unit) {
@@ -81,6 +103,18 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
         actionJob = job
         job.start()
     }
+}
+
+/** Clickable path segments from the root to [path], each with its absolute target. */
+internal fun breadcrumbSegments(path: String): List<Pair<String, String>> {
+    if (!path.startsWith('/')) return if (path.isEmpty()) emptyList() else listOf(path to path)
+    val segments = mutableListOf("/" to "/")
+    var current = ""
+    path.split('/').filter { it.isNotEmpty() }.forEach { name ->
+        current += "/$name"
+        segments += name to current
+    }
+    return segments
 }
 
 internal fun validRemoteRename(name: String): Boolean = name.isNotBlank() && isSafeRemoteEntryName(name)

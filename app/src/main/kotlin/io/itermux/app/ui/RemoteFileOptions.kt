@@ -16,18 +16,67 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import io.itermux.app.R
 import io.itermux.app.tr
+import io.itermux.ssh.RemoteEntry
+
+internal enum class RemoteFileSort(val label: String) {
+    NAME("名称"), MODIFIED("修改时间"), SIZE("大小"), TYPE("类型");
+
+    companion object {
+        fun from(value: String?) = entries.firstOrNull { it.name == value } ?: NAME
+    }
+}
 
 internal class RemoteFileOptions(private val preferences: SharedPreferences) {
-    var showHiddenFiles by mutableStateOf(preferences.getBoolean("showHiddenFiles", false))
+    var showHiddenFiles by mutableStateOf(false)
         private set
+    var sort by mutableStateOf(RemoteFileSort.NAME)
+        private set
+    var sortDescending by mutableStateOf(false)
+        private set
+    var codeWrap by mutableStateOf(false)
+        private set
+    var codeFontSize by mutableFloatStateOf(DEFAULT_CODE_FONT_SIZE)
+        private set
+
+    init { refresh() }
 
     fun refresh() {
         showHiddenFiles = preferences.getBoolean("showHiddenFiles", false)
+        sort = RemoteFileSort.from(preferences.getString("fileSort", null))
+        sortDescending = preferences.getBoolean("fileSortDescending", false)
+        codeWrap = preferences.getBoolean("codeWrap", false)
+        codeFontSize = preferences.getFloat("codeFontSize", DEFAULT_CODE_FONT_SIZE).coerceIn(MIN_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE)
     }
 
     fun setShowHidden(value: Boolean) {
         showHiddenFiles = value
         preferences.edit { putBoolean("showHiddenFiles", value) }
+    }
+
+    /** Choosing the active order again flips its direction. */
+    fun chooseSort(value: RemoteFileSort) {
+        val descending = if (value == sort) !sortDescending else value == RemoteFileSort.MODIFIED || value == RemoteFileSort.SIZE
+        sort = value
+        sortDescending = descending
+        preferences.edit { putString("fileSort", value.name); putBoolean("fileSortDescending", descending) }
+    }
+
+    fun changeCodeWrap(value: Boolean) {
+        codeWrap = value
+        preferences.edit { putBoolean("codeWrap", value) }
+    }
+
+    fun changeCodeFontSize(delta: Float) {
+        codeFontSize = (codeFontSize + delta).coerceIn(MIN_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE)
+        preferences.edit { putFloat("codeFontSize", codeFontSize) }
+    }
+
+    companion object {
+        const val DEFAULT_CODE_FONT_SIZE = 13f
+        const val MIN_CODE_FONT_SIZE = 9f
+        const val MAX_CODE_FONT_SIZE = 22f
+        private val keys = setOf("showHiddenFiles", "fileSort", "fileSortDescending", "codeWrap", "codeFontSize")
+        fun observes(key: String?) = key == null || key in keys
     }
 }
 
@@ -39,7 +88,7 @@ internal fun rememberRemoteFileOptions(): RemoteFileOptions {
     val options = remember(preferences) { RemoteFileOptions(preferences) }
     DisposableEffect(preferences, options) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == null || key == "showHiddenFiles") options.refresh()
+            if (RemoteFileOptions.observes(key)) options.refresh()
         }
         preferences.registerOnSharedPreferenceChangeListener(listener)
         options.refresh()
@@ -69,4 +118,17 @@ internal fun RemoteFileOptionsMenu(options: RemoteFileOptions, modifier: Modifie
             }
         }
     }
+}
+
+/** Folders always come first, as in editor file trees; ties fall back to A→Z names in either direction. */
+internal fun sortRemoteEntries(entries: List<RemoteEntry>, sort: RemoteFileSort, descending: Boolean): List<RemoteEntry> {
+    val byName = compareBy(String.CASE_INSENSITIVE_ORDER) { entry: RemoteEntry -> entry.name }
+    val primary: Comparator<RemoteEntry> = when (sort) {
+        RemoteFileSort.NAME -> byName
+        RemoteFileSort.MODIFIED -> compareBy { it.mtimeSeconds }
+        RemoteFileSort.SIZE -> compareBy { if (it.isDirectory) 0L else it.size }
+        RemoteFileSort.TYPE -> compareBy(String.CASE_INSENSITIVE_ORDER) { if (it.isDirectory) "" else it.name.substringAfterLast('.', "") }
+    }
+    return entries.sortedWith(compareByDescending<RemoteEntry> { it.isDirectory }
+        .then(if (descending) primary.reversed() else primary).then(byName))
 }
