@@ -89,7 +89,8 @@ class TerminalConnection(
             try { request.answer.await() } finally { pending.compareAndSet(request, null) }
         },
         remoteSessionName = remoteSessionName,
-        preferMosh = preferMosh
+        preferMosh = preferMosh,
+        elapsedMillis = SystemClock::elapsedRealtime
     )
     val state = if (credentials != null) ssh.state else MutableStateFlow(ConnectionState(
         Phase.DISCONNECTED, "连接已中断，请手动重连。会话记录已恢复，未发送的输入不会重发。" )).asStateFlow()
