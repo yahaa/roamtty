@@ -71,15 +71,30 @@ class TrustPolicy(private val store: PinStore) {
 object Tmux {
     /** Legacy fixed remote name used by journal entries created before multi-session support. */
     const val LEGACY_SESSION = "itermux"
-    const val PROBE = "command -v tmux >/dev/null 2>&1"
+    /**
+     * sshd runs commands in a non-login shell, which misses the Homebrew and MacPorts paths where
+     * tmux and mosh land on macOS (and Linuxbrew or snap on Linux).
+     */
+    const val EXTRA_PATH = "/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin"
+    const val PATH_SETUP = "PATH=\"\$PATH:$EXTRA_PATH\"; export PATH"
+    const val PROBE = "/bin/sh -c '$PATH_SETUP; command -v tmux >/dev/null 2>&1'"
 
     fun sanitizeSessionName(name: String): String =
         name.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.take(64).ifEmpty { LEGACY_SESSION }
 
     fun newSessionName(): String = "itermux-${UUID.randomUUID().toString().replace("-", "").take(12)}"
 
+    /**
+     * Runs tmux through /bin/sh with [EXTRA_PATH], whatever the login shell (fish, csh, nu…).
+     * [args] must not contain single quotes; session names are sanitized, so they need none.
+     */
+    fun command(args: String): String {
+        require('\'' !in args)
+        return "/bin/sh -c '$PATH_SETUP; exec tmux $args'"
+    }
+
     fun attachCommand(sessionName: String): String =
-        "exec tmux new-session -A -s '${sanitizeSessionName(sessionName)}'"
+        "exec " + command("new-session -A -s ${sanitizeSessionName(sessionName)}")
 
     fun targetFlag(sessionName: String): String = "'${sanitizeSessionName(sessionName)}'"
 }

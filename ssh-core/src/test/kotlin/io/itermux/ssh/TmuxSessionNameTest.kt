@@ -16,8 +16,9 @@ class TmuxSessionNameTest {
     }
 
     @Test fun attachCommandQuotesSanitizedName() {
-        assertEquals("exec tmux new-session -A -s 'itermux'", Tmux.attachCommand(Tmux.LEGACY_SESSION))
-        assertEquals("exec tmux new-session -A -s 'itermux-deadbeefrm'", Tmux.attachCommand("itermux-deadbeef;rm"))
+        assertEquals("exec /bin/sh -c '${Tmux.PATH_SETUP}; exec tmux new-session -A -s itermux'", Tmux.attachCommand(Tmux.LEGACY_SESSION))
+        assertTrue(Tmux.attachCommand("itermux-deadbeef;rm").endsWith("exec tmux new-session -A -s itermux-deadbeefrm'"))
+        assertTrue(Tmux.PATH_SETUP.contains("/opt/homebrew/bin"))
     }
 
     @Test fun newSessionNamesAreUniqueAndPrefixed() {

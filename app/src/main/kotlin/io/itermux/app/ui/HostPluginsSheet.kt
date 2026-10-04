@@ -40,8 +40,10 @@ internal class HostPluginsController(private val app: ItermuxApp, private val ta
     val host get() = target.host
     val pending = MutableStateFlow<PendingPrompt?>(null)
     val connection = MutableStateFlow(ConnectionState(Phase.CONNECTING))
-    /** null while probing, or when the host cannot be probed (e.g. Windows). */
+    /** null while probing, or when the host cannot be probed (e.g. Windows cmd or PowerShell). */
     val plugins = MutableStateFlow<Set<HostPlugin>?>(null)
+    /** Picks the install hints shown for this host. */
+    val system = MutableStateFlow<HostSystem?>(null)
     val probed = MutableStateFlow(false)
     val installing = MutableStateFlow<HostPlugin?>(null)
     val log = MutableStateFlow<List<String>>(emptyList())
@@ -79,6 +81,7 @@ internal class HostPluginsController(private val app: ItermuxApp, private val ta
                 session = ssh
                 val state = launch { ssh.state.collect { connection.value = it } }
                 ssh.administer { remote ->
+                    system.value = ssh.detectedSystem.value
                     save(remote.probePlugins())
                     for ((plugin, sudo) in queue) install(remote, plugin, sudo)
                 }
@@ -131,6 +134,7 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
     val connection by controller.connection.collectAsStateWithLifecycle()
     val plugins by controller.plugins.collectAsStateWithLifecycle()
     val probed by controller.probed.collectAsStateWithLifecycle()
+    val system by controller.system.collectAsStateWithLifecycle()
     val installing by controller.installing.collectAsStateWithLifecycle()
     val log by controller.log.collectAsStateWithLifecycle()
     val result by controller.result.collectAsStateWithLifecycle()
@@ -154,11 +158,12 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
                     TextButton(onClick = controller::start, modifier = Modifier.testTag("host-plugins-retry")) { Text(tr("重新连接")) }
                 }
-                probed && plugins == null -> Text(tr("无法检测插件。目前支持 Linux、macOS 和 BSD 主机。"),
+                probed && plugins == null -> Text(if (system == HostSystem.WINDOWS) tr("Windows 的 cmd 和 PowerShell 无法运行 tmux 与 mosh。请把 OpenSSH 的默认 shell 设为 MSYS2 或 Cygwin 的 bash 后重试，或在 WSL 中开启 SSH 并单独添加为主机。")
+                    else tr("无法检测插件。目前支持 Linux、macOS、BSD，以及使用 MSYS2 或 Cygwin shell 的 Windows 主机。"),
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = Spacing.Page))
             }
             GroupedSection(header = tr("插件"),
-                footer = tr("使用主机的包管理器安装（apt、dnf、yum、pacman、zypper、apk、brew），需要 root 或 sudo 权限。新建会话优先使用 mosh；装有 tmux 时在 tmux 中运行。")) {
+                footer = trf("%s新建会话优先使用 mosh；装有 tmux 时在 tmux 中运行。", installHint(system))) {
                 HostPlugin.entries.forEachIndexed { index, plugin ->
                     if (index > 0) GroupedDivider()
                     GroupedRow(plugin.id, Modifier.testTag("plugin-${plugin.id}"), subtitle = pluginDescription(plugin),
@@ -180,8 +185,9 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
                 }
             }
             result?.let { (plugin, outcome) ->
+                val system = system
                 val failed = outcome != HostPluginInstaller.Result.INSTALLED
-                Text(installMessage(plugin, outcome), style = MaterialTheme.typography.bodyMedium,
+                Text(installMessage(plugin, outcome, system), style = MaterialTheme.typography.bodyMedium,
                     color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = Spacing.Page).testTag("plugin-result"))
                 if (outcome == HostPluginInstaller.Result.SUDO_PASSWORD) {
@@ -217,11 +223,22 @@ private fun pluginDescription(plugin: HostPlugin) = when (plugin) {
     HostPlugin.MOSH -> tr("移动网络优化：基于 UDP，切换网络或锁屏后自动恢复。需放行 UDP 60000–61000。")
 }
 
-private fun installMessage(plugin: HostPlugin, result: HostPluginInstaller.Result) = when (result) {
+/** Which package manager installs plugins on this kind of host, and whether it needs sudo. */
+private fun installHint(system: HostSystem?) = when (system) {
+    HostSystem.MACOS -> tr("通过 Homebrew 安装，无需 sudo；也支持 MacPorts。")
+    HostSystem.WINDOWS -> tr("通过 MSYS2 的 pacman 或 Cygwin 的 apt-cyg 安装，无需管理员权限。")
+    else -> tr("使用主机的包管理器安装（apt、dnf、yum、pacman、zypper、apk、pkg），需要 root 或 sudo 权限；也支持 Homebrew。")
+}
+
+private fun installMessage(plugin: HostPlugin, result: HostPluginInstaller.Result, system: HostSystem?) = when (result) {
     HostPluginInstaller.Result.INSTALLED -> trf("%s 安装完成。", plugin.id)
     HostPluginInstaller.Result.SUDO_PASSWORD -> tr("需要 sudo 密码，或密码不正确。")
     HostPluginInstaller.Result.NO_PRIVILEGE -> tr("当前用户没有 root 或 sudo 权限，请联系管理员安装。")
-    HostPluginInstaller.Result.NO_PACKAGE_MANAGER -> tr("未找到支持的包管理器，请手动安装。")
+    HostPluginInstaller.Result.NO_PACKAGE_MANAGER -> when (system) {
+        HostSystem.MACOS -> tr("未找到 Homebrew 或 MacPorts。请先在 Mac 上安装 Homebrew（brew.sh），再重试。")
+        HostSystem.WINDOWS -> tr("未找到 pacman 或 apt-cyg。Git Bash 无法安装软件，请改用 MSYS2，或为 Cygwin 安装 apt-cyg。")
+        else -> tr("未找到支持的包管理器，请手动安装。")
+    }
     HostPluginInstaller.Result.FAILED -> trf("%s 安装失败，请查看下方输出。", plugin.id)
 }
 

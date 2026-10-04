@@ -136,7 +136,8 @@ class JschSession(
             result = HostSystemProbe.parse(unix, runCommand(ssh, HostSystemProbe.windowsCommand))
         }
         if (result != HostSystem.UNKNOWN) mutableDetectedSystem.value = result
-        if (unix != null && result != HostSystem.WINDOWS) probePlugins(ssh)
+        // Windows hosts whose OpenSSH shell is MSYS2 or Cygwin bash run the same POSIX probe.
+        if (unix?.contains(HostSystemProbe.KERNEL) == true) probePlugins(ssh)
     }
 
     private suspend fun probePlugins(ssh: Session): Set<HostPlugin>? =
@@ -555,7 +556,7 @@ class JschSession(
     suspend fun readFileContent(remotePath: String, maxBytes: Int): RemoteFileContent = withFiles { files.readFileContent(remotePath, maxBytes) }
     suspend fun currentWorkingDirectory(): String? = validWorkingDirectory(runCommand(
         if (target.mode == SessionMode.TMUX)
-            "tmux display-message -p -t ${Tmux.targetFlag(tmuxName)} '#{pane_current_path}'"
+            Tmux.command("display-message -p -t ${Tmux.sanitizeSessionName(tmuxName)} \"#{pane_current_path}\"")
         else shellWorkingDirectoryCommand))
     suspend fun rename(oldPath: String, newPath: String) = withFiles { files.rename(oldPath, newPath) }
     suspend fun deleteFile(path: String) = withFiles { files.deleteFile(path) }

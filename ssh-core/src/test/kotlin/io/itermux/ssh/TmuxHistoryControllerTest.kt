@@ -39,7 +39,7 @@ class TmuxHistoryControllerTest {
             }
         }
         assertEquals(HistorySource.OUTPUT, history.enter()?.source)
-        assertTrue(commands.any { it.endsWith(" -X cancel") })
+        assertTrue(commands.any { it.endsWith(" -X cancel'") })
         assertFalse(commands.any { it.endsWith(" PPage") })
         assertFalse(commands.any { it.endsWith(" C-t") || it.contains("copy-mode") })
     }
@@ -78,8 +78,8 @@ class TmuxHistoryControllerTest {
         }
         assertEquals(TmuxHistory(10, 0, false, 24), history.history())
         history.enter()
-        assertTrue(commands.any { it.contains("-t 'itermux-custom1'") })
-        assertFalse(commands.any { it.contains("-t 'itermux'") && "custom1" !in it })
+        assertTrue(commands.any { it.contains("-t itermux-custom1 ") })
+        assertFalse(commands.any { it.contains("-t itermux ") && "custom1" !in it })
     }
 
     private class FakeTmux {
@@ -95,7 +95,7 @@ class TmuxHistoryControllerTest {
                 return ""
             }
             val count = Regex("-N (\\d+)").find(command)?.groupValues?.get(1)?.toInt() ?: 1
-            when (command.substringAfter(" -X ")) {
+            when (command.substringAfter(" -X ").removeSuffix("'")) {
                 "history-top" -> position = 120
                 "history-bottom" -> position = 0
                 "page-up" -> position = (position + 22 * count).coerceAtMost(120)
