@@ -4,6 +4,8 @@ import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.app.AppLocale
 import io.itermux.app.AppLanguage
+import io.itermux.app.BuildConfig
+import io.itermux.app.code.MarkdownParser
 
 import android.content.Context
 import androidx.compose.foundation.layout.*
@@ -27,15 +29,44 @@ import androidx.compose.ui.unit.sp
     }, confirmButton = { TextButton(onClick = { if (key) connect("", secret) else connect(secret, ""); secret = "" }) { Text(tr("连接")) } }, dismissButton = { TextButton(onClick = dismiss) { Text(tr("取消")) } })
 }
 
+private enum class AboutPage { GUIDE, PRIVACY, LICENSES }
+
 @Composable internal fun AboutDialog(context: Context, dismiss: () -> Unit) {
-    var licenses by remember { mutableStateOf(false) }
+    var page by remember { mutableStateOf(AboutPage.GUIDE) }
     val licenseText = remember { runCatching { context.assets.open("THIRD_PARTY_NOTICES.txt").bufferedReader().use { it.readText() } }.getOrDefault(tr("许可文件请参阅源码中的 THIRD_PARTY_NOTICES.md。")) }
-    AlertDialog(onDismissRequest = dismiss, title = { Text(if (licenses) tr("第三方许可") else "iTermux 0.1.0") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(if (licenses) licenseText else guideText())
-            TextButton(onClick = { licenses = !licenses }) { Text(if (licenses) tr("返回指南") else tr("查看第三方许可")) }
+    val privacyPolicy = remember {
+        val markdown = runCatching { context.assets.open("PRIVACY.md").bufferedReader().use { it.readText() } }
+            .getOrDefault(tr("隐私政策请参阅源码中的 docs/PRIVACY.md。"))
+        MarkdownParser.parse(privacyPolicySection(markdown, AppLocale.language == AppLanguage.ENGLISH))
+    }
+    val title = when (page) {
+        AboutPage.GUIDE -> "iTermux ${BuildConfig.VERSION_NAME}"
+        AboutPage.PRIVACY -> tr("隐私政策")
+        AboutPage.LICENSES -> tr("第三方许可")
+    }
+    AlertDialog(onDismissRequest = dismiss, title = { Text(title) }, text = {
+        // The policy scrolls inside its own list, so only the plain-text pages scroll the column.
+        val scroll = if (page == AboutPage.PRIVACY) Modifier else Modifier.verticalScroll(rememberScrollState())
+        Column(scroll, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            when (page) {
+                AboutPage.GUIDE -> Text(guideText())
+                AboutPage.PRIVACY -> MarkdownView(privacyPolicy, null, Modifier.weight(1f, fill = false).fillMaxWidth(),
+                    background = AlertDialogDefaults.containerColor)
+                AboutPage.LICENSES -> Text(licenseText)
+            }
+            if (page == AboutPage.GUIDE) Column {
+                TextButton(onClick = { page = AboutPage.PRIVACY }) { Text(tr("隐私政策")) }
+                TextButton(onClick = { page = AboutPage.LICENSES }) { Text(tr("查看第三方许可")) }
+            } else TextButton(onClick = { page = AboutPage.GUIDE }) { Text(tr("返回指南")) }
         }
     }, confirmButton = { TextButton(onClick = dismiss) { Text(tr("关闭")) } })
+}
+
+/** docs/PRIVACY.md holds the Chinese policy, then the English one, each starting at its own `# ` heading. */
+internal fun privacyPolicySection(markdown: String, english: Boolean): String {
+    val starts = Regex("^# ", RegexOption.MULTILINE).findAll(markdown).map { it.range.first }.toList()
+    if (starts.size < 2) return markdown
+    return (if (english) markdown.substring(starts[1]) else markdown.substring(starts[0], starts[1])).trim()
 }
 
 private fun guideText(): String = if (AppLocale.language == AppLanguage.ENGLISH)

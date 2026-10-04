@@ -4,9 +4,10 @@ $ErrorActionPreference = 'Stop'
 # This destructive clean-install test is restricted to disposable emulators.
 if ($Serial -notmatch '^emulator-[0-9]+$') { throw 'Clean-install smoke tests are emulator-only. Never erase a phone here.' }
 $adb = "$env:ANDROID_HOME/platform-tools/adb.exe"
-$release = "$projectRoot/dist/iTermux-0.1.0.apk"
+$version = (Select-String -Path "$projectRoot/gradle.properties" -Pattern '^itermuxVersionName=(.+)$').Matches[0].Groups[1].Value.Trim()
+$release = "$projectRoot/dist/iTermux-$version.apk"
 $upgrade = "$projectRoot/.local/upgrade-test.apk"
-if (!(Test-Path $release) -or !(Test-Path $upgrade)) { throw 'Build the release and versionCode 2 upgrade-test APK first.' }
+if (!(Test-Path $release) -or !(Test-Path $upgrade)) { throw 'Build the release and an upgrade-test APK with a higher versionCode (-PitermuxVersionCode) first.' }
 $report = "$projectRoot/.local/release-smoke-$Serial.txt"
 function AdbCheck([string[]]$Arguments) {
     $output = & $adb -s $Serial @Arguments 2>&1

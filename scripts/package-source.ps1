@@ -2,7 +2,8 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zipPath = Join-Path $root 'dist/iTermux-0.1.0-source.zip'
+$version = (Select-String -Path "$root/gradle.properties" -Pattern '^itermuxVersionName=(.+)$').Matches[0].Groups[1].Value.Trim()
+$zipPath = Join-Path $root "dist/iTermux-$version-source.zip"
 $folders = @('app','ssh-core','terminal-emulator','terminal-view','scripts','docs','licenses','gradle','artwork')
 $rootNames = @('.gitignore','.gitattributes','settings.gradle.kts','build.gradle.kts','gradle.properties','gradlew','gradlew.bat','LICENSE','NOTICE','README.md','THIRD_PARTY_NOTICES.md','toolchains.lock.json','test-tool.lock.json')
 $files = @($rootNames | ForEach-Object { Get-Item -LiteralPath (Join-Path $root $_) })

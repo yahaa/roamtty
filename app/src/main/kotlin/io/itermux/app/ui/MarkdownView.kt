@@ -68,11 +68,12 @@ private fun MdText.annotated(colors: MarkdownColors, uriHandler: UriHandler): An
 }
 
 @Composable
-internal fun MarkdownView(blocks: List<MdBlock>, loadImage: (suspend (String) -> ImageBitmap?)?, modifier: Modifier = Modifier) {
+internal fun MarkdownView(blocks: List<MdBlock>, loadImage: (suspend (String) -> ImageBitmap?)?, modifier: Modifier = Modifier,
+    background: Color = MaterialTheme.colorScheme.surface) {
     val scheme = MaterialTheme.colorScheme
     val colors = MarkdownColors(scheme.primary, scheme.surfaceContainerHighest, scheme.onSurfaceVariant, scheme.outlineVariant)
     SelectionContainer(modifier) {
-        LazyColumn(Modifier.fillMaxSize().background(scheme.surface).testTag("file-preview-markdown"),
+        LazyColumn(Modifier.fillMaxSize().background(background).testTag("file-preview-markdown"),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)) {
             // List items sit close together; every other block gets a little more air.
