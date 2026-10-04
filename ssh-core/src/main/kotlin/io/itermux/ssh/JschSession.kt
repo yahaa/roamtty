@@ -140,6 +140,13 @@ class JschSession(
         if (unix?.contains(HostSystemProbe.KERNEL) == true) probePlugins(ssh)
     }
 
+    /**
+     * JSch's channel open waits out its whole timeout when the connection drops and ignores
+     * cancellation, so the terminal must not join the probe: a drop would be reported 5 s late.
+     */
+    private fun launchProbe(ssh: Session): Job =
+        CoroutineScope(Dispatchers.IO).launch { runCatching { probeHostSystem(ssh) } }
+
     private suspend fun probePlugins(ssh: Session): Set<HostPlugin>? =
         HostPluginProbe.parse(runCommand(ssh, HostPluginProbe.command, HostPluginProbe.script))
             ?.also { mutableDetectedPlugins.value = it }
@@ -230,7 +237,7 @@ class JschSession(
             try {
                 coroutineScope {
                     // Metadata must not delay the terminal, enter shell history or steal PTY output.
-                    val systemProbe = launch { probeHostSystem(ssh) }
+                    val systemProbe = launchProbe(ssh)
                     val writer = launch(Dispatchers.IO) {
                         try {
                             for (bytes in queues.currentInput()) {
@@ -313,7 +320,7 @@ class JschSession(
         val client = MoshClient(address, connect.port, connect.key, elapsedMillis)
         val end = try {
             coroutineScope {
-                val systemProbe = launch { probeHostSystem(ssh) }
+                val systemProbe = launchProbe(ssh)
                 // Keep files and tmux history usable: quietly log back in after the SSH side drops.
                 val keeper = launch {
                     while (true) {
