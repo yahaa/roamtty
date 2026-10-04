@@ -2,7 +2,6 @@ package io.itermux.app.ui
 
 import io.itermux.app.data.Host
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -10,40 +9,14 @@ import org.junit.Test
 import java.net.ServerSocket
 
 class HostReachabilityTest {
-    @Test fun tcpFallbackTimesAListeningPort() {
+    @Test fun sshPortProbeTimesAListeningPort() {
         ServerSocket(0).use { server -> assertNotNull(tcpRoundTrip("127.0.0.1", server.localPort, 1_000)) }
     }
 
-    @Test fun tcpFallbackFailsOnClosedPortOrUnknownHost() {
+    @Test fun sshPortProbeFailsOnClosedPortOrUnknownHost() {
         val port = ServerSocket(0).use { it.localPort }
         assertNull(tcpRoundTrip("127.0.0.1", port, 1_000))
         assertNull(tcpRoundTrip("host.invalid", 22, 1_000))
-    }
-
-    @Test fun sshPortDecidesOnlyWhenPingGetsNoAnswer() {
-        var tcpTried = false
-        assertEquals(HostReachability.Online(12), probeWithFallback(ping = { 12 }, tcp = { tcpTried = true; 40 }))
-        assertFalse(tcpTried)
-        assertEquals(HostReachability.Online(40), probeWithFallback(ping = { null }, tcp = { 40 }))
-        assertEquals(HostReachability.Offline, probeWithFallback(ping = { null }, tcp = { null }))
-    }
-
-    @Test fun echoRequestCarriesTypeAndSequence() {
-        val v4 = icmpEchoRequest(v6 = false, sequence = 0x1234)
-        assertEquals(8, v4[0].toInt())
-        assertEquals(0x12, v4[6].toInt())
-        assertEquals(0x34, v4[7].toInt())
-        assertEquals(128, icmpEchoRequest(v6 = true, sequence = 1)[0].toInt() and 0xFF)
-    }
-
-    @Test fun onlyMatchingEchoRepliesCount() {
-        val reply = icmpEchoRequest(v6 = false, sequence = 0xBEEF).also { it[0] = 0 }
-        assertTrue(isIcmpEchoReply(reply, reply.size, v6 = false, sequence = 0xBEEF))
-        assertFalse(isIcmpEchoReply(reply, reply.size, v6 = false, sequence = 0xBEEE))
-        assertFalse(isIcmpEchoReply(reply, 4, v6 = false, sequence = 0xBEEF))
-        assertFalse(isIcmpEchoReply(reply, reply.size, v6 = true, sequence = 0xBEEF))
-        val reply6 = icmpEchoRequest(v6 = true, sequence = 7).also { it[0] = 129.toByte() }
-        assertTrue(isIcmpEchoReply(reply6, reply6.size, v6 = true, sequence = 7))
     }
 
     @Test fun offlineHostsBackOffToFiveMinutes() {
