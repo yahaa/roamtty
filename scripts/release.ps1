@@ -16,12 +16,16 @@ if (!(Test-Path $keyStore)) {
     $random.Clear()
 }
 if (!(Test-Path $properties)) { throw 'Restore signing.properties matching the saved release key.' }
-& "$PSScriptRoot/build.ps1" :app:assembleRelease
+$version = (Select-String -Path "$projectRoot/gradle.properties" -Pattern '^itermuxVersionName=(.+)$').Matches[0].Groups[1].Value.Trim()
+& "$PSScriptRoot/build.ps1" :app:assembleRelease :app:bundleRelease
 if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
-$apk = "$projectRoot/dist/iTermux-0.1.0.apk"
+$apk = "$projectRoot/dist/iTermux-$version.apk"
+$aab = "$projectRoot/dist/iTermux-$version.aab"
 Copy-Item -LiteralPath "$projectRoot/app/build/outputs/apk/release/app-release.apk" -Destination $apk -Force
+Copy-Item -LiteralPath "$projectRoot/app/build/outputs/bundle/release/app-release.aab" -Destination $aab -Force
 & "$env:ANDROID_HOME/build-tools/36.0.0/apksigner.bat" verify --verbose --print-certs $apk | Tee-Object -FilePath "$projectRoot/dist/signature.txt"
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed' }
-$checksum = (Get-FileHash $apk -Algorithm SHA256).Hash.ToLowerInvariant()
-[IO.File]::WriteAllText("$projectRoot/dist/SHA256SUMS.txt", "$checksum  iTermux-0.1.0.apk`n")
-Write-Output 'Signed release APK created in dist/. Keep .private/signing and signing.properties backed up separately.'
+if (-not (& "$env:JAVA_HOME/bin/jarsigner.exe" -verify $aab | Select-String -Quiet '^jar verified')) { throw 'AAB signature verification failed' }
+$sums = foreach ($file in $apk, $aab) { "$((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant())  $(Split-Path -Leaf $file)" }
+[IO.File]::WriteAllText("$projectRoot/dist/SHA256SUMS.txt", ($sums -join "`n") + "`n")
+Write-Output 'Signed release APK and AAB created in dist/. Upload the AAB to Play Console. Keep .private/signing and signing.properties backed up separately.'
