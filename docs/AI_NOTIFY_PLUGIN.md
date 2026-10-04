@@ -22,7 +22,7 @@ Claude Code、Codex、Grok 在远端**停下来等用户操作**时，手机弹�
 ## 2. 架构
 
 ```
-远端 CLI hook ──> ~/.itermux/bin/itermux-notify ──> 追加一行到 ~/.itermux/events.jsonl
+远端 CLI hook ──> ~/.roamtty/bin/roamtty-notify ──> 追加一行到 ~/.roamtty/events.jsonl
                                                           │
 App（会话已有的 SSH 连接）exec: tail -F events.jsonl <─────┘
      └─> 解析 → 匹配会话 → Android 通知 → 点击打开会话
@@ -55,14 +55,14 @@ mosh 模式下 App 本来就保留着 SSH 连接（用于传文件和读历史�
 - **用哪些事件判断“已处理”**：
   - Claude 和 Grok：`PostToolUse`、`UserPromptSubmit`、`Stop`。
   - Codex：`PostToolUse`、`Stop`。
-- **怎样保证不变慢**：只有当前会话存在“待处理”标记文件 `~/.itermux/pending/<key>` 时，脚本才写 `resolved` 并删除标记；没有标记就立即退出。所以每次工具调用的额外开销只是检查一次文件是否存在。
+- **怎样保证不变慢**：只有当前会话存在“待处理”标记文件 `~/.roamtty/pending/<key>` 时，脚本才写 `resolved` 并删除标记；没有标记就立即退出。所以每次工具调用的额外开销只是检查一次文件是否存在。
 
 ### 3.3 生效条件
 
 | CLI | 怎样生效 |
 |---|---|
 | Claude Code | 写入 `~/.claude/settings.json` 后，新启动的会话生效 |
-| Grok | 写入全局 `~/.grok/hooks/itermux.json`，默认就信任；它也会读 Claude 的配置，相同命令会去重 |
+| Grok | 写入全局 `~/.grok/hooks/roamtty.json`，默认就信任；它也会读 Claude 的配置，相同命令会去重 |
 | Codex | 写入 `~/.codex/hooks.json` 后，用户**必须在 Codex 中执行一次 `/hooks` 信任**，否则 hook 会被跳过，收不到任何提醒 |
 
 参考：本机文档 `~/.grok/docs/user-guide/10-hooks.md`、[Codex Hooks](https://learn.chatgpt.com/docs/hooks)、[Claude Code Hooks](https://code.claude.com/docs/en/hooks)。
@@ -72,7 +72,7 @@ mosh 模式下 App 本来就保留着 SSH 连接（用于传文件和读历史�
 ### 4.1 事件格式（每行一个 JSON）
 
 ```json
-{"v":1,"ts":1791100000,"agent":"claude","kind":"attention","reason":"permission","tmux":"itermux-ab12","cwd":"/home/u/proj","msg":"Claude needs your permission to use Bash"}
+{"v":1,"ts":1791100000,"agent":"claude","kind":"attention","reason":"permission","tmux":"roamtty-ab12","cwd":"/home/u/proj","msg":"Claude needs your permission to use Bash"}
 ```
 
 - `agent`：`claude`、`codex` 或 `grok`。
@@ -81,7 +81,7 @@ mosh 模式下 App 本来就保留着 SSH 连接（用于传文件和读历史�
 - `tmux`：CLI 运行在 tmux 里时，用 `tmux display -p '#S'` 取到的会话名；不在 tmux 里时为空。
 - `msg`：截断到 200 字符。来源：Claude 和 Grok 用 `Notification` 的 `message`；Codex 用 `tool_input.description`；提问类用问题文本。
 
-### 4.2 `itermux-notify` 脚本
+### 4.2 `roamtty-notify` 脚本
 
 - 用 POSIX `sh` 编写，**无论什么情况都 `exit 0`**，耗时不超过 1 秒，不影响 CLI 本身。
 - 从 stdin 读取 hook JSON。
@@ -104,7 +104,7 @@ mosh 模式下 App 本来就保留着 SSH 连接（用于传文件和读历史�
 }}
 ```
 
-**Grok**：写入独立文件 `~/.grok/hooks/itermux.json`。
+**Grok**：写入独立文件 `~/.grok/hooks/roamtty.json`。
 
 - 结构同上。`PreToolUse` 的匹配写成 `AskUserQuestion|ask_user_question`；`Notification` 的匹配只写 `permission_prompt`。
 - **命令字符串必须和 Claude 的完全一致**：Grok 会对相同的 handler 去重，这样不会因为同时读了 Claude 配置而触发两次。
@@ -117,18 +117,18 @@ mosh 模式下 App 本来就保留着 SSH 连接（用于传文件和读历史�
 
 ### 4.4 安装、检测与卸载（扩展现有的“安装插件”）
 
-- **检测**：在 `HostPluginProbe` 里加一行，检查 `~/.itermux/bin/itermux-notify` 是否存在且可执行。同时检测 `claude`、`codex`、`grok` 哪些已安装，以及各自的 hook 是否已经注册。
+- **检测**：在 `HostPluginProbe` 里加一行，检查 `~/.roamtty/bin/roamtty-notify` 是否存在且可执行。同时检测 `claude`、`codex`、`grok` 哪些已安装，以及各自的 hook 是否已经注册。
 - **安装**：
   - 只写用户目录，不需要 sudo。
   - 只为已安装的 CLI 写配置。
-  - 修改前先备份为 `*.itermux.bak`。
+  - 修改前先备份为 `*.roamtty.bak`。
   - JSON 合并依赖 `python3` 或 `jq`。两者都没有时：配置文件不存在就直接新建；已存在就跳过该 CLI，并提示原因。
   - 重复安装是幂等的：通过命令路径识别自己写的条目，不会重复追加。
 - **卸载**：
-  - 只删除命令为 `itermux-notify` 的条目。
-  - 删除 `~/.grok/hooks/itermux.json`。
-  - 删除整个 `~/.itermux/bin/` 和 `~/.itermux/pending/`。
-- **结果输出**：按 CLI 分行显示“已接入 / 跳过（原因）”。Codex 一行**醒目提示**：“请在 Codex 中执行一次 `/hooks` 并信任 itermux，否则收不到提醒”。
+  - 只删除命令为 `roamtty-notify` 的条目。
+  - 删除 `~/.grok/hooks/roamtty.json`。
+  - 删除整个 `~/.roamtty/bin/` 和 `~/.roamtty/pending/`。
+- **结果输出**：按 CLI 分行显示“已接入 / 跳过（原因）”。Codex 一行**醒目提示**：“请在 Codex 中执行一次 `/hooks` 并信任 roamtty，否则收不到提醒”。
 
 ## 5. App 部分
 
@@ -136,7 +136,7 @@ mosh 模式下 App 本来就保留着 SSH 连接（用于传文件和读历史�
 |---|---|
 | `ssh-core/.../HostPlugins.kt` | 新增 `HostPlugin.AGENT_NOTIFY("notify")`，加入检测、安装、卸载脚本，复用现有 `/bin/sh -s` 的 stdin 执行方式 |
 | `app/.../ui/HostPluginsSheet.kt` | 新增“AI 交互提醒”一项：安装、卸载按钮，按 CLI 显示结果，以及 Codex 信任提示 |
-| `app/.../session/AgentEventWatcher.kt`（新文件） | 在会话的 SSH 连接上开一个 exec 通道执行 `tail -n 50 -F ~/.itermux/events.jsonl`，逐行解析，丢弃 `ts <= lastSeenTs` 的旧事件；SSH 断开重连后重新打开 |
+| `app/.../session/AgentEventWatcher.kt`（新文件） | 在会话的 SSH 连接上开一个 exec 通道执行 `tail -n 50 -F ~/.roamtty/events.jsonl`，逐行解析，丢弃 `ts <= lastSeenTs` 的旧事件；SSH 断开重连后重新打开 |
 | `app/.../session/SessionService.kt` | 按主机管理 watcher（**同一主机只保留一个**）；新增通知渠道 `agent-attention`（高优先级，带声音和振动）；负责发通知、撤销、抑制；`lastSeenTs` 按主机保存在内存中 |
 | `app/.../session/TerminalConnection.kt` | 连接成功且主机装了 notify 插件时，向 `SessionService` 登记该主机 |
 | `MainActivity.kt` | 处理通知点击的 `PendingIntent`（携带 sessionId），打开对应会话 |
@@ -187,7 +187,7 @@ mosh 模式下 App 本来就保留着 SSH 连接（用于传文件和读历史�
 
 ## 8. 里程碑
 
-1. **M1 远端**：`itermux-notify` 脚本，三个 CLI 的安装、卸载、检测，脚本测试；实测 Codex `PermissionRequest` 的误报情况。
+1. **M1 远端**：`roamtty-notify` 脚本，三个 CLI 的安装、卸载、检测，脚本测试；实测 Codex `PermissionRequest` 的误报情况。
 2. **M2 App**：`AgentEventWatcher`、通知渠道、撤销逻辑、点击跳转、设置开关，单元测试。
 3. **M3 收尾**：真机验证、README 说明。
 
