@@ -3,13 +3,16 @@ package io.itermux.app.ui
 import io.itermux.app.tr
 import io.itermux.app.trf
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
@@ -33,7 +36,7 @@ import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.TerminalTransport
 
 @Composable internal fun HostCard(host: Host, connect: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit,
-    managePlugins: () -> Unit = {}) {
+    managePlugins: () -> Unit = {}, reachability: HostReachability = HostReachability.Checking) {
     var menu by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     ListCard(onClick = connect, onClickLabel = tr("连接"), modifier = Modifier.testTag("host-card-${host.id}")) {
@@ -67,6 +70,7 @@ import io.itermux.ssh.TerminalTransport
         }
         Row(Modifier.padding(top = Spacing.Row), horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically) {
+            HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}"))
             // Once probed, the card lists only the plugins the host actually has.
             val plugins = host.installedPlugins
             if (plugins == null) MetaTag(modeLabel(host.mode == SessionMode.TMUX.name))
@@ -78,6 +82,22 @@ import io.itermux.ssh.TerminalTransport
         }
     }
 }
+
+@Composable private fun HostReachabilityLabel(reachability: HostReachability, modifier: Modifier = Modifier) {
+    val (color, label) = when (reachability) {
+        is HostReachability.Online -> StatusColors.success to (reachability.latencyMs?.let { trf("在线 · %s", latencyLabel(it)) } ?: tr("在线"))
+        HostReachability.Offline -> StatusColors.danger to tr("离线")
+        HostReachability.Checking -> StatusColors.idle to tr("检测中")
+    }
+    Row(modifier.padding(end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium,
+            color = if (reachability is HostReachability.Online) color else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+internal fun latencyLabel(ms: Long): String = if (ms < 1) "<1 ms" else "$ms ms"
 
 @Composable internal fun SessionCard(session: TerminalConnection, modifier: Modifier = Modifier, onOpen: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {}) {
     val state by session.state.collectAsStateWithLifecycle()

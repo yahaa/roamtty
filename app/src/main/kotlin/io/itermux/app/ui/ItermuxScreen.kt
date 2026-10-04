@@ -71,6 +71,7 @@ fun ItermuxScreen(
         if (sessions.isEmpty()) flowOf(emptyMap())
         else combine(sessions.map { session -> session.state.map { session.id to it.phase } }) { it.toMap() }
     }.collectAsStateWithLifecycle(emptyMap())
+    val hostReachability = remember { HostReachabilityTracker() }
     // The session list and drawer show live sessions first; terminal tabs keep their open order.
     val sessionsByActivity = remember(sessions, sessionPhases) {
         sessions.sortedBy { activityRank(sessionPhases[it.id] ?: it.state.value.phase) }
@@ -293,6 +294,11 @@ fun ItermuxScreen(
                                     .focusRequester(searchFocus).testTag("host-search"))
                         }
                         val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
+                        ProbeHostReachability(hostReachability, hosts)
+                        // A live connection already proves the host is up, whatever the last probe said. Sessions keep
+                        // the endpoint they were opened with, so one still on an edited host's old address does not count.
+                        val connectedEndpoints = sessions.filter { (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
+                            .map { Triple(it.host.id, it.host.address, it.host.port) }.toSet()
                         if (filtered.isEmpty()) {
                             if (hosts.isEmpty()) EmptyState(tr("从第一台主机开始"), tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
                                 Modifier.weight(1f),
@@ -300,7 +306,10 @@ fun ItermuxScreen(
                                 action = { Button(onClick = { editHostId = null; editorOpen = true }) { Text(tr("添加主机")) } })
                             else EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.weight(1f))
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
-                            items(filtered, key = { it.id }) { host -> HostCard(host, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) }) }
+                            items(filtered, key = { it.id }) { host -> HostCard(host, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
+                                hostReachability.statusOf(host).let { probed ->
+                                    if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
+                                }) }
                         }
                     }
                 } else if (page == "sessions") {
