@@ -49,6 +49,6 @@ Windows 上可用 `scripts/bootstrap.ps1`、`scripts/install-sdk.ps1` 在项目�
 - [架构与设计约束](docs/ARCHITECTURE.md)
 - [Termius 功能对照](docs/TERMIUS_COMPARISON.md)
 - [Google Play 上架清单](docs/GOOGLE_PLAY_RELEASE.md)
-- [隐私政策](docs/PRIVACY.md)
+- [隐私政策](docs/PRIVACY.md)（线上版本 <https://roamtty.com/privacy/>，修改后运行 `scripts/publish-privacy-site.py` 发布）
 - [Logo 设计预览](docs/previews/logo-redesign.html)
 - [第三方许可](THIRD_PARTY_NOTICES.md)
