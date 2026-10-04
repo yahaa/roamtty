@@ -28,6 +28,12 @@ class JschSession(
     val remoteSessionName: String = Tmux.LEGACY_SESSION,
     /** Run the terminal over mosh (UDP) when the host has mosh-server; falls back to the SSH PTY. */
     private val preferMosh: Boolean = false,
+    /**
+     * Milliseconds that keep counting while the device sleeps (Android: elapsedRealtime). mosh
+     * measures server silence with it; a clock paused by sleep keeps a session whose mosh-server
+     * already expired looking connected while every keystroke is lost.
+     */
+    private val elapsedMillis: () -> Long = { System.nanoTime() / 1_000_000 },
 ) : SshSession, TmuxHistoryAccess {
     override val historyConnected: Boolean get() = state.value.phase == Phase.CONNECTED
     private val mutableState = MutableStateFlow(ConnectionState(Phase.CONNECTING))
@@ -67,6 +73,8 @@ class JschSession(
     }
 
     private enum class AttemptOutcome { TRANSPORT_ENDED, REMOTE_EXIT, FATAL, STOPPED }
+    /** Whether the latest attempt reached CONNECTED; a drop after that earns a fresh retry budget. */
+    @Volatile private var reachedConnected = false
 
     override suspend fun connect(onOutput: suspend (ByteArray) -> Unit): Unit = withContext(Dispatchers.IO) {
         check(started.compareAndSet(false, true)) { "A connection attempt cannot be reused" }
@@ -84,6 +92,8 @@ class JschSession(
                     }
                     AttemptOutcome.TRANSPORT_ENDED -> {
                         if (stopped.get()) break
+                        // Each sleep or network change on a long-lived session is a new drop, not a retry.
+                        if (reachedConnected) attempt = 0
                         // Prefer keepalive to prevent idle drops; only auto-reattach tmux after transient death.
                         if (target.mode != SessionMode.TMUX || ++attempt > 10) {
                             update(Phase.DISCONNECTED, "SSH 已断开，请手动重连。未发送的输入已丢弃。")
@@ -155,7 +165,7 @@ class JschSession(
     private suspend fun runAttempt(onOutput: suspend (ByteArray) -> Unit, reattaching: Boolean): AttemptOutcome {
         val jsch = JSch()
         trustFailure = null
-        var reachedConnected = false
+        reachedConnected = false
         try {
             coroutineContext.ensureActive()
             if (stopped.get()) return AttemptOutcome.STOPPED
@@ -186,10 +196,7 @@ class JschSession(
             }
             if (preferMosh && !moshUnavailable) {
                 val outcome = runMosh(ssh, onOutput)
-                if (outcome != null) {
-                    reachedConnected = reachedConnected || mutableTransport.value == TerminalTransport.MOSH
-                    return outcome
-                }
+                if (outcome != null) return outcome
                 if (stopped.get()) return AttemptOutcome.STOPPED
                 // Keep this connection: the PTY below replaces mosh for the rest of the session.
                 moshUnavailable = true
@@ -302,7 +309,7 @@ class JschSession(
         update(Phase.CONNECTING, "正在启动 mosh…")
         val connect = startMoshServer(ssh) ?: return null
         val address = remoteAddress ?: return null
-        val client = MoshClient(address, connect.port, connect.key)
+        val client = MoshClient(address, connect.port, connect.key, elapsedMillis)
         val end = try {
             coroutineScope {
                 val systemProbe = launch { probeHostSystem(ssh) }
@@ -316,12 +323,13 @@ class JschSession(
                 try {
                     client.run(queues.currentInput(), queues.currentSizes(), dimensions,
                         firstContactTimeoutMs = 8_000,
-                        silenceLimitMs = if (target.mode == SessionMode.TMUX) 10 * 60_000L else 12 * 3600_000L,
+                        silenceLimitMs = moshSilenceLimitMs(target.mode),
                         isStopped = stopped::get,
                         onConnected = {
                             mutableTransport.value = TerminalTransport.MOSH
                             queues.setAccepting(true)
                             update(Phase.CONNECTED)
+                            reachedConnected = true
                         },
                         onOutput = onOutput)
                 } finally { systemProbe.cancel(); keeper.cancel() }
@@ -348,7 +356,7 @@ class JschSession(
 
     private fun moshStartScript(locale: String): String {
         // Without a client mosh-server waits forever; tmux keeps the work, so its server may expire sooner.
-        val timeout = if (target.mode == SessionMode.TMUX) 15 * 60 else 12 * 3600 + 600
+        val timeout = moshServerTimeoutSeconds(target.mode)
         val command = if (target.mode == SessionMode.TMUX) " -- tmux new-session -A -s ${Tmux.targetFlag(tmuxName)}" else ""
         return """
             exec 2>&1
@@ -600,6 +608,17 @@ class JschSession(
     private fun closeTransport() { channel?.disconnect(); session?.disconnect() }
 
     companion object {
+        /** mosh-server exits after this long without hearing the client. */
+        internal fun moshServerTimeoutSeconds(mode: SessionMode): Long =
+            if (mode == SessionMode.TMUX) 15 * 60L else 12 * 3600L + 600
+
+        /**
+         * The client gives up just before its server would, so a wake from sleep inside the limit
+         * resumes seamlessly, and one past it reattaches instead of typing into a server that is gone.
+         */
+        internal fun moshSilenceLimitMs(mode: SessionMode): Long =
+            (moshServerTimeoutSeconds(mode) - 60) * 1000
+
         @Synchronized private fun configureCrypto() {
             // Android ships a reduced BC provider. Use the full library for modern SSH algorithms.
             if (Security.getProvider("BC") !is BouncyCastleProvider) {

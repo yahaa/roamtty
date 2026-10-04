@@ -35,9 +35,9 @@ internal object Mosh {
         private val key = Base64.getDecoder().decode("$key==").also { require(it.size == 16) { "Bad mosh key" } }
         private var sequence = 0L
 
-        /** Client → server: direction bit clear. */
-        fun seal(plain: ByteArray): ByteArray {
-            val nonce = nonce(sequence++ and Long.MAX_VALUE)
+        /** Client → server: direction bit clear. [toClient] plays the server side (tests). */
+        fun seal(plain: ByteArray, toClient: Boolean = false): ByteArray {
+            val nonce = nonce((sequence++ and Long.MAX_VALUE) or (if (toClient) TO_CLIENT else 0L))
             val cipher = cipher(true, nonce)
             val out = ByteArray(8 + cipher.getOutputSize(plain.size))
             System.arraycopy(nonce, 4, out, 0, 8)
