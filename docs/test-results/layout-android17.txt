@@ -1,7 +1,0 @@
-
-io.itermux.app.TerminalLayoutTest:.
-io.itermux.app.TerminalUiTest:..
-
-Time: 23.799
-
-OK (3 tests)

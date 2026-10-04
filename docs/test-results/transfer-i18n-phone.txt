@@ -1,9 +1,0 @@
-
-io.itermux.app.LanguageSettingsTest:.
-io.itermux.app.TransferProgressUiTest:.
-io.itermux.app.UploadDirectoryUiTest:.
-io.itermux.app.FileTransferDeviceTest:.
-
-Time: 6.725
-
-OK (4 tests)

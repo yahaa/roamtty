@@ -1,7 +1,0 @@
-
-io.itermux.app.TerminalExtraKeysTest:.
-io.itermux.app.TerminalDraftTest:.
-
-Time: 14.086
-
-OK (2 tests)
