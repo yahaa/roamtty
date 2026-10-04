@@ -255,8 +255,16 @@ fun ItermuxScreen(
                     },
                     actions = {
                         if (navigationVisible) {
+                            // Portrait shows "Add host" beside the host list title; landscape has no large title.
+                            val showAddHost = page == "hosts" && (landscape || imeVisible)
+                            // Mirror the trailing icons' width on the leading side so the tabs sit at the toolbar's
+                            // center, and keep search as the outermost trailing icon.
+                            if (showAddHost) Spacer(Modifier.width(48.dp))
                             Box(Modifier.weight(1f).padding(horizontal = Spacing.Tight), contentAlignment = Alignment.Center) {
                                 NavigationTabs(page, hosts.size, sessions.size, Modifier.widthIn(max = 280.dp).fillMaxWidth()) { page = it }
+                            }
+                            if (showAddHost) ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
+                                editHostId = null; editorOpen = true
                             }
                             AppSearchToggle(searchExpanded, onToggle = {
                                 if (searchExpanded) {
@@ -269,10 +277,6 @@ fun ItermuxScreen(
                                 searchExpanded = !searchExpanded
                             }, searchDescription = if (page == "hosts") tr("搜索主机") else tr("搜索会话"),
                                 modifier = Modifier.testTag("search-toggle"))
-                            // Portrait shows "Add host" beside the host list title; landscape has no large title.
-                            if (page == "hosts" && (landscape || imeVisible)) ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
-                                editHostId = null; editorOpen = true
-                            } else Spacer(Modifier.width(48.dp))
                         } else {
                             // Settings is a drawer destination: closing returns to the page it was opened from.
                             Spacer(Modifier.weight(1f))
