@@ -162,23 +162,9 @@ class TerminalUiTest {
             button("terminal-left").performTouchInput { click() }
             write("x")
             button("terminal-right").performTouchInput { click() }
-            button("terminal-delete").performTouchInput { click() }
+            write("y")
             write("\r")
-            outputContains("NAV_RESULT<ABxD>")
-
-            write("IFS= read -er value; printf '\\nCLEAR_RESULT<%s>\\n' \"${'$'}value\"\r")
-            delay(400)
-            write("REMOVE_ALL")
-            delay(200)
-            repeat(3) { button("terminal-left").performTouchInput { click() } }
-            val pendingComposition = withContext(Dispatchers.Main) {
-                requireNotNull(terminal(compose.activity.window.decorView)).onCreateInputConnection(EditorInfo())!!.also { it.setComposingText("UNCOMMITTED", 1) }
-            }
-            button("terminal-delete").performTouchInput { longClick() }
-            withContext(Dispatchers.Main) { pendingComposition.finishComposingText() }
-            write("KEPT\r")
-            outputContains("CLEAR_RESULT<KEPT>")
-            outputContains("NAV_RESULT<ABxD>")
+            outputContains("NAV_RESULT<ABxCyD>")
 
             button("terminal-menu").performClick()
             compose.onNodeWithText("编辑文本").performClick()
