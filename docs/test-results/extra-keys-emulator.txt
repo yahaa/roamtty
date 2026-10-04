@@ -1,6 +1,0 @@
-
-io.itermux.app.TerminalExtraKeysTest:.
-
-Time: 8.986
-
-OK (1 test)

@@ -6,6 +6,7 @@ import android.graphics.fonts.Font
 import android.graphics.fonts.FontFamily
 import android.os.Build
 import android.net.Uri
+import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -50,7 +51,8 @@ object TerminalFonts {
     var revision by mutableStateOf(0)
         private set
 
-    private val assetCache = mutableMapOf<String, Typeface>()
+    /** Only the face in use is kept; each one pins its own copy of the primary font. */
+    private var cached: Pair<String, Typeface>? = null
 
     fun initialize(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -151,21 +153,21 @@ object TerminalFonts {
         loadAsset(context, TerminalFontId.DEFAULT.assetFile!!)
 
     private fun loadAsset(context: Context, path: String): Typeface {
-        assetCache[path]?.let { return it }
-        val face = withSymbolFallback(context) { Font.Builder(context.assets, path).build() }
+        cached?.takeIf { it.first == path }?.let { return it.second }
+        val face = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            withSymbolFallback(context) { Font.Builder(context.assets, path).build() } else null)
             ?: Typeface.createFromAsset(context.assets, path)
-        assetCache[path] = face
+        cached = path to face
         return face
     }
 
-    private var customCache: Pair<String, Typeface>? = null
-
     private fun loadCustom(context: Context, file: File): Typeface? {
-        val key = "${file.lastModified()}:${file.length()}:$revision"
-        customCache?.takeIf { it.first == key }?.let { return it.second }
-        val face = withSymbolFallback(context) { Font.Builder(file).build() }
+        val key = "custom:${file.lastModified()}:${file.length()}:$revision"
+        cached?.takeIf { it.first == key }?.let { return it.second }
+        val face = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            withSymbolFallback(context) { Font.Builder(file).build() } else null)
             ?: runCatching { Typeface.createFromFile(file) }.getOrNull() ?: return null
-        customCache = key to face
+        cached = key to face
         return face
     }
 
@@ -174,19 +176,21 @@ object TerminalFonts {
      * bundled monospace faces nor most phones provide. Try the bundled symbol faces before the system
      * chain so those cells render instead of showing tofu boxes.
      */
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun withSymbolFallback(context: Context, primary: () -> Font): Typeface? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
         return runCatching {
             val builder = Typeface.CustomFallbackBuilder(FontFamily.Builder(primary()).build())
-            SYMBOL_FALLBACKS.forEach { path ->
-                builder.addCustomFallback(FontFamily.Builder(Font.Builder(context.assets, path).build()).build())
-            }
+            symbolFallbacks(context).forEach(builder::addCustomFallback)
             builder.setSystemFallback("monospace").build()
         }.getOrNull()
     }
 
-    private val SYMBOL_FALLBACKS = listOf(
+    /** About 3.8 MB of font data, loaded once and shared by every terminal typeface. */
+    private var symbolFamilies: List<FontFamily>? = null
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun symbolFallbacks(context: Context): List<FontFamily> = symbolFamilies ?: listOf(
         "fonts/SymbolsNerdFontMono-Regular.ttf",
         "fonts/NotoSansSymbols2-Regular.ttf",
-    )
+    ).map { FontFamily.Builder(Font.Builder(context.assets, it).build()).build() }.also { symbolFamilies = it }
 }

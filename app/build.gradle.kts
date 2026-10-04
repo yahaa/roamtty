@@ -27,14 +27,23 @@ android {
     }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (signingFile.exists()) signingConfig = signingConfigs.getByName("localRelease")
         }
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
-    packaging { resources.excludes += setOf("META-INF/versions/**", "META-INF/INDEX.LIST", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA") }
+    packaging {
+        resources.excludes += setOf(
+            "META-INF/versions/**", "META-INF/INDEX.LIST", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA",
+            // Bouncy Castle data for Picnic signatures and PKIX path-review messages; SSH and mosh use neither.
+            "org/bouncycastle/pqc/crypto/picnic/**", "org/bouncycastle/x509/*.properties",
+            "DebugProbesKt.bin",
+        )
+    }
     testOptions { unitTests.isReturnDefaultValues = true }
 }
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
