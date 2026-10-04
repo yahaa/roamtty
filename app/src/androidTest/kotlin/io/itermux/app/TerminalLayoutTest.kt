@@ -72,7 +72,7 @@ class TerminalLayoutTest {
 
     private fun foreground() {
         // Preserve the launch identity so ActivityScenario can still track recreation.
-        instrumentation.uiAutomation.executeShellCommand("am start -W --activity-single-top -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n io.itermux.app/.MainActivity").use {
+        instrumentation.uiAutomation.executeShellCommand("am start -W --activity-single-top -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n ${BuildConfig.APPLICATION_ID}/io.itermux.app.MainActivity").use {
             android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
         }
         compose.activityRule.scenario.onActivity {
