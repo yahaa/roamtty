@@ -30,7 +30,7 @@
 ```
 ios/
   Packages/
-    ItermuxCore/        # 纯 Swift，macOS 上可 `swift test`
+    RoamttyCore/        # 纯 Swift，macOS 上可 `swift test`
       SSH/              # libssh2 封装：Target、Credentials、TrustPolicy、PinStore、Prompt、SshSession
       Mosh/             # MoshProtocol、MoshClient
       Tmux/             # TmuxHistoryController、会话名校验、插件检测与安装
@@ -41,11 +41,11 @@ ios/
     Vendor/             # libssh2.xcframework、OpenSSL.xcframework（构建脚本与校验值锁定）
   App/                  # SwiftUI App：主机列表、编辑器、会话、文件、设置
   ShareExtension/
-  ItermuxTests/ ItermuxUITests/
+  RoamttyTests/ RoamttyUITests/
 shared/test-vectors/    # Kotlin 测试导出的 JSON：mosh 报文、历史帧序列、tmux 输出、路径转义
 ```
 
-`ItermuxCore` 对应 `ssh-core`，与 UI 无关，在 macOS 上独立测试。模块边界与 Android 保持一致，便于对照代码审查。
+`RoamttyCore` 对应 `ssh-core`，与 UI 无关，在 macOS 上独立测试。模块边界与 Android 保持一致，便于对照代码审查。
 
 ## 核心模块设计
 
@@ -90,7 +90,7 @@ shared/test-vectors/    # Kotlin 测试导出的 JSON：mosh 报文、历史帧�
 - `SftpOperations` 移植后同样使用短生命周期的 SFTP channel，不跨重连持有旧连接。字面路径的转义规则一致；上传先写同目录的随机临时文件，确认目标不存在后再改名。
 - 下载：默认写入 App 沙盒的 `Documents/Downloads`（开启 `UIFileSharingEnabled` 和 `LSSupportsOpeningDocumentsInPlace`，在“文件” App 中可见），也可以用导出选择器另存。失败或取消时删除不完整的文件。
 - 预览：文本、代码高亮、Markdown、图片。`SyntaxHighlighter` / `MarkdownParser` 是纯 Kotlin 逻辑，移植为 Swift，渲染改用 `AttributedString`。
-- 插入图片路径：相册图片转为 PNG，上传到 `/tmp/itermux-img-<uuid>.png`，并把 `" <path> "` 插入当前提示词（不提交），与 `CodexImageAttach` 一致。
+- 插入图片路径：相册图片转为 PNG，上传到 `/tmp/roamtty-img-<uuid>.png`，并把 `" <path> "` 插入当前提示词（不提交），与 `CodexImageAttach` 一致。
 - **Share Extension**：扩展内存上限低，而且不能直接拉起主 App，所以首版不在扩展里建立 SSH 连接。扩展只把图片写入 App Group 的待上传目录；主 App 下次进入前台时，提示用户选择主机和会话并上传。
 - 后台中断：SFTP 不能使用后台 URLSession，App 进入后台约 30 秒后传输会中断。界面需要明确提示；下次连接时清理残留的临时文件。
 
@@ -120,7 +120,7 @@ shared/test-vectors/    # Kotlin 测试导出的 JSON：mosh 报文、历史帧�
 
 ## 测试
 
-- `ItermuxCore`：在 macOS 上运行 `swift test`。共享测试向量由 Android 端的 Kotlin 测试生成，放在 `shared/test-vectors/`，两端 CI 都会校验。
+- `RoamttyCore`：在 macOS 上运行 `swift test`。共享测试向量由 Android 端的 Kotlin 测试生成，放在 `shared/test-vectors/`，两端 CI 都会校验。
 - 真实 OpenSSH：复用 `scripts/prepare-openssh-test.sh` 的配置（22228 正常、22229 tmux 检查失败）。在 macOS runner 上启动 sshd，也可以连接 Linux 测试机。
 - UI：XCUITest 覆盖主机编辑、指纹确认、会话切换、操作栏、历史、文件浏览。手势和输入法相关的用例参照 `app/src/androidTest` 中同名测试逐条移植。
 - 生命周期：用 XCUITest + `XCUIDevice` 把 App 切到后台再拉回，验证 tmux 重新附着和 mosh 恢复。用 Xcode 的“模拟后台被杀”验证 `SessionJournal`。
