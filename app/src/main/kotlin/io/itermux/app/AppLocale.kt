@@ -69,6 +69,7 @@ private object EnglishText {
         "跳过检测" to "Skip detection",
         "待检测系统" to "System pending detection",
         "在线" to "Online",
+        "在线 · %s" to "Online · %s",
         "离线" to "Offline",
         "检测中" to "Checking",
         "保存时自动检测系统。未填写凭据或暂时无法连接时，将在下次连接成功后更新。" to "Detect the system when saving. If credentials are missing or the host is unavailable, update it after the next successful connection.",

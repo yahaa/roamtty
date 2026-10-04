@@ -305,7 +305,9 @@ fun ItermuxScreen(
                             else EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.weight(1f))
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
                             items(filtered, key = { it.id }) { host -> HostCard(host, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
-                                if (host.id in connectedHosts) HostReachability.ONLINE else hostReachability.statusOf(host)) }
+                                hostReachability.statusOf(host).let { probed ->
+                                    if (host.id in connectedHosts && probed !is HostReachability.Online) HostReachability.Online(null) else probed
+                                }) }
                         }
                     }
                 } else if (page == "sessions") {

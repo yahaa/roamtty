@@ -36,7 +36,7 @@ import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.TerminalTransport
 
 @Composable internal fun HostCard(host: Host, connect: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit,
-    managePlugins: () -> Unit = {}, reachability: HostReachability = HostReachability.CHECKING) {
+    managePlugins: () -> Unit = {}, reachability: HostReachability = HostReachability.Checking) {
     var menu by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     ListCard(onClick = connect, onClickLabel = tr("连接"), modifier = Modifier.testTag("host-card-${host.id}")) {
@@ -85,17 +85,19 @@ import io.itermux.ssh.TerminalTransport
 
 @Composable private fun HostReachabilityLabel(reachability: HostReachability, modifier: Modifier = Modifier) {
     val (color, label) = when (reachability) {
-        HostReachability.ONLINE -> StatusColors.success to tr("在线")
-        HostReachability.OFFLINE -> StatusColors.danger to tr("离线")
-        HostReachability.CHECKING -> StatusColors.idle to tr("检测中")
+        is HostReachability.Online -> StatusColors.success to (reachability.latencyMs?.let { trf("在线 · %s", latencyLabel(it)) } ?: tr("在线"))
+        HostReachability.Offline -> StatusColors.danger to tr("离线")
+        HostReachability.Checking -> StatusColors.idle to tr("检测中")
     }
     Row(modifier.padding(end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(6.dp))
         Text(label, style = MaterialTheme.typography.labelMedium,
-            color = if (reachability == HostReachability.ONLINE) color else MaterialTheme.colorScheme.onSurfaceVariant)
+            color = if (reachability is HostReachability.Online) color else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+internal fun latencyLabel(ms: Long): String = if (ms < 1) "<1 ms" else "$ms ms"
 
 @Composable internal fun SessionCard(session: TerminalConnection, modifier: Modifier = Modifier, onOpen: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {}) {
     val state by session.state.collectAsStateWithLifecycle()
