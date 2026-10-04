@@ -152,7 +152,7 @@ class TerminalExtraKeysTest {
             outputContains("KEY_09")
             compose.onNodeWithTag("terminal-shortcuts").performClick()
             listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-shift",
-                "terminal-left", "terminal-right", "terminal-delete").forEach { tag ->
+                "terminal-left", "terminal-right", "terminal-up", "terminal-down").forEach { tag ->
                 val bounds = compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
                 val minimum = 48 * context.resources.displayMetrics.density - 1
                 assertTrue("$tag retains a 48dp target", bounds.width >= minimum && bounds.height >= minimum)
@@ -166,6 +166,10 @@ class TerminalExtraKeysTest {
             compose.onNodeWithTag("terminal-left").assertIsDisplayed().performTouchInput { click() }
             outputContains("KEY_32") // Shift+Left includes the modifier 2 in ESC [ 1 ; 2 D.
             outputContains("KEY_44")
+            shortcut("terminal-up")
+            outputContains("KEY_41") // Up arrow is ESC [ A.
+            shortcut("terminal-down")
+            outputContains("KEY_42")
 
             compose.activityRule.scenario.onActivity {
                 // Capture only the isolated fixture, never the user's protected app.
@@ -255,7 +259,7 @@ class TerminalExtraKeysTest {
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("terminal-shortcuts").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("terminal-shortcuts").assertIsDisplayed().performTouchInput { click() }
             listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-shift",
-                "terminal-left", "terminal-right", "terminal-delete").forEach { tag ->
+                "terminal-left", "terminal-right", "terminal-up", "terminal-down").forEach { tag ->
                 compose.onNodeWithTag(tag).assertIsDisplayed()
             }
             compose.onNodeWithTag("terminal-escape").performTouchInput { click() }
@@ -329,7 +333,7 @@ class TerminalExtraKeysTest {
                 compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
             }
             compose.onNodeWithTag("terminal-shortcuts").performTouchInput { click() }
-            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-delete").forEach { tag ->
+            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-up").forEach { tag ->
                 compose.onNodeWithTag(tag).assertIsDisplayed()
             }
             compose.onNodeWithTag("terminal-escape").performClick()

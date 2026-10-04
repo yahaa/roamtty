@@ -151,9 +151,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         draft = if (value.text.length <= 128 * 1024) value else TextFieldValue(value.text.take(128 * 1024))
         session.draft = draft.text
     }
+    val arrowKeys = setOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN)
     fun terminalKey(keyCode: Int) {
         // Sticky modifiers apply to arrows (e.g. Shift+Left → CSI ESC[1;2D); other keys are sent unmodified.
-        if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) {
+        if (keyCode !in arrowKeys) {
             ctrlArmed = false
             shiftArmed = false
         }
@@ -325,9 +326,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) })
                         InputControlButton("→", keycap = true, description = tr("光标右移"), tag = "terminal-right", enabled = state.phase == Phase.CONNECTED,
                             onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) })
-                        InputControlButton("⌫", keycap = true, description = tr("删除字符，长按清空当前输入"), tag = "terminal-delete", enabled = state.phase == Phase.CONNECTED,
-                            onLongClick = { shortcutMenu = false; ctrlArmed = false; shiftArmed = false; terminal?.clearCurrentInput() },
-                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DEL) })
+                        InputControlButton("↑", keycap = true, description = tr("发送上方向键"), tag = "terminal-up", enabled = state.phase == Phase.CONNECTED,
+                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_UP) })
+                        InputControlButton("↓", keycap = true, description = tr("发送下方向键"), tag = "terminal-down", enabled = state.phase == Phase.CONNECTED,
+                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_DOWN) })
                     }
                 }
             }
