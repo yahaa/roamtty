@@ -365,7 +365,7 @@ class JschSession(
     private fun moshStartScript(locale: String): String {
         // Without a client mosh-server waits forever; tmux keeps the work, so its server may expire sooner.
         val timeout = moshServerTimeoutSeconds(target.mode)
-        val command = if (target.mode == SessionMode.TMUX) " -- tmux new-session -A -s ${Tmux.targetFlag(tmuxName)}" else ""
+        val command = if (target.mode == SessionMode.TMUX) " -- ${Tmux.attachShellCommand(tmuxName)}" else ""
         return """
             exec 2>&1
             ${HostPluginProbe.moshLookup}

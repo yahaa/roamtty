@@ -143,7 +143,9 @@ class TerminalUiTest {
             }
         }
         fun button(tag: String): androidx.compose.ui.test.SemanticsNodeInteraction {
-            compose.onNodeWithTag("terminal-shortcuts").performClick()
+            // The shortcut popup stays open across key presses; open it only when it has closed.
+            if (compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty())
+                compose.onNodeWithTag("terminal-shortcuts").performClick()
             return compose.onNodeWithTag(tag)
         }
         try {

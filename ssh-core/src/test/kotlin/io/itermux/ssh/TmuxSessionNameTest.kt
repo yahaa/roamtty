@@ -16,8 +16,14 @@ class TmuxSessionNameTest {
     }
 
     @Test fun attachCommandQuotesSanitizedName() {
-        assertEquals("exec /bin/sh -c '${Tmux.PATH_SETUP}; exec tmux new-session -A -s roamtty'", Tmux.attachCommand(Tmux.LEGACY_SESSION))
-        assertTrue(Tmux.attachCommand("roamtty-deadbeef;rm").endsWith("exec tmux new-session -A -s roamtty-deadbeefrm'"))
+        val legacy = Tmux.attachCommand(Tmux.LEGACY_SESSION)
+        assertTrue(legacy.startsWith("exec /bin/sh -c '${Tmux.PATH_SETUP}; "))
+        assertTrue(legacy.contains(") exec tmux new-session -A -s roamtty;; esac; "))
+        assertTrue(legacy.contains("exec tmux new-session -A -s roamtty /bin/sh -c "))
+        // Only the outer quotes are single quotes, so any login shell passes the script through intact.
+        assertEquals(2, legacy.count { it == '\'' })
+        assertTrue(legacy.endsWith("'"))
+        assertTrue(Tmux.attachCommand("roamtty-deadbeef;rm").contains("new-session -A -s roamtty-deadbeefrm /bin/sh"))
         assertTrue(Tmux.PATH_SETUP.contains("/opt/homebrew/bin"))
     }
 
