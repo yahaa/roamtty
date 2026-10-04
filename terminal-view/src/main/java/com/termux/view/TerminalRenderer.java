@@ -37,6 +37,12 @@ public final class TerminalRenderer {
 
     private final float[] asciiMeasures = new float[127];
 
+    /**
+     * Glyphs needing more horizontal shrinking than this are scaled uniformly rather than squashed. Small
+     * mismatches (fonts that are almost monospace) keep the horizontal-only fit so text height is unchanged.
+     */
+    private static final float WIDE_GLYPH_UNIFORM_SCALE_BELOW = 0.85f;
+
     public TerminalRenderer(int textSize, Typeface typeface) {
         mTextSize = textSize;
         mTypeface = typeface;
@@ -217,14 +223,6 @@ public final class TerminalRenderer {
         float right = left + runWidthColumns * mFontWidth;
 
         mes = mes / mFontWidth;
-        boolean savedMatrix = false;
-        if (Math.abs(mes - runWidthColumns) > 0.01) {
-            canvas.save();
-            canvas.scale(runWidthColumns / mes, 1.f);
-            left *= mes / runWidthColumns;
-            right *= mes / runWidthColumns;
-            savedMatrix = true;
-        }
 
         if (backColor != palette[TextStyle.COLOR_INDEX_BACKGROUND]) {
             // Only draw non-default background.
@@ -259,15 +257,33 @@ public final class TerminalRenderer {
             mTextPaint.setStrikeThruText(strikeThrough);
             mTextPaint.setColor(foreColor);
 
+            boolean savedMatrix = false;
+            if (Math.abs(mes - runWidthColumns) > 0.01) {
+                final float scale = runWidthColumns / mes;
+                canvas.save();
+                if (scale < WIDE_GLYPH_UNIFORM_SCALE_BELOW) {
+                    // Square icons (Nerd Font symbols) and wide emoji: shrink both axes so the glyph keeps
+                    // its shape, centred vertically in the cell, instead of squashing it horizontally.
+                    final float centerY = y - mFontLineSpacing / 2.f;
+                    canvas.translate(left, centerY);
+                    canvas.scale(scale, scale);
+                    canvas.translate(-left, -centerY);
+                } else {
+                    canvas.scale(scale, 1.f);
+                    left /= scale;
+                }
+                savedMatrix = true;
+            }
+
             // The text alignment is the default Paint.Align.LEFT.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, false, mTextPaint);
             } else {
                 canvas.drawText(text, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, mTextPaint);
             }
-        }
 
-        if (savedMatrix) canvas.restore();
+            if (savedMatrix) canvas.restore();
+        }
     }
 
     public float getFontWidth() {
