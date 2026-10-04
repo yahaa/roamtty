@@ -1,4 +1,7 @@
 import java.util.Properties
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
 
 plugins {
     id("com.android.application")
@@ -70,4 +73,31 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+/** Builds the in-app license text from the same files the repository ships, so it cannot drift. */
+abstract class ThirdPartyNotices : DefaultTask() {
+    @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val summary: RegularFileProperty
+    @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val projectLicense: RegularFileProperty
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) abstract val licenses: ConfigurableFileCollection
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) abstract val fontLicenses: ConfigurableFileCollection
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction fun generate() {
+        fun sorted(files: ConfigurableFileCollection) = files.files.sortedBy { it.name.lowercase() }
+        val text = StringBuilder(summary.get().asFile.readText()).append("\n\n").append(projectLicense.get().asFile.readText())
+        sorted(licenses).forEach { text.append("\n\n=== ${it.name} ===\n").append(it.readText()) }
+        text.append("\n\n===== Bundled terminal fonts =====\n")
+        sorted(fontLicenses).forEach { text.append("\n----- ${it.name} -----\n").append(it.readText()) }
+        outputDir.get().asFile.resolve("THIRD_PARTY_NOTICES.txt").writeText(text.toString())
+    }
+}
+val thirdPartyNotices = tasks.register<ThirdPartyNotices>("thirdPartyNotices") {
+    summary = rootProject.file("THIRD_PARTY_NOTICES.md")
+    projectLicense = rootProject.file("LICENSE")
+    licenses.from(rootProject.fileTree("licenses") { exclude("fonts/**") })
+    fontLicenses.from(rootProject.fileTree("licenses/fonts"))
+}
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(thirdPartyNotices, ThirdPartyNotices::outputDir)
 }

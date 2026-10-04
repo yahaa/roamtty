@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/android-env.ps1"
 $signingDir = Join-Path $projectRoot '.private/signing'
-New-Item -ItemType Directory -Force -Path $signingDir,(Join-Path $projectRoot 'dist'),(Join-Path $projectRoot 'app/src/main/assets') | Out-Null
+New-Item -ItemType Directory -Force -Path $signingDir,(Join-Path $projectRoot 'dist') | Out-Null
 $keyStore = Join-Path $signingDir 'itermux-release.p12'
 $properties = Join-Path $projectRoot 'signing.properties'
 if (!(Test-Path $keyStore)) {
@@ -16,9 +16,6 @@ if (!(Test-Path $keyStore)) {
     $random.Clear()
 }
 if (!(Test-Path $properties)) { throw 'Restore signing.properties matching the saved release key.' }
-$notices = (Get-Content "$projectRoot/THIRD_PARTY_NOTICES.md" -Raw) + "`n`n" + (Get-Content "$projectRoot/LICENSE" -Raw)
-Get-ChildItem "$projectRoot/licenses" -File | Sort-Object Name | ForEach-Object { $notices += "`n`n=== $($_.Name) ===`n" + (Get-Content $_.FullName -Raw) }
-[IO.File]::WriteAllText("$projectRoot/app/src/main/assets/THIRD_PARTY_NOTICES.txt", $notices)
 & "$PSScriptRoot/build.ps1" :app:assembleRelease
 if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
 $apk = "$projectRoot/dist/iTermux-0.1.0.apk"
