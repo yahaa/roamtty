@@ -9,10 +9,8 @@ final class RemoteHistoryState {
     private PositionListener listener;
     private int rows;
     private int position;
-    private Integer reportedWhileDragging;
 
-    /** Keep the displayed position stable while the user drags the scrollbar. */
-    boolean update(int rows, int position, PositionListener listener, boolean dragging) {
+    boolean update(int rows, int position, PositionListener listener) {
         int nextRows = listener == null ? 0 : Math.max(0, rows);
         int nextPosition = Math.max(0, Math.min(nextRows, position));
         boolean changed = (this.listener == null) != (listener == null) ||
@@ -20,20 +18,8 @@ final class RemoteHistoryState {
 
         this.listener = listener;
         this.rows = nextRows;
-        if (dragging) reportedWhileDragging = nextPosition;
-        else {
-            this.position = nextPosition;
-            reportedWhileDragging = null;
-        }
+        this.position = nextPosition;
         return changed;
-    }
-
-    /** Apply the most recent remote position once the thumb is released. */
-    void finishDrag() {
-        if (reportedWhileDragging != null) {
-            position = reportedWhileDragging;
-            reportedWhileDragging = null;
-        }
     }
 
     boolean isActive() { return listener != null; }

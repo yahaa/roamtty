@@ -86,7 +86,6 @@ public final class TerminalView extends View {
     final Scroller mScroller;
     private Runnable mFlingRunnable;
     private MotionEvent mFlingEvent;
-    private final TranscriptScrollBar mTranscriptScrollBar;
     private final TerminalCursorDrag mCursorDrag = new TerminalCursorDrag(this);
     public interface RemoteHistoryListener { void onPositionRequested(int position); }
     private final RemoteHistoryState mRemoteHistory = new RemoteHistoryState();
@@ -149,7 +148,6 @@ public final class TerminalView extends View {
 
     public TerminalView(Context context, AttributeSet attributes) { // NO_UCD (unused code)
         super(context, attributes);
-        mTranscriptScrollBar = new TranscriptScrollBar(this);
         mGestureRecognizer = new GestureAndScaleRecognizer(context, new GestureAndScaleRecognizer.Listener() {
 
             boolean scrolledWithFinger;
@@ -361,7 +359,7 @@ public final class TerminalView extends View {
 
         updateSize();
 
-        // Draw our own thumb so touch dragging also works with terminal gesture handling.
+        // History is browsed by swiping; no scrollbar is drawn.
         setVerticalScrollBarEnabled(false);
 
         return true;
@@ -688,29 +686,14 @@ public final class TerminalView extends View {
 
         if (!isSelectingText() && !mEmulator.isAutoScrollDisabled() && mTopRow < 0) {
             // Keep the same history in view when new remote output arrives.
-            // Only when actually scrolled into history — not merely because the thumb is held
-            // at the live edge (topRow == 0); applying the scroll counter there would pull
-            // the viewport back into history mid-drag.
             setTopRow(Math.max(-rowsInHistory, mTopRow - mEmulator.getScrollCounter()));
             skipScrolling = true;
         }
-        if (mTranscriptScrollBar.isDragging()) {
-            // Never snap to the live edge while the user is dragging the scrollbar thumb.
-            skipScrolling = true;
-        }
-
         if (!skipScrolling && mTopRow != 0) {
             // Scroll down if not already there.
-            if (mTopRow < -3) {
-                // Awaken scroll bars only if scrolling a noticeable amount
-                // - we do not want visible scroll bars during normal typing
-                // of one row at a time.
-                mTranscriptScrollBar.show();
-            }
             setTopRow(0);
         }
 
-        if (mEmulator.getScrollCounter() > 0) mTranscriptScrollBar.show();
         mEmulator.clearScrollCounter();
 
         invalidate();
@@ -816,7 +799,6 @@ public final class TerminalView extends View {
                 handleKeyCode(up ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN, 0);
             } else {
                 setTopRow(Math.min(0, Math.max(-(mEmulator.getScreen().getActiveTranscriptRows()), mTopRow + (up ? -1 : 1))));
-                mTranscriptScrollBar.show();
             }
         }
     }
@@ -849,7 +831,6 @@ public final class TerminalView extends View {
         }
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_CANCEL)
             stopScrolling();
-        if (mTranscriptScrollBar.onTouch(event)) return true;
         final int action = event.getAction();
 
         if (isSelectingText()) {
@@ -1280,7 +1261,6 @@ public final class TerminalView extends View {
 
             // render the text selection handles
             renderTextSelection();
-            mTranscriptScrollBar.draw(canvas);
             mCursorDrag.draw(canvas);
         }
     }
@@ -1335,10 +1315,7 @@ public final class TerminalView extends View {
         // their requested position in mRemoteHistory, so normal animation frames keep running.
         if (mTermSession != null && mTermSession.isReadOnly() &&
             (rows != mRemoteHistory.rows() || position != mRemoteHistory.position())) stopScrolling();
-        boolean changed = mRemoteHistory.update(rows, position,
-            listener == null ? null : listener::onPositionRequested,
-            mTranscriptScrollBar.isDragging());
-        if (changed) mTranscriptScrollBar.show();
+        mRemoteHistory.update(rows, position, listener == null ? null : listener::onPositionRequested);
     }
 
     /** A fresh touch, session switch, or detached view must not compete with a queued fling. */
@@ -1351,20 +1328,15 @@ public final class TerminalView extends View {
     }
 
     boolean hasRemoteHistory() { return mRemoteHistory.isActive(); }
-    int getRemoteHistoryRows() { return mRemoteHistory.rows(); }
-    int getRemoteHistoryPosition() { return mRemoteHistory.position(); }
 
     void requestRemoteHistoryPosition(int position) {
-        if (mRemoteHistory.requestPosition(position)) mTranscriptScrollBar.show();
+        mRemoteHistory.requestPosition(position);
     }
-
-    void finishRemoteHistoryDrag() { mRemoteHistory.finishDrag(); }
 
     public void scrollToBottom() {
         if (mTopRow != 0) {
             stopScrolling();
             setTopRow(0);
-            mTranscriptScrollBar.show();
         }
     }
 
