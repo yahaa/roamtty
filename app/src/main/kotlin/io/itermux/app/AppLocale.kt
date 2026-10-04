@@ -277,6 +277,7 @@ private object EnglishText {
         "第三方许可" to "Third-party licenses",
         "返回指南" to "Back to guide",
         "隐私政策" to "Privacy policy",
+        "版本 %s" to "Version %s",
         "隐私政策请参阅源码中的 docs/PRIVACY.md。" to "See docs/PRIVACY.md in the source for the privacy policy.",
         "查看第三方许可" to "View third-party licenses",
         "会话服务尚未就绪，请稍后重试" to "The session service is not ready. Try again shortly.",

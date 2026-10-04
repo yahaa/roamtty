@@ -40,7 +40,7 @@ private enum class AboutPage { GUIDE, PRIVACY, LICENSES }
         MarkdownParser.parse(privacyPolicySection(markdown, AppLocale.language == AppLanguage.ENGLISH))
     }
     val title = when (page) {
-        AboutPage.GUIDE -> "iTermux ${BuildConfig.VERSION_NAME}"
+        AboutPage.GUIDE -> "iTermux"
         AboutPage.PRIVACY -> tr("隐私政策")
         AboutPage.LICENSES -> tr("第三方许可")
     }
@@ -49,9 +49,13 @@ private enum class AboutPage { GUIDE, PRIVACY, LICENSES }
         val scroll = if (page == AboutPage.PRIVACY) Modifier else Modifier.verticalScroll(rememberScrollState())
         Column(scroll, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             when (page) {
-                AboutPage.GUIDE -> Text(guideText())
+                AboutPage.GUIDE -> {
+                    Text(trf("版本 %s", BuildConfig.VERSION_NAME), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(guideText())
+                }
                 AboutPage.PRIVACY -> MarkdownView(privacyPolicy, null, Modifier.weight(1f, fill = false).fillMaxWidth(),
-                    background = AlertDialogDefaults.containerColor)
+                    background = AlertDialogDefaults.containerColor, contentPadding = PaddingValues(0.dp))
                 AboutPage.LICENSES -> Text(licenseText)
             }
             if (page == AboutPage.GUIDE) Column {
