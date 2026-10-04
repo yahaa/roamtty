@@ -383,7 +383,7 @@ public final class TerminalView extends View {
                 // not set and it logs a warning:
                 // W/InputAttributes: Unexpected input class: inputType=0x00080090 imeOptions=0x02000000
                 // https://cs.android.com/android/platform/superproject/+/android-11.0.0_r40:packages/inputmethods/LatinIME/java/src/com/android/inputmethod/latin/InputAttributes.java;l=79
-                // iTermux: a real text input class keeps Chinese IME composition available.
+                // Roamtty: a real text input class keeps Chinese IME composition available.
                 outAttrs.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
             } else {
                 // Using InputType.NULL is the most correct input type and avoids issues with other hacks.
@@ -523,7 +523,7 @@ public final class TerminalView extends View {
                 }
                 int emitLeft = ImeDeleteGuard.clampEmit(leftLength);
                 int emitRight = ImeDeleteGuard.clampEmit(rightLength);
-                // iTermux: editing an uncommitted composition must not delete remote text.
+                // Roamtty: editing an uncommitted composition must not delete remote text.
                 if (getEditable().length() > 0) return super.deleteSurroundingText(emitLeft, emitRight);
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: deleteSurroundingText(" + leftLength + ", " + rightLength + ")");

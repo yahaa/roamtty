@@ -25,7 +25,7 @@ internal class SftpOperations(
             throw FileAlreadyExistsException(remotePath)
         }
         val directory = remotePath.substringBeforeLast('/', "")
-        val temporary = literalSftpPath((if ('/' in remotePath) "$directory/" else "") + ".itermux-${UUID.randomUUID()}.part")
+        val temporary = literalSftpPath((if ('/' in remotePath) "$directory/" else "") + ".roamtty-${UUID.randomUUID()}.part")
         try {
             sftp.put(source, temporary, transferMonitor(coroutineContext[Job], onProgress))
             coroutineContext.ensureActive()

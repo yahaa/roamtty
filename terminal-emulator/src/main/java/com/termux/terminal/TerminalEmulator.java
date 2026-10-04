@@ -2864,7 +2864,7 @@ public final class TerminalEmulator {
                 int startIndex = textParameter.indexOf(";") + 1;
                 try {
                     String clipboardText = new String(Base64.decode(textParameter.substring(startIndex), Base64.DEFAULT), StandardCharsets.UTF_8);
-                    // iTermux: remote OSC 52 cannot overwrite the Android clipboard.
+                    // Roamtty: remote OSC 52 cannot overwrite the Android clipboard.
                 } catch (Exception e) {
                     Logger.logError(mClient, LOG_TAG, "OSC Manipulate selection, invalid string '" + textParameter + "'");
                 }
@@ -3561,11 +3561,11 @@ public final class TerminalEmulator {
 
         // Then: Implement bracketed paste mode if enabled:
         boolean bracketed = isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
-        // iTermux: enqueue a paste atomically, including both bracket delimiters.
+        // Roamtty: enqueue a paste atomically, including both bracket delimiters.
         mSession.write(bracketed ? "\033[200~" + text + "\033[201~" : text);
     }
 
-    /** iTermux: used to warn before multiline paste into a non-bracketed shell. */
+    /** Roamtty: used to warn before multiline paste into a non-bracketed shell. */
     public boolean isBracketedPasteEnabled() {
         return isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
     }

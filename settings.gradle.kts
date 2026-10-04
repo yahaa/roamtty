@@ -3,5 +3,5 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories { google(); mavenCentral() }
 }
-rootProject.name = "iTermux"
+rootProject.name = "Roamtty"
 include(":app", ":ssh-core", ":terminal-emulator", ":terminal-view")

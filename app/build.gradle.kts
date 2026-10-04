@@ -11,15 +11,24 @@ plugins {
 }
 val signingFile = rootProject.file("signing.properties")
 val signingValues = Properties().apply { if (signingFile.exists()) signingFile.inputStream().use(::load) }
+val appVersionName = providers.gradleProperty("itermuxVersionName").get()
+/** Play requires a strictly increasing versionCode: MAJOR.MINOR.PATCH maps to MAJOR*10000 + MINOR*100 + PATCH. */
+fun versionCodeOf(name: String): Int {
+    val (major, minor, patch) = requireNotNull(Regex("""^(\d+)\.(\d+)\.(\d+)""").find(name)) {
+        "itermuxVersionName must start with MAJOR.MINOR.PATCH: $name"
+    }.destructured.toList().map(String::toInt)
+    require(minor < 100 && patch < 100) { "MINOR and PATCH must be below 100: $name" }
+    return major * 10000 + minor * 100 + patch
+}
 android {
     namespace = "io.itermux.app"
     compileSdk = 36
     defaultConfig {
-        applicationId = providers.gradleProperty("itermuxApplicationId").orElse("io.itermux.app").get()
+        applicationId = providers.gradleProperty("itermuxApplicationId").orElse("com.roamtty.app").get()
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("itermuxVersionCode").orElse("1").get().toInt()
-        versionName = providers.gradleProperty("itermuxVersionName").orElse("0.1.0").get()
+        versionCode = providers.gradleProperty("itermuxVersionCode").map(String::toInt).getOrElse(versionCodeOf(appVersionName))
+        versionName = appVersionName
         testInstrumentationRunner = "io.itermux.app.ItermuxTestRunner"
     }
     if (signingFile.exists()) signingConfigs.create("localRelease") {
@@ -98,6 +107,15 @@ val thirdPartyNotices = tasks.register<ThirdPartyNotices>("thirdPartyNotices") {
     licenses.from(rootProject.fileTree("licenses") { exclude("fonts/**") })
     fontLicenses.from(rootProject.fileTree("licenses/fonts"))
 }
+/** Ships docs/PRIVACY.md, the policy linked from the Play listing, so the app shows the same text. */
+abstract class PrivacyPolicy : DefaultTask() {
+    @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val policy: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction fun copy() { policy.get().asFile.copyTo(outputDir.get().asFile.resolve("PRIVACY.md"), overwrite = true) }
+}
+val privacyPolicy = tasks.register<PrivacyPolicy>("privacyPolicy") { policy = rootProject.file("docs/PRIVACY.md") }
 androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(thirdPartyNotices, ThirdPartyNotices::outputDir)
+    variant.sources.assets?.addGeneratedSourceDirectory(privacyPolicy, PrivacyPolicy::outputDir)
 }

@@ -98,7 +98,7 @@ class NavigationThemeTest {
             Thread.sleep(250)
             captureWindow("navigation-settings-drawer")
             compose.onNodeWithTag("drawer-guide").performClick()
-            compose.onNodeWithText("iTermux 0.1.0").assertIsDisplayed()
+            compose.onNodeWithText("版本 ${BuildConfig.VERSION_NAME}").assertIsDisplayed()
             compose.onNodeWithText("关闭").performClick()
             compose.onNodeWithTag("sessions-tab").performClick()
             compose.onNodeWithText("会话列表").assertIsDisplayed()

@@ -26,7 +26,7 @@ class SessionLifetimeTest {
         .use { android.os.ParcelFileDescriptor.AutoCloseInputStream(it).bufferedReader().readText() }
 
     private fun holdsCpuLock() = shell("dumpsys power").lineSequence().any {
-        it.contains("PARTIAL_WAKE_LOCK") && it.contains("iTermux:SSH")
+        it.contains("PARTIAL_WAKE_LOCK") && it.contains("Roamtty:SSH")
     }
 
     private class Binding(val context: Context) : ServiceConnection {
@@ -88,7 +88,7 @@ class SessionLifetimeTest {
             // End the last transport while no UI is bound: this used to erase the whole list.
             withContext(Dispatchers.Main) { session.disconnect() }
             withTimeout(8000) {
-                while (shell("dumpsys activity services io.itermux.app").contains("ServiceRecord{")) delay(100)
+                while (shell("dumpsys activity services ${BuildConfig.APPLICATION_ID}").contains("ServiceRecord{")) delay(100)
             }
             assertFalse("No CPU lock after disconnect", holdsCpuLock())
             if (forceDoze) shell("dumpsys deviceidle unforce")

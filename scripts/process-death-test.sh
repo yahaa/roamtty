@@ -5,17 +5,17 @@ serial=${1:?Usage: process-death-test.sh emulator-NNNN}
 [[ "$serial" =~ ^emulator-[0-9]+$ ]] || { echo 'Use a disposable emulator.' >&2; exit 1; }
 project_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 adb_bin="${ANDROID_HOME:?Set ANDROID_HOME}/platform-tools/adb"
-runner=io.itermux.app.test/io.itermux.app.ItermuxTestRunner
-ready=/sdcard/Android/data/io.itermux.app/files/lifecycle-ready.txt
+runner=com.roamtty.app.test/io.itermux.app.ItermuxTestRunner
+ready=/sdcard/Android/data/com.roamtty.app/files/lifecycle-ready.txt
 mkdir -p "$project_root/.local/fix-validation"
 "$adb_bin" -s "$serial" reverse tcp:22228 tcp:22228
-"$adb_bin" -s "$serial" shell am force-stop io.itermux.app
+"$adb_bin" -s "$serial" shell am force-stop com.roamtty.app
 "$adb_bin" -s "$serial" shell rm -f "$ready"
 "$adb_bin" -s "$serial" shell am instrument -w -e class io.itermux.app.ProcessDeathTest#prepare \
   -e lifecycleStage prepare "$runner" > "$project_root/.local/fix-validation/process-prepare.log" 2>&1 &
 driver_pid=$!
 cleanup() {
-  "$adb_bin" -s "$serial" shell am force-stop io.itermux.app
+  "$adb_bin" -s "$serial" shell am force-stop com.roamtty.app
   wait "$driver_pid" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -26,7 +26,7 @@ for ((attempt=0; attempt<40; attempt++)); do
   sleep 1
 done
 [[ "$seen" == true ]] || { echo 'Live shell + tmux did not become ready; inspect process-prepare.log.' >&2; exit 1; }
-"$adb_bin" -s "$serial" shell am force-stop io.itermux.app
+"$adb_bin" -s "$serial" shell am force-stop com.roamtty.app
 wait "$driver_pid" || true
 "$adb_bin" -s "$serial" shell am instrument -w -e class io.itermux.app.ProcessDeathTest#recover \
   -e lifecycleStage recover "$runner" | tee "$project_root/.local/fix-validation/process-recover.log"

@@ -1,4 +1,4 @@
-/* Copyright 2026 iTermux contributors. Licensed under Apache-2.0. */
+/* Copyright 2026 Roamtty contributors. Licensed under Apache-2.0. */
 package com.termux.terminal;
 
 /** Transport-neutral contract replacing the upstream JNI/local-process TerminalSession. */

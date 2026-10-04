@@ -15,8 +15,8 @@ class CodexImageAttachTest {
     @Test fun remotePathIsUniquePngUnderTmp() {
         val a = CodexImageAttach.newRemotePngPath()
         val b = CodexImageAttach.newRemotePngPath()
-        assertTrue(a.startsWith("/tmp/itermux-img-") && a.endsWith(".png"))
-        assertTrue(b.startsWith("/tmp/itermux-img-") && b.endsWith(".png"))
+        assertTrue(a.startsWith("/tmp/roamtty-img-") && a.endsWith(".png"))
+        assertTrue(b.startsWith("/tmp/roamtty-img-") && b.endsWith(".png"))
         assertTrue(a != b)
     }
 }
