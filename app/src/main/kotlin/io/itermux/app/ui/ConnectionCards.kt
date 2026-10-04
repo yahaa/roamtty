@@ -79,7 +79,7 @@ import io.itermux.ssh.TerminalTransport
     }
 }
 
-@Composable internal fun SessionCard(session: TerminalConnection, onOpen: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {}) {
+@Composable internal fun SessionCard(session: TerminalConnection, modifier: Modifier = Modifier, onOpen: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {}) {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val transport by session.transport.collectAsStateWithLifecycle()
@@ -87,7 +87,7 @@ import io.itermux.ssh.TerminalTransport
     var confirmClose by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
     var editTitle by remember { mutableStateOf(false) }
-    ListCard(onClick = onOpen, onClickLabel = tr("打开终端"), modifier = Modifier.testTag("session-${session.id}"),
+    ListCard(onClick = onOpen, onClickLabel = tr("打开终端"), modifier = modifier.testTag("session-${session.id}"),
         bottomPadding = 4.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SessionSystemIcon(session)

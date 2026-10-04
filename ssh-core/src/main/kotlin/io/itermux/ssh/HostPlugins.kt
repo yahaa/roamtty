@@ -18,15 +18,13 @@ internal object HostPluginProbe {
     const val MOSH = "__ITERMUX_MOSH__="
     const val command = "/bin/sh -s"
 
-    /** Non-login exec shells often lack Homebrew or /usr/local paths, so mosh-server is also looked up there. */
-    const val moshLookup = """m=${'$'}(command -v mosh-server 2>/dev/null)
-for p in /usr/local/bin/mosh-server /opt/homebrew/bin/mosh-server /usr/bin/mosh-server /snap/bin/mosh-server; do
-  [ -z "${'$'}m" ] && [ -x "${'$'}p" ] && m=${'$'}p
-done"""
+    /** Looks mosh-server up in [m] with the Homebrew, MacPorts and snap paths a non-login shell misses. */
+    const val moshLookup = """${Tmux.PATH_SETUP}
+m=${'$'}(command -v mosh-server 2>/dev/null)"""
 
     val script = """
-        printf '$TMUX%s\n' "${'$'}(command -v tmux 2>/dev/null)"
         $moshLookup
+        printf '$TMUX%s\n' "${'$'}(command -v tmux 2>/dev/null)"
         printf '$MOSH%s\n' "${'$'}m"
         exit 0
     """.trimIndent()
@@ -61,31 +59,49 @@ object HostPluginInstaller {
         val pkg = plugin.id
         // RHEL-family hosts ship mosh only in EPEL.
         val epel = if (plugin == HostPlugin.MOSH) """ || { run "${'$'}1" install -y epel-release && run "${'$'}1" install -y $pkg; }""" else ""
+        // Homebrew, MSYS2, Cygwin and Termux install into the user's own prefix; the system
+        // package managers of Linux, MacPorts and BSD need root or sudo.
         return """
             exec 2>&1
+            ${Tmux.PATH_SETUP}
             PW=$quoted
-            if [ "${'$'}(id -u)" = 0 ]; then run() { "${'$'}@"; }
-            elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then run() { sudo -n "${'$'}@"; }
-            elif command -v sudo >/dev/null 2>&1 && [ -n "${'$'}PW" ]; then
-              printf '%s\n' "${'$'}PW" | sudo -S -k -p '' true >/dev/null 2>&1 || { echo $SUDO_FAILED; exit 3; }
-              run() { printf '%s\n' "${'$'}PW" | sudo -S -k -p '' "${'$'}@"; }
-            elif command -v brew >/dev/null 2>&1; then run() { "${'$'}@"; }
-            elif command -v sudo >/dev/null 2>&1; then echo $SUDO_FAILED; exit 3
-            else echo $NO_PRIVILEGE; exit 5
-            fi
-            dnf_like() { run "${'$'}1" install -y $pkg$epel; }
-            if command -v brew >/dev/null 2>&1 && [ "${'$'}(uname -s)" = Darwin ]; then brew install $pkg
-            elif command -v apt-get >/dev/null 2>&1; then
-              run env DEBIAN_FRONTEND=noninteractive apt-get update -q && run env DEBIAN_FRONTEND=noninteractive apt-get install -y -q $pkg
-            elif command -v dnf >/dev/null 2>&1; then dnf_like dnf
-            elif command -v yum >/dev/null 2>&1; then dnf_like yum
-            elif command -v pacman >/dev/null 2>&1; then run pacman -Sy --noconfirm --needed $pkg
-            elif command -v zypper >/dev/null 2>&1; then run zypper --non-interactive install $pkg
-            elif command -v apk >/dev/null 2>&1; then run apk add $pkg
-            elif command -v pkg >/dev/null 2>&1; then run pkg install -y $pkg
-            elif command -v brew >/dev/null 2>&1; then brew install $pkg
-            else echo $NO_PACKAGE_MANAGER; exit 4
-            fi
+            need_root() {
+              if [ "${'$'}(id -u)" = 0 ]; then run() { "${'$'}@"; }
+              elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then run() { sudo -n "${'$'}@"; }
+              elif command -v sudo >/dev/null 2>&1 && [ -n "${'$'}PW" ]; then
+                printf '%s\n' "${'$'}PW" | sudo -S -k -p '' true >/dev/null 2>&1 || { echo $SUDO_FAILED; exit 3; }
+                run() { printf '%s\n' "${'$'}PW" | sudo -S -k -p '' "${'$'}@"; }
+              elif command -v sudo >/dev/null 2>&1; then echo $SUDO_FAILED; exit 3
+              else echo $NO_PRIVILEGE; exit 5
+              fi
+            }
+            has() { command -v "${'$'}1" >/dev/null 2>&1; }
+            none() { echo $NO_PACKAGE_MANAGER; exit 4; }
+            dnf_like() { need_root; run "${'$'}1" install -y $pkg$epel; }
+            case "${'$'}(uname -s 2>/dev/null)" in
+              Darwin)
+                if has brew; then brew install $pkg
+                elif has port; then need_root; run port -N install $pkg
+                else none; fi ;;
+              MSYS*|MINGW*)
+                if has pacman; then pacman -Sy --noconfirm --needed $pkg; else none; fi ;;
+              CYGWIN*)
+                if has apt-cyg; then apt-cyg install $pkg; else none; fi ;;
+              *)
+                if [ -n "${'$'}TERMUX_VERSION" ] && has pkg; then pkg install -y $pkg
+                elif [ "${'$'}(id -u)" != 0 ] && ! has sudo && has brew; then brew install $pkg
+                elif has apt-get; then
+                  need_root
+                  run env DEBIAN_FRONTEND=noninteractive apt-get update -q && run env DEBIAN_FRONTEND=noninteractive apt-get install -y -q $pkg
+                elif has dnf; then dnf_like dnf
+                elif has yum; then dnf_like yum
+                elif has pacman; then need_root; run pacman -Sy --noconfirm --needed $pkg
+                elif has zypper; then need_root; run zypper --non-interactive install $pkg
+                elif has apk; then need_root; run apk add $pkg
+                elif has pkg; then need_root; run pkg install -y $pkg
+                elif has brew; then brew install $pkg
+                else none; fi ;;
+            esac
             status=${'$'}?
             [ ${'$'}status = 0 ] && echo $DONE
             exit ${'$'}status

@@ -42,7 +42,10 @@ import io.itermux.app.data.prefersMosh
 import io.itermux.app.session.*
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -64,6 +67,14 @@ fun ItermuxScreen(
     val hosts = loadedHosts.orEmpty()
     val sessionFlow = remember(service) { service?.sessions ?: MutableStateFlow(emptyList()) }
     val sessions by sessionFlow.collectAsStateWithLifecycle()
+    val sessionPhases by remember(sessions) {
+        if (sessions.isEmpty()) flowOf(emptyMap())
+        else combine(sessions.map { session -> session.state.map { session.id to it.phase } }) { it.toMap() }
+    }.collectAsStateWithLifecycle(emptyMap())
+    // The session list and drawer show live sessions first; terminal tabs keep their open order.
+    val sessionsByActivity = remember(sessions, sessionPhases) {
+        sessions.sortedBy { activityRank(sessionPhases[it.id] ?: it.state.value.phase) }
+    }
     var page by rememberSaveable { mutableStateOf("hosts") }
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -215,7 +226,7 @@ fun ItermuxScreen(
         val colors = MaterialTheme.colorScheme
         ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files",
             drawerContent = {
-                ItermuxDrawer(page, hosts.size, sessions,
+                ItermuxDrawer(page, hosts.size, sessionsByActivity,
                     onHosts = { page = "hosts"; scope.launch { drawerState.close() } },
                     onSessions = { page = "sessions"; scope.launch { drawerState.close() } },
                     onOpenSession = { selected = it; page = "terminal"; scope.launch { drawerState.close() } },
@@ -296,7 +307,7 @@ fun ItermuxScreen(
                     Column(Modifier.fillMaxSize()) {
                         if (largeTitle) LargeTitle(if (sessionSearch.isBlank() && sessionHostFilter == null) tr("会话列表") else tr("搜索结果"))
                         // Hosts that currently have sessions, in session order, for the host filter.
-                        val sessionHosts = sessions.map { it.host }.distinctBy { it.id }
+                        val sessionHosts = sessionsByActivity.map { it.host }.distinctBy { it.id }
                         val hostFilter = sessionHostFilter?.takeIf { id -> sessionHosts.any { it.id == id } }
                         if (searchExpanded) {
                             AppSearchField(sessionSearch, { sessionSearch = it }, tr("标题、主机、地址或用户名"),
@@ -304,7 +315,7 @@ fun ItermuxScreen(
                                     .focusRequester(searchFocus).testTag("session-search"))
                             if (sessionHosts.size > 1) SessionHostFilter(sessionHosts, sessions, hostFilter) { sessionHostFilter = it }
                         }
-                        val filteredSessions = sessions.filter {
+                        val filteredSessions = sessionsByActivity.filter {
                             (hostFilter == null || it.host.id == hostFilter) &&
                                 "${it.displayTitle} ${it.host.name} ${it.host.address} ${it.host.username}".contains(sessionSearch, true)
                         }
@@ -314,7 +325,7 @@ fun ItermuxScreen(
                             else EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.weight(1f))
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = sessionGridState, modifier = Modifier.weight(1f).testTag("session-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
                             items(filteredSessions, key = { it.id }) { session ->
-                                SessionCard(session, onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) }, onForget = { service?.forget(session.id) })
+                                SessionCard(session, Modifier.animateItem(), onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) }, onForget = { service?.forget(session.id) })
                             }
                         }
                     }

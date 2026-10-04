@@ -23,7 +23,7 @@ internal class TmuxHistoryController(
     private val execute: suspend (String) -> String?
 ) {
     private val control = Mutex()
-    private val target get() = Tmux.targetFlag(sessionName)
+    private val target get() = Tmux.sanitizeSessionName(sessionName)
     private var applicationSource = HistorySource.TMUX
 
     suspend fun reset() = control.withLock { applicationSource = HistorySource.TMUX }
@@ -36,11 +36,11 @@ internal class TmuxHistoryController(
         if (current.alternateScreen) {
             // Full-screen copy-mode only has the current frame. Browse captured output
             // locally, using exactly the same path for every foreground program.
-            if (current.active && execute("tmux send-keys -t $target -X cancel") == null) return@withLock null
+            if (current.active && tmux("send-keys -t $target -X cancel") == null) return@withLock null
             applicationSource = HistorySource.OUTPUT
             return@withLock current.copy(active = true, source = HistorySource.OUTPUT)
         }
-        if (execute("tmux copy-mode -t $target") == null) return@withLock null
+        if (tmux("copy-mode -t $target") == null) return@withLock null
         query()
     }
 
@@ -57,19 +57,19 @@ internal class TmuxHistoryController(
                 else -> null
             }
             if (direct != null) {
-                if (execute("tmux send-keys -t $target -X $direct") == null) return@withLock null
+                if (tmux("send-keys -t $target -X $direct") == null) return@withLock null
             } else {
                 // Page commands avoid hundreds of intermediate redraws on long drags.
                 val pages = abs(targetPos - current.position) / (current.paneRows - 2).coerceAtLeast(1)
                 if (pages > 0) {
                     val pageCommand = if (targetPos > current.position) "page-up" else "page-down"
-                    if (execute("tmux send-keys -t $target -N $pages -X $pageCommand") == null) return@withLock null
+                    if (tmux("send-keys -t $target -N $pages -X $pageCommand") == null) return@withLock null
                     current = query() ?: return@withLock null
                 }
                 val remainder = targetPos - current.position
                 if (remainder != 0) {
                     val direction = if (remainder > 0) "scroll-up" else "scroll-down"
-                    if (execute("tmux send-keys -t $target -N ${abs(remainder)} -X $direction") == null) return@withLock null
+                    if (tmux("send-keys -t $target -N ${abs(remainder)} -X $direction") == null) return@withLock null
                 }
             }
         }
@@ -82,12 +82,14 @@ internal class TmuxHistoryController(
             applicationSource = HistorySource.TMUX
             current = query() ?: return@withLock null
         }
-        if (current.active && execute("tmux send-keys -t $target -X cancel") == null) return@withLock null
+        if (current.active && tmux("send-keys -t $target -X cancel") == null) return@withLock null
         query()
     }
 
+    private suspend fun tmux(args: String) = execute(Tmux.command(args))
+
     private suspend fun query(): TmuxHistory? {
-        val result = execute("tmux display-message -p -t $target '#{history_size}:#{scroll_position}:#{pane_in_mode}:#{pane_height}:#{alternate_on}'") ?: return null
+        val result = tmux("display-message -p -t $target \"#{history_size}:#{scroll_position}:#{pane_in_mode}:#{pane_height}:#{alternate_on}\"") ?: return null
         val values = result.trim().split(':')
         if (values.size != 5) return null
         val rows = values[0].toIntOrNull()?.takeIf { it >= 0 } ?: return null

@@ -26,6 +26,14 @@ internal fun authLabel(auth: String) = when (auth) {
 
 internal fun modeLabel(tmux: Boolean) = if (tmux) tr("tmux · 可恢复") else tr("SSH · 普通会话")
 
+/** Sort key for session lists: live, then connecting, then needing the user, then closed. */
+internal fun activityRank(phase: Phase) = when (phase) {
+    Phase.CONNECTED -> 0
+    Phase.CONNECTING, Phase.VERIFYING, Phase.AUTHENTICATING -> 1
+    Phase.DISCONNECTED -> 3
+    else -> 2
+}
+
 internal fun phaseLabel(phase: Phase) = when (phase) {
     Phase.CONNECTING -> tr("连接中")
     Phase.VERIFYING -> tr("待验证")
