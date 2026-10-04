@@ -21,7 +21,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Whether a saved host answers ping, with the round trip when it does. */
+/** Whether a saved host answers ping (or, failing that, its SSH port), with the round trip when it does. */
 internal sealed interface HostReachability {
     data object Checking : HostReachability
     data object Offline : HostReachability
@@ -44,15 +44,19 @@ private val pingSequence = AtomicInteger()
 private class PingUnavailable(cause: Throwable) : Exception(cause)
 
 /**
- * Pings the host once (ICMP echo) and returns the round trip in milliseconds. Devices that refuse
- * unprivileged ICMP sockets fall back to timing a TCP connect to the SSH port.
+ * Pings the host once (ICMP echo) and returns the round trip in milliseconds. When ping gets no
+ * answer (firewalls often drop ICMP) or the device refuses ICMP sockets, a TCP connect to the SSH
+ * port decides instead, timed the same way.
  */
 internal suspend fun probeHost(host: Host, timeoutMs: Int = PROBE_TIMEOUT_MS): HostReachability =
     withContext(Dispatchers.IO) {
-        val latency = try { pingRoundTrip(host.address, timeoutMs) }
-            catch (_: PingUnavailable) { tcpRoundTrip(host.address, host.port, timeoutMs) }
-        latency?.let { HostReachability.Online(it) } ?: HostReachability.Offline
+        probeWithFallback(
+            ping = { try { pingRoundTrip(host.address, timeoutMs) } catch (_: PingUnavailable) { null } },
+            tcp = { tcpRoundTrip(host.address, host.port, timeoutMs) })
     }
+
+internal inline fun probeWithFallback(ping: () -> Long?, tcp: () -> Long?): HostReachability =
+    (ping() ?: tcp())?.let { HostReachability.Online(it) } ?: HostReachability.Offline
 
 /** Milliseconds for a TCP connect to [address]:[port], or null if it fails; no SSH handshake happens. */
 internal fun tcpRoundTrip(address: String, port: Int, timeoutMs: Int): Long? = runCatching {

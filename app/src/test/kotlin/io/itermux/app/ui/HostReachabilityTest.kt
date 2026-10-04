@@ -20,6 +20,14 @@ class HostReachabilityTest {
         assertNull(tcpRoundTrip("host.invalid", 22, 1_000))
     }
 
+    @Test fun sshPortDecidesOnlyWhenPingGetsNoAnswer() {
+        var tcpTried = false
+        assertEquals(HostReachability.Online(12), probeWithFallback(ping = { 12 }, tcp = { tcpTried = true; 40 }))
+        assertFalse(tcpTried)
+        assertEquals(HostReachability.Online(40), probeWithFallback(ping = { null }, tcp = { 40 }))
+        assertEquals(HostReachability.Offline, probeWithFallback(ping = { null }, tcp = { null }))
+    }
+
     @Test fun echoRequestCarriesTypeAndSequence() {
         val v4 = icmpEchoRequest(v6 = false, sequence = 0x1234)
         assertEquals(8, v4[0].toInt())
