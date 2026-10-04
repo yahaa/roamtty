@@ -35,6 +35,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -210,12 +211,12 @@ class TerminalExtraKeysTest {
             outputContains("HISTORY_180")
             val historyView = requireNotNull(terminal(compose.activity.window.decorView))
             val density = context.resources.displayMetrics.density
-            compose.onNodeWithTag("terminal").performTouchInput {
-                down(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 12 * density))
-                moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, 9 * density), delayMillis = 400)
+            while (historyView.topRow >= -20) compose.onNodeWithTag("terminal").performTouchInput {
+                down(androidx.compose.ui.geometry.Offset(centerX, 24 * density))
+                moveTo(androidx.compose.ui.geometry.Offset(centerX, height - 12 * density), delayMillis = 400)
                 up()
             }
-            assertTrue("Scrollbar should reach local SSH history", historyView.topRow < -20)
+            assertTrue("Swiping should reach local SSH history", historyView.topRow < -20)
             val readingRow = historyView.topRow
             withContext(Dispatchers.Main) { session.write("x") }
             outputContains("KEY_78")
@@ -223,24 +224,12 @@ class TerminalExtraKeysTest {
             delay(1700)
             val historyBitmap = Bitmap.createBitmap(historyView.width, historyView.height, Bitmap.Config.ARGB_8888)
             historyView.draw(Canvas(historyBitmap))
-            File(context.getExternalFilesDir(null), "redesign-scrollbar.png").outputStream().use {
+            File(context.getExternalFilesDir(null), "redesign-history.png").outputStream().use {
                 historyBitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
             }
             historyBitmap.recycle()
-            val thumbCenterY = withContext(Dispatchers.Main) {
-                val emulator = session.getEmulator()
-                val track = historyView.height - 16 * density
-                val thumbHeight = maxOf(32 * density,
-                    track * emulator.mRows / (emulator.screen.activeTranscriptRows + emulator.mRows))
-                8 * density + thumbHeight / 2
-            }
-            compose.onNodeWithTag("terminal").performTouchInput {
-                // Grab the middle of the visible thumb, clear of Android's top-edge gestures.
-                down(androidx.compose.ui.geometry.Offset(width - 6 * density, thumbCenterY))
-                moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 8 * density), delayMillis = 400)
-                up()
-            }
-            assertEquals("Dragging the thumb to the live edge resumes output", 0, historyView.topRow)
+            while (historyView.topRow != 0) compose.onNodeWithTag("terminal").performTouchInput { swipeUp(durationMillis = 300) }
+            assertEquals("Swiping to the live edge resumes output", 0, historyView.topRow)
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithTag("restore-dock").performClick()
             compose.onNodeWithTag("collapse-dock").assertIsDisplayed()

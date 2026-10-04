@@ -218,20 +218,22 @@ class TerminalUiTest {
             outputContains("HISTORY 160")
             val view = withContext(Dispatchers.Main) { requireNotNull(terminal(compose.activity.window.decorView)) }
             val density = context.resources.displayMetrics.density
-            compose.onNodeWithTag("terminal").performTouchInput {
-                down(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 12 * density))
-                moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, 8 * density), delayMillis = 400)
-                up()
+            // History is read by swiping; there is no scrollbar thumb to drag.
+            while (withContext(Dispatchers.Main) { view.topRow } >= -20) {
+                compose.onNodeWithTag("terminal").performTouchInput {
+                    down(androidx.compose.ui.geometry.Offset(centerX, 24 * density))
+                    moveTo(androidx.compose.ui.geometry.Offset(centerX, height - 12 * density), delayMillis = 400)
+                    up()
+                }
             }
-            assertTrue(withContext(Dispatchers.Main) { view.topRow < -20 })
             fun edgePixel(): Int {
                 val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
                 bitmap.eraseColor(android.graphics.Color.BLACK)
                 view.draw(android.graphics.Canvas(bitmap))
                 return bitmap.getPixel((view.width - 6 * density).toInt(), (16 * density).toInt()).also { bitmap.recycle() }
             }
-            assertNotEquals("Scrollbar must be visible after dragging", 0xFF252728.toInt(), withContext(Dispatchers.Main) { edgePixel() })
-            capture("input-controls-landscape-scrollbar")
+            assertEquals("No scrollbar is drawn while reading history", 0xFF252728.toInt(), withContext(Dispatchers.Main) { edgePixel() })
+            capture("input-controls-landscape-history")
             val before = withContext(Dispatchers.Main) { session.getEmulator().screen.getSelectedText(0, view.topRow, 12, view.topRow) }
             write("printf 'NEW_OUTPUT\\n'\r")
             outputContains("NEW_OUTPUT")
@@ -239,15 +241,12 @@ class TerminalUiTest {
             assertEquals("New output must preserve the history being read", before,
                 withContext(Dispatchers.Main) { session.getEmulator().screen.getSelectedText(0, view.topRow, 12, view.topRow) })
             delay(1800)
-            assertNotEquals("Reading history keeps a visible scrollbar handle", 0xFF252728.toInt(), withContext(Dispatchers.Main) { edgePixel() })
-            compose.onNodeWithTag("terminal").performTouchInput {
-                down(androidx.compose.ui.geometry.Offset(width - 6 * density, 8 * density))
-                moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, height.toFloat()), delayMillis = 400)
-                up()
+            while (withContext(Dispatchers.Main) { view.topRow } != 0) {
+                compose.onNodeWithTag("terminal").performTouchInput { swipeUp(durationMillis = 300) }
             }
-            assertEquals("Dragging the scrollbar to the bottom resumes live output", 0, withContext(Dispatchers.Main) { view.topRow })
-            delay(1800)
-            assertEquals("Live edge scrollbar fades away", 0xFF252728.toInt(), withContext(Dispatchers.Main) { edgePixel() })
+            write("printf 'LIVE_AGAIN\\n'\r")
+            outputContains("LIVE_AGAIN")
+            assertEquals("Swiping back to the bottom resumes live output", 0, withContext(Dispatchers.Main) { view.topRow })
             capture("input-controls-landscape-terminal")
         } catch (failure: Throwable) {
             java.io.File(context.getExternalFilesDir(null), "input-controls-failure.txt").writeText(compose.onRoot().printToString())

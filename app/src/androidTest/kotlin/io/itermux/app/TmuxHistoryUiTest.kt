@@ -10,7 +10,6 @@ import android.graphics.Canvas
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -42,7 +41,7 @@ class TmuxHistoryUiTest {
         return null
     }
 
-    @Test fun thumbDragsRemoteHistoryAndReturnsToLive() = runBlocking {
+    @Test fun swipeOpensRemoteHistoryAndReturnsToLive() = runBlocking {
         compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val key = File(context.filesDir, "tmux_client_key")
@@ -66,8 +65,8 @@ class TmuxHistoryUiTest {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) {
                 session.state.first { it.phase == Phase.CONNECTED || !it.active }
             }.phase)
-            compose.waitUntil(8000) { compose.onAllNodesWithText("会话  1").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("会话  1").performClick()
+            compose.waitUntil(8000) { compose.onAllNodesWithTag("sessions-tab").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("sessions-tab").performClick()
             compose.onNodeWithTag("session-${session.id}").performClick()
             withContext(Dispatchers.Main) {
                 session.write("i=1; while [ \$i -le 180 ]; do printf 'TMUX_UI_%03d\\n' \$i; i=\$((i+1)); done\r")
@@ -77,20 +76,22 @@ class TmuxHistoryUiTest {
                     session.getEmulator().screen.transcriptText.contains("TMUX_UI_180")
                 }) delay(40)
             }
-            compose.onNodeWithTag("restore-dock").performClick()
-            compose.onNodeWithTag("tmux-history").assertIsDisplayed().performClick()
+            // No history button: a swipe up on the live tmux screen opens history by itself.
+            // Copy-mode redraws reshuffle older scrollback; the prompt above tmux's status line must stay intact.
+            fun promptLine() = session.getEmulator().screen.transcriptText.trimEnd().lines().dropLast(1).last()
+            val promptBefore = withContext(Dispatchers.Main) { promptLine() }
+            compose.onNodeWithTag("terminal").performTouchInput { swipeDown() }
             withTimeout(8000) { while (session.tmuxHistory.value?.active != true) delay(40) }
             val rows = requireNotNull(session.tmuxHistory.value).rows
             assertTrue("tmux must own older lines", rows > 80)
             compose.onNodeWithTag("terminal").performTouchInput { swipeDown() }
             withTimeout(8000) { while ((session.tmuxHistory.value?.position ?: 0) == 0) delay(40) }
-            val density = context.resources.displayMetrics.density
-            compose.onNodeWithTag("terminal").performTouchInput {
-                down(Offset(width - 6 * density, height - 12 * density))
-                moveTo(Offset(width - 6 * density, 9 * density), delayMillis = 500)
-                up()
+            withTimeout(15_000) {
+                while ((session.tmuxHistory.value?.position ?: 0) < rows) {
+                    compose.onNodeWithTag("terminal").performTouchInput { swipeDown(durationMillis = 120) }
+                    delay(300)
+                }
             }
-            withTimeout(8000) { while ((session.tmuxHistory.value?.position ?: 0) < rows / 2) delay(40) }
             val view = requireNotNull(terminal(compose.activity.window.decorView))
             withTimeout(8000) {
                 while (!withContext(Dispatchers.Main) {
@@ -119,20 +120,25 @@ class TmuxHistoryUiTest {
                 }
                 screen.recycle()
             }
-            compose.onNodeWithTag("terminal").performTouchInput {
-                down(Offset(width - 6 * density, 9 * density))
-                moveTo(Offset(width - 6 * density, height - 12 * density), delayMillis = 500)
-                up()
+            withTimeout(15_000) {
+                while (session.tmuxHistory.value?.position != 0) {
+                    compose.onNodeWithTag("terminal").performTouchInput { swipeUp(durationMillis = 120) }
+                    delay(300)
+                }
             }
-            withTimeout(8000) { while (session.tmuxHistory.value?.position != 0) delay(40) }
             withTimeout(8000) {
                 while (!withContext(Dispatchers.Main) {
                     val emulator = session.getEmulator()
                     emulator.getSelectedText(0, 0, emulator.mColumns, emulator.mRows).contains("TMUX_UI_180")
                 }) delay(40)
             }
-            compose.onNodeWithTag("tmux-history").performClick()
+            compose.onNodeWithTag("restore-dock").performClick()
+            compose.onNodeWithTag("tmux-history").assertIsDisplayed().performClick()
             withTimeout(8000) { while (session.tmuxHistory.value != null) delay(40) }
+            // The opening swipe must not have leaked arrow keys into the shell prompt.
+            withContext(Dispatchers.Main) {
+                assertEquals(promptBefore, promptLine())
+            }
             withContext(Dispatchers.Main) { session.draft = "unsent draft"; session.enterTmuxHistory() }
             withTimeout(8000) { while (session.tmuxHistory.value?.active != true) delay(40) }
             withContext(Dispatchers.Main) { session.executeHistoryCommand("printf 'EXEC_%s\\n' OK") }.join()

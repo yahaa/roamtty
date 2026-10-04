@@ -183,19 +183,14 @@ class OutputHistoryUiTest {
         assertVisible("OUTPUT_4999")
         compose.onNodeWithTag("output-history-live").assertDoesNotExist()
         compose.onNodeWithTag("output-history-top").assertDoesNotExist()
-        val density = compose.activity.resources.displayMetrics.density
-        compose.onNodeWithTag("output-history-lines").performTouchInput {
-            down(Offset(width - 6 * density, height - 24 * density))
-            moveTo(Offset(width - 6 * density, 0f), delayMillis = 350)
-            up()
-        }
+        // The right edge is no longer a thumb: a swipe there scrolls about one screen, like anywhere else.
+        compose.onNodeWithTag("output-history-lines").performTouchInput { swipe(Offset(right - 6f, top + 24f), Offset(right - 6f, bottom - 24f), 200) }
+        compose.waitForIdle()
+        assertTrue(fraction() in 0.001f..0.999f)
+        compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
         assertVisible("OUTPUT_0000")
         assertEquals(0f, fraction(), 0.001f)
-        compose.onNodeWithTag("output-history-lines").performTouchInput {
-            down(Offset(width - 6 * density, 24 * density))
-            moveTo(Offset(width - 6 * density, height.toFloat()), delayMillis = 350)
-            up()
-        }
+        compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(SemanticsActions.SetProgress) { it(1f) }
         assertVisible("OUTPUT_4999")
         assertEquals(1f, fraction(), 0.001f)
         compose.onNodeWithTag("output-history").assertIsDisplayed()
@@ -214,13 +209,13 @@ class OutputHistoryUiTest {
             assertFalse(terminal().onCheckIsTextEditor())
             assertNull(terminal().onCreateInputConnection(EditorInfo()))
         }
-        val density = compose.activity.resources.displayMetrics.density
-        compose.onNodeWithTag("output-history-lines").performTouchInput {
-            down(Offset(width - 6 * density, height - 24 * density))
-            moveTo(Offset(width - 6 * density, 0f), delayMillis = 350)
-            up()
-        }
-        assertEquals(0f, fraction(), 0.001f) // The scrollbar stays at the visible edge after horizontal panning.
+        compose.onNodeWithTag("output-history-lines").performTouchInput { swipe(Offset(right - 6f, bottom - 24f), Offset(right - 6f, top + 24f), 200) }
+        compose.waitForIdle()
+        // A vertical swipe still scrolls after horizontal panning (output starts at the bottom; swipe up stays there).
+        assertEquals(1f, fraction(), 0.001f)
+        compose.onNodeWithTag("output-history-lines").performTouchInput { swipe(Offset(right - 6f, top + 24f), Offset(right - 6f, bottom - 24f), 200) }
+        compose.waitForIdle()
+        assertTrue(fraction() < 1f)
         compose.runOnIdle { records.value = lines(listOf("短记录", "第二行")) }
         assertVisible("短记录")
         compose.onNodeWithTag("output-history-scrollbar").assertDoesNotExist()

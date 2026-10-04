@@ -373,6 +373,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     val history = activeHistory?.takeIf { it.source == HistorySource.TMUX }
                     view.setRemoteHistory(history?.rows ?: 0, history?.position ?: 0,
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
+                    // tmux runs on the alternate screen, so a swipe up opens history like the history button.
+                    view.setHistoryRequestListener(if (session.mode != SessionMode.TMUX || state.phase != Phase.CONNECTED ||
+                        activeHistory != null) null else TerminalView.HistoryRequestListener {
+                        hideKeyboard(); session.enterTmuxHistory(); true
+                    })
                 })
                 if (showingOutput) OutputHistoryView(recordedOutput, fontSize, lightTheme)
                 // Hidden (landscape) status bars have no inset, so the scrim only appears under a visible bar.

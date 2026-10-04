@@ -89,6 +89,10 @@ public final class TerminalView extends View {
     private final TerminalCursorDrag mCursorDrag = new TerminalCursorDrag(this);
     public interface RemoteHistoryListener { void onPositionRequested(int position); }
     private final RemoteHistoryState mRemoteHistory = new RemoteHistoryState();
+    /** Asked to open history when a swipe up would otherwise be sent to a full-screen program. */
+    public interface HistoryRequestListener { boolean onHistoryRequested(); }
+    @Nullable private HistoryRequestListener mHistoryRequest;
+    private long mHistoryRequestDownTime = -1;
     private BaseInputConnection mInputConnection;
     private final ImeBackspaceTracker mImeBackspace = new ImeBackspaceTracker();
     private Integer mExtractedTextToken;
@@ -788,6 +792,14 @@ public final class TerminalView extends View {
             requestRemoteHistoryPosition(mRemoteHistory.position() - rowsDown);
             return;
         }
+        // One request per gesture; the rest of it must not leak out as arrow keys while history opens.
+        if (event.getDownTime() == mHistoryRequestDownTime) return;
+        if (rowsDown < 0 && mHistoryRequest != null && !event.isFromSource(InputDevice.SOURCE_MOUSE) &&
+            (mEmulator.isAlternateBufferActive() || mEmulator.isMouseTrackingActive()) &&
+            mHistoryRequest.onHistoryRequested()) {
+            mHistoryRequestDownTime = event.getDownTime();
+            return;
+        }
         boolean up = rowsDown < 0;
         int amount = Math.abs(rowsDown);
         for (int i = 0; i < amount; i++) {
@@ -1316,6 +1328,10 @@ public final class TerminalView extends View {
         if (mTermSession != null && mTermSession.isReadOnly() &&
             (rows != mRemoteHistory.rows() || position != mRemoteHistory.position())) stopScrolling();
         mRemoteHistory.update(rows, position, listener == null ? null : listener::onPositionRequested);
+    }
+
+    public void setHistoryRequestListener(@Nullable HistoryRequestListener listener) {
+        mHistoryRequest = listener;
     }
 
     /** A fresh touch, session switch, or detached view must not compete with a queued fling. */
