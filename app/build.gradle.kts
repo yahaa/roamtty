@@ -24,7 +24,7 @@ android {
     namespace = "io.itermux.app"
     compileSdk = 36
     defaultConfig {
-        applicationId = providers.gradleProperty("itermuxApplicationId").orElse("io.itermux.app").get()
+        applicationId = providers.gradleProperty("itermuxApplicationId").orElse("com.roamtty.app").get()
         minSdk = 26
         targetSdk = 36
         versionCode = providers.gradleProperty("itermuxVersionCode").map(String::toInt).getOrElse(versionCodeOf(appVersionName))

@@ -1,6 +1,6 @@
 # Third-party notices
 
-iTermux's original code is copyright 2026 iTermux contributors, licensed under Apache-2.0. See [LICENSE](LICENSE).
+Roamtty's original code is copyright 2026 Roamtty contributors, licensed under Apache-2.0. See [LICENSE](LICENSE).
 
 | Component | Pinned version / source | License |
 | --- | --- | --- |

@@ -59,7 +59,7 @@ try:
                     break
                 text, buffer = buffer[6:].split(b"\x1b[201~", 1)
                 for path in text.decode().split():
-                    if re.fullmatch(r"/tmp/itermux-img-[a-f0-9-]+\.png", path):
+                    if re.fullmatch(r"/tmp/roamtty-img-[a-f0-9-]+\.png", path):
                         with open(path, "rb") as image:
                             if image.read(8) == b"\x89PNG\r\n\x1a\n":
                                 images.append(path)

@@ -70,7 +70,7 @@ class TrustPolicy(private val store: PinStore) {
 
 object Tmux {
     /** Legacy fixed remote name used by journal entries created before multi-session support. */
-    const val LEGACY_SESSION = "itermux"
+    const val LEGACY_SESSION = "roamtty"
     /**
      * sshd runs commands in a non-login shell, which misses the Homebrew and MacPorts paths where
      * tmux and mosh land on macOS (and Linuxbrew or snap on Linux).
@@ -82,7 +82,7 @@ object Tmux {
     fun sanitizeSessionName(name: String): String =
         name.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.take(64).ifEmpty { LEGACY_SESSION }
 
-    fun newSessionName(): String = "itermux-${UUID.randomUUID().toString().replace("-", "").take(12)}"
+    fun newSessionName(): String = "roamtty-${UUID.randomUUID().toString().replace("-", "").take(12)}"
 
     /**
      * Runs tmux through /bin/sh with [EXTRA_PATH], whatever the login shell (fish, csh, nu…).

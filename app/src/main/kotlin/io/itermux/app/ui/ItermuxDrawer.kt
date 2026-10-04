@@ -40,7 +40,7 @@ internal fun ItermuxDrawer(
                 verticalAlignment = Alignment.CenterVertically) {
                 ItermuxLogo(Modifier.size(48.dp))
                 Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                    Text("iTermux", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Text("Roamtty", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Text(tr("远程终端"), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

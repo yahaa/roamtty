@@ -9,7 +9,7 @@ if ($LASTEXITCODE -ne 0) { throw 'App installation failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Test installation failed' }
 $options = @('-s', $Serial, 'shell', 'am', 'instrument', '-w')
 if ($TestClass) { $options += @('-e', 'class', $TestClass) }
-$options += 'io.itermux.app.test/io.itermux.app.ItermuxTestRunner'
+$options += 'com.roamtty.app.test/io.itermux.app.ItermuxTestRunner'
 & $adb @options | Tee-Object -FilePath "$projectRoot/.local/device-test-$Serial.txt"
 if ($LASTEXITCODE -ne 0) { throw 'Instrumentation failed' }
 if (!(Select-String -LiteralPath "$projectRoot/.local/device-test-$Serial.txt" -Pattern 'OK \([0-9]+ tests?\)' -Quiet)) { throw 'Instrumentation reported test failures' }

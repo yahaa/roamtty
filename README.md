@@ -1,6 +1,6 @@
-# iTermux
+# Roamtty
 
-面向远程 AI 编程的免费开源 Android SSH 客户端。Android 8.0（API 26）起，Kotlin + Compose，默认简体中文、可切换 English。应用标识 `io.itermux.app`，Apache-2.0。
+面向远程 AI 编程的免费开源 Android SSH 客户端（原名 iTermux）。Android 8.0（API 26）起，Kotlin + Compose，默认简体中文、可切换 English。应用标识 `com.roamtty.app`，Apache-2.0。
 
 ## 功能
 
@@ -33,7 +33,7 @@ Windows 上可用 `scripts/bootstrap.ps1`、`scripts/install-sdk.ps1` 在项目�
 
 版本号在 `gradle.properties` 的 `itermuxVersionName` 中维护，`versionCode` 由其推导为 `MAJOR*10000 + MINOR*100 + PATCH`（0.1.0 → 100），每次上传 Google Play 前须递增版本号；`-PitermuxVersionCode=...` 可临时覆盖。
 
-`scripts/release.sh`（Linux / macOS）或 `scripts/release.ps1`（Windows）构建签名的 `dist/iTermux-<版本>.apk`（直装）与 `dist/iTermux-<版本>.aab`（上传 Google Play），校验签名并写入 `SHA256SUMS.txt`。发布密钥为 3072 位 RSA（`.private/signing/itermux-release.p12`，密码在被忽略的 `signing.properties`），同时作为 Play 上传密钥。`release.ps1` 首次运行时生成密钥；`release.sh` 只在设置 `ITERMUX_CREATE_RELEASE_KEY=1` 时生成，否则要求恢复已有密钥。两者须单独备份，丢失后无法覆盖升级。调试包使用开发签名，不能覆盖发布包。
+`scripts/release.sh`（Linux / macOS）或 `scripts/release.ps1`（Windows）构建签名的 `dist/Roamtty-<版本>.apk`（直装）与 `dist/Roamtty-<版本>.aab`（上传 Google Play），校验签名并写入 `SHA256SUMS.txt`。发布密钥为 3072 位 RSA（`.private/signing/itermux-release.p12`，密码在被忽略的 `signing.properties`），同时作为 Play 上传密钥。`release.ps1` 首次运行时生成密钥；`release.sh` 只在设置 `ITERMUX_CREATE_RELEASE_KEY=1` 时生成，否则要求恢复已有密钥。两者须单独备份，丢失后无法覆盖升级。调试包使用开发签名，不能覆盖发布包。
 
 ## 测试
 

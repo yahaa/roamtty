@@ -15,7 +15,7 @@ if [[ ! -f $keystore ]]; then
     ITERMUX_SIGNING_PASSWORD=$(head -c 32 /dev/urandom | base64) && export ITERMUX_SIGNING_PASSWORD
     keytool -genkeypair -noprompt -keystore "$keystore" -storetype PKCS12 \
         -storepass:env ITERMUX_SIGNING_PASSWORD -keypass:env ITERMUX_SIGNING_PASSWORD \
-        -alias itermux -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=iTermux, O=iTermux Open Source, C=CN'
+        -alias itermux -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=Roamtty, O=Roamtty Open Source, C=CN'
     (umask 077; printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=itermux\nkeyPassword=%s\n' \
         "$keystore" "$ITERMUX_SIGNING_PASSWORD" "$ITERMUX_SIGNING_PASSWORD" > "$properties")
     unset ITERMUX_SIGNING_PASSWORD
@@ -27,11 +27,11 @@ version=$(sed -n 's/^itermuxVersionName=//p' gradle.properties)
 
 sdk=${ANDROID_HOME:-$(sed -n 's/^sdk\.dir=//p' local.properties)}
 mkdir -p dist
-apk=dist/iTermux-$version.apk
-aab=dist/iTermux-$version.aab
+apk=dist/Roamtty-$version.apk
+aab=dist/Roamtty-$version.aab
 cp app/build/outputs/apk/release/app-release.apk "$apk"
 cp app/build/outputs/bundle/release/app-release.aab "$aab"
 "$sdk/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" | tee dist/signature.txt
 jarsigner -verify "$aab" | grep -q "^jar verified" || { echo "AAB signature verification failed" >&2; exit 1; }
-(cd dist && sha256sum "iTermux-$version.apk" "iTermux-$version.aab" > SHA256SUMS.txt)
+(cd dist && sha256sum "Roamtty-$version.apk" "Roamtty-$version.aab" > SHA256SUMS.txt)
 echo "Signed $apk and $aab. Upload the AAB to Play Console; keep .private/signing and $properties backed up separately."

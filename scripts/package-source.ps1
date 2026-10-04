@@ -3,7 +3,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $version = (Select-String -Path "$root/gradle.properties" -Pattern '^itermuxVersionName=(.+)$').Matches[0].Groups[1].Value.Trim()
-$zipPath = Join-Path $root "dist/iTermux-$version-source.zip"
+$zipPath = Join-Path $root "dist/Roamtty-$version-source.zip"
 $folders = @('app','ssh-core','terminal-emulator','terminal-view','scripts','docs','licenses','gradle','artwork')
 $rootNames = @('.gitignore','.gitattributes','settings.gradle.kts','build.gradle.kts','gradle.properties','gradlew','gradlew.bat','LICENSE','NOTICE','README.md','THIRD_PARTY_NOTICES.md','toolchains.lock.json','test-tool.lock.json')
 $files = @($rootNames | ForEach-Object { Get-Item -LiteralPath (Join-Path $root $_) })
@@ -16,7 +16,7 @@ $archive = New-Object IO.Compression.ZipArchive($stream, [IO.Compression.ZipArch
 try {
     foreach ($file in ($files | Sort-Object FullName)) {
         $relative = $file.FullName.Substring($root.Length + 1).Replace('\','/')
-        [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, "iTermux/$relative", [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, "Roamtty/$relative", [IO.Compression.CompressionLevel]::Optimal) | Out-Null
     }
 } finally { $archive.Dispose(); $stream.Dispose() }
 $artifacts = @(Get-ChildItem -LiteralPath (Join-Path $root 'dist') -Filter '*.apk' -File) + @(Get-Item -LiteralPath $zipPath)

@@ -145,7 +145,7 @@ class FileTransferController(private val scope: CoroutineScope) {
     }
 
     /**
-     * Independent of [upload]: convert to PNG, SFTP to a unique `/tmp/itermux-img-*.png`,
+     * Independent of [upload]: convert to PNG, SFTP to a unique `/tmp/roamtty-img-*.png`,
      * then insert the explicitly selected image without submitting the current prompt.
      */
     fun uploadImageForCli(context: Context, session: TerminalConnection, uri: Uri) {

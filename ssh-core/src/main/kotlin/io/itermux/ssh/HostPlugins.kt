@@ -1,6 +1,6 @@
 package io.itermux.ssh
 
-/** Remote helpers iTermux can use: tmux keeps sessions alive, mosh keeps the terminal alive over roaming UDP. */
+/** Remote helpers Roamtty can use: tmux keeps sessions alive, mosh keeps the terminal alive over roaming UDP. */
 enum class HostPlugin(val id: String) {
     TMUX("tmux"), MOSH("mosh");
 

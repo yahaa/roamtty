@@ -1,8 +1,8 @@
-# iTermux 隐私政策
+# Roamtty 隐私政策
 
 生效日期：2026-10-04
 
-iTermux 是一款开源的 SSH 终端客户端。我们（iTermux 开发者）不运营任何服务器，不收集、不上传、不出售、也不与任何第三方共享你的个人数据。
+Roamtty 是一款开源的 SSH 终端客户端。我们（Roamtty 开发者）不运营任何服务器，不收集、不上传、不出售、也不与任何第三方共享你的个人数据。
 
 ## 应用在设备上保存的数据
 
@@ -49,11 +49,11 @@ iTermux 是一款开源的 SSH 终端客户端。我们（iTermux 开发者）�
 
 如对本政策有任何疑问，请通过 Google Play 商店页面列出的开发者邮箱联系我们。
 
-# iTermux Privacy Policy
+# Roamtty Privacy Policy
 
 Effective date: 2026-10-04
 
-iTermux is an open-source SSH terminal client. We, the iTermux developers, run no servers and do not collect, upload, sell or share any of your personal data with anyone.
+Roamtty is an open-source SSH terminal client. We, the Roamtty developers, run no servers and do not collect, upload, sell or share any of your personal data with anyone.
 
 ## Data stored on your device
 

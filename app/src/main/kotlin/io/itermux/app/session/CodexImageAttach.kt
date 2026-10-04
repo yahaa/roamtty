@@ -11,7 +11,7 @@ import java.util.UUID
 
 /** Convert each explicitly selected image to PNG and insert its remote path into the current prompt. */
 object CodexImageAttach {
-    fun newRemotePngPath(): String = "/tmp/itermux-img-${UUID.randomUUID()}.png"
+    fun newRemotePngPath(): String = "/tmp/roamtty-img-${UUID.randomUUID()}.png"
 
     /** Spaces separate successive attachments and any surrounding prompt text; never submit. */
     fun pathForPaste(path: String): String = " $path "
@@ -21,7 +21,7 @@ object CodexImageAttach {
         val bitmap = context.contentResolver.openInputStream(uri)?.use { input ->
             BitmapFactory.decodeStream(input)
         } ?: throw IOException("无法解码图片")
-        val out = File(context.cacheDir, "itermux-img-${UUID.randomUUID()}.png")
+        val out = File(context.cacheDir, "roamtty-img-${UUID.randomUUID()}.png")
         try {
             FileOutputStream(out).use { stream ->
                 if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) {

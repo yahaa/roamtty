@@ -36,7 +36,7 @@ class SessionService : Service() {
         super.onCreate()
         journal = SessionJournal(this)
         wakeLock = getSystemService(PowerManager::class.java)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "iTermux:SSH").apply { setReferenceCounted(false) }
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Roamtty:SSH").apply { setReferenceCounted(false) }
         refreshLanguage()
         restoration = scope.launch {
             val app = application as ItermuxApp
@@ -160,7 +160,7 @@ class SessionService : Service() {
         val close = PendingIntent.getService(this, 1, Intent(this, SessionService::class.java).setAction(DISCONNECT_ALL), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val active = sessions.value.count { it.state.value.active }
         return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("iTermux · %d 个 SSH 会话", active))
+            .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("Roamtty · %d 个 SSH 会话", active))
             .setContentText(tr("轻触返回终端 · 长任务建议使用 tmux"))
             .setOngoing(true).setSilent(true).setContentIntent(launch)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)

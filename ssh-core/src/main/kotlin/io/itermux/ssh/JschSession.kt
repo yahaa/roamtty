@@ -519,7 +519,7 @@ class JschSession(
         override fun add(hostkey: HostKey?, ui: UserInfo?) = Unit
         override fun remove(host: String?, type: String?) = Unit
         override fun remove(host: String?, type: String?, key: ByteArray?) = Unit
-        override fun getKnownHostsRepositoryID(): String = "iTermux pinned hosts"
+        override fun getKnownHostsRepositoryID(): String = "Roamtty pinned hosts"
         override fun getHostKey(): Array<HostKey> = emptyArray()
         override fun getHostKey(host: String?, type: String?): Array<HostKey> = emptyArray()
     }

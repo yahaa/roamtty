@@ -17,7 +17,7 @@ class PrivacyPolicyTest {
 
     @Test fun shippedPolicyHasChineseThenEnglish() {
         val markdown = File("../docs/PRIVACY.md").readText()
-        assertTrue(privacyPolicySection(markdown, english = false).startsWith("# iTermux 隐私政策"))
-        assertTrue(privacyPolicySection(markdown, english = true).startsWith("# iTermux Privacy Policy"))
+        assertTrue(privacyPolicySection(markdown, english = false).startsWith("# Roamtty 隐私政策"))
+        assertTrue(privacyPolicySection(markdown, english = true).startsWith("# Roamtty Privacy Policy"))
     }
 }

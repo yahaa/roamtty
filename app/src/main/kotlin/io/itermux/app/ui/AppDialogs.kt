@@ -40,7 +40,7 @@ private enum class AboutPage { GUIDE, PRIVACY, LICENSES }
         MarkdownParser.parse(privacyPolicySection(markdown, AppLocale.language == AppLanguage.ENGLISH))
     }
     val title = when (page) {
-        AboutPage.GUIDE -> "iTermux"
+        AboutPage.GUIDE -> "Roamtty"
         AboutPage.PRIVACY -> tr("隐私政策")
         AboutPage.LICENSES -> tr("第三方许可")
     }

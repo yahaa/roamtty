@@ -425,7 +425,7 @@ private object EnglishText {
         "会话  %d" to "Sessions  %d",
         "认证输入 %d" to "Authentication input %d",
         "会话不存在" to "Session not found",
-        "iTermux · %d 个 SSH 会话" to "iTermux · %d SSH sessions",
+        "Roamtty · %d 个 SSH 会话" to "Roamtty · %d SSH sessions",
         "查看文件" to "View files",
         "此目录为空" to "This directory is empty",
         "打开" to "Open",
