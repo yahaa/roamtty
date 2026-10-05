@@ -309,11 +309,12 @@ fun ItermuxScreen(
                                     .focusRequester(searchFocus).testTag("host-search"))
                         }
                         val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
-                        ProbeHostReachability(hostReachability, hosts)
                         // A live connection already proves the host is up, whatever the last probe said. Sessions keep
                         // the endpoint they were opened with, so one still on an edited host's old address does not count.
                         val connectedEndpoints = sessions.filter { (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
                             .map { Triple(it.host.id, it.host.address, it.host.port) }.toSet()
+                        ProbeHostReachability(hostReachability, hosts,
+                            connected = hosts.filter { Triple(it.id, it.address, it.port) in connectedEndpoints }.map { it.id }.toSet())
                         if (filtered.isEmpty()) {
                             if (hosts.isEmpty()) EmptyState(tr("从第一台主机开始"), tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
                                 Modifier.weight(1f),

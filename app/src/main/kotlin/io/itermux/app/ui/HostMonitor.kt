@@ -36,42 +36,61 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     /** True while the login is up and [listFolders] can run. */
     val ready = MutableStateFlow(false)
     private var job: Job? = null
+    /** Whether the current login has read at least one sample. */
+    @Volatile private var sampled = false
 
     fun start() {
         job?.cancel()
         session?.disconnect()
         connection.value = ConnectionState(Phase.CONNECTING)
         job = scope.launch {
-            var credentials: Credentials? = null
-            try {
-                credentials = withContext(Dispatchers.IO) {
-                    Credentials(
-                        password = if (host.auth == AuthMethod.PASSWORD.name) host.encryptedPassword?.let { app.vault.decrypt(it, "${host.id}:password") } ?: login.password.toByteArray() else null,
-                        privateKey = host.encryptedKey?.takeIf { host.auth == AuthMethod.KEY.name }?.let { app.vault.decrypt(it, "${host.id}:key") },
-                        passphrase = login.passphrase.takeIf { it.isNotEmpty() }?.toByteArray())
+            var retry = 0
+            while (true) {
+                sampled = false
+                val ended = try { login() } catch (e: CancellationException) { throw e }
+                catch (_: Exception) {
+                    connection.value = ConnectionState(Phase.FAILED, "无法读取凭据，请重新导入密钥或保存密码。")
+                    return@launch
                 }
-                val ssh = JschSession(host.target(SessionMode.SHELL), credentials, app.pins, interaction = { prompt ->
-                    val request = PendingPrompt(prompt)
-                    withContext(Dispatchers.Main.immediate) { pending.value = request }
-                    try { request.answer.await() }
-                    finally { withContext(NonCancellable + Dispatchers.Main.immediate) { pending.compareAndSet(request, null) } }
-                }, connectTimeoutMs = 15_000)
-                session = ssh
-                val state = launch { ssh.state.collect { connection.value = it } }
-                ssh.administer { remote ->
-                    this@HostMonitor.remote = remote
-                    ready.value = true
-                    try { if (sampleMetrics) sample(remote) else awaitCancellation() }
-                    finally { this@HostMonitor.remote = null; ready.value = false }
-                }
-                state.cancel()
-                connection.value = ssh.state.value
-            } catch (e: CancellationException) { throw e }
-            catch (_: Exception) {
-                credentials?.clear()
-                connection.value = ConnectionState(Phase.FAILED, "无法读取凭据，请重新导入密钥或保存密码。")
+                // A sample since the last retry means the host was fine until now: start the backoff over.
+                if (sampled) retry = 0
+                val wait = monitorRetryDelayMs(ended, ++retry, host.auth == AuthMethod.INTERACTIVE.name)
+                if (wait == null) { connection.value = ended; return@launch }
+                connection.value = ConnectionState(Phase.CONNECTING, MONITOR_RECONNECTING, detail = ended.detail)
+                delay(wait)
             }
         }
+    }
+
+    /** One SSH login that samples until it ends; returns how it ended. Throws when the credentials cannot be read. */
+    private suspend fun login(): ConnectionState = coroutineScope {
+        var credentials: Credentials? = null
+        try {
+            credentials = withContext(Dispatchers.IO) {
+                Credentials(
+                    password = if (host.auth == AuthMethod.PASSWORD.name) host.encryptedPassword?.let { app.vault.decrypt(it, "${host.id}:password") } ?: login.password.toByteArray() else null,
+                    privateKey = host.encryptedKey?.takeIf { host.auth == AuthMethod.KEY.name }?.let { app.vault.decrypt(it, "${host.id}:key") },
+                    passphrase = login.passphrase.takeIf { it.isNotEmpty() }?.toByteArray())
+            }
+            val ssh = JschSession(host.target(SessionMode.SHELL), credentials, app.pins, interaction = { prompt ->
+                val request = PendingPrompt(prompt)
+                withContext(Dispatchers.Main.immediate) { pending.value = request }
+                try { request.answer.await() }
+                finally { withContext(NonCancellable + Dispatchers.Main.immediate) { pending.compareAndSet(request, null) } }
+            }, connectTimeoutMs = 15_000)
+            session = ssh
+            // Keep showing the reconnect notice until this login gets past connecting.
+            val state = launch { ssh.state.collect { if (it.phase != Phase.CONNECTING || !connection.value.active) connection.value = it } }
+            ssh.administer { remote ->
+                this@HostMonitor.remote = remote
+                ready.value = true
+                try { if (sampleMetrics) sample(remote) else awaitCancellation() }
+                finally { this@HostMonitor.remote = null; ready.value = false }
+            }
+            state.cancel()
+            ssh.state.value
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { credentials?.clear(); throw e }
     }
 
     private suspend fun sample(remote: RemoteHost) {
@@ -92,6 +111,7 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
             current.cpuPercent?.let { cpuHistory.value = (cpuHistory.value + it).takeLast(MONITOR_HISTORY) }
             current.memPercent?.let { memHistory.value = (memHistory.value + it).takeLast(MONITOR_HISTORY) }
             metrics.value = current
+            sampled = true
             previous = current to now
             delay(SAMPLE_INTERVAL_MS)
         }
@@ -112,6 +132,19 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     }
 }
 
+/**
+ * Wait before logging the monitor back in after it [ended], or null to stop and show the failure. Network failures,
+ * dropped connections (a Mac going to sleep, sshd penalising this address) and failed samples back off
+ * 2, 4, 8, 16, 30 s; rejected credentials, host keys and logins that need typed answers never retry.
+ */
+internal fun monitorRetryDelayMs(ended: ConnectionState, retry: Int, interactive: Boolean): Long? {
+    if (interactive || retry > MONITOR_RETRIES) return null
+    val retryable = ended.phase == Phase.FAILED || (ended.phase == Phase.DISCONNECTED && ended.message == "连接已关闭")
+    return if (retryable) (1_000L shl retry).coerceAtMost(30_000L) else null
+}
+
+private const val MONITOR_RETRIES = 5
+internal const val MONITOR_RECONNECTING = "连接中断，正在自动重连…"
 internal const val SAMPLE_INTERVAL_MS = 3_000L
 private const val SAMPLE_TIMEOUT_MS = 10_000L
 private const val LIST_TIMEOUT_MS = 10_000L

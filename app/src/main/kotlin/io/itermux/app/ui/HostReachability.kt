@@ -79,18 +79,23 @@ internal class HostReachabilityTracker(private val clock: () -> Long = { System.
     }
 }
 
-/** Probes due hosts while this is composed and the screen is resumed. */
+/**
+ * Probes due hosts while this is composed and the screen is resumed. Hosts in [connected] already show online and
+ * are skipped: each probe is a connection that never logs in, and OpenSSH 9.8+ (macOS ships it) counts those
+ * against the address under PerSourcePenalties until it refuses new logins from the phone.
+ */
 @Composable
-internal fun ProbeHostReachability(tracker: HostReachabilityTracker, hosts: List<Host>) {
+internal fun ProbeHostReachability(tracker: HostReachabilityTracker, hosts: List<Host>, connected: Set<String> = emptySet()) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentHosts by rememberUpdatedState(hosts)
+    val currentConnected by rememberUpdatedState(connected)
     val targets = hosts.map { it.id to it.probeTarget }
     LaunchedEffect(tracker, targets) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             // Main-thread only: launched probes resume on the effect's dispatcher.
             val inFlight = mutableSetOf<String>()
             while (true) {
-                currentHosts.filter { it.id !in inFlight && tracker.dueAt(it) <= tracker.now() }.forEach { host ->
+                currentHosts.filter { it.id !in inFlight && it.id !in currentConnected && tracker.dueAt(it) <= tracker.now() }.forEach { host ->
                     inFlight += host.id
                     launch {
                         try { tracker.record(host, probeHost(host)) } finally { inFlight -= host.id }
