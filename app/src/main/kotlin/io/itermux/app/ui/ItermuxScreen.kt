@@ -88,8 +88,10 @@ fun ItermuxScreen(
     val lightTheme = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
     val terminalVisible = page == "terminal" && sessions.isNotEmpty()
     val navigationVisible = page == "hosts" || page == "sessions"
+    // The file browser wears the terminal's chrome: a transparent status bar and no navigation bar.
+    val terminalChrome = terminalVisible || page == "files"
     // Older IMEs reveal system bars without changing window focus. Restore immersive mode on close.
-    LaunchedEffect(terminalVisible, imeVisible, lightTheme, landscape) { onChromeChange(terminalVisible, lightTheme) }
+    LaunchedEffect(terminalChrome, imeVisible, lightTheme, landscape) { onChromeChange(terminalChrome, lightTheme) }
     BackHandler(page == "terminal") { page = "sessions" }
     BackHandler(page == "sessions") { page = "hosts" }
     BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
