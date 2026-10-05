@@ -1,6 +1,7 @@
 package io.itermux.app.ui
 
 import android.content.res.Configuration
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalConfiguration
@@ -135,9 +137,7 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
                 modifier = Modifier.testTag("download-parent")) {
                 Icon(painterResource(R.drawable.ic_arrow_up), contentDescription = tr("↑ 上级目录"))
             }
-            Text(currentPath.ifBlank { tr("主目录") }, fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(horizontal = 4.dp).testTag("download-directory"))
+            DirectoryTitle(currentPath, Modifier.weight(1f).padding(horizontal = 4.dp))
             AppSearchToggle(searchExpanded, onToggle = {
                 if (searchExpanded) { query = ""; finishSearch() }
                 searchExpanded = !searchExpanded
@@ -213,7 +213,9 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
                 }
             }
         }
-        if (!editingCompact) Surface(shadowElevation = 4.dp) {
+        if (!editingCompact) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            val changeLabel = tr(if (directoryLabel.isEmpty()) "选择下载目录" else "更换下载目录")
             val summary: @Composable (Modifier) -> Unit = { modifier ->
                 Row(modifier, verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { selectedOnly = !selectedOnly; finishSearch() },
@@ -221,20 +223,25 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
                         modifier = Modifier.weight(1f).testTag("download-selected")) {
                         Text(trf("已选 %d 个 · %s", selected.size,
                             if (selected.any { it.total < 0 }) tr("大小未知") else formatRemoteSize(selected.sumOf { it.total })),
-                            color = if (selectedOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f))
+                            color = if (selectedOnly || selected.isNotEmpty()) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false))
                         if (selected.isNotEmpty() || selectedOnly) Icon(painterResource(R.drawable.ic_chevron_right),
                             contentDescription = tr(if (selectedOnly) "返回文件列表" else "查看已选文件"),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 4.dp).size(16.dp).rotate(if (selectedOnly) 90f else -90f))
+                        Spacer(Modifier.weight(0.001f))
                     }
                     if (selected.isNotEmpty()) TextButton(onClick = { transfer.selectedDownloads = emptyList() }) { Text(tr("清空")) }
                 }
             }
             val confirm: @Composable (Modifier) -> Unit = { modifier ->
                 Button(onClick = onDownload, enabled = enabled && selected.isNotEmpty(),
-                    modifier = modifier.testTag("download-confirm")) {
-                    Text(tr(if (directoryLabel.isEmpty()) "选择下载目录" else "下载"))
+                    contentPadding = PaddingValues(horizontal = 20.dp), modifier = modifier.testTag("download-confirm")) {
+                    Icon(painterResource(R.drawable.ic_download), contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(tr(if (directoryLabel.isEmpty()) "选择下载目录" else "下载"), maxLines = 1)
                 }
             }
             if (compact) Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
@@ -242,46 +249,75 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
                 summary(Modifier.weight(1f))
                 IconButton(onClick = onChangeDirectory, enabled = canChangeDirectory,
                     modifier = Modifier.testTag("download-destination")) {
-                    Icon(painterResource(R.drawable.ic_folder),
-                        contentDescription = tr(if (directoryLabel.isEmpty()) "选择下载目录" else "更换下载目录"))
+                    Icon(painterResource(R.drawable.ic_folder), contentDescription = changeLabel)
                 }
                 confirm(Modifier)
-            } else Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
-                summary(Modifier.fillMaxWidth())
-                // The local destination is tappable so a download can go elsewhere without visiting Settings.
-                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(MaterialTheme.shapes.small)
-                    .clickable(enabled = canChangeDirectory, role = Role.Button,
-                        onClickLabel = tr(if (directoryLabel.isEmpty()) "选择下载目录" else "更换下载目录"),
-                        onClick = onChangeDirectory)
-                    .heightIn(min = 32.dp).testTag("download-destination"),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Icon(painterResource(R.drawable.ic_folder), contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                    Text(if (directoryLabel.isEmpty()) tr("首次选择后将记住此目录") else trf("保存到：%s", directoryLabel),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 6.dp))
-                    Text(tr("更改"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            } else Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)) {
+                summary(Modifier.fillMaxWidth().padding(start = 4.dp))
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // The local destination is tappable so a download can go elsewhere without visiting Settings.
+                    OutlinedButton(onClick = onChangeDirectory, enabled = canChangeDirectory,
+                        contentPadding = PaddingValues(start = 14.dp, end = 10.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("download-destination")) {
+                        Icon(painterResource(R.drawable.ic_folder), contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text(directoryLabel.ifEmpty { tr("尚未设置下载目录") }, style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
+                        Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                    }
+                    confirm(Modifier.heightIn(min = 48.dp))
                 }
-                confirm(Modifier.fillMaxWidth())
             }
         }
     }
 }
 
 @Composable
+private fun DirectoryTitle(path: String, modifier: Modifier) {
+    val name = path.trimEnd('/').substringAfterLast('/')
+    // At the root or home there is no folder name to lift out, so the path stands alone.
+    if (name.isEmpty()) Text(path.ifBlank { tr("主目录") }, fontFamily = FontFamily.Monospace,
+        style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        modifier = modifier.testTag("download-directory"))
+    else Column(modifier) {
+        Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // Start-ellipsize: the deepest folders are the ones that tell paths apart.
+        Text(path, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.StartEllipsis,
+            modifier = Modifier.testTag("download-directory"))
+    }
+}
+
+@Composable
 internal fun DownloadFileRow(name: String, metadata: String, directory: Boolean, selected: Boolean,
     enabled: Boolean, tag: String, onClick: () -> Unit) {
-    ListItem(headlineContent = { Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        supportingContent = { Text(metadata, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        leadingContent = { RemoteFileIcon(name, directory) },
-        trailingContent = {
-            if (directory) Icon(painterResource(R.drawable.ic_chevron_right), tr("打开"))
-            else Checkbox(checked = selected, onCheckedChange = null, enabled = enabled)
-        }, colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer
-            else MaterialTheme.colorScheme.surfaceContainerLow),
-        modifier = Modifier.fillMaxWidth().then(if (directory) Modifier.clickable(enabled = enabled, onClick = onClick)
-            else Modifier.toggleable(value = selected, enabled = enabled, role = Role.Checkbox, onValueChange = { onClick() })).testTag(tag))
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp).clip(MaterialTheme.shapes.medium)
+        .background(if (selected) colors.primary.copy(alpha = 0.12f) else Color.Transparent)
+        .then(if (directory) Modifier.clickable(enabled = enabled, onClick = onClick)
+            else Modifier.toggleable(value = selected, enabled = enabled, role = Role.Checkbox, onValueChange = { onClick() }))
+        .testTag(tag).heightIn(min = 60.dp).padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        RemoteFileIcon(name, directory)
+        Column(Modifier.weight(1f).padding(start = 14.dp, end = 8.dp)) {
+            Text(breakableFileName(name), style = MaterialTheme.typography.bodyLarge, color = colors.onSurface,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(metadata, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+        }
+        if (directory) Icon(painterResource(R.drawable.ic_chevron_right), tr("打开"),
+            tint = colors.onSurfaceVariant, modifier = Modifier.padding(end = 12.dp).size(20.dp))
+        else Checkbox(checked = selected, onCheckedChange = null, enabled = enabled, modifier = Modifier.padding(end = 10.dp))
+    }
 }
+
+/**
+ * Lets long names wrap at separators. Line breaking forbids a break between "-" and a digit, so
+ * "probe-20261005" would otherwise split mid-number.
+ */
+private fun breakableFileName(name: String) = name.replace(Regex("(?<=[-_.])(?=.)"), "\u200B")
 
 @Composable
 private fun DownloadMessage(message: String) {
