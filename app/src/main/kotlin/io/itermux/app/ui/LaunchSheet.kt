@@ -20,6 +20,10 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.launch
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -294,51 +298,105 @@ private fun CenterNote(message: String, action: String, onAction: () -> Unit) {
     }
 }
 
-/** The three agents side by side and how much each may do, so choosing never leaves the sheet. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Agent and permission as two dropdowns on one line; YOLO is red, and its "!" says what it allows. */
 @Composable
 private fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAgent) -> Unit, onMode: (AgentMode) -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxWidth().padding(start = Spacing.Page, end = Spacing.Page, top = Spacing.Row).selectableGroup(),
+    val yolo = mode == AgentMode.YOLO
+    Row(Modifier.fillMaxWidth().padding(start = Spacing.Page, end = Spacing.Page, top = Spacing.Row),
         horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-        CodingAgent.entries.forEach { option ->
-            val selected = option == agent
-            val border by animateColorAsState(if (selected) colors.primary else colors.outlineVariant, label = "agent-chip")
-            Surface(Modifier.weight(1f).selectable(selected, onClick = { onAgent(option) }, role = Role.RadioButton)
-                .testTag("agent-option-${option.name.lowercase()}"), shape = MaterialTheme.shapes.small,
-                color = if (selected) colors.primary.copy(alpha = 0.08f) else colors.groupedContainer,
-                border = BorderStroke(if (selected) 1.5.dp else 0.5.dp, border)) {
-                Row(Modifier.heightIn(min = 40.dp).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AgentBadge(option, 20.dp)
-                    Spacer(Modifier.width(Spacing.Tight))
-                    Text(option.shortLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Picker(Modifier.weight(1f), "agent-picker", anchor = {
+            AgentBadge(agent, 20.dp)
+            Spacer(Modifier.width(Spacing.Tight))
+            Text(agent.shortLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false))
+        }) { close ->
+            CodingAgent.entries.forEach { option ->
+                PickerItem(option == agent, "agent-option-${option.name.lowercase()}", onClick = { onAgent(option); close() },
+                    leading = { AgentBadge(option, 24.dp) }) {
+                    Text(option.label, style = MaterialTheme.typography.bodyLarge)
+                    Text(option.command, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = colors.onSurfaceVariant)
+                }
+            }
+        }
+        Picker(Modifier.weight(1f), "agent-mode-picker", borderColor = if (yolo) colors.error else null, anchor = {
+            Text(modeLabel(mode), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (yolo) colors.error else colors.onSurface, modifier = Modifier.weight(1f, fill = false))
+            if (yolo) YoloWarning()
+        }) { close ->
+            AgentMode.entries.forEach { option ->
+                val danger = option == AgentMode.YOLO
+                PickerItem(option == mode, "agent-mode-${option.name.lowercase().replace('_', '-')}",
+                    onClick = { onMode(option); close() }) {
+                    Text(modeLabel(option), style = MaterialTheme.typography.bodyLarge,
+                        color = if (danger) colors.error else colors.onSurface)
+                    Text(modeHint(option), style = MaterialTheme.typography.bodySmall,
+                        color = if (danger) colors.error else colors.onSurfaceVariant)
                 }
             }
         }
     }
-    val modes = AgentMode.entries
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(top = Spacing.Tight)) {
-        modes.forEachIndexed { index, option ->
-            val danger = option == AgentMode.YOLO
-            SegmentedButton(selected = option == mode, onClick = { onMode(option) },
-                shape = SegmentedButtonDefaults.itemShape(index, modes.size),
-                colors = if (danger) SegmentedButtonDefaults.colors(activeContainerColor = colors.errorContainer,
-                    activeContentColor = colors.onErrorContainer) else SegmentedButtonDefaults.colors(),
-                modifier = Modifier.testTag("agent-mode-${option.name.lowercase().replace('_', '-')}")) {
-                Text(modeLabel(option), maxLines = 1)
+}
+
+/** An outlined field showing the current choice; tapping it drops the options below. */
+@Composable
+private fun Picker(modifier: Modifier, tag: String, borderColor: Color? = null, anchor: @Composable RowScope.() -> Unit,
+    menu: @Composable ColumnScope.(close: () -> Unit) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        Surface(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { open = true }.testTag(tag),
+            shape = MaterialTheme.shapes.small, color = colors.groupedContainer,
+            border = BorderStroke(if (borderColor != null) 1.dp else 0.5.dp, borderColor ?: colors.outlineVariant)) {
+            Row(Modifier.heightIn(min = 44.dp).padding(start = Spacing.Row, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                anchor()
+                Spacer(Modifier.weight(1f))
+                Icon(painterResource(R.drawable.ic_expand_down), contentDescription = null, Modifier.size(18.dp),
+                    tint = colors.onSurfaceVariant)
             }
         }
+        DropdownMenu(open, onDismissRequest = { open = false }) { menu { open = false } }
     }
-    // Only YOLO earns a line of warning; the safer modes explain themselves by name.
-    if (mode == AgentMode.YOLO) Text(tr("不经确认直接运行命令、修改或删除文件"),
-        Modifier.fillMaxWidth().padding(horizontal = Spacing.Section).padding(top = 6.dp).testTag("agent-mode-warning"),
-        style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = colors.error)
+}
+
+@Composable
+private fun PickerItem(selected: Boolean, tag: String, onClick: () -> Unit, leading: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit) {
+    DropdownMenuItem(text = { Column(content = content) }, onClick = onClick, leadingIcon = leading,
+        trailingIcon = if (selected) { { Icon(painterResource(R.drawable.ic_check), contentDescription = tr("已选择"),
+            Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) } } else null,
+        modifier = Modifier.testTag(tag))
+}
+
+/** The red "!" beside YOLO; tapping it explains, in red, what the mode lets the agent do. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun YoloWarning() {
+    val colors = MaterialTheme.colorScheme
+    val state = rememberTooltipState(isPersistent = true)
+    val scope = rememberCoroutineScope()
+    TooltipBox(TooltipDefaults.rememberPlainTooltipPositionProvider(), state = state, tooltip = {
+        PlainTooltip(containerColor = colors.surfaceContainerHighest, contentColor = colors.error) {
+            Text(modeHint(AgentMode.YOLO), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("agent-mode-warning"))
+        }
+    }) {
+        Icon(painterResource(R.drawable.ic_alert), contentDescription = tr("YOLO 模式说明"), tint = colors.error,
+            modifier = Modifier.padding(start = 4.dp).size(32.dp).clip(RoundedCornerShape(50))
+                .clickable { scope.launch { state.show() } }.padding(7.dp).testTag("agent-mode-info"))
+    }
 }
 
 private fun modeLabel(mode: AgentMode) = when (mode) {
     AgentMode.READ_ONLY -> tr("只读")
     AgentMode.STANDARD -> tr("普通")
     AgentMode.YOLO -> "YOLO"
+}
+
+private fun modeHint(mode: AgentMode) = when (mode) {
+    AgentMode.READ_ONLY -> tr("只查看和分析，不修改文件")
+    AgentMode.STANDARD -> tr("改文件或运行命令前先问你")
+    AgentMode.YOLO -> tr("不经确认直接运行命令、修改或删除文件")
 }
 
 internal fun SharedPreferences.recentStartDirectories(hostId: String): List<String> =

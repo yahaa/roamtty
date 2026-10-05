@@ -525,6 +525,8 @@ private object EnglishText {
         "将在新会话中打开，主机支持时使用 tmux，断开后任务仍在运行。" to "Opens in a new session. With tmux on the host, the agent keeps running after you disconnect.",
         "没有匹配的项目" to "No matching items",
         "没有匹配的文件夹" to "No matching folders",
+        "YOLO 模式说明" to "About YOLO mode",
+        "已选择" to "Selected",
         "文件夹名称" to "Folder name",
         "创建" to "Create",
         "关闭筛选" to "Close filter",

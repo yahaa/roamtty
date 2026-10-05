@@ -210,9 +210,9 @@ private fun CommandPreview(command: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** The last mode picked; before read-only existed only a YOLO flag was stored, so that still counts. */
+/** The last mode picked, YOLO the first time; before read-only existed only a YOLO flag was stored, so that still counts. */
 internal fun SharedPreferences.agentMode(): AgentMode = getString(MODE_KEY, null)?.let(AgentMode::from)
-    ?: if (getBoolean(YOLO_KEY, false)) AgentMode.YOLO else AgentMode.STANDARD
+    ?: if (getBoolean(YOLO_KEY, true)) AgentMode.YOLO else AgentMode.STANDARD
 
 internal fun SharedPreferences.saveAgentChoice(agent: CodingAgent, mode: AgentMode) =
     edit { putString(AGENT_KEY, agent.name); putString(MODE_KEY, mode.name); remove(YOLO_KEY) }

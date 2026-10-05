@@ -34,7 +34,7 @@ class AgentLaunchTest {
         assertEquals("Codex · /", AgentLaunch(CodingAgent.CODEX, "/").title)
     }
     @Test fun unknownStoredAgentFallsBackToClaude() {
-        assertEquals(CodingAgent.CLAUDE, CodingAgent.from("nope"))
+        assertEquals(CodingAgent.CODEX, CodingAgent.from("nope"))
         assertEquals(CodingAgent.GROK, CodingAgent.from("GROK"))
     }
 }

@@ -11,7 +11,7 @@ enum class CodingAgent(val label: String, val shortLabel: String, val command: S
     GROK("Grok", "Grok", "grok", "--permission-mode plan", "--always-approve");
 
     companion object {
-        fun from(value: String?) = entries.firstOrNull { it.name == value } ?: CLAUDE
+        fun from(value: String?) = entries.firstOrNull { it.name == value } ?: CODEX
     }
 }
 
