@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -134,15 +133,13 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                     IconButton(onClick = onDismiss, modifier = Modifier.testTag("file-preview-close")) {
                         Icon(painterResource(R.drawable.ic_chevron_left), tr("返回文件列表"))
                     }
-                    RemoteFileIcon(name, size = 22.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
+                    // The name already says what the file is; the subtitle only adds where it lives.
+                    Column(Modifier.weight(1f).padding(start = 4.dp)) {
                         Text(name, Modifier.testTag("file-preview-title"), style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        SelectionContainer {
-                            Text(path, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1, overflow = TextOverflow.StartEllipsis)
-                        }
+                            maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+                        Text(path.substringBeforeLast('/', "").ifEmpty { "/" }, Modifier.testTag("file-preview-directory"),
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.StartEllipsis)
                     }
                     if (preview?.markdown != null) IconButton(onClick = { rendered = !rendered },
                         modifier = Modifier.testTag("file-preview-markdown-toggle")) {
