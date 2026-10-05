@@ -120,9 +120,8 @@ fun ItermuxScreen(
     var editorOpen by rememberSaveable { mutableStateOf(false) }
     var editHostId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteHost by remember { mutableStateOf<Host?>(null) }
-    var startDirectoryHost by remember { mutableStateOf<Host?>(null) }
-    var agentDirectoryHost by remember { mutableStateOf<Host?>(null) }
-    var agentLaunchTarget by remember { mutableStateOf<Pair<Host, String>?>(null) }
+    /** A host-menu launch: the host, and whether it starts an AI agent rather than a plain terminal. */
+    var launchRequest by remember { mutableStateOf<Pair<Host, Boolean>?>(null) }
     var connectRequest by remember { mutableStateOf<ConnectRequest?>(null) }
     var reverify by remember { mutableStateOf<TerminalConnection?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
@@ -168,6 +167,12 @@ fun ItermuxScreen(
         val request = ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect, startupCommand = startupCommand)
         if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null)) connectRequest = request
         else start(request)
+    }
+
+    /** A new session in [directory]; with [agent], that agent is started there and names the session. */
+    fun launchOn(host: Host, directory: String, agent: AgentLaunch?) {
+        if (agent != null) connect(host, title = agent.title, startupCommand = agent.commandLine)
+        else connect(host, startupCommand = StartDirectory.command(directory))
     }
 
     fun managePlugins(host: Host) {
@@ -320,7 +325,7 @@ fun ItermuxScreen(
                             items(filtered, key = { it.id }) { host -> HostCard(host, { detailHostId = host.id; page = "host" }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
                                 hostReachability.statusOf(host).let { probed ->
                                     if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
-                                }, openTerminal = { startDirectoryHost = host }, launchAgent = { agentDirectoryHost = host }) }
+                                }, openTerminal = { launchRequest = host to false }, launchAgent = { launchRequest = host to true }) }
                         }
                     }
                 } else if (page == "sessions") {
@@ -357,8 +362,7 @@ fun ItermuxScreen(
                             hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
                             sessionCount = sessions.count { it.host.id == detailHost.id },
                             onBack = { page = "hosts" },
-                            onOpenTerminal = { startDirectoryHost = detailHost },
-                            onLaunchAgent = { agentDirectoryHost = detailHost },
+                            onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
                             onBrowseFiles = { browseFiles(detailHost) },
                             onEdit = { editHostId = detailHost.id; editorOpen = true },
                             onManagePlugins = { managePlugins(detailHost) },
@@ -411,22 +415,10 @@ fun ItermuxScreen(
                 onDismiss = { editorOpen = false; editHostId = null },
                 onSaved = { editorOpen = false; editHostId = null })
         }
-        startDirectoryHost?.let { host ->
-            StartDirectorySheet(host, onDismiss = { startDirectoryHost = null }) { directory ->
-                startDirectoryHost = null
-                connect(host, startupCommand = StartDirectory.command(directory))
-            }
-        }
-        agentDirectoryHost?.let { host ->
-            StartDirectorySheet(host, onDismiss = { agentDirectoryHost = null }, forAgent = true) { directory ->
-                agentDirectoryHost = null
-                agentLaunchTarget = host to directory
-            }
-        }
-        agentLaunchTarget?.let { (host, directory) ->
-            AgentLaunchSheet(directory, onDismiss = { agentLaunchTarget = null }) { launch ->
-                agentLaunchTarget = null
-                connect(host, title = launch.title, startupCommand = launch.commandLine)
+        launchRequest?.let { (host, forAgent) ->
+            LaunchSheet(host, forAgent, monitor = null, onDismiss = { launchRequest = null }) { directory, agent ->
+                launchRequest = null
+                launchOn(host, directory, agent)
             }
         }
         deleteHost?.let { host -> AlertDialog(onDismissRequest = { deleteHost = null }, title = { Text(trf("删除 %s？", host.name)) }, text = { Text(tr("将删除这台主机及保存的凭据，并关闭它的连接。远端 tmux 任务不受影响。")) },

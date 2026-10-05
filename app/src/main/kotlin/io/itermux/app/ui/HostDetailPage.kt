@@ -32,6 +32,7 @@ import io.itermux.app.ItermuxApp
 import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.data.installedPlugins
+import io.itermux.app.session.AgentLaunch
 import io.itermux.app.session.HostMetrics
 import io.itermux.app.tr
 import io.itermux.app.trf
@@ -51,8 +52,8 @@ internal fun HostDetailPage(
     reachability: HostReachability,
     sessionCount: Int,
     onBack: () -> Unit,
-    onOpenTerminal: () -> Unit,
-    onLaunchAgent: () -> Unit,
+    /** Opens a session in the folder picked on the launch sheet, starting [AgentLaunch] there when given. */
+    onLaunch: (directory: String, agent: AgentLaunch?) -> Unit,
     onBrowseFiles: () -> Unit,
     onEdit: () -> Unit,
     onManagePlugins: () -> Unit,
@@ -64,6 +65,8 @@ internal fun HostDetailPage(
     val scope = rememberCoroutineScope()
     var login by remember(host.id) { mutableStateOf(if (host.needsTypedPassword) null else PluginTarget(host)) }
     var askPassword by remember(host.id) { mutableStateOf(false) }
+    /** null, or whether the launch sheet starts an AI agent. */
+    var launching by remember(host.id) { mutableStateOf<Boolean?>(null) }
     val monitor = login?.let { target ->
         remember(target) { HostMonitor(app, target, scope).also { it.start() } }
     }
@@ -99,9 +102,10 @@ internal fun HostDetailPage(
                 HostHeader(host, reachability, metrics)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     HostAction(tr("终端"), R.drawable.ic_sessions, primary = true, tag = "host-detail-terminal",
-                        modifier = Modifier.weight(1f), onClick = onOpenTerminal)
-                    HostAction(tr("AI 助手"), R.drawable.ic_agent, tag = "host-detail-agent", modifier = Modifier.weight(1f),
-                        onClick = onLaunchAgent)
+                        modifier = Modifier.weight(1f)) { launching = false }
+                    HostAction(tr("AI 助手"), R.drawable.ic_agent, tag = "host-detail-agent", modifier = Modifier.weight(1f)) {
+                        launching = true
+                    }
                     HostAction(tr("文件"), R.drawable.ic_folder, tag = "host-detail-files", modifier = Modifier.weight(1f),
                         onClick = onBrowseFiles)
                 }
@@ -117,6 +121,13 @@ internal fun HostDetailPage(
         login = PluginTarget(host, password, passphrase)
     }
     monitor?.pending?.collectAsStateWithLifecycle()?.value?.let { PromptDialog(it) }
+    launching?.let { forAgent ->
+        // The page's own login lists folders, so the sheet opens straight onto them.
+        LaunchSheet(host, forAgent, monitor, onDismiss = { launching = null }) { directory, agent ->
+            launching = null
+            onLaunch(directory, agent)
+        }
+    }
 }
 
 @Composable
