@@ -50,6 +50,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
@@ -456,6 +458,20 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         }
                     }
                 }
+                // Esc holds the Enter key's place whenever Enter is hidden.
+                androidx.compose.animation.AnimatedVisibility(!enterKeyAwake && cursorKeysAllowed && !arrowKeysShown,
+                    modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(120))) {
+                    terminal?.let { view ->
+                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight) {
+                            CursorKey(null, tr("发送 Esc"), "cursor-escape", label = "Esc") {
+                                ctrlArmed = false
+                                shiftArmed = false
+                                view.scrollToBottom()
+                                session.write("\u001b")
+                            }
+                        }
+                    }
+                }
                 androidx.compose.animation.AnimatedVisibility(arrowKeysShown,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
                     terminal?.let { view ->
@@ -592,9 +608,9 @@ private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewp
 
 private val CursorKeyHeight = 32.dp
 
-/** A slim key drawn inside a larger touch area, tinted on press. */
+/** A slim key drawn inside a larger touch area, tinted on press; shows [icon], or [label] when there is none. */
 @Composable
-private fun CursorKey(icon: Int, description: String, tag: String, onClick: () -> Unit) {
+private fun CursorKey(icon: Int?, description: String, tag: String, label: String = "", onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Box(Modifier.size(40.dp, CursorKeyHeight)
@@ -606,7 +622,8 @@ private fun CursorKey(icon: Int, description: String, tag: String, onClick: () -
             contentColor = MaterialTheme.colorScheme.primary,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(14.dp))
+                if (icon != null) Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(14.dp))
+                else Text(label, fontSize = 10.sp, lineHeight = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
             }
         }
     }
