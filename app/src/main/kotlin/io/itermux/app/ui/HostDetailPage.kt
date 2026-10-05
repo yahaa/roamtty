@@ -107,10 +107,10 @@ internal fun HostDetailPage(
                 val metrics = monitor?.metrics?.collectAsStateWithLifecycle()?.value
                 HostHeader(host, reachability, metrics)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-                    HostAction(tr("终端"), R.drawable.ic_sessions, primary = true, tag = "host-detail-terminal",
-                        modifier = Modifier.weight(1f)) { launching = false }
-                    HostAction(tr("AI 助手"), R.drawable.ic_agent, tag = "host-detail-agent", modifier = Modifier.weight(1f)) {
-                        launching = true
+                    HostAction(tr("AI 助手"), R.drawable.ic_agent, primary = true, tag = "host-detail-agent",
+                        modifier = Modifier.weight(1f)) { launching = true }
+                    HostAction(tr("终端"), R.drawable.ic_sessions, tag = "host-detail-terminal", modifier = Modifier.weight(1f)) {
+                        launching = false
                     }
                     HostAction(tr("文件"), R.drawable.ic_folder, tag = "host-detail-files", modifier = Modifier.weight(1f),
                         onClick = onBrowseFiles)
@@ -188,7 +188,7 @@ private fun HostAction(label: String, icon: Int, tag: String, modifier: Modifier
 @Composable
 private fun HostSessionsSection(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit) {
     GroupedSection(header = trf("会话  %d", sessions.size), modifier = Modifier.testTag("host-sessions")) {
-        if (sessions.isEmpty()) GroupedRow(tr("暂无会话"), subtitle = tr("点上方“终端”或“AI 助手”开启新会话"))
+        if (sessions.isEmpty()) GroupedRow(tr("暂无会话"), subtitle = tr("点上方“AI 助手”或“终端”开启新会话"))
         else sessions.forEachIndexed { index, session ->
             if (index > 0) GroupedDivider()
             HostSessionRow(session) { onOpen(session) }

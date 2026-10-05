@@ -156,7 +156,7 @@ private object EnglishText {
         "历史位置" to "History position",
         "移除记录" to "Remove record",
         "移除" to "Remove",
-        "点上方“终端”或“AI 助手”开启新会话" to "Tap Terminal or AI agent above to start one",
+        "点上方“AI 助手”或“终端”开启新会话" to "Tap AI agent or Terminal above to start one",
         "移除后无法从此卡片重连。远端会话不会被终止，可通过 tmux attach -t %s 手动连接。" to "Removing this card prevents reconnecting from it. The remote session keeps running; reconnect manually with tmux attach -t %s.",
         "请先退出全屏程序，再执行 shell 历史命令。" to "Exit the full-screen program before running a shell history command.",
         "远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。" to "The remote tmux session keeps running. Its session card is kept for reconnection.",
