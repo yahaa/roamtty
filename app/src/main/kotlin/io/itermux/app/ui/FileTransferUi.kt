@@ -92,11 +92,14 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
     // Everything already in the prompt needs no dialog, only a short confirmation; a cancel closes quietly.
     val allInserted = status.images.size == status.imageTotal && status.images.all { it.outcome == ImageOutcome.INSERTED }
     val quiet = imagesFinished && (status.cancelled || allInserted)
+    // The keyboard owns the bottom of the screen, so the confirmation drops in from the top.
+    var insertedNotice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(quiet) {
         if (!quiet) return@LaunchedEffect
-        if (!status.cancelled) Toast.makeText(context, trf("已插入 %d 张图片", status.imageTotal), Toast.LENGTH_SHORT).show()
+        if (!status.cancelled) insertedNotice = trf("已插入 %d 张图片", status.imageTotal)
         transfer.dismiss()
     }
+    insertedNotice?.let { TopNotice(it) { insertedNotice = null } }
     if (status.imageTotal > 0) {
         if (status.running || (imagesFinished && !quiet))
             ImageInsertDialog(status, onCancel = transfer::cancel, onDismiss = transfer::dismiss)
