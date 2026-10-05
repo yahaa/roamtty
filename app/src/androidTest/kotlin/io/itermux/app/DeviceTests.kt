@@ -322,7 +322,7 @@ class TerminalUiTest {
                     withContext(Dispatchers.Main) {
                         assertEquals("Remote text must not become an IME editing buffer", "", ic!!.getTextBeforeCursor(100, 0).toString())
                     }
-                    repeat(22) {
+                    repeat(44) {
                         withContext(Dispatchers.Main) {
                             when (protocol) {
                                 "KEY" -> {
@@ -333,7 +333,8 @@ class TerminalUiTest {
                                 else -> ic!!.deleteSurroundingTextInCodePoints(1, 0)
                             }
                         }
-                        delay(100)
+                        // Auto-repeat cadence; slower deletes are treated as taps.
+                        delay(50)
                     }
                     // New input immediately after a hold must release the suppression latch.
                     withContext(Dispatchers.Main) {
