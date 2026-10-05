@@ -60,6 +60,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.view.SoftwareKeyboardControllerCompat
 import androidx.core.content.edit
+import com.termux.terminal.KeyHandler
 import com.termux.terminal.TextStyle
 import com.termux.view.TerminalView
 import io.itermux.app.TerminalFonts
@@ -197,6 +198,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             shiftArmed = false
         }
         terminal?.sendInputControlKey(keyCode)
+        ctrlArmed = false
+        shiftArmed = false
+    }
+    /** Left swipe on the terminal sends Shift+Left (CSI ESC[1;2D); any armed Ctrl still applies. */
+    fun shiftArrowLeft() {
+        terminal?.sendInputControlKey(KeyEvent.KEYCODE_DPAD_LEFT, KeyHandler.KEYMOD_SHIFT)
         ctrlArmed = false
         shiftArmed = false
     }
@@ -403,7 +410,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
                             shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
-                            onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); arrowKeysDismissedLine = slashCommandLine; enterKeyTyping = false; enterKeyTouches++ }, onTripleTap = { pasteClipboard() }))
+                            onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); arrowKeysDismissedLine = slashCommandLine; enterKeyTyping = false; enterKeyTouches++ }, onTripleTap = { pasteClipboard() },
+                            onSwipeLeft = { shiftArrowLeft() }))
                         setUserInputListener { enterKeyTyping = true; enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                         isFocusableInTouchMode = true

@@ -148,6 +148,7 @@ public final class TerminalView extends View {
     public final static int KEY_EVENT_SOURCE_SOFT_KEYBOARD = 0;
 
     private static final String LOG_TAG = "TerminalView";
+    private static final float SWIPE_MIN_DISTANCE_DP = 48f;
 
     public TerminalView(Context context, AttributeSet attributes) { // NO_UCD (unused code)
         super(context, attributes);
@@ -155,6 +156,7 @@ public final class TerminalView extends View {
         mGestureRecognizer = new GestureAndScaleRecognizer(context, new GestureAndScaleRecognizer.Listener() {
 
             boolean scrolledWithFinger;
+            float downX, downY;
 
             @Override
             public boolean onUp(MotionEvent event) {
@@ -194,6 +196,8 @@ public final class TerminalView extends View {
                     sendMouseEventCode(e, TerminalEmulator.MOUSE_LEFT_BUTTON_MOVED, true);
                 } else {
                     scrolledWithFinger = true;
+                    // A sideways drag is a swipe in progress: do not scroll (or send arrow keys) for its small vertical drift.
+                    if (Math.abs(e.getX() - downX) > 2 * Math.abs(e.getY() - downY)) return true;
                     distanceY += mScrollRemainder;
                     int deltaRows = (int) (distanceY / mRenderer.mFontLineSpacing);
                     mScrollRemainder = distanceY - deltaRows * mRenderer.mFontLineSpacing;
@@ -213,6 +217,11 @@ public final class TerminalView extends View {
             @Override
             public boolean onFling(final MotionEvent e2, float velocityX, float velocityY) {
                 if (mEmulator == null) return true;
+                if (isSwipeLeft(e2, velocityX, velocityY)) {
+                    requestFocus();
+                    mClient.onSwipeLeft(e2);
+                    return true;
+                }
                 // Do not start scrolling until last fling has been taken care of:
                 if (!mScroller.isFinished()) return true;
 
@@ -272,6 +281,8 @@ public final class TerminalView extends View {
             public boolean onDown(float x, float y) {
                 mScrollRemainder = 0f;
                 scrolledWithFinger = false;
+                downX = x;
+                downY = y;
                 // Why is true not returned here?
                 // https://developer.android.com/training/gestures/detector.html#detect-a-subset-of-supported-gestures
                 // Although setting this to true still does not solve the following errors when long pressing in terminal view text area
@@ -279,6 +290,16 @@ public final class TerminalView extends View {
                 // Commenting out the call to mGestureDetector.onTouchEvent(event) in GestureAndScaleRecognizer#onTouchEvent() removes
                 // the error logging, so issue is related to GestureDetector
                 return false;
+            }
+
+            /** A left swipe travels far enough and at least twice as far sideways as vertically; vertical flings keep scrolling. */
+            private boolean isSwipeLeft(MotionEvent e, float velocityX, float velocityY) {
+                if (mTermSession == null || mTermSession.isReadOnly() || isSelectingText()
+                    || e.isFromSource(InputDevice.SOURCE_MOUSE) || mGestureRecognizer.isInProgress()) return false;
+                float dx = e.getX() - downX, dy = e.getY() - downY;
+                float minDistance = SWIPE_MIN_DISTANCE_DP * getResources().getDisplayMetrics().density;
+                return velocityX < 0 && dx <= -minDistance
+                    && Math.abs(dx) >= 2 * Math.abs(dy) && Math.abs(velocityX) >= 2 * Math.abs(velocityY);
             }
 
             @Override
@@ -1399,6 +1420,11 @@ public final class TerminalView extends View {
 
     /** Finish a pending IME composition before moving/deleting in the remote input. */
     public void sendInputControlKey(int keyCode) {
+        sendInputControlKey(keyCode, 0);
+    }
+
+    /** Sends a control key with {@code keyMod} added to any armed sticky modifiers. */
+    public void sendInputControlKey(int keyCode, int keyMod) {
         mImeBackspace.reset();
         if (mEmulator == null) return;
         if (mInputConnection != null && mInputConnection.getEditable().length() > 0) {
@@ -1406,7 +1432,6 @@ public final class TerminalView extends View {
             ((InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE)).restartInput(this);
         }
         scrollToBottom();
-        int keyMod = 0;
         if (mClient != null) {
             if (mClient.readControlKey()) keyMod |= KeyHandler.KEYMOD_CTRL;
             if (mClient.readAltKey()) keyMod |= KeyHandler.KEYMOD_ALT;
