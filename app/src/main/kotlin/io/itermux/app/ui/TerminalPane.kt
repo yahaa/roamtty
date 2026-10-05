@@ -32,6 +32,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -130,6 +132,18 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         if (dockAvailable && !dockVisible && hideAfter > 0) {
             delay(hideAfter)
             toolboxAwake = false
+        }
+    }
+    // The cursor-row Enter key appears on typing or a double tap and fades after a quiet spell.
+    var enterKeyAwake by remember { mutableStateOf(false) }
+    var enterKeyTouches by remember { mutableIntStateOf(0) }
+    LaunchedEffect(enterKeyTouches) {
+        if (enterKeyTouches == 0) return@LaunchedEffect
+        enterKeyAwake = true
+        val hideAfter = TerminalToolbox.enterKeyHideMillis
+        if (hideAfter > 0) {
+            delay(hideAfter)
+            enterKeyAwake = false
         }
     }
     // The shortcut popup stays open across key presses; it closes on an outside tap or after
@@ -359,7 +373,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                Box(Modifier.weight(1f).fillMaxWidth().testTag("terminal-viewport")) {
+                var viewportHeight by remember { mutableIntStateOf(0) }
+                Box(Modifier.weight(1f).fillMaxWidth().testTag("terminal-viewport").onSizeChanged { viewportHeight = it.height }) {
                 AndroidView(modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 6.dp, top = 6.dp).clipToBounds()
                     .testTag("terminal"), factory = { ctx ->
                     // Session, theme, font and history are bound in update, which also runs after creation.
@@ -369,7 +384,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
                             shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
-                            onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB) }, onTripleTap = { pasteClipboard() }))
+                            onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); enterKeyTouches++ }, onTripleTap = { pasteClipboard() }))
+                        setUserInputListener { enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                         isFocusableInTouchMode = true
                     }
@@ -388,6 +404,18 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
                 if (showingOutput) OutputHistoryView(recordedOutput, fontSize, lightTheme)
+                androidx.compose.animation.AnimatedVisibility(enterKeyAwake && state.phase == Phase.CONNECTED && !editor && tmuxHistory?.active != true,
+                    modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
+                    terminal?.let { view ->
+                        CursorEnterKey(view, outputRevision, viewportHeight) {
+                            enterKeyTouches++
+                            ctrlArmed = false
+                            shiftArmed = false
+                            view.scrollToBottom()
+                            session.write("\r")
+                        }
+                    }
+                }
                 // Hidden (landscape) status bars have no inset, so the scrim only appears under a visible bar.
                 val statusBars = WindowInsets.statusBars
                 Box(Modifier.fillMaxWidth().windowInsetsTopHeight(statusBars.add(WindowInsets(top = 12.dp)))
@@ -480,6 +508,30 @@ internal object TerminalToolbox {
     @Volatile var autoHideMillis = 5_000L
     /** Idle timeout of the open shortcut popup; 0 keeps it open until dismissed. */
     @Volatile var shortcutHideMillis = 5_000L
+    /** Idle timeout of the cursor-row Enter key; 0 keeps it until the pane leaves. */
+    @Volatile var enterKeyHideMillis = 5_000L
+}
+
+/** An Enter key at the right end of the cursor row; hidden while the cursor is scrolled away. */
+@Composable
+private fun CursorEnterKey(view: TerminalView, outputRevision: State<Long>, viewportHeight: Int, onClick: () -> Unit) {
+    // Output moves the cursor: follow it on every screen revision.
+    checkNotNull(outputRevision.value)
+    val rowTop = view.getCursorRowTop()
+    if (rowTop < 0) return
+    val density = LocalDensity.current
+    val keyHeight = 32.dp
+    // The terminal view sits 6dp below the viewport top; centre the key on the cursor row.
+    val keyTop = with(density) {
+        val top = 6.dp.roundToPx() + rowTop + view.lineHeight / 2 - keyHeight.roundToPx() / 2
+        top.coerceIn(0, (viewportHeight - keyHeight.roundToPx()).coerceAtLeast(0))
+    }
+    Surface(onClick = onClick, modifier = Modifier.offset { IntOffset(0, keyTop) }.padding(end = 4.dp).size(44.dp, keyHeight)
+        .semantics { contentDescription = tr("回车") }.testTag("cursor-enter"),
+        shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer, shadowElevation = 2.dp) {
+        Box(contentAlignment = Alignment.Center) { Text("↵", fontSize = 20.sp) }
+    }
 }
 
 /** The colour the terminal renderer fills its canvas with, so the status bar area matches it. */
