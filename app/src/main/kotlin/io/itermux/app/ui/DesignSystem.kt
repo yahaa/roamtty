@@ -235,7 +235,7 @@ internal fun StatusLabel(phase: Phase, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(6.dp))
-        Text(phaseLabel(phase), style = MaterialTheme.typography.labelMedium,
+        Text(phaseLabel(phase), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false,
             color = if (phase == Phase.CONNECTED) color else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

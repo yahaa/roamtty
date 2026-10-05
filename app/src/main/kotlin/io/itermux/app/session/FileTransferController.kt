@@ -72,12 +72,14 @@ class FileTransferController(private val scope: CoroutineScope) {
     fun uploadSharedImages(context: Context, session: TerminalConnection, uris: List<Uri>): Boolean {
         if (sharedImagesJob?.isActive == true) return false
         val application = context.applicationContext
+        val queue = uris.toList()
         sharedImagesJob = scope.launch {
-            for (uri in uris.toList()) {
+            for ((index, uri) in queue.withIndex()) {
                 job?.join()
                 ensureActive()
                 dismiss()
-                uploadImageForCli(application, session, uri)
+                uploadImageForCli(application, session, uri,
+                    label = if (queue.size > 1) trf("上传图片 %d/%d…", index + 1, queue.size) else tr("上传图片…"))
                 job?.join()
                 ensureActive()
                 if (mutableStatus.value.succeeded != true) break
@@ -148,14 +150,14 @@ class FileTransferController(private val scope: CoroutineScope) {
      * Independent of [upload]: convert to PNG, SFTP to a unique `/tmp/roamtty-img-*.png`,
      * then insert the explicitly selected image without submitting the current prompt.
      */
-    fun uploadImageForCli(context: Context, session: TerminalConnection, uri: Uri) {
+    fun uploadImageForCli(context: Context, session: TerminalConnection, uri: Uri, label: String = tr("上传图片…")) {
         if (job != null || mutableStatus.value.running) {
             Toast.makeText(context.applicationContext, tr("已有传输进行中，请稍后再试"), Toast.LENGTH_SHORT).show()
             return
         }
         val application = context.applicationContext
         val remotePath = CodexImageAttach.newRemotePngPath()
-        start(tr("上传图片…"), -1) { progress ->
+        start(label, -1) { progress ->
             val png = withContext(Dispatchers.IO) {
                 CodexImageAttach.convertToPngFile(application, uri)
             }

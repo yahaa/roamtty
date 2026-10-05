@@ -360,8 +360,9 @@ fun ItermuxScreen(
                         val connected = sessions.any { it.host.id == detailHost.id && (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
                         HostDetailPage(detailHost,
                             hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
-                            sessionCount = sessions.count { it.host.id == detailHost.id },
+                            sessions = sessionsByActivity.filter { it.host.id == detailHost.id },
                             onBack = { page = "hosts" },
+                            onOpenSession = { selected = it.id; page = "terminal" },
                             onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
                             onBrowseFiles = { browseFiles(detailHost) },
                             onEdit = { editHostId = detailHost.id; editorOpen = true },

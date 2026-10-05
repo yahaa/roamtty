@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
+import android.widget.Toast
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -63,9 +64,10 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
             transfer.uploadUri = uri
         }
     }
-    // Independent of OpenDocument upload: Photo Picker / gallery images only.
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) transfer.uploadImageForCli(context, session, uri)
+    // Independent of OpenDocument upload: Photo Picker / gallery images only, several at once.
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_IMAGES)) { uris ->
+        if (uris.isNotEmpty() && !transfer.uploadSharedImages(context, session, uris))
+            Toast.makeText(context, tr("已有传输进行中，请稍后再试"), Toast.LENGTH_SHORT).show()
     }
     LaunchedEffect(action) {
         when (action) {
@@ -84,6 +86,9 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
     if (status.running || status.result != null) TransferStatusDialog(status,
         onCancel = transfer::cancel, onDismiss = transfer::dismiss, onInsertPath = onInsertPath)
 }
+
+/** The Photo Picker's selection cap for one insert. */
+private const val MAX_IMAGES = 9
 
 /** A local display name can contain separators; never let it select another remote directory. */
 internal fun safeUploadName(name: String) = name.replace('/', '_').replace('\\', '_')
