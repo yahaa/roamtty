@@ -2,10 +2,12 @@ package io.itermux.app.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
@@ -37,6 +39,14 @@ internal fun TerminalDockPlacement(modifier: Modifier = Modifier, endInset: Dp =
     }
 }
 
+/** Landscape with room to spare lays the dock out as a two-column grid. */
+internal fun terminalDockTwoColumns(landscape: Boolean, imeVisible: Boolean, availableHeight: Dp) =
+    landscape && !imeVisible && availableHeight >= 320.dp
+
+/** A pill for the single column; the grid gets corners that follow its round corner buttons rather than one big oval. */
+internal fun terminalDockShape(twoColumns: Boolean): Shape =
+    if (twoColumns) RoundedCornerShape(24.dp) else RoundedCornerShape(percent = 50)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun TerminalDock(
     availableHeight: Dp,
@@ -48,7 +58,7 @@ internal fun TerminalDockPlacement(modifier: Modifier = Modifier, endInset: Dp =
     primaryControls: @Composable () -> Unit,
     keyControls: @Composable () -> Unit
 ) {
-    val twoColumns = landscape && !imeVisible && availableHeight >= 320.dp
+    val twoColumns = terminalDockTwoColumns(landscape, imeVisible, availableHeight)
     val dockModifier = modifier.width(if (twoColumns) 96.dp else 48.dp)
         .heightIn(max = availableHeight.coerceAtLeast(0.dp)).verticalScroll(rememberScrollState())
         .testTag("terminal-dock")
