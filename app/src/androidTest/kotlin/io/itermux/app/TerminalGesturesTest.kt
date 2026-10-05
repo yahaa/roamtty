@@ -78,7 +78,8 @@ class TerminalGesturesTest {
                         it.setTypeface(android.graphics.Typeface.MONOSPACE)
                         it.setTerminalViewClient(MobileTerminalClient(it, {}, { false }, {},
                             onDoubleTap = { doubleTaps++ }, onTripleTap = { tripleTaps++ },
-                            onSwipeLeft = { swipeLefts++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT, KeyHandler.KEYMOD_SHIFT) }))
+                            onSwipeLeft = { swipeLefts++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT, KeyHandler.KEYMOD_SHIFT) },
+                            onSwipeHoldLeft = { it.sendInputText("\u0001") }, onSwipeHoldRight = { it.sendInputText("\u0005") }))
                         it.isFocusableInTouchMode = true
                         it.attachSession(session)
                         it.setCursorDraggingEnabled(true)
@@ -103,6 +104,37 @@ class TerminalGesturesTest {
         compose.runOnIdle { assertEquals("Right, vertical, diagonal and short swipes send nothing", 2, swipeLefts); readOnly = true }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeLeft(startX = centerRight.x - 20, endX = centerLeft.x + 20, durationMillis = 150) }
         compose.runOnIdle { assertEquals("Read-only history never swipes", 2, swipeLefts) }
+    }
+
+    /** Drags from the centre by (dx, dy) in small steps, rests the finger for [holdMs] of real time, then lifts. */
+    private fun dragAndHold(dx: Float, dy: Float, holdMs: Long) {
+        val (cx, cy) = compose.runOnIdle { terminal.width / 2f to terminal.height / 2f }
+        touch(MotionEvent.ACTION_DOWN, cx, cy)
+        for (step in 1..10) { touch(MotionEvent.ACTION_MOVE, cx + dx * step / 10, cy + dy * step / 10); SystemClock.sleep(10) }
+        SystemClock.sleep(holdMs)
+        touch(MotionEvent.ACTION_UP, cx + dx, cy + dy)
+        compose.waitForIdle()
+    }
+
+    @Test fun swipeAndHoldJumpsToLineStartOrEndInsteadOfShiftLeft() {
+        terminalContent()
+        val hold = ViewConfiguration.getLongPressTimeout() + 200L
+        dragAndHold(-200f, 10f, hold)
+        compose.runOnIdle { assertEquals("Left swipe-and-hold sends Ctrl+A only", "\u0001", input.toString()); assertEquals(0, swipeLefts); input.clear() }
+        dragAndHold(200f, -10f, hold)
+        compose.runOnIdle { assertEquals("Right swipe-and-hold sends Ctrl+E", "\u0005", input.toString()); input.clear() }
+        dragAndHold(-200f, 10f, 0)
+        compose.runOnIdle { assertEquals("Lifting without resting still sends Shift+Left", "\u001b[1;2D", input.toString()); input.clear() }
+        dragAndHold(200f, 0f, 0)
+        dragAndHold(-30f, 0f, hold)
+        compose.runOnIdle { assertEquals("A quick right swipe or a short hold sends nothing", "", input.toString()) }
+        dragAndHold(-20f, 200f, hold)
+        compose.runOnIdle {
+            assertFalse("A vertical drag-and-hold never jumps", input.contains('\u0001') || input.contains('\u0005'))
+            input.clear(); readOnly = true
+        }
+        dragAndHold(-200f, 0f, hold)
+        compose.runOnIdle { assertEquals("Read-only history never jumps", "", input.toString()) }
     }
 
     @Test fun completedTripleTapFiresOnceAndReadOnlyHistoryNeverFires() {
