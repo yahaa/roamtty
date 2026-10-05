@@ -4,6 +4,8 @@ import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
@@ -21,6 +23,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -124,78 +127,86 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
     }
     fun step(delta: Int) { if (matches.isNotEmpty()) currentMatch = (currentMatch + delta).mod(matches.size) }
 
-    Dialog(onDismissRequest = { if (searching) { searching = false; query = "" } else onDismiss() },
+    var fullscreen by remember(path) { mutableStateOf(false) }
+    Dialog(onDismissRequest = { when {
+            searching -> { searching = false; query = "" }
+            fullscreen -> fullscreen = false
+            else -> onDismiss()
+        } },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         // Landscape is short on rows: hide the system bars and fold the status line into the header.
         val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-        SheetSystemBars(immersive = landscape)
+        SheetSystemBars(immersive = landscape || fullscreen)
+        val toggleFullscreen = Modifier.observeDoubleTap { if (!searching) fullscreen = !fullscreen }
         // Content backgrounds run under a side cutout; only their text is inset.
         val sideInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
         Surface(Modifier.fillMaxSize().testTag("file-preview"), color = MaterialTheme.colorScheme.surfaceContainerLow) {
             Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))) {
-                if (searching) SearchBar(query, { query = it }, matches.size, currentMatch, ::step,
-                    onClose = { searching = false; query = "" }, Modifier.windowInsetsPadding(sideInsets))
-                else Row(Modifier.fillMaxWidth().windowInsetsPadding(sideInsets).padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDismiss, modifier = Modifier.testTag("file-preview-close")) {
-                        Icon(painterResource(R.drawable.ic_chevron_left), tr("返回文件列表"))
-                    }
-                    // The full path stays one tap away under "Copy path" in the overflow menu.
-                    Text(name, Modifier.weight(1f).padding(start = 4.dp).testTag("file-preview-title"),
-                        style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (landscape) preview?.let {
-                        Text(statusText(it), Modifier.padding(horizontal = 8.dp).testTag("file-preview-status"),
-                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    }
-                    if (preview?.markdown != null) IconButton(onClick = { rendered = !rendered },
-                        modifier = Modifier.testTag("file-preview-markdown-toggle")) {
-                        Icon(painterResource(if (rendered) R.drawable.ic_file_code else R.drawable.ic_preview),
-                            tr(if (rendered) "查看源码" else "预览"))
-                    }
-                    if (document != null) IconButton(onClick = { rendered = false; searching = true }, modifier = Modifier.testTag("file-preview-search")) {
-                        Icon(painterResource(R.drawable.ic_search), tr("在文件中查找"))
-                    }
-                    IconButton(onClick = onDownload, enabled = canDownload, modifier = Modifier.testTag("file-preview-download")) {
-                        Icon(painterResource(R.drawable.ic_download), tr("下载"))
-                    }
-                    Box {
-                        IconButton(onClick = { menu = true }, modifier = Modifier.testTag("file-preview-menu")) {
-                            Icon(painterResource(R.drawable.ic_more), tr("更多操作"))
+                if (!fullscreen) {
+                    if (searching) SearchBar(query, { query = it }, matches.size, currentMatch, ::step,
+                        onClose = { searching = false; query = "" }, Modifier.windowInsetsPadding(sideInsets))
+                    else Row(Modifier.fillMaxWidth().windowInsetsPadding(sideInsets).padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onDismiss, modifier = Modifier.testTag("file-preview-close")) {
+                            Icon(painterResource(R.drawable.ic_chevron_left), tr("返回文件列表"))
                         }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, modifier = Modifier.widthIn(min = 220.dp)) {
-                            if (document != null && !showRendered) {
-                                DropdownMenuItem(text = { Text(tr("自动换行")) },
-                                    leadingIcon = { Icon(painterResource(R.drawable.ic_wrap), null) },
-                                    trailingIcon = { Checkbox(options.codeWrap, onCheckedChange = null) },
-                                    onClick = { options.changeCodeWrap(!options.codeWrap) },
-                                    modifier = Modifier.testTag("file-preview-wrap"))
-                                Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(painterResource(R.drawable.ic_text_size), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(tr("字号"), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.labelLarge)
-                                    TextButton(onClick = { options.changeCodeFontSize(-1f) },
-                                        enabled = options.codeFontSize > RemoteFileOptions.MIN_CODE_FONT_SIZE,
-                                        modifier = Modifier.testTag("file-preview-font-smaller")) { Text("A−") }
-                                    Text(options.codeFontSize.toInt().toString(), style = MaterialTheme.typography.labelLarge)
-                                    TextButton(onClick = { options.changeCodeFontSize(1f) },
-                                        enabled = options.codeFontSize < RemoteFileOptions.MAX_CODE_FONT_SIZE,
-                                        modifier = Modifier.testTag("file-preview-font-larger")) { Text("A+") }
+                        // The full path stays one tap away under "Copy path" in the overflow menu.
+                        Text(name, Modifier.weight(1f).padding(start = 4.dp).testTag("file-preview-title"),
+                            style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (landscape) preview?.let {
+                            Text(statusText(it), Modifier.padding(horizontal = 8.dp).testTag("file-preview-status"),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                        if (preview?.markdown != null) IconButton(onClick = { rendered = !rendered },
+                            modifier = Modifier.testTag("file-preview-markdown-toggle")) {
+                            Icon(painterResource(if (rendered) R.drawable.ic_file_code else R.drawable.ic_preview),
+                                tr(if (rendered) "查看源码" else "预览"))
+                        }
+                        if (document != null) IconButton(onClick = { rendered = false; searching = true }, modifier = Modifier.testTag("file-preview-search")) {
+                            Icon(painterResource(R.drawable.ic_search), tr("在文件中查找"))
+                        }
+                        IconButton(onClick = onDownload, enabled = canDownload, modifier = Modifier.testTag("file-preview-download")) {
+                            Icon(painterResource(R.drawable.ic_download), tr("下载"))
+                        }
+                        Box {
+                            IconButton(onClick = { menu = true }, modifier = Modifier.testTag("file-preview-menu")) {
+                                Icon(painterResource(R.drawable.ic_more), tr("更多操作"))
+                            }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, modifier = Modifier.widthIn(min = 220.dp)) {
+                                if (document != null && !showRendered) {
+                                    DropdownMenuItem(text = { Text(tr("自动换行")) },
+                                        leadingIcon = { Icon(painterResource(R.drawable.ic_wrap), null) },
+                                        trailingIcon = { Checkbox(options.codeWrap, onCheckedChange = null) },
+                                        onClick = { options.changeCodeWrap(!options.codeWrap) },
+                                        modifier = Modifier.testTag("file-preview-wrap"))
+                                    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(painterResource(R.drawable.ic_text_size), null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(tr("字号"), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.labelLarge)
+                                        TextButton(onClick = { options.changeCodeFontSize(-1f) },
+                                            enabled = options.codeFontSize > RemoteFileOptions.MIN_CODE_FONT_SIZE,
+                                            modifier = Modifier.testTag("file-preview-font-smaller")) { Text("A−") }
+                                        Text(options.codeFontSize.toInt().toString(), style = MaterialTheme.typography.labelLarge)
+                                        TextButton(onClick = { options.changeCodeFontSize(1f) },
+                                            enabled = options.codeFontSize < RemoteFileOptions.MAX_CODE_FONT_SIZE,
+                                            modifier = Modifier.testTag("file-preview-font-larger")) { Text("A+") }
+                                    }
+                                    HorizontalDivider()
                                 }
-                                HorizontalDivider()
-                            }
-                            preview?.text?.takeIf { it.isNotEmpty() }?.let { text ->
-                                DropdownMenuItem(text = { Text(tr("复制全部内容")) },
+                                preview?.text?.takeIf { it.isNotEmpty() }?.let { text ->
+                                    DropdownMenuItem(text = { Text(tr("复制全部内容")) },
+                                        leadingIcon = { Icon(painterResource(R.drawable.ic_copy), null) },
+                                        onClick = { clipboard.setText(AnnotatedString(text)); menu = false },
+                                        modifier = Modifier.testTag("file-preview-copy"))
+                                }
+                                DropdownMenuItem(text = { Text(tr("复制路径")) },
                                     leadingIcon = { Icon(painterResource(R.drawable.ic_copy), null) },
-                                    onClick = { clipboard.setText(AnnotatedString(text)); menu = false },
-                                    modifier = Modifier.testTag("file-preview-copy"))
+                                    onClick = { clipboard.setText(AnnotatedString(path)); menu = false },
+                                    modifier = Modifier.testTag("file-preview-copy-path"))
                             }
-                            DropdownMenuItem(text = { Text(tr("复制路径")) },
-                                leadingIcon = { Icon(painterResource(R.drawable.ic_copy), null) },
-                                onClick = { clipboard.setText(AnnotatedString(path)); menu = false },
-                                modifier = Modifier.testTag("file-preview-copy-path"))
                         }
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 val value = preview
                 when {
                     error != null -> PreviewMessage(error!!, Modifier.weight(1f)) {
@@ -204,23 +215,25 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                     value == null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(Modifier.testTag("file-preview-loading"))
                     }
-                    value.image != null -> ZoomableImage(value.image, name, Modifier.weight(1f).fillMaxWidth())
+                    value.image != null -> ZoomableImage(value.image, name, Modifier.weight(1f).fillMaxWidth(),
+                        onTap = { fullscreen = !fullscreen })
                     value.text != null -> {
                         if (value.truncated) Text(tr("仅显示文件开头 256 KiB，下载可查看完整内容。"),
                             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer)
                                 .padding(horizontal = 16.dp, vertical = 8.dp).testTag("file-preview-truncated"),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                         if (value.document == null) PreviewMessage(tr("此文件为空"), Modifier.weight(1f))
-                        else if (showRendered) MarkdownView(value.markdown!!, loadImage, Modifier.weight(1f).fillMaxWidth(), sideInsets = sideInsets)
+                        else if (showRendered) MarkdownView(value.markdown!!, loadImage, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen),
+                            sideInsets = sideInsets)
                         else CodeViewer(value.document, options.codeWrap, options.codeFontSize, listState, horizontal,
-                            matches, currentMatch, Modifier.weight(1f).fillMaxWidth(), sideInsets)
+                            matches, currentMatch, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen), sideInsets)
                     }
                     else -> PreviewMessage(tr("此文件格式暂不支持预览，或图片超过 8 MiB。请下载后查看。"),
                         Modifier.weight(1f).testTag("file-preview-unsupported")) {
                         TextButton(onClick = onDownload, enabled = canDownload) { Text(tr("下载")) }
                     }
                 }
-                if (!landscape) value?.let { StatusBar(it, Modifier.windowInsetsPadding(sideInsets)) }
+                if (!landscape && !fullscreen) value?.let { StatusBar(it, Modifier.windowInsetsPadding(sideInsets)) }
             }
         }
     }
@@ -270,14 +283,14 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, count: Int, curr
     }
 }
 
-/** Pinch to zoom, drag to pan, double-tap to toggle 2x. */
+/** Pinch to zoom, drag to pan, double-tap to toggle 2x; a single tap is left to [onTap]. */
 @Composable
-private fun ZoomableImage(image: ImageBitmap, description: String, modifier: Modifier) {
+private fun ZoomableImage(image: ImageBitmap, description: String, modifier: Modifier, onTap: () -> Unit) {
     var scale by remember(image) { mutableFloatStateOf(1f) }
     var offset by remember(image) { mutableStateOf(Offset.Zero) }
     Box(modifier.clipToBounds().background(MaterialTheme.colorScheme.surfaceContainerLowest)
         .pointerInput(image) {
-            detectTapGestures(onDoubleTap = {
+            detectTapGestures(onTap = { onTap() }, onDoubleTap = {
                 if (scale > 1f) { scale = 1f; offset = Offset.Zero } else scale = 2f
             })
         }
@@ -291,6 +304,36 @@ private fun ZoomableImage(image: ImageBitmap, description: String, modifier: Mod
             modifier = Modifier.fillMaxSize().padding(16.dp).graphicsLayer {
                 scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
             }.testTag("file-preview-image"))
+    }
+}
+
+/**
+ * Sees double taps without consuming anything, so text selection, links and scrolling underneath keep working.
+ * Taps that move past touch slop, last as long as a long press, or use a second finger do not count.
+ */
+internal fun Modifier.observeDoubleTap(onDoubleTap: () -> Unit): Modifier = pointerInput(Unit) {
+    var lastUp = 0L
+    var lastPosition = Offset.Zero
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        var tap = true
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            if (event.changes.size > 1) tap = false
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) tap = false
+            if (change.pressed) continue
+            tap = tap && change.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis
+            if (tap && change.uptimeMillis - lastUp < viewConfiguration.doubleTapTimeoutMillis &&
+                (down.position - lastPosition).getDistance() < viewConfiguration.touchSlop * 4) {
+                lastUp = 0L
+                onDoubleTap()
+            } else if (tap) {
+                lastUp = change.uptimeMillis
+                lastPosition = down.position
+            } else lastUp = 0L
+            break
+        }
     }
 }
 
