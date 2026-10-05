@@ -21,7 +21,7 @@ import androidx.compose.ui.graphics.toArgb
 class MainActivity : ComponentActivity() {
     private var service by mutableStateOf<SessionService?>(null)
     private var bound = false
-    private var terminalVisible = false
+    private var terminalChrome = false
     private var lightTheme = false
     private var pendingShareImages by mutableStateOf<List<Uri>>(emptyList())
     private val connection = object : ServiceConnection {
@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
                 pendingShareImages = pendingShareImages,
                 onShareImagesConsumed = { pendingShareImages = emptyList() },
             ) { visible, light ->
-                terminalVisible = visible
+                terminalChrome = visible
                 lightTheme = light
                 updateSystemBars()
             }
@@ -76,21 +76,21 @@ class MainActivity : ComponentActivity() {
     }
     private fun updateSystemBars() {
         val background = (if (lightTheme) LightColors else DarkColors).background.toArgb()
-        // The terminal draws its own background under a transparent status bar.
+        // The terminal and the file browser draw their own background under a transparent status bar.
         @Suppress("DEPRECATION")
-        window.statusBarColor = if (terminalVisible) android.graphics.Color.TRANSPARENT else background
+        window.statusBarColor = if (terminalChrome) android.graphics.Color.TRANSPARENT else background
         @Suppress("DEPRECATION")
         window.navigationBarColor = background
         WindowCompat.getInsetsController(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             isAppearanceLightStatusBars = lightTheme
             isAppearanceLightNavigationBars = lightTheme
-            // Landscape gives every row to content on all pages; portrait terminals keep the status bar
-            // (clock, battery, network) and other portrait pages keep both bars.
+            // Landscape gives every row to content on all pages; the portrait terminal
+            // and file browser keep the status bar (clock, battery, network); other portrait pages keep both bars.
             val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             when {
                 landscape -> hide(WindowInsetsCompat.Type.systemBars())
-                !terminalVisible -> show(WindowInsetsCompat.Type.systemBars())
+                !terminalChrome -> show(WindowInsetsCompat.Type.systemBars())
                 else -> {
                     show(WindowInsetsCompat.Type.statusBars())
                     hide(WindowInsetsCompat.Type.navigationBars())
