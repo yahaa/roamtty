@@ -92,7 +92,8 @@ class TerminalConnection(
         },
         remoteSessionName = remoteSessionName,
         preferMosh = preferMosh,
-        elapsedMillis = SystemClock::elapsedRealtime
+        elapsedMillis = SystemClock::elapsedRealtime,
+        log = { android.util.Log.i("RoamttyConn", "${host.name}#$sessionNumber $it") }
     )
     val state = if (credentials != null) ssh.state else MutableStateFlow(ConnectionState(
         Phase.DISCONNECTED, "连接已中断，请手动重连。会话记录已恢复，未发送的输入不会重发。" )).asStateFlow()
@@ -123,7 +124,12 @@ class TerminalConnection(
     private var savedCommands: CommonCommandsState = CommonCommandsState.Idle
     private val job = if (credentials == null) null else scope.launch {
         try {
+            var lastOutput = 0L
             ssh.connect { bytes ->
+                val now = SystemClock.elapsedRealtime()
+                if (lastOutput != 0L && now - lastOutput > 10_000)
+                    android.util.Log.i("RoamttyConn", "${host.name}#$sessionNumber output resumed after ${now - lastOutput} ms, view bound=${onScreenChanged != null}")
+                lastOutput = now
                 withContext(Dispatchers.Main.immediate) {
                     parser.append(bytes, bytes.size)
                     if (recordsOutput) scheduleOutputCapture()

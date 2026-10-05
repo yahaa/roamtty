@@ -154,7 +154,10 @@ class SessionService : Service() {
         saveSessions()
     }
     /** Sockets bound to a lost network or frozen by a long sleep can look connected for minutes. */
-    fun verifyConnections() = mutableSessions.value.forEach { it.verifyAlive() }
+    fun verifyConnections() {
+        android.util.Log.i("RoamttyConn", "verify ${mutableSessions.value.size} sessions")
+        mutableSessions.value.forEach { it.verifyAlive() }
+    }
 
     private fun watchNetwork() {
         var current: Network? = null
@@ -162,11 +165,12 @@ class SessionService : Service() {
             override fun onAvailable(network: Network) {
                 // The first callback reports the network the sessions already use.
                 val changed = current != null && current != network
+                android.util.Log.i("RoamttyConn", "default network $network available, changed=$changed")
                 current = network
                 if (changed) scope.launch { verifyConnections() }
             }
             // No replacement network (airplane mode, Wi-Fi gone without mobile data) sends no onAvailable.
-            override fun onLost(network: Network) { scope.launch { verifyConnections() } }
+            override fun onLost(network: Network) { android.util.Log.i("RoamttyConn", "default network $network lost"); scope.launch { verifyConnections() } }
         }
         networkCallback = runCatching {
             getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback)
