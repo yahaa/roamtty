@@ -75,13 +75,6 @@ agent=$2
 [ -n "$GROK_SESSION_ID" ] && agent=grok
 [ -n "$agent" ] || agent=claude
 
-# A reminder belongs to the tmux session it runs in; outside tmux, to the CLI's own session.
-tm=
-if [ -n "$TMUX" ]; then
-  if [ -n "$TMUX_PANE" ]; then tm=$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null)
-  else tm=$(tmux display-message -p '#S' 2>/dev/null); fi
-fi
-
 # Every tool call runs the resolved hook: without a pending reminder it stops right here.
 if [ "$kind" = resolved ]; then
   set -- "$P"/*
@@ -89,8 +82,23 @@ if [ "$kind" = resolved ]; then
 fi
 
 in=$(cat 2>/dev/null)
+field() { printf '%s' "$in" | grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" 2>/dev/null | head -n 1 | sed 's/.*"\([^"]*\)"$/\1/'; }
 sid=$GROK_SESSION_ID
-[ -n "$sid" ] || sid=$(printf '%s' "$in" | grep -o '"session_\{0,1\}[iI]d"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null | head -n 1 | sed 's/.*"\([^"]*\)"$/\1/')
+[ -n "$sid" ] || sid=$(field 'session_\{0,1\}[iI]d')
+
+# A reminder belongs to the tmux session the CLI runs in; outside tmux, to the CLI's own session.
+tm=
+if [ "$agent" = codex ] && command -v tmux >/dev/null 2>&1; then
+  # Codex may run hooks in its shared app-server daemon, whose environment names the tmux pane
+  # that started the daemon. The pane showing this session sits in its folder, running Codex.
+  cwd=$(field cwd)
+  [ -n "$cwd" ] && tm=$(tmux list-panes -a -F '#{pane_current_path}	#{pane_current_command}	#{session_name}' 2>/dev/null \
+    | awk -F '\t' -v d="$cwd" '$1 == d && $2 ~ /codex|node/ { print $3; exit }')
+fi
+if [ -z "$tm" ] && [ -n "$TMUX" ]; then
+  if [ -n "$TMUX_PANE" ]; then tm=$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null)
+  else tm=$(tmux display-message -p '#S' 2>/dev/null); fi
+fi
 key=${tm:-$sid}
 key=$(printf '%s' "${key:-default}" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-80)
 

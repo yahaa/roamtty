@@ -121,6 +121,22 @@ class AgentNotifyScriptTest {
         assertEquals(listOf("question", "question"), events.map { it.reason })
     }
 
+    @Test fun codexReminderNamesThePaneShowingItsFolder() {
+        run(AgentNotify.installScript(), withPython = false)
+        // Codex runs hooks in its shared daemon, whose tmux environment names the pane that started it.
+        File(bin, "plain/tmux").apply {
+            writeText("#!/bin/sh\nif [ \"$1\" = list-panes ]; then printf '/other\\tnode\\troamtty-x\\n/work\\tnode\\troamtty-codex\\n'; " +
+                "else echo daemon-pane; fi\n")
+            setExecutable(true)
+        }
+        hook(File(home, AgentNotify.SCRIPT).path, listOf("attention", "codex"),
+            """{"session_id":"s9","hook_event_name":"PermissionRequest","cwd":"/work","tool_input":{"description":"x"}}""",
+            withPython = false, env = mapOf("TMUX" to "/tmp/tmux-1/default,1,0", "TMUX_PANE" to "%1"))
+        val event = AgentEvent.parse(File(home, ".roamtty/events.jsonl").readLines().last())!!
+        assertEquals("roamtty-codex", event.tmux)
+        assertEquals("roamtty-codex", event.key)
+    }
+
     @Test fun probeReportsNotify() {
         val base = "${HostPluginProbe.TMUX}/usr/bin/tmux\n${HostPluginProbe.MOSH}\n"
         assertEquals(setOf(HostPlugin.TMUX), HostPluginProbe.parse(base))
@@ -152,7 +168,7 @@ class AgentNotifyScriptTest {
     /** Core tools only, so no real claude, codex or grok on this machine is touched. */
     private fun path(withPython: Boolean): String {
         val tools = listOf("sh", "cat", "mkdir", "chmod", "mv", "touch", "grep", "sed", "tr", "cut", "head", "tail", "wc",
-            "date", "rm", "rmdir", "printf", "uname", "id", "dirname") + if (withPython) listOf("python3") else emptyList()
+            "date", "rm", "rmdir", "printf", "uname", "id", "dirname", "awk") + if (withPython) listOf("python3") else emptyList()
         val dir = File(bin, if (withPython) "py" else "plain").apply { mkdirs() }
         for (tool in tools) {
             val link = File(dir, tool)
