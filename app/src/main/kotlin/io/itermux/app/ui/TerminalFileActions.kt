@@ -21,8 +21,8 @@ import io.itermux.app.tr
 /** Direct file actions inside the expanded terminal dock. */
 @Composable
 internal fun TerminalFileActions(enabled: Boolean, onAction: (FileAction) -> Unit) {
-    FileActionButton(R.drawable.ic_upload, tr("上传文件"), "upload-file", enabled) { onAction(FileAction.UPLOAD) }
-    FileActionButton(R.drawable.ic_download, tr("下载文件"), "download-file", enabled) { onAction(FileAction.DOWNLOAD) }
+    FileActionButton(R.drawable.ic_cloud_upload, tr("上传文件"), "upload-file", enabled) { onAction(FileAction.UPLOAD) }
+    FileActionButton(R.drawable.ic_cloud_download, tr("下载文件"), "download-file", enabled) { onAction(FileAction.DOWNLOAD) }
     FileActionButton(R.drawable.ic_image, tr("插入图片"), "select-image", enabled) { onAction(FileAction.SELECT_IMAGE) }
 }
 

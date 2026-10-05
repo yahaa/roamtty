@@ -1,7 +1,8 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp" android:autoMirrored="false"
+    android:width="24dp" android:height="24dp"
     android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Two prompt rows: a list of commands to run. -->
     <path android:fillColor="@android:color/transparent" android:strokeColor="#FF000000"
         android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M4,6L9,11L4,16M12,17H20" />
+        android:pathData="M3,5L6.5,8L3,11M10,8H21M3,13L6.5,16L3,19M10,16H17" />
 </vector>
