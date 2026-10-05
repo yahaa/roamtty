@@ -255,7 +255,9 @@ fun ItermuxScreen(
             // transparent portrait status bar. Only desktop window chrome reserves an edge; the terminal
             // keeps its text and controls clear of the status bar and cutouts itself.
             val contentInsets = if (terminalVisible) WindowInsets.captionBar else WindowInsets.safeDrawing
-            Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).imePadding()) {
+            // The terminal applies the keyboard inset itself, in one step (see TerminalPane).
+            val imeInsets = if (terminalVisible) WindowInsets(0) else WindowInsets.ime
+            Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).windowInsetsPadding(imeInsets)) {
                 if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files" && page != "host") AppToolbar(
                     navigation = {
                         ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo")) {
