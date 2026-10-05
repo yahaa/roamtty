@@ -69,7 +69,7 @@ class DownloadFilesTest {
     @Test fun selectionCanSpanDirectoriesAndShowsMetadata() = runBlocking {
         withSession { session ->
             withContext(Dispatchers.Main) {
-                session.transfers.downloadDirectory = "/phone-a"
+                session.transfers.downloadDirectory = "phone-a"
                 session.transfers.downloadDialog = true
             }
             compose.setContent { MaterialTheme(colorScheme = DarkColors) { DownloadFilesUi(session) } }
@@ -133,7 +133,7 @@ class DownloadFilesTest {
             }
             compose.setContent { MaterialTheme { DownloadFilesUi(session) } }
             compose.waitForDownloadEntry("assets")
-            compose.onNodeWithTag("download-directory").assertTextEquals("/phone-a")
+            compose.onNodeWithTag("download-title").assertTextEquals("phone-a")
             compose.onNodeWithTag("download-search-toggle").performClick()
             compose.onNodeWithTag("download-search").performTextReplacement("../phone-a/README")
             compose.onNodeWithTag("download-search").performImeAction()
@@ -143,12 +143,12 @@ class DownloadFilesTest {
             compose.onNodeWithTag("download-search").performTextReplacement("/phone-b/")
             compose.onNodeWithTag("download-search").performImeAction()
             compose.waitUntil(10_000) {
-                runCatching { compose.onNodeWithTag("download-directory").assertTextEquals("/phone-b") }.isSuccess
+                runCatching { compose.onNodeWithTag("download-title").assertTextEquals("phone-b") }.isSuccess
             }
             compose.onNodeWithTag("download-search").performTextReplacement("./assets/")
             compose.onNodeWithTag("download-search").performImeAction()
             compose.waitUntil(10_000) {
-                runCatching { compose.onNodeWithTag("download-directory").assertTextEquals("/phone-a/assets") }.isSuccess
+                runCatching { compose.onNodeWithTag("download-title").assertTextEquals("assets") }.isSuccess
             }
             withContext(Dispatchers.Main) { session.transfers.downloadDialog = false }
             compose.waitForIdle()
@@ -157,16 +157,16 @@ class DownloadFilesTest {
                 session.openTerminalDownloads()
             }
             compose.waitUntil(10_000) {
-                !session.transfers.resolvingDownloadDirectory && session.transfers.downloadDirectory == "/phone-b"
+                !session.transfers.resolvingDownloadDirectory && session.transfers.downloadDirectory == "phone-b"
             }
-            compose.onNodeWithTag("download-directory").assertTextEquals("/phone-b")
+            compose.onNodeWithTag("download-title").assertTextEquals("phone-b")
         }
     }
 
     @Test fun fuzzySearchMatchesAbbreviatedDirectoriesAndNamesWithoutMixingDownloadPaths() = runBlocking {
         withSession { session ->
             withContext(Dispatchers.Main) {
-                session.transfers.downloadDirectory = "/phone-a"
+                session.transfers.downloadDirectory = "phone-a"
                 session.transfers.downloadDialog = true
             }
             compose.setContent { MaterialTheme { DownloadFilesUi(session) } }
@@ -200,7 +200,7 @@ class DownloadFilesTest {
                 delay(1_100) // SFTP mtimes have one-second resolution.
                 session.upload("/phone-b/$longName", "new".byteInputStream())
                 withContext(Dispatchers.Main) {
-                    session.transfers.downloadDirectory = "/phone-b"
+                    session.transfers.downloadDirectory = "phone-b"
                     session.transfers.downloadDialog = true
                 }
                 compose.setContent { MaterialTheme { DownloadFilesUi(session) } }
