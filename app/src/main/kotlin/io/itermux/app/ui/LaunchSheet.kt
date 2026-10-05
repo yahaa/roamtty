@@ -7,6 +7,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -22,10 +25,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
@@ -49,6 +54,7 @@ import kotlinx.coroutines.CancellationException
  * [monitor] when the host page already has a login, else from a short-lived login of the sheet's own.
  * [onLaunch] gets the folder and, for an agent, what to run there.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, onDismiss: () -> Unit,
     onLaunch: (directory: String, agent: AgentLaunch?) -> Unit) {
@@ -92,6 +98,9 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     val shown = listing?.second
     var filter by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(current) { filter = null }
+    val matches = remember(shown, filter) { shown?.folders.orEmpty().filter { it.contains(filter.orEmpty().trim(), ignoreCase = true) } }
+    // Typing a filter: the keyboard takes half the screen, so everything but the folders steps aside until it closes.
+    val typing = filter != null && WindowInsets.isImeVisible
     val segments = remember(current) { StartDirectory.segments(current) }
     val parent = segments.getOrNull(segments.size - 2)?.second ?: shown?.takeIf { !stale }?.parent
 
@@ -104,19 +113,20 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
 
     val colors = MaterialTheme.colorScheme
     AppSheet(onDismiss) {
-        SheetHeader(if (forAgent) tr("用 AI 助手打开") else tr("打开终端"), null, onDismiss)
+        if (!typing) SheetHeader(if (forAgent) tr("用 AI 助手打开") else tr("打开终端"), null, onDismiss)
         Column(Modifier.weight(1f).testTag("launch-sheet")) {
-            if (recent.isNotEmpty()) RecentFolders(recent, current, onPick = { current = it }, onForget = { dir ->
+            if (recent.isNotEmpty() && !typing) RecentFolders(recent, current, onPick = { current = it }, onForget = { dir ->
                 recent = recent - dir
                 preferences.saveRecentStartDirectories(host.id, recent)
             })
             Surface(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Spacing.Page), shape = MaterialTheme.shapes.medium,
                 color = colors.groupedContainer) {
                 Column {
-                    PathBar(segments, parent, canFilter = filter != null || (shown?.folders?.size ?: 0) > FILTER_THRESHOLD,
-                        filtering = filter != null, onNavigate = { current = it },
-                        onFilter = { filter = if (filter == null) "" else null })
-                    filter?.let { text -> FolderFilter(text, { filter = it }) { filter = null } }
+                    val text = filter
+                    if (text != null) FolderFilter(text, { filter = it }, onClose = { filter = null },
+                        onGo = { matches.firstOrNull()?.let { current = shown!!.child(it) } })
+                    else PathBar(segments, parent, canFilter = (shown?.folders?.size ?: 0) > FILTER_THRESHOLD,
+                        onNavigate = { current = it }, onFilter = { filter = "" })
                     GroupedDivider()
                     Box(Modifier.weight(1f)) {
                         when {
@@ -128,11 +138,12 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
                             shown == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                             }
-                            else -> FolderList(shown, filter.orEmpty(), stale || loading) { current = it }
+                            else -> FolderList(shown, matches, stale || loading) { current = it }
                         }
                     }
                 }
             }
+            if (typing) return@Column
             if (forAgent) AgentChooser(agent, mode, { agent = it }, { mode = it })
             val buttonColor by animateColorAsState(if (yolo) colors.error else colors.primary, label = "launch-button")
             val name = folderName(current)
@@ -171,7 +182,7 @@ private fun folderName(directory: String) = if (StartDirectory.isHome(directory)
  * steps up past home. The magnifier filters long folder lists.
  */
 @Composable
-private fun PathBar(segments: List<Pair<String, String>>, parent: String?, canFilter: Boolean, filtering: Boolean,
+private fun PathBar(segments: List<Pair<String, String>>, parent: String?, canFilter: Boolean,
     onNavigate: (String) -> Unit, onFilter: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val scroll = rememberScrollState()
@@ -193,20 +204,35 @@ private fun PathBar(segments: List<Pair<String, String>>, parent: String?, canFi
             }
         }
         if (canFilter) IconButton(onClick = onFilter, modifier = Modifier.size(40.dp).testTag("launch-filter-toggle")) {
-            Icon(painterResource(R.drawable.ic_search), contentDescription = tr(if (filtering) "关闭筛选" else "筛选当前目录"),
-                Modifier.size(20.dp), tint = if (filtering) colors.primary else colors.onSurfaceVariant)
+            Icon(painterResource(R.drawable.ic_search), contentDescription = tr("筛选当前目录"),
+                Modifier.size(20.dp), tint = colors.onSurfaceVariant)
         }
     }
 }
 
+/** Takes the path bar's place while filtering, so the folders keep the room; Enter opens the first match. */
 @Composable
-private fun FolderFilter(value: String, onValueChange: (String) -> Unit, onClose: () -> Unit) {
+private fun FolderFilter(value: String, onValueChange: (String) -> Unit, onClose: () -> Unit, onGo: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    AppSearchField(value, onValueChange, tr("筛选当前目录"), leadingIcon = R.drawable.ic_filter,
-        trailing = { IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_close), tr("关闭筛选")) } },
-        modifier = Modifier.fillMaxWidth().padding(start = Spacing.Tight, end = Spacing.Tight, bottom = Spacing.Tight)
-            .focusRequester(focus).testTag("launch-filter"))
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onClose, modifier = Modifier.size(40.dp).testTag("launch-filter-close")) {
+            Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = tr("关闭筛选"), Modifier.size(20.dp))
+        }
+        Box(Modifier.weight(1f).padding(horizontal = 6.dp), contentAlignment = Alignment.CenterStart) {
+            if (value.isEmpty()) Text(tr("筛选当前目录"), style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+            BasicTextField(value, onValueChange, singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
+                cursorBrush = SolidColor(colors.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { onGo() }),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus).testTag("launch-filter"))
+        }
+        if (value.isNotEmpty()) IconButton(onClick = { onValueChange("") }, modifier = Modifier.size(40.dp)) {
+            Icon(painterResource(R.drawable.ic_clear), contentDescription = tr("清除"), Modifier.size(18.dp),
+                tint = colors.onSurfaceVariant)
+        }
+    }
 }
 
 /** Recently used folders, one tap each; the cross forgets one. */
@@ -226,11 +252,10 @@ private fun RecentFolders(recent: List<String>, current: String, onPick: (String
     }
 }
 
-/** Subfolders of [listing] matching [filter]; [busy] dims them while the next folder loads. */
+/** [folders] of [listing] (all, or those matching the filter); [busy] dims them while the next folder loads. */
 @Composable
-private fun FolderList(listing: RemoteFolders, filter: String, busy: Boolean, onOpen: (String) -> Unit) {
+private fun FolderList(listing: RemoteFolders, folders: List<String>, busy: Boolean, onOpen: (String) -> Unit) {
     val colors = MaterialTheme.colorScheme
-    val folders = remember(listing, filter) { listing.folders.filter { it.contains(filter.trim(), ignoreCase = true) } }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize().alpha(if (busy) 0.5f else 1f).testTag("launch-folders")) {
             if (folders.isEmpty()) item(key = "empty") {
