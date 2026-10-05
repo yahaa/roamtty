@@ -16,6 +16,8 @@ import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.itermux.app.session.CommonCommandsState
+import io.itermux.app.session.ImageInsert
+import io.itermux.app.session.ImageOutcome
 import io.itermux.app.session.TransferStatus
 import io.itermux.app.ui.*
 import io.itermux.ssh.RemoteEntry
@@ -105,23 +107,22 @@ class DesignUiTest {
         compose.onNodeWithTag("settings-font-source_code_pro").assertIsDisplayed()
     }
 
-    @Test fun uploadedImagePathCanBeCopiedOrStagedForReview() {
-        val path = "/home/itermux/images/design preview.png"
-        var inserted: String? = null
-        var dismissed = false
+    @Test fun imageInsertDialogShowsBatchProgressAndEachImageOutcome() {
+        val first = ImageInsert("IMG_20261005_0901.jpg", ImageOutcome.INSERTED, "/tmp/roamtty-img-a.png")
+        var status by mutableStateOf(TransferStatus(tr("插入图片"), 1_200_000, 2_400_000, running = true, imageTotal = 3,
+            images = listOf(first)))
         compose.setContent {
-            MaterialTheme(colorScheme = DarkColors) {
-                TransferStatusDialog(TransferStatus("preview.png", 128, 128, result = trf("已上传：%s", path),
-                    remotePath = path), {}, { dismissed = true }, onInsertPath = { inserted = it })
-            }
+            MaterialTheme(colorScheme = DarkColors) { ImageInsertDialog(status, {}, {}) }
         }
-        compose.onNodeWithTag("copy-upload-path").performScrollTo().performClick()
-        compose.runOnIdle {
-            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
-            assertEquals(path, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
-        }
-        compose.onNodeWithTag("insert-upload-path").performScrollTo().performClick()
-        assertEquals(path, inserted)
-        assertTrue(dismissed)
+        compose.onNodeWithTag("image-insert-count").assertTextEquals(trf("第 %d 张，共 %d 张", 2, 3))
+        screenshot("design-image-insert-running")
+        status = status.copy(running = false, succeeded = true, result = tr("传输完成"), images = listOf(first,
+            ImageInsert("Screenshot_2026-10-05.png", ImageOutcome.IN_EDITOR, "/tmp/roamtty-img-b.png"),
+            ImageInsert("IMG_20261005_0915.heic", ImageOutcome.FAILED, error = "无法解码图片")))
+        compose.onNodeWithTag("image-insert-count").assertTextEquals(listOf(trf("成功 %d 张", 2), trf("失败 %d 张", 1)).joinToString(" · "))
+        compose.onNodeWithTag("image-insert-row-1").assert(hasAnyDescendant(hasText(tr("已放入编辑区"))))
+        compose.onNodeWithTag("image-insert-row-2").assert(hasAnyDescendant(hasText("无法解码图片")))
+        Thread.sleep(300) // The dialog window draws a frame after the semantics update.
+        screenshot("design-image-insert-results")
     }
 }

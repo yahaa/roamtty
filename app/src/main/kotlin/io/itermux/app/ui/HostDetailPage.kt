@@ -3,6 +3,7 @@ package io.itermux.app.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,12 +36,14 @@ import io.itermux.app.data.Host
 import io.itermux.app.data.installedPlugins
 import io.itermux.app.session.AgentLaunch
 import io.itermux.app.session.HostMetrics
+import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.HostSystem
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
+import io.itermux.ssh.TerminalTransport
 import java.util.Locale
 
 /**
@@ -50,8 +54,10 @@ import java.util.Locale
 internal fun HostDetailPage(
     host: Host,
     reachability: HostReachability,
-    sessionCount: Int,
+    /** This host's sessions, most active first. */
+    sessions: List<TerminalConnection>,
     onBack: () -> Unit,
+    onOpenSession: (TerminalConnection) -> Unit,
     /** Opens a session in the folder picked on the launch sheet, starting [AgentLaunch] there when given. */
     onLaunch: (directory: String, agent: AgentLaunch?) -> Unit,
     onBrowseFiles: () -> Unit,
@@ -109,9 +115,10 @@ internal fun HostDetailPage(
                     HostAction(tr("文件"), R.drawable.ic_folder, tag = "host-detail-files", modifier = Modifier.weight(1f),
                         onClick = onBrowseFiles)
                 }
+                HostSessionsSection(sessions, onOpenSession)
                 if (monitor == null) MonitorLoginCard { askPassword = true }
                 else MonitorSection(monitor, onLogin = { if (host.needsTypedPassword || host.auth == "KEY") askPassword = true else monitor.start() })
-                HostInfoSection(host, metrics, sessionCount)
+                HostInfoSection(host, metrics)
                 Spacer(Modifier.height(Spacing.Page))
             }
         }
@@ -175,6 +182,42 @@ private fun HostAction(label: String, icon: Int, tag: String, modifier: Modifier
     val padding = PaddingValues(vertical = Spacing.Row)
     if (primary) Button(onClick, modifier.heightIn(min = 64.dp).testTag(tag), shape = shape, contentPadding = padding, content = content)
     else FilledTonalButton(onClick, modifier.heightIn(min = 64.dp).testTag(tag), shape = shape, contentPadding = padding, content = content)
+}
+
+/** Every session the app holds for this host; a tap opens its terminal. */
+@Composable
+private fun HostSessionsSection(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit) {
+    GroupedSection(header = trf("会话  %d", sessions.size), modifier = Modifier.testTag("host-sessions")) {
+        if (sessions.isEmpty()) GroupedRow(tr("暂无会话"), subtitle = tr("点上方“终端”或“AI 助手”开启新会话"))
+        else sessions.forEachIndexed { index, session ->
+            if (index > 0) GroupedDivider()
+            HostSessionRow(session) { onOpen(session) }
+        }
+    }
+}
+
+@Composable
+private fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit) {
+    val state by session.state.collectAsStateWithLifecycle()
+    val title by session.title.collectAsStateWithLifecycle()
+    val transport by session.transport.collectAsStateWithLifecycle()
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().clickable(onClickLabel = tr("打开终端"), role = Role.Button, onClick = onClick)
+        .heightIn(min = 56.dp).padding(horizontal = Spacing.Page, vertical = 10.dp).testTag("host-session-${session.id}"),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title.ifBlank { session.defaultTitle }, style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Tight), verticalAlignment = Alignment.CenterVertically) {
+                StatusLabel(state.phase)
+                MetaTag(if (session.mode == SessionMode.TMUX) "tmux" else "SSH")
+                if (transport == TerminalTransport.MOSH) MetaTag("mosh")
+            }
+        }
+        Spacer(Modifier.width(Spacing.Tight))
+        Chevron()
+    }
 }
 
 @Composable
@@ -344,7 +387,7 @@ private fun MetricRow(label: String, value: String?, hint: String? = null) {
 }
 
 @Composable
-private fun HostInfoSection(host: Host, metrics: HostMetrics?, sessionCount: Int) {
+private fun HostInfoSection(host: Host, metrics: HostMetrics?) {
     val rows = buildList {
         add(tr("地址") to host.address)
         add(tr("端口") to host.port.toString())
@@ -354,7 +397,6 @@ private fun HostInfoSection(host: Host, metrics: HostMetrics?, sessionCount: Int
         add(tr("插件") to (host.installedPlugins?.let { found ->
             HostPlugin.entries.filter { it in found }.joinToString(" · ") { it.id }.ifEmpty { tr("未安装") }
         } ?: tr("未检测")))
-        add(tr("活动会话") to sessionCount.toString())
         metrics?.hostname?.let { add(tr("主机名") to it) }
         metrics?.kernel?.let { add(tr("内核") to it) }
         metrics?.arch?.let { add(tr("架构") to it) }

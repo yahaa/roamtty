@@ -107,10 +107,10 @@ class NativeHistoryImageTest {
                         withContext(Dispatchers.Main) { session.write("\u0002[") }
                         awaitScreen(session, "[0/0]")
                     }
-                    withContext(Dispatchers.Main) { session.transfers.uploadImageForCli(context, session, uri) }
+                    withContext(Dispatchers.Main) { session.transfers.uploadSharedImages(context, session, listOf(uri)) }
                     val complete = withTimeout(15_000) { session.transfers.status.first { !it.running } }
                     assertEquals(complete.result, true, complete.succeeded)
-                    paths += requireNotNull(complete.remotePath)
+                    paths += complete.imagePaths.single()
                     awaitScreen(session, "IMAGES=$number SUBMITTED=0")
                     withContext(Dispatchers.Main) { session.transfers.dismiss() }
                 }
@@ -184,8 +184,8 @@ class NativeHistoryImageTest {
                 compose.activityRule.scenario.recreate()
                 awaitScreen(session, "IMAGES=3 SUBMITTED=0 NAVKEYS=0")
                 assertTrue(service.pendingSharedImages.value.isEmpty())
-                val remote = withContext(Dispatchers.Main) { session.transfers.status.value.remotePath }
-                if (remote != null) session.deleteRemoteFile(remote)
+                val remote = withContext(Dispatchers.Main) { session.transfers.status.value.imagePaths }
+                remote.forEach { session.deleteRemoteFile(it) }
             } finally {
                 uris.forEach { context.contentResolver.delete(it, null, null) }
                 withContext(Dispatchers.Main) {

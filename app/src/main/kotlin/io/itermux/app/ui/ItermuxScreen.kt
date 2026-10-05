@@ -205,7 +205,6 @@ fun ItermuxScreen(
         if (uris.isEmpty()) return
         selected = session.id
         page = "terminal"
-        if (uris.size > 1) toast(trf("共 %d 张图片，将依次上传", uris.size))
         if (!session.transfers.uploadSharedImages(context, session, uris))
             toast(tr("已有传输进行中，请稍后再试"))
     }
@@ -360,8 +359,9 @@ fun ItermuxScreen(
                         val connected = sessions.any { it.host.id == detailHost.id && (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
                         HostDetailPage(detailHost,
                             hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
-                            sessionCount = sessions.count { it.host.id == detailHost.id },
+                            sessions = sessionsByActivity.filter { it.host.id == detailHost.id },
                             onBack = { page = "hosts" },
+                            onOpenSession = { selected = it.id; page = "terminal" },
                             onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
                             onBrowseFiles = { browseFiles(detailHost) },
                             onEdit = { editHostId = detailHost.id; editorOpen = true },

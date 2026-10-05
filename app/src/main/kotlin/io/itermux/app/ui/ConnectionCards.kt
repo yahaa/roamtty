@@ -132,17 +132,19 @@ internal fun latencyLabel(ms: Long): String = if (ms < 1) "<1 ms" else "$ms ms"
             }
         }
         Row(Modifier.fillMaxWidth().padding(top = Spacing.Tight), verticalAlignment = Alignment.CenterVertically) {
-            StatusLabel(state.phase)
-            Spacer(Modifier.width(Spacing.Tight))
-            MetaTag(modeLabel(session.mode == SessionMode.TMUX))
-            if (transport == TerminalTransport.MOSH) {
-                Spacer(Modifier.width(Spacing.Tight))
-                MetaTag("mosh", Modifier.testTag("session-mosh-${session.id}"))
+            // Status and tags give way (tags ellipsize) so the action button always stays on one line.
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight),
+                verticalAlignment = Alignment.CenterVertically) {
+                StatusLabel(state.phase)
+                MetaTag(if (session.mode == SessionMode.TMUX) "tmux" else "SSH", Modifier.weight(1f, fill = false))
+                if (transport == TerminalTransport.MOSH)
+                    MetaTag("mosh", Modifier.testTag("session-mosh-${session.id}"))
             }
-            Spacer(Modifier.weight(1f))
-            if (!state.active && session.mode == SessionMode.TMUX)
-                TextButton(onClick = { confirmForget = true }) { Text(tr("移除记录")) }
-            else TextButton(onClick = { confirmClose = true }) { Text(tr("关闭")) }
+            val forget = !state.active && session.mode == SessionMode.TMUX
+            TextButton(onClick = { if (forget) confirmForget = true else confirmClose = true },
+                contentPadding = PaddingValues(horizontal = Spacing.Row)) {
+                Text(if (forget) tr("移除") else tr("关闭"), maxLines = 1, softWrap = false)
+            }
         }
     }
     if (confirmClose) AlertDialog(onDismissRequest = { confirmClose = false }, title = { Text(trf("关闭 %s？", session.host.name)) },

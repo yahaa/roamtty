@@ -2,8 +2,8 @@ package io.itermux.app.session
 
 import android.content.Context
 import android.net.Uri
-import android.widget.Toast
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -19,8 +19,20 @@ import java.util.concurrent.ConcurrentHashMap
 
 internal data class TransferStatus(val name: String = "", val bytes: Long = 0,
     val total: Long = -1, val running: Boolean = false, val result: String? = null,
-    val remotePath: String? = null, val succeeded: Boolean? = null,
-    val downloads: List<DownloadItem> = emptyList(), val bytesPerSecond: Double = 0.0)
+    val succeeded: Boolean? = null,
+    val downloads: List<DownloadItem> = emptyList(), val bytesPerSecond: Double = 0.0,
+    /** Images in an insert batch (0 for any other transfer) and the outcome of each one finished so far. */
+    val imageTotal: Int = 0, val images: List<ImageInsert> = emptyList(), val cancelled: Boolean = false,
+    /** Uploaded paths the prompt refused, waiting for the terminal's editor to take them. */
+    val editorPaths: List<String> = emptyList()) {
+    /** Every image now on the host, whether pasted into the prompt or handed to the editor. */
+    val imagePaths: List<String> get() = images.mapNotNull { it.path }
+}
+
+internal enum class ImageOutcome { INSERTED, IN_EDITOR, FAILED }
+
+/** One picked image: its local [name], the remote [path] once uploaded, and an [error] when it failed. */
+internal data class ImageInsert(val name: String, val outcome: ImageOutcome, val path: String? = null, val error: String? = null)
 
 /** The session owns both the task and its UI draft, independent of Activity/composition lifetime. */
 class FileTransferController(private val scope: CoroutineScope) {
@@ -64,36 +76,72 @@ class FileTransferController(private val scope: CoroutineScope) {
     private val mutableStatus = MutableStateFlow(TransferStatus())
     internal val status = mutableStatus.asStateFlow()
     private var job: Job? = null
-    private var sharedImagesJob: Job? = null
 
-    fun cancel() { downloadDirectoryJob?.cancel(); sharedImagesJob?.cancel(); job?.cancel() }
+    fun cancel() { downloadDirectoryJob?.cancel(); job?.cancel() }
 
-    /** The session scope owns the whole queue, including images not started yet. */
+    /**
+     * One transfer for the whole batch: each image is converted to PNG, sent by SFTP to a unique
+     * `/tmp/roamtty-img-*.png` and its path pasted into the prompt (never submitted) before the next starts.
+     * A failed image does not stop the rest; a path the prompt refuses goes to [TransferStatus.editorPaths].
+     * The session scope owns it, so images not started yet survive leaving the terminal. False while busy.
+     */
     fun uploadSharedImages(context: Context, session: TerminalConnection, uris: List<Uri>): Boolean {
-        if (sharedImagesJob?.isActive == true) return false
+        if (job != null || mutableStatus.value.running) return false
         val application = context.applicationContext
-        sharedImagesJob = scope.launch {
-            for (uri in uris.toList()) {
-                job?.join()
-                ensureActive()
-                dismiss()
-                uploadImageForCli(application, session, uri)
-                job?.join()
-                ensureActive()
-                if (mutableStatus.value.succeeded != true) break
+        val queue = uris.toList()
+        if (queue.isEmpty()) return true
+        start(tr("插入图片"), images = queue.size) { progress ->
+            for ((index, uri) in queue.withIndex()) {
+                mutableStatus.update { it.copy(bytes = 0, total = -1) }
+                val name = withContext(Dispatchers.IO) { displayName(application, uri) } ?: trf("图片 %d", index + 1)
+                val remotePath = CodexImageAttach.newRemotePngPath()
+                val uploaded = try {
+                    val png = withContext(Dispatchers.IO) { CodexImageAttach.convertToPngFile(application, uri) }
+                    try {
+                        mutableStatus.update { it.copy(total = png.length()) }
+                        withContext(Dispatchers.IO) { png.inputStream().use { session.upload(remotePath, it, progress) } }
+                    } finally {
+                        png.delete()
+                    }
+                    null
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { ImageInsert(name, ImageOutcome.FAILED, error = tr(e.message ?: "请检查路径和 SFTP 服务")) }
+                val result = uploaded ?: try {
+                    withContext(Dispatchers.Main.immediate) { session.insertImagePath(remotePath) }
+                    ImageInsert(name, ImageOutcome.INSERTED, remotePath)
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { ImageInsert(name, ImageOutcome.IN_EDITOR, remotePath) }
+                mutableStatus.update {
+                    it.copy(images = it.images + result,
+                        editorPaths = if (result.outcome == ImageOutcome.IN_EDITOR) it.editorPaths + remotePath else it.editorPaths)
+                }
             }
+            null
         }
         return true
     }
+    /** Hands the waiting [TransferStatus.editorPaths] to the caller exactly once. */
+    fun takeEditorPaths(): List<String> {
+        val paths = mutableStatus.value.editorPaths
+        if (paths.isNotEmpty()) mutableStatus.update { it.copy(editorPaths = emptyList()) }
+        return paths
+    }
+
+    private fun displayName(context: Context, uri: Uri): String? = runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
     fun dismiss() { if (!mutableStatus.value.running) mutableStatus.update { it.copy(result = null) } }
 
     /**
      * @param operation returns an optional success message; null keeps the default 「传输完成」.
      */
-    private fun start(name: String, total: Long = -1, downloads: List<DownloadItem> = emptyList(),
+    private fun start(name: String, total: Long = -1, downloads: List<DownloadItem> = emptyList(), images: Int = 0,
         operation: suspend ((Long) -> Unit) -> String?) {
         check(job == null) { "A transfer is already running" }
-        mutableStatus.value = TransferStatus(name = name, total = total, running = true, downloads = downloads)
+        mutableStatus.value = TransferStatus(name = name, total = total, running = true, downloads = downloads, imageTotal = images)
         val task = scope.launch(start = CoroutineStart.LAZY) {
             var reported = 0L
             var lastReport = System.nanoTime()
@@ -116,7 +164,7 @@ class FileTransferController(private val scope: CoroutineScope) {
             } catch (e: CancellationException) {
                 val message = if (e.suppressed.any { it is IncompleteDownload })
                     tr("下载未完成，无法删除本地半成品，请在保存位置手动删除。") else tr("传输已取消")
-                mutableStatus.update { it.copy(result = message, succeeded = false) }
+                mutableStatus.update { it.copy(result = message, succeeded = false, cancelled = true) }
             } catch (e: Exception) {
                 val message = when (e) {
                     is IncompleteDownload -> tr("下载未完成，无法删除本地半成品，请在保存位置手动删除。")
@@ -141,36 +189,6 @@ class FileTransferController(private val scope: CoroutineScope) {
                 input.use { session.upload(path, it, progress) }
             }
             null
-        }
-    }
-
-    /**
-     * Independent of [upload]: convert to PNG, SFTP to a unique `/tmp/roamtty-img-*.png`,
-     * then insert the explicitly selected image without submitting the current prompt.
-     */
-    fun uploadImageForCli(context: Context, session: TerminalConnection, uri: Uri) {
-        if (job != null || mutableStatus.value.running) {
-            Toast.makeText(context.applicationContext, tr("已有传输进行中，请稍后再试"), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val application = context.applicationContext
-        val remotePath = CodexImageAttach.newRemotePngPath()
-        start(tr("上传图片…"), -1) { progress ->
-            val png = withContext(Dispatchers.IO) {
-                CodexImageAttach.convertToPngFile(application, uri)
-            }
-            try {
-                withContext(Dispatchers.IO) {
-                    png.inputStream().use { session.upload(remotePath, it, progress) }
-                }
-            } finally {
-                png.delete()
-            }
-            withContext(Dispatchers.Main.immediate) {
-                mutableStatus.update { it.copy(remotePath = remotePath) }
-                session.insertImagePath(remotePath)
-                trf("已上传并粘贴路径：%s", remotePath)
-            }
         }
     }
 
