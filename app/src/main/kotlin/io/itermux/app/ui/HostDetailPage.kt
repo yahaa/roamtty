@@ -237,6 +237,7 @@ private fun MonitorSection(monitor: HostMonitor, onLogin: () -> Unit) {
     val rate by monitor.netRate.collectAsStateWithLifecycle()
     val cpuHistory by monitor.cpuHistory.collectAsStateWithLifecycle()
     val memHistory by monitor.memHistory.collectAsStateWithLifecycle()
+    val gpuHistory by monitor.gpuHistory.collectAsStateWithLifecycle()
     val colors = MaterialTheme.colorScheme
     Column(Modifier.testTag("host-monitor")) {
         Row(Modifier.fillMaxWidth().padding(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Tight),
@@ -312,6 +313,32 @@ private fun MonitorSection(monitor: HostMonitor, onLogin: () -> Unit) {
                 MetricRow(disk.mount, "${bytes(disk.usedBytes)} / ${bytes(disk.totalBytes)} · ${percent(disk.percent)}", tr("磁盘"))
             }
         }
+        m?.gpus?.takeIf { it.isNotEmpty() }?.let { gpus ->
+            Spacer(Modifier.height(Spacing.Section))
+            GroupedSection(Modifier.testTag("host-gpus"), header = tr("GPU")) {
+                gpus.forEachIndexed { index, gpu ->
+                    if (index > 0) GroupedDivider()
+                    GpuRow(gpu, gpuHistory[gpu.index].orEmpty())
+                }
+            }
+        }
+        m?.gpuProcesses?.takeIf { it.isNotEmpty() }?.let { processes ->
+            Spacer(Modifier.height(Spacing.Section))
+            GroupedSection(header = tr("GPU 进程（按显存排序）")) {
+                processes.take(5).forEachIndexed { index, process ->
+                    if (index > 0) GroupedDivider()
+                    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = Spacing.Page, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(process.name, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text("PID ${process.pid}", style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 84.dp))
+                        Text(trf("显存 %s", process.memBytes?.let(::bytes) ?: "—"), style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 84.dp))
+                    }
+                }
+            }
+        }
         m?.processes?.takeIf { it.isNotEmpty() }?.let { processes ->
             Spacer(Modifier.height(Spacing.Section))
             GroupedSection(header = tr("进程（按 CPU 排序）")) {
@@ -351,6 +378,55 @@ private fun GaugeCard(label: String, value: Double?, detail: String?, history: L
                 Sparkline(history, tone, Modifier.fillMaxWidth().height(22.dp))
             } else Spacer(Modifier.height(28.dp))
         }
+    }
+}
+
+/** One GPU: name, frequency, temperature and power on top, then utilization and VRAM bars and the utilization trend. */
+@Composable
+private fun GpuRow(gpu: HostMetrics.Gpu, history: List<Double>) {
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row).testTag("host-gpu-${gpu.index}")) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${gpu.index} · ${gpu.name}", style = MaterialTheme.typography.bodyLarge, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            val extras = listOfNotNull(
+                gpu.freqMHz?.let { f -> String.format(Locale.US, "%.0f", f) + (gpu.freqMaxMHz?.let { String.format(Locale.US, "/%.0f", it) } ?: "") + " MHz" },
+                gpu.memUsedBytes?.takeIf { gpu.memTotalBytes == null }?.let { trf("内存 %s", bytes(it)) },
+                gpu.temperatureC?.let { String.format(Locale.US, "%.0f°C", it) },
+                gpu.powerWatts?.let { w -> String.format(Locale.US, "%.0f", w) + (gpu.powerLimitWatts?.let { String.format(Locale.US, "/%.0f", it) } ?: "") + " W" },
+            )
+            if (extras.isNotEmpty()) Text(extras.joinToString(" · "), style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                color = colors.onSurfaceVariant, modifier = Modifier.padding(start = Spacing.Tight))
+        }
+        Spacer(Modifier.height(Spacing.Tight))
+        UsageBar(tr("利用率"), gpu.utilPercent, gpu.utilPercent?.let(::percent))
+        // Integrated GPUs share system memory, so there is no VRAM total to fill a bar against.
+        if (gpu.memTotalBytes != null) {
+            Spacer(Modifier.height(6.dp))
+            UsageBar(tr("显存"), gpu.memPercent, gpu.memUsedBytes?.let { usage(it, gpu.memTotalBytes) })
+        }
+        if (history.size >= 2) {
+            Spacer(Modifier.height(6.dp))
+            Sparkline(history, levelColor(gpu.utilPercent), Modifier.fillMaxWidth().height(22.dp))
+        }
+    }
+}
+
+@Composable
+private fun UsageBar(label: String, value: Double?, detail: String?) {
+    val colors = MaterialTheme.colorScheme
+    val tone = levelColor(value)
+    val track = colors.onSurface.copy(alpha = 0.08f)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 52.dp))
+        Canvas(Modifier.weight(1f).height(6.dp)) {
+            val radius = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
+            drawRoundRect(track, cornerRadius = radius)
+            if (value != null) drawRoundRect(tone, size = size.copy(width = size.width * (value.coerceIn(0.0, 100.0) / 100.0).toFloat()),
+                cornerRadius = radius)
+        }
+        Text(detail ?: "—", style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"), color = colors.onSurfaceVariant,
+            maxLines = 1, modifier = Modifier.padding(start = Spacing.Tight).widthIn(min = 72.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
     }
 }
 
