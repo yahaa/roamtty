@@ -143,8 +143,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var enterKeyAwake by remember { mutableStateOf(false) }
     var enterKeyTouches by remember { mutableIntStateOf(0) }
     var enterKeyTyping by remember { mutableStateOf(false) }
-    // A line starting with `/` brings Up/Down keys above and below the cursor row to move through
-    // the command menu; they stay until Enter ends the line or a double tap dismisses them.
+    // A line starting with `/` brings Up/Down keys onto the cursor row, in the Enter key's place, to
+    // move through the command menu; they stay until Enter ends the line or a double tap dismisses them.
     val slashCommandLine by session.slashCommandLine.collectAsStateWithLifecycle()
     var arrowKeysDismissedLine by remember { mutableIntStateOf(0) }
     LaunchedEffect(enterKeyTouches) {
@@ -424,7 +424,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 })
                 if (showingOutput) OutputHistoryView(recordedOutput, fontSize, lightTheme)
                 val cursorKeysAllowed = state.phase == Phase.CONNECTED && !editor && tmuxHistory?.active != true
-                androidx.compose.animation.AnimatedVisibility(enterKeyAwake && cursorKeysAllowed,
+                // The arrows take the Enter key's place on the cursor row while they show.
+                val arrowKeysShown = slashCommandLine != 0 && slashCommandLine != arrowKeysDismissedLine && cursorKeysAllowed
+                androidx.compose.animation.AnimatedVisibility(enterKeyAwake && cursorKeysAllowed && !arrowKeysShown,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
                     terminal?.let { view ->
                         CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight) {
@@ -439,18 +441,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         }
                     }
                 }
-                androidx.compose.animation.AnimatedVisibility(slashCommandLine != 0 && slashCommandLine != arrowKeysDismissedLine && cursorKeysAllowed,
+                androidx.compose.animation.AnimatedVisibility(arrowKeysShown,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
                     terminal?.let { view ->
-                        // Up above the cursor row, Down below; the Enter key keeps the row itself.
-                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight * 3) {
-                            Column {
+                        // Up and Down side by side at the right end of the cursor row.
+                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight) {
+                            Row {
                                 CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "cursor-up") {
                                     enterKeyTyping = false
                                     enterKeyTouches++
                                     terminalKey(KeyEvent.KEYCODE_DPAD_UP)
                                 }
-                                Spacer(Modifier.height(CursorKeyHeight))
                                 CursorKey(R.drawable.ic_expand_down, tr("发送下方向键"), "cursor-down") {
                                     enterKeyTyping = false
                                     enterKeyTouches++
