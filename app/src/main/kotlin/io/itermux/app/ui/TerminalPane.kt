@@ -14,6 +14,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -549,16 +551,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             }
         } else if (dockAvailable && !dockVisible) {
             // Leave the composition while hidden so taps on that edge reach the terminal.
-            AnimatedVisibility(toolboxAwake, enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
+            AnimatedVisibility(toolboxAwake, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
+                exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
                 TerminalDockPlacement {
-                    FilledTonalIconButton(
-                        onClick = { dockExpanded = true },
-                        modifier = Modifier.size(48.dp).testTag("restore-dock"),
-                        shape = CircleShape,
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
-                    ) {
-                        Icon(painterResource(R.drawable.ic_toolbox), contentDescription = tr("显示操作栏"))
-                    }
+                    ToolboxPet(tr("显示操作栏")) { dockExpanded = true }
                 }
             }
         }
