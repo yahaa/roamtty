@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
+import io.itermux.app.session.ImageOutcome
 import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.Phase
 import io.itermux.ssh.RemoteDirectory
@@ -83,16 +84,22 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
 
     transfer.uploadUri?.let { uri -> UploadFileSheet(session, uri) }
     DownloadFilesUi(session)
-    // A finished image insert needs no dialog: the paths are already in the prompt, so confirm with a toast.
-    val imagesDone = status.imageTotal > 0 && !status.running && (status.succeeded == true || status.cancelled)
-    LaunchedEffect(imagesDone) {
-        if (!imagesDone) return@LaunchedEffect
-        if (status.succeeded == true) Toast.makeText(context, status.result, Toast.LENGTH_SHORT).show()
+    // Paths the prompt refused go into the editor as soon as the batch ends, so no image is lost.
+    val imagesFinished = status.imageTotal > 0 && !status.running && status.result != null
+    LaunchedEffect(imagesFinished, status.editorPaths) {
+        if (imagesFinished) transfer.takeEditorPaths().takeIf { it.isNotEmpty() }?.let { onInsertPath?.invoke(it.joinToString(" ")) }
+    }
+    // Everything already in the prompt needs no dialog, only a short confirmation; a cancel closes quietly.
+    val allInserted = status.images.size == status.imageTotal && status.images.all { it.outcome == ImageOutcome.INSERTED }
+    val quiet = imagesFinished && (status.cancelled || allInserted)
+    LaunchedEffect(quiet) {
+        if (!quiet) return@LaunchedEffect
+        if (!status.cancelled) Toast.makeText(context, trf("已插入 %d 张图片", status.imageTotal), Toast.LENGTH_SHORT).show()
         transfer.dismiss()
     }
     if (status.imageTotal > 0) {
-        if (status.running || (status.result != null && !imagesDone))
-            ImageInsertDialog(status, onCancel = transfer::cancel, onDismiss = transfer::dismiss, onInsertPath = onInsertPath)
+        if (status.running || (imagesFinished && !quiet))
+            ImageInsertDialog(status, onCancel = transfer::cancel, onDismiss = transfer::dismiss)
     } else if (status.running || status.result != null) TransferStatusDialog(status,
         onCancel = transfer::cancel, onDismiss = transfer::dismiss)
 }

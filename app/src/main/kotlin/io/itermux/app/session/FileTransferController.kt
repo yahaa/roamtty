@@ -3,6 +3,7 @@ package io.itermux.app.session
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -18,10 +19,20 @@ import java.util.concurrent.ConcurrentHashMap
 
 internal data class TransferStatus(val name: String = "", val bytes: Long = 0,
     val total: Long = -1, val running: Boolean = false, val result: String? = null,
-    val remotePath: String? = null, val succeeded: Boolean? = null,
+    val succeeded: Boolean? = null,
     val downloads: List<DownloadItem> = emptyList(), val bytesPerSecond: Double = 0.0,
-    /** Images in an insert batch (0 for any other transfer), and the remote paths already pasted into the prompt. */
-    val imageTotal: Int = 0, val imagePaths: List<String> = emptyList(), val cancelled: Boolean = false)
+    /** Images in an insert batch (0 for any other transfer) and the outcome of each one finished so far. */
+    val imageTotal: Int = 0, val images: List<ImageInsert> = emptyList(), val cancelled: Boolean = false,
+    /** Uploaded paths the prompt refused, waiting for the terminal's editor to take them. */
+    val editorPaths: List<String> = emptyList()) {
+    /** Every image now on the host, whether pasted into the prompt or handed to the editor. */
+    val imagePaths: List<String> get() = images.mapNotNull { it.path }
+}
+
+internal enum class ImageOutcome { INSERTED, IN_EDITOR, FAILED }
+
+/** One picked image: its local [name], the remote [path] once uploaded, and an [error] when it failed. */
+internal data class ImageInsert(val name: String, val outcome: ImageOutcome, val path: String? = null, val error: String? = null)
 
 /** The session owns both the task and its UI draft, independent of Activity/composition lifetime. */
 class FileTransferController(private val scope: CoroutineScope) {
@@ -71,6 +82,7 @@ class FileTransferController(private val scope: CoroutineScope) {
     /**
      * One transfer for the whole batch: each image is converted to PNG, sent by SFTP to a unique
      * `/tmp/roamtty-img-*.png` and its path pasted into the prompt (never submitted) before the next starts.
+     * A failed image does not stop the rest; a path the prompt refuses goes to [TransferStatus.editorPaths].
      * The session scope owns it, so images not started yet survive leaving the terminal. False while busy.
      */
     fun uploadSharedImages(context: Context, session: TerminalConnection, uris: List<Uri>): Boolean {
@@ -79,25 +91,48 @@ class FileTransferController(private val scope: CoroutineScope) {
         val queue = uris.toList()
         if (queue.isEmpty()) return true
         start(tr("插入图片"), images = queue.size) { progress ->
-            for (uri in queue) {
+            for ((index, uri) in queue.withIndex()) {
                 mutableStatus.update { it.copy(bytes = 0, total = -1) }
+                val name = withContext(Dispatchers.IO) { displayName(application, uri) } ?: trf("图片 %d", index + 1)
                 val remotePath = CodexImageAttach.newRemotePngPath()
-                val png = withContext(Dispatchers.IO) { CodexImageAttach.convertToPngFile(application, uri) }
-                try {
-                    mutableStatus.update { it.copy(total = png.length()) }
-                    withContext(Dispatchers.IO) { png.inputStream().use { session.upload(remotePath, it, progress) } }
-                } finally {
-                    png.delete()
+                val uploaded = try {
+                    val png = withContext(Dispatchers.IO) { CodexImageAttach.convertToPngFile(application, uri) }
+                    try {
+                        mutableStatus.update { it.copy(total = png.length()) }
+                        withContext(Dispatchers.IO) { png.inputStream().use { session.upload(remotePath, it, progress) } }
+                    } finally {
+                        png.delete()
+                    }
+                    null
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { ImageInsert(name, ImageOutcome.FAILED, error = tr(e.message ?: "请检查路径和 SFTP 服务")) }
+                val result = uploaded ?: try {
+                    withContext(Dispatchers.Main.immediate) { session.insertImagePath(remotePath) }
+                    ImageInsert(name, ImageOutcome.INSERTED, remotePath)
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { ImageInsert(name, ImageOutcome.IN_EDITOR, remotePath) }
+                mutableStatus.update {
+                    it.copy(images = it.images + result,
+                        editorPaths = if (result.outcome == ImageOutcome.IN_EDITOR) it.editorPaths + remotePath else it.editorPaths)
                 }
-                // Uploaded but not pasted: the failure dialog offers the path so the image is not lost.
-                mutableStatus.update { it.copy(remotePath = remotePath) }
-                withContext(Dispatchers.Main.immediate) { session.insertImagePath(remotePath) }
-                mutableStatus.update { it.copy(remotePath = null, imagePaths = it.imagePaths + remotePath) }
             }
-            trf("已插入 %d 张图片", queue.size)
+            null
         }
         return true
     }
+    /** Hands the waiting [TransferStatus.editorPaths] to the caller exactly once. */
+    fun takeEditorPaths(): List<String> {
+        val paths = mutableStatus.value.editorPaths
+        if (paths.isNotEmpty()) mutableStatus.update { it.copy(editorPaths = emptyList()) }
+        return paths
+    }
+
+    private fun displayName(context: Context, uri: Uri): String? = runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
     fun dismiss() { if (!mutableStatus.value.running) mutableStatus.update { it.copy(result = null) } }
 
     /**
