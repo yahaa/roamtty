@@ -135,7 +135,9 @@ class TerminalExtraKeysTest {
             }
         }
         fun shortcut(tag: String) {
-            compose.onNodeWithTag("terminal-shortcuts").performScrollTo().assertIsDisplayed().performTouchInput { click() }
+            // The popup stays open across key presses, so only open it when it has closed.
+            if (compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty())
+                compose.onNodeWithTag("terminal-shortcuts").performScrollTo().assertIsDisplayed().performTouchInput { click() }
             compose.onNodeWithTag(tag).assertIsDisplayed().performTouchInput { click() }
         }
         try {
@@ -150,7 +152,8 @@ class TerminalExtraKeysTest {
             outputContains("KEY_1B")
             shortcut("terminal-tab")
             outputContains("KEY_09")
-            compose.onNodeWithTag("terminal-shortcuts").performClick()
+            // A key press leaves the popup open for the next one.
+            compose.onNodeWithTag("terminal-escape").assertIsDisplayed()
             listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-shift",
                 "terminal-left", "terminal-right", "terminal-up", "terminal-down").forEach { tag ->
                 val bounds = compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot

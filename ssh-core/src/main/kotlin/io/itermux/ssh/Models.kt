@@ -93,10 +93,26 @@ object Tmux {
         return "/bin/sh -c '$PATH_SETUP; exec tmux $args'"
     }
 
-    fun attachCommand(sessionName: String): String =
-        "exec " + command("new-session -A -s ${sanitizeSessionName(sessionName)}")
+    /**
+     * First command of a new pane: blank lines push the first prompt onto the pane's last row,
+     * next to the keyboard, then the shell starts as tmux would (default-command, else a login shell).
+     */
+    internal const val BOTTOM_PROMPT_PANE = "set -- \$(stty size 2>/dev/null); n=\${1:-0}; " +
+        "while [ \"\$n\" -gt 1 ]; do echo; n=\$((n - 1)); done; s=\${SHELL:-/bin/sh}; " +
+        "c=\$(tmux show-options -gv default-command 2>/dev/null); [ -n \"\$c\" ] && exec \"\$s\" -c \"\$c\"; exec \"\$s\" -l"
 
-    fun targetFlag(sessionName: String): String = "'${sanitizeSessionName(sessionName)}'"
+    /**
+     * Attaches [sessionName], creating it with [BOTTOM_PROMPT_PANE] when missing. tmux before 3.0
+     * joins a multi-word command into one string for the default shell, so it keeps a plain pane.
+     */
+    fun attachShellCommand(sessionName: String): String {
+        val name = sanitizeSessionName(sessionName)
+        val pane = BOTTOM_PROMPT_PANE.replace("\"", "\\\"").replace("$", "\\$")
+        return "/bin/sh -c '$PATH_SETUP; case \"\$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux new-session -A -s $name;; esac; " +
+            "exec tmux new-session -A -s $name /bin/sh -c \"$pane\"'"
+    }
+
+    fun attachCommand(sessionName: String): String = "exec " + attachShellCommand(sessionName)
 }
 
 enum class TerminalTransport { SSH, MOSH }

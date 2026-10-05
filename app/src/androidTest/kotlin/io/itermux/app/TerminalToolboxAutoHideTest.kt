@@ -84,4 +84,45 @@ class TerminalToolboxAutoHideTest {
         }
         Unit
     }
+
+    @Test fun shortcutPopupSurvivesKeyPressesAndHidesAfterFiveIdleSeconds() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        TerminalToolbox.shortcutHideMillis = 5_000
+        (context.applicationContext as ItermuxApp).database.hosts().forgetPin("[127.0.0.1]:22228")
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val session = withContext(Dispatchers.Main) {
+            service.open(Host(name = "Shortcut auto-hide", address = "127.0.0.1", port = 22228, username = "itermux_test"),
+                SessionMode.SHELL, Credentials("test-only".toByteArray()))
+        }
+        val prompts = CoroutineScope(Dispatchers.Main).launch { session.pending.collect { it?.answer?.complete(listOf("trust")) } }
+        try {
+            withTimeout(15_000) { session.state.first { it.phase == Phase.CONNECTED } }
+            compose.waitUntil(8_000) { compose.onAllNodesWithTag("sessions-tab").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("sessions-tab").performClick()
+            compose.onNodeWithTag("session-${session.id}").performClick()
+            if (compose.onAllNodesWithTag("restore-dock").fetchSemanticsNodes().isNotEmpty())
+                compose.onNodeWithTag("restore-dock").performClick()
+            compose.onNodeWithTag("terminal-shortcuts").performClick()
+            // The popup composes in its own window, a frame after the click.
+            compose.waitUntil(2_000) { compose.onAllNodesWithTag("terminal-left").fetchSemanticsNodes().isNotEmpty() }
+
+            compose.mainClock.autoAdvance = false
+            // Each key keeps the popup open and restarts its idle timer.
+            compose.onNodeWithTag("terminal-left").performClick()
+            compose.mainClock.advanceTimeBy(4_000)
+            compose.onNodeWithTag("terminal-left").assertIsDisplayed().performClick()
+            compose.mainClock.advanceTimeBy(4_000)
+            compose.onNodeWithTag("terminal-right").assertIsDisplayed()
+            compose.mainClock.advanceTimeBy(1_600)
+            compose.onNodeWithTag("terminal-right").assertDoesNotExist()
+            // The dock that held it stays open.
+            compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
+        } finally {
+            compose.mainClock.autoAdvance = true
+            TerminalToolbox.shortcutHideMillis = 0
+            prompts.cancel()
+            withContext(Dispatchers.Main) { service.close(session.id) }
+        }
+        Unit
+    }
 }

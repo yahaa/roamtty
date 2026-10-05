@@ -132,6 +132,16 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             toolboxAwake = false
         }
     }
+    // The shortcut popup stays open across key presses; it closes on an outside tap or after
+    // a quiet spell, restarted by every key.
+    var shortcutTouches by remember { mutableIntStateOf(0) }
+    LaunchedEffect(shortcutMenu, shortcutTouches) {
+        val hideAfter = TerminalToolbox.shortcutHideMillis
+        if (shortcutMenu && hideAfter > 0) {
+            delay(hideAfter)
+            shortcutMenu = false
+        }
+    }
     // Observe the first press without consuming it: the same tap still reaches the terminal,
     // including its keyboard, selection and scrolling gestures. Pinned controls stay visible.
     val workspaceTouch = Modifier.pointerInput(dockAvailable, floatingDock) {
@@ -303,9 +313,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     FlowRow(Modifier.widthIn(max = 264.dp).padding(horizontal = 10.dp, vertical = 2.dp), maxItemsInEachRow = 4,
                         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         InputControlButton("Esc", keycap = true, description = tr("发送 Esc"), tag = "terminal-escape", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_ESCAPE) })
+                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_ESCAPE) })
                         InputControlButton("Tab", keycap = true, description = tr("发送 Tab"), tag = "terminal-tab", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_TAB) })
+                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_TAB) })
                         InputControlButton("Ctrl", keycap = true, description = tr("Ctrl，作用于下一次键盘字符"), tag = "terminal-control",
                             enabled = state.phase == Phase.CONNECTED, selected = ctrlArmed, onClick = {
                                 shortcutMenu = false
@@ -318,18 +328,19 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             })
                         InputControlButton("Shift", keycap = true, description = tr("Shift，与方向键组合发送；也可作用于下一次键盘字符"), tag = "terminal-shift",
                             enabled = state.phase == Phase.CONNECTED, selected = shiftArmed, onClick = {
+                                shortcutTouches++
                                 ctrlArmed = false
                                 shiftArmed = !shiftArmed
                                 if (shiftArmed) terminal?.requestFocus()
                             })
                         InputControlButton("←", keycap = true, description = tr("光标左移"), tag = "terminal-left", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) })
+                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) })
                         InputControlButton("→", keycap = true, description = tr("光标右移"), tag = "terminal-right", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) })
+                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) })
                         InputControlButton("↑", keycap = true, description = tr("发送上方向键"), tag = "terminal-up", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_UP) })
+                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_UP) })
                         InputControlButton("↓", keycap = true, description = tr("发送下方向键"), tag = "terminal-down", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutMenu = false; terminalKey(KeyEvent.KEYCODE_DPAD_DOWN) })
+                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_DOWN) })
                     }
                 }
             }
@@ -467,6 +478,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
 /** Idle timeout of the collapsed toolbox button; 0 keeps it visible (instrumentation tests). */
 internal object TerminalToolbox {
     @Volatile var autoHideMillis = 5_000L
+    /** Idle timeout of the open shortcut popup; 0 keeps it open until dismissed. */
+    @Volatile var shortcutHideMillis = 5_000L
 }
 
 /** The colour the terminal renderer fills its canvas with, so the status bar area matches it. */
