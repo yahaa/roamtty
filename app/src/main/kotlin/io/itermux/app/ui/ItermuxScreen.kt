@@ -379,6 +379,8 @@ fun ItermuxScreen(
                                 onLaunchAgent = { launch ->
                                     connect(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host,
                                         title = launch.title, startupCommand = launch.commandLine)
+                                }, onOpenTerminal = { directory ->
+                                    launchOn(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host, directory, null)
                                 })
                         }
                     } else {
