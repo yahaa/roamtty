@@ -15,7 +15,9 @@ internal data class ConnectRequest(
     /** After connect succeeds, open the remote file browser instead of the terminal. */
     val openFilesAfterConnect: Boolean = false,
     /** Credentials are for the plugin installer, not a terminal. */
-    val plugins: Boolean = false
+    val plugins: Boolean = false,
+    /** Typed into the new terminal once it connects, e.g. an AI coding agent started from the file browser. */
+    val startupCommand: String? = null
 )
 
 internal fun authLabel(auth: String) = when (auth) {

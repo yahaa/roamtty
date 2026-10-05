@@ -147,6 +147,7 @@ fun ItermuxScreen(
                     bound.open(request.host, request.mode, credentials, preferMosh = request.host.prefersMosh && !request.openFilesAfterConnect)
                 }
                 if (request.title.isNotBlank()) session.rename(request.title)
+                request.startupCommand?.let(session::runWhenConnected)
                 selected = session.id
                 page = if (request.openFilesAfterConnect) "files" else "terminal"
             } catch (e: Exception) {
@@ -157,8 +158,9 @@ fun ItermuxScreen(
             }
         }
     }
-    fun connect(host: Host, mode: SessionMode = host.newSessionMode, title: String = "", reuseSessionId: String? = null, openFilesAfterConnect: Boolean = false) {
-        val request = ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect)
+    fun connect(host: Host, mode: SessionMode = host.newSessionMode, title: String = "", reuseSessionId: String? = null,
+        openFilesAfterConnect: Boolean = false, startupCommand: String? = null) {
+        val request = ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect, startupCommand = startupCommand)
         if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null)) connectRequest = request
         else start(request)
     }
@@ -346,7 +348,12 @@ fun ItermuxScreen(
                     val filesSession = sessions.find { it.id == selected }
                     if (filesSession != null) {
                         key(filesSession) {
-                            RemoteFileBrowserPage(filesSession, onBack = { page = "hosts" }, Modifier.weight(1f))
+                            RemoteFileBrowserPage(filesSession, onBack = { page = "hosts" }, Modifier.weight(1f),
+                                // A new terminal session (tmux when the host has it) so the agent outlives the browser.
+                                onLaunchAgent = { launch ->
+                                    connect(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host,
+                                        title = launch.title, startupCommand = launch.commandLine)
+                                })
                         }
                     } else {
                         EmptyState(tr("会话不存在"), tr("连接已关闭，请从主机列表重新打开文件。"), Modifier.fillMaxSize(),
