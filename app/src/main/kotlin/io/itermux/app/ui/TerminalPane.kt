@@ -373,8 +373,13 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     // The workspace extends under the transparent status bar in the terminal's own background
     // colour (including remote OSC 11 changes). In portrait the text runs under the bar too, faded
     // by a scrim so the clock and icons stay legible; controls and notices stay below the bar.
+    // The keyboard inset jumps to its final height instead of following the slide animation:
+    // every intermediate height would reflow the emulator and send the remote a resize, which
+    // made opening and closing the keyboard stutter. The background still fills the area the
+    // keyboard slides over.
     BoxWithConstraints(modifier.fillMaxWidth().testTag("terminal-workspace")
         .drawBehind { drawRect(terminalBackground(session, outputRevision.value)) }
+        .windowInsetsPadding(WindowInsets.imeAnimationTarget)
         .onGloballyPositioned { workspaceOrigin = it.positionInRoot() }.then(workspaceTouch)) {
         val workspaceHeight = maxHeight
         val safeDockHeight = with(LocalDensity.current) {
