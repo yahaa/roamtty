@@ -22,7 +22,7 @@ import org.junit.runner.RunWith
 class ToolboxPetTest {
     @get:Rule val compose = createComposeRule()
 
-    // Both themes compose; the light pet keeps the old 48dp button target and still opens the dock.
+    // Both themes compose; the pet keeps the old 48dp button target and still opens the dock.
     @Test fun petKeepsAFullTouchTargetAndOpensTheDock() {
         var clicks = 0
         compose.setContent {
