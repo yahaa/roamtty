@@ -155,7 +155,13 @@ class TerminalConnection(
         parser.resize(cols, lines, cellWidthPixels, cellHeightPixels)
         ssh.resize(cols, lines, cols * cellWidthPixels, lines * cellHeightPixels)
     }
+    private val slashInput = SlashCommandInput()
+    private val slashCommand = MutableStateFlow(0)
+    /** Non-zero while the line being typed starts with `/`, numbering each such line. */
+    val slashCommandLine = slashCommand.asStateFlow()
     override fun write(data: ByteArray, offset: Int, count: Int) {
+        slashInput.feed(data, offset, count)
+        slashCommand.value = slashInput.line
         if (!ssh.write(data.copyOfRange(offset, offset + count))) inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
     }
     override fun writeCodePoint(prependEscape: Boolean, codePoint: Int) {

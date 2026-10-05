@@ -86,6 +86,10 @@ class CursorEnterKeyTest {
             assertEquals("missing $marker", true, found)
         }
         fun enterKeyShown() = compose.onAllNodesWithTag("cursor-enter").fetchSemanticsNodes().isNotEmpty()
+        fun arrowKeysShown() = compose.onAllNodesWithTag("cursor-up").fetchSemanticsNodes().isNotEmpty()
+        fun type(text: String) = compose.activityRule.scenario.onActivity { activity ->
+            requireNotNull(terminal(activity.window.decorView)).onCreateInputConnection(EditorInfo()).commitText(text, 1)
+        }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             outputContains("KEY_ECHO_READY")
@@ -96,11 +100,10 @@ class CursorEnterKeyTest {
             assertTrue("hidden until input", !enterKeyShown())
 
             // It stays hidden while typing and appears on the cursor row once input pauses.
-            compose.activityRule.scenario.onActivity { activity ->
-                requireNotNull(terminal(activity.window.decorView)).onCreateInputConnection(EditorInfo()).commitText("a", 1)
-            }
+            type("a")
             compose.waitForIdle()
             assertTrue("hidden while typing", !enterKeyShown())
+            assertTrue("no arrows for plain text", !arrowKeysShown())
             outputContains("KEY_61")
             compose.waitUntil(3_000) { enterKeyShown() }
             val view = requireNotNull(terminal(compose.activity.window.decorView))
@@ -123,6 +126,44 @@ class CursorEnterKeyTest {
             compose.waitUntil(5_000) { !enterKeyShown() }
             compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
             compose.waitUntil(3_000) { enterKeyShown() }
+
+            // A leading slash brings Up/Down keys stacked on the cursor row, in the Enter key's place.
+            type("/")
+            outputContains("KEY_2F")
+            compose.waitUntil(3_000) { arrowKeysShown() }
+            assertTrue("no enter key beside the arrows", !enterKeyShown())
+            val rowMid = withContext(Dispatchers.Main) { viewTop + view.cursorRowTop + view.lineHeight / 2f }
+            val up = compose.onNodeWithTag("cursor-up").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            val down = compose.onNodeWithTag("cursor-down").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            assertTrue("up above the cursor row's middle", abs(up.bottom - rowMid) <= 2f)
+            assertTrue("down below it", abs(down.top - rowMid) <= 2f)
+            assertTrue("stacked at the right end", abs(up.center.x - down.center.x) <= 1f && down.right >= view.width * 0.9f)
+            compose.onNodeWithTag("cursor-up").performTouchInput { click() }
+            outputContains("KEY_41")
+            compose.onNodeWithTag("cursor-down").performTouchInput { click() }
+            outputContains("KEY_42")
+            compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+            compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
+                File(context.getExternalFilesDir(null), "cursor-arrows.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            // The arrows outlast the Enter key's quiet spell.
+            delay(TerminalToolbox.enterKeyHideMillis + TerminalToolbox.enterKeyTypingPauseMillis + 500)
+            assertTrue("arrows stay", arrowKeysShown() && !enterKeyShown())
+            // A double tap dismisses them.
+            compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
+            compose.waitUntil(3_000) { !arrowKeysShown() }
+            outputContains("KEY_09")
+
+            // The Enter key returns in their place; Enter ends the line and the next `/` brings them back.
+            compose.waitUntil(3_000) { enterKeyShown() }
+            compose.onNodeWithTag("cursor-enter").performTouchInput { click() }
+            type("/")
+            compose.waitUntil(3_000) { arrowKeysShown() }
+            // The IME Enter (AOSP keyboards commit "\n") ends the line too.
+            type("\n")
+            compose.waitUntil(3_000) { !arrowKeysShown() }
         } finally {
             compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             withContext(Dispatchers.Main) { service.close(session.id) }
