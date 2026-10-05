@@ -59,6 +59,7 @@ class JschSession(
     private val interactionJob = SupervisorJob()
     @Volatile private var session: Session? = null
     @Volatile private var channel: com.jcraft.jsch.Channel? = null
+    @Volatile private var moshClient: MoshClient? = null
     @Volatile private var dimensions = intArrayOf(80, 24, 0, 0)
     @Volatile private var trustFailure: Exception? = null
     private val tmuxName = Tmux.sanitizeSessionName(remoteSessionName)
@@ -340,6 +341,7 @@ class JschSession(
         val connect = startMoshServer(ssh) ?: return null
         val address = remoteAddress ?: return null
         val client = MoshClient(address, connect.port, connect.key, elapsedMillis)
+        moshClient = client
         val end = try {
             coroutineScope {
                 val systemProbe = launchProbe(ssh)
@@ -354,6 +356,7 @@ class JschSession(
                     client.run(queues.currentInput(), queues.currentSizes(), dimensions,
                         firstContactTimeoutMs = 8_000,
                         silenceLimitMs = moshSilenceLimitMs(target.mode),
+                        stallLimitMs = moshStallLimitMs(target.mode),
                         isStopped = stopped::get,
                         onConnected = {
                             mutableTransport.value = TerminalTransport.MOSH
@@ -364,7 +367,7 @@ class JschSession(
                         onOutput = onOutput)
                 } finally { systemProbe.cancel(); keeper.cancel() }
             }
-        } finally { queues.setAccepting(false) }
+        } finally { queues.setAccepting(false); moshClient = null }
         return when (end) {
             MoshClient.End.NO_CONTACT -> null
             MoshClient.End.STOPPED -> AttemptOutcome.STOPPED
@@ -635,6 +638,8 @@ class JschSession(
      * attempt ends now — tmux reattaches, a plain shell reports the drop.
      */
     suspend fun verifyAlive(timeoutMs: Int = 10_000) {
+        // mosh is UDP: its client asks the server for a reply and reattaches tmux if none comes.
+        if (mutableTransport.value == TerminalTransport.MOSH) { moshClient?.probe(); return }
         if (mutableTransport.value != TerminalTransport.SSH || state.value.phase != Phase.CONNECTED) return
         val ssh = session ?: return
         if (!probing.compareAndSet(false, true)) return
@@ -681,6 +686,14 @@ class JschSession(
          */
         internal fun moshSilenceLimitMs(mode: SessionMode): Long =
             (moshServerTimeoutSeconds(mode) - 60) * 1000
+
+        /**
+         * tmux keeps the work, so a mosh path that stops answering a wake probe or typed input is
+         * reattached over a fresh login after a few seconds. A plain shell lives only in its
+         * mosh-server, so it keeps waiting for the network instead.
+         */
+        internal fun moshStallLimitMs(mode: SessionMode): Long? =
+            if (mode == SessionMode.TMUX) 10_000L else null
 
         @Synchronized private fun configureCrypto() {
             // Android ships a reduced BC provider. Use the full library for modern SSH algorithms.

@@ -56,6 +56,13 @@ internal class MoshClient(
     private var lastHop = 0L
     private var savedTimestamp = -1
     private var savedTimestampAt = 0L
+    /** When the server's newest state was last accepted; packets that never apply mean a desync. */
+    private var lastAccepted = 0L
+    /** Since when user input waits for an ack, or -1. */
+    private var inputPendingSince = -1L
+    /** When a requested liveness probe went out, or -1 once the server answered it. */
+    private var probeSince = -1L
+    @Volatile private var probeRequested = false
     private var srtt = 1000.0
     private var rttvar = 500.0
     private var heardAny = false
@@ -66,12 +73,24 @@ internal class MoshClient(
         class Size(val columns: Int, val rows: Int) : Local()
     }
 
+    /**
+     * Asks the server for a reply now (after the app returns from sleep or the network changes).
+     * The reply proves the path still works; with a stall limit, silence ends the session.
+     */
+    fun probe() { probeRequested = true }
+
     suspend fun run(
         input: ReceiveChannel<ByteArray>,
         sizes: ReceiveChannel<IntArray>,
         initialSize: IntArray,
         firstContactTimeoutMs: Long,
         silenceLimitMs: Long,
+        /**
+         * When set, give up after this long without a reply to a probe or to typed input instead of
+         * waiting out [silenceLimitMs]: a tmux session reattaches in seconds, while a dead path would
+         * otherwise leave a frozen screen that silently drops every keystroke.
+         */
+        stallLimitMs: Long? = null,
         isStopped: () -> Boolean,
         onConnected: () -> Unit,
         onOutput: suspend (ByteArray) -> Unit,
@@ -90,6 +109,17 @@ internal class MoshClient(
                 val now = clock()
                 if (!heardAny && now - start > firstContactTimeoutMs) return@coroutineScope End.NO_CONTACT
                 if (heardAny && now - lastHeard > silenceLimitMs) return@coroutineScope End.TIMED_OUT
+                if (probeRequested) {
+                    probeRequested = false
+                    if (heardAny) {
+                        // A socket from before the sleep may sit on a stale NAT/VPN mapping: hop at once.
+                        if (probeSince < 0) probeSince = now
+                        hopPort(now)
+                        send(now)
+                        continue
+                    }
+                }
+                if (stallLimitMs != null && heardAny && stalled(now, stallLimitMs)) return@coroutineScope End.TIMED_OUT
                 // Like mosh, hop to a fresh source port when the server goes quiet (NAT rebinding, roaming).
                 if (heardAny && now - lastHeard > PORT_HOP_MS && now - lastHop > PORT_HOP_MS) hopPort(now)
                 val due = nextSendAt(now)
@@ -125,7 +155,18 @@ internal class MoshClient(
         }
     }
 
-    private fun push(event: Mosh.UserEvent) { events += event.encode() }
+    private fun push(event: Mosh.UserEvent) {
+        events += event.encode()
+        if (inputPendingSince < 0) inputPendingSince = clock()
+    }
+
+    private fun stalled(now: Long, limit: Long): Boolean {
+        // Waiting on a reply that never came: a probe or typed input, and nothing heard since.
+        val waiting = listOf(probeSince, inputPendingSince).filter { it >= 0 }.minOrNull()
+        if (waiting != null && now - waiting > limit && now - lastHeard > limit) return true
+        // Packets keep arriving yet none applies: the two sides no longer agree on the screen state.
+        return lastHeard - lastAccepted > DESYNC_LIMIT_MS
+    }
 
     private fun nextSendAt(now: Long): Long = when {
         totalEvents > lastSentCount -> now
@@ -184,11 +225,14 @@ internal class MoshClient(
             }
         }
         lastHeard = now
-        if (!heardAny) { heardAny = true; onConnected() }
+        probeSince = -1L
+        if (!heardAny) { heardAny = true; lastAccepted = now; onConnected() }
         val assembled = assembly.add(plain.copyOfRange(4, plain.size)) ?: return false
         val instruction = Mosh.Instruction.decode(Mosh.decompress(assembled))
         if (instruction.protocolVersion != Mosh.PROTOCOL_VERSION) throw IOException("mosh protocol version mismatch")
         acknowledge(instruction.ackNum)
+        // A resend of the state this client holds still shows both sides agree.
+        if (instruction.newNum == remoteNum) lastAccepted = now
         if (instruction.newNum == remoteNum || instruction.oldNum != remoteNum) {
             // Duplicate, or a diff from a base this client no longer holds: re-ack the current state.
             scheduleAck(now)
@@ -199,6 +243,7 @@ internal class MoshClient(
             if (event is Mosh.HostEvent.Bytes && event.bytes.isNotEmpty()) onOutput(event.bytes)
         }
         remoteNum = instruction.newNum
+        lastAccepted = now
         scheduleAck(now)
         return remoteNum == Mosh.SHUTDOWN_NUM
     }
@@ -221,6 +266,7 @@ internal class MoshClient(
             events.subList(0, drop).apply { forEach { it.fill(0) }; clear() }
             eventBase = count
         }
+        if (ackedCount >= totalEvents) inputPendingSince = -1L
     }
 
     private fun hopPort(now: Long) {
@@ -253,5 +299,7 @@ internal class MoshClient(
         private const val HEARTBEAT_MS = 3000L
         private const val ACK_DELAY_MS = 20L
         private const val PORT_HOP_MS = 10_000L
+        /** mosh-server sends a new state at least every 3 s, even when the screen is idle. */
+        private const val DESYNC_LIMIT_MS = 30_000L
     }
 }
