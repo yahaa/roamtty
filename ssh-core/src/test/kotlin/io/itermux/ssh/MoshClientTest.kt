@@ -144,8 +144,29 @@ class MoshClientTest {
             val (_, end) = runClient(server, clock, connected)
             withTimeout(5_000) { connected.await() }
             delay(300)
-            clock.addAndGet(31_000)
-            assertEquals(MoshClient.End.TIMED_OUT, withTimeout(10_000) { end.await() })
+            // Heartbeats keep getting answered, yet none of the answers applies.
+            withTimeout(10_000) {
+                while (end.isActive) { clock.addAndGet(3_000); delay(100) }
+            }
+            assertEquals(MoshClient.End.TIMED_OUT, end.await())
+        }
+    }
+
+    // Logged on the phone: the app was frozen 42 s, and the first packet after the thaw was taken
+    // for a desync. Only packets that keep failing to apply for a while mean one.
+    @Test fun freezeThenFirstPacketIsNotADesync() = runBlocking {
+        DatagramSocket(0, InetAddress.getLoopbackAddress()).use { server ->
+            answerEach(server)
+            val clock = AtomicLong(1_000)
+            val connected = CompletableDeferred<Unit>()
+            val (client, end) = runClient(server, clock, connected)
+            withTimeout(5_000) { connected.await() }
+            delay(300)
+            clock.addAndGet(42_000)
+            client.probe()
+            delay(1_000)
+            assertTrue("a thawed client that hears the server again keeps the session", end.isActive)
+            end.cancel()
         }
     }
 

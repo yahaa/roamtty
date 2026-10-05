@@ -60,6 +60,8 @@ internal class MoshClient(
     private var savedTimestampAt = 0L
     /** When the server's newest state was last accepted; packets that never apply mean a desync. */
     private var lastAccepted = 0L
+    /** First packet heard since the last applied state, or -1: a frozen app hears old packets first. */
+    private var unappliedSince = -1L
     /** Since when user input waits for an ack, or -1. */
     private var inputPendingSince = -1L
     /** When a requested liveness probe went out, or -1 once the server answered it. */
@@ -174,7 +176,7 @@ internal class MoshClient(
         val waiting = listOf(probeSince, inputPendingSince).filter { it >= 0 }.minOrNull()
         if (waiting != null && now - waiting > limit && now - lastHeard > limit) return true
         // Packets keep arriving yet none applies: the two sides no longer agree on the screen state.
-        return lastHeard - lastAccepted > DESYNC_LIMIT_MS
+        return unappliedSince >= 0 && lastHeard - unappliedSince > DESYNC_LIMIT_MS
     }
 
     private fun nextSendAt(now: Long): Long = when {
@@ -233,6 +235,7 @@ internal class MoshClient(
                 else { rttvar = 0.75 * rttvar + 0.25 * kotlin.math.abs(srtt - rtt); srtt = 0.875 * srtt + 0.125 * rtt }
             }
         }
+        if (unappliedSince < 0) unappliedSince = now
         if (probeSince >= 0) log("mosh probe answered after ${now - probeSince} ms")
         if (now - lastHeard > PORT_HOP_MS && heardAny) log("mosh heard again after ${now - lastHeard} ms")
         lastHeard = now
@@ -243,7 +246,7 @@ internal class MoshClient(
         if (instruction.protocolVersion != Mosh.PROTOCOL_VERSION) throw IOException("mosh protocol version mismatch")
         acknowledge(instruction.ackNum)
         // A resend of the state this client holds still shows both sides agree.
-        if (instruction.newNum == remoteNum) lastAccepted = now
+        if (instruction.newNum == remoteNum) { lastAccepted = now; unappliedSince = -1L }
         if (instruction.newNum == remoteNum || instruction.oldNum != remoteNum) {
             // Duplicate, or a diff from a base this client no longer holds: re-ack the current state.
             scheduleAck(now)
@@ -255,6 +258,7 @@ internal class MoshClient(
         }
         remoteNum = instruction.newNum
         lastAccepted = now
+        unappliedSince = -1L
         scheduleAck(now)
         return remoteNum == Mosh.SHUTDOWN_NUM
     }

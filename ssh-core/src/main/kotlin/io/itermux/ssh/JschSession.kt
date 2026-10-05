@@ -353,7 +353,9 @@ class JschSession(
             coroutineScope {
                 val systemProbe = launchProbe(ssh)
                 // Keep files and tmux history usable: quietly log back in after the SSH side drops.
-                val keeper = launch {
+                // Detached: a login stuck on a dead network must not hold the terminal on a frozen
+                // screen after mosh gives up; JSch's connect ignores cancellation.
+                val keeper = CoroutineScope(Dispatchers.IO).launch {
                     while (true) {
                         delay(20_000)
                         if (mutableTransport.value == TerminalTransport.MOSH) auxiliarySession(interactive = false)
@@ -505,6 +507,7 @@ class JschSession(
         connectedSession()?.let { return it }
         if (mutableTransport.value != TerminalTransport.MOSH || stopped.get() || state.value.phase != Phase.CONNECTED) return null
         if (!interactive && target.auth == AuthMethod.INTERACTIVE) return null
+        val owner = moshClient ?: return null
         return auxiliaryLock.withLock {
             connectedSession()?.let { return@withLock it }
             withContext(Dispatchers.IO) {
@@ -512,7 +515,8 @@ class JschSession(
                 try {
                     val ssh = newSession(jsch, auxiliary = true)
                     ssh.connect(connectTimeoutMs)
-                    if (stopped.get()) { ssh.disconnect(); return@withContext null }
+                    // A login that outlived its mosh link must not replace the next attempt's session.
+                    if (stopped.get() || moshClient !== owner) { ssh.disconnect(); return@withContext null }
                     val old = session
                     session = ssh
                     old?.disconnect()
