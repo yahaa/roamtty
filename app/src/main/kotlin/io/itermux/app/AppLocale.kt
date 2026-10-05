@@ -39,6 +39,7 @@ private object EnglishText {
         "安装插件" to "Install plugins",
         "正在检测已安装的插件…" to "Checking installed plugins…",
         "正在连接主机…" to "Connecting to host…",
+        "正在重连…" to "Reconnecting…",
         "重新连接" to "Reconnect",
         "无法检测插件。目前支持 Linux、macOS、BSD，以及使用 MSYS2 或 Cygwin shell 的 Windows 主机。" to "Plugins can't be detected. Linux, macOS, BSD and Windows hosts with an MSYS2 or Cygwin shell are supported.",
         "Windows 的 cmd 和 PowerShell 无法运行 tmux 与 mosh。请把 OpenSSH 的默认 shell 设为 MSYS2 或 Cygwin 的 bash 后重试，或在 WSL 中开启 SSH 并单独添加为主机。" to "tmux and mosh can't run in Windows cmd or PowerShell. Set OpenSSH's default shell to MSYS2 or Cygwin bash and try again, or run SSH inside WSL and add it as a separate host.",

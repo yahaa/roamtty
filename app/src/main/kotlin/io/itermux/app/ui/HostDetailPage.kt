@@ -253,7 +253,11 @@ private fun MonitorSection(monitor: HostMonitor, onLogin: () -> Unit) {
                 connection.active -> {
                     CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
                     Spacer(Modifier.width(6.dp))
-                    Text(if (connection.phase == Phase.CONNECTED) tr("正在读取…") else tr("正在连接主机…"),
+                    Text(when {
+                        connection.phase == Phase.CONNECTED -> tr("正在读取…")
+                        connection.message == MONITOR_RECONNECTING -> tr("正在重连…")
+                        else -> tr("正在连接主机…")
+                    },
                         style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                 }
             }
@@ -262,8 +266,16 @@ private fun MonitorSection(monitor: HostMonitor, onLogin: () -> Unit) {
             GroupedSection {
                 Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text(connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
-                        style = MaterialTheme.typography.bodyMedium, color = colors.error, modifier = Modifier.weight(1f))
+                    Column(Modifier.weight(1f)) {
+                        Text(connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
+                            style = MaterialTheme.typography.bodyMedium, color = colors.error)
+                        connection.detail?.let {
+                            SelectionContainer {
+                                Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                                    color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp).testTag("host-monitor-detail"))
+                            }
+                        }
+                    }
                     TextButton(onClick = monitor::start, modifier = Modifier.testTag("host-monitor-retry")) { Text(tr("重新连接")) }
                     if (connection.phase == Phase.AUTH_FAILED || connection.phase == Phase.FAILED)
                         TextButton(onClick = onLogin) { Text(tr("输入密码")) }
