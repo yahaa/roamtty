@@ -99,11 +99,16 @@ class CursorEnterKeyTest {
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitForIdle()
             assertTrue("hidden until input", !enterKeyShown())
+            // Esc holds its place on the cursor row meanwhile.
+            compose.waitUntil(3_000) { escapeKeyShown() }
+            compose.onNodeWithTag("cursor-escape").performTouchInput { click() }
+            outputContains("KEY_1B")
 
             // It stays hidden while typing and appears on the cursor row once input pauses.
             type("a")
             compose.waitForIdle()
             assertTrue("hidden while typing", !enterKeyShown())
+            assertTrue("esc stays while typing", escapeKeyShown())
             assertTrue("no arrows for plain text", !arrowKeysShown())
             outputContains("KEY_61")
             compose.waitUntil(3_000) { enterKeyShown() }
@@ -113,12 +118,7 @@ class CursorEnterKeyTest {
             val key = compose.onNodeWithTag("cursor-enter").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
             assertTrue("key centre ${key.center.y} on cursor row $rowCentre", abs(key.center.y - rowCentre) <= 2f)
             assertTrue("key at the right end", key.right >= view.width * 0.9f)
-            // Esc shows with it at the left end of the same row.
-            val escape = compose.onNodeWithTag("cursor-escape").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
-            assertTrue("esc centre ${escape.center.y} on cursor row $rowCentre", abs(escape.center.y - rowCentre) <= 2f)
-            assertTrue("esc at the left end", escape.left <= view.width * 0.1f)
-            compose.onNodeWithTag("cursor-escape").performTouchInput { click() }
-            outputContains("KEY_1B")
+            compose.waitUntil(3_000) { !escapeKeyShown() }
             compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
                 File(context.getExternalFilesDir(null), "cursor-enter.png").outputStream().use {
@@ -131,7 +131,12 @@ class CursorEnterKeyTest {
 
             // After a quiet spell it hides; a double tap brings it back.
             compose.waitUntil(5_000) { !enterKeyShown() }
-            assertTrue("esc hides with it", !escapeKeyShown())
+            // Esc takes the same spot back.
+            compose.waitUntil(3_000) { escapeKeyShown() }
+            val escape = compose.onNodeWithTag("cursor-escape").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            val escRow = withContext(Dispatchers.Main) { viewTop + view.cursorRowTop + view.lineHeight / 2f }
+            assertTrue("esc on the cursor row", abs(escape.center.y - escRow) <= 2f)
+            assertTrue("esc in the enter key's place", abs(escape.center.x - key.center.x) <= 1f)
             compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
             compose.waitUntil(3_000) { enterKeyShown() }
 

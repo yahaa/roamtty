@@ -458,14 +458,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         }
                     }
                 }
-                // Esc mirrors the Enter key at the left end of the cursor row: same timing, same look.
-                androidx.compose.animation.AnimatedVisibility(enterKeyAwake && cursorKeysAllowed && !arrowKeysShown,
-                    modifier = Modifier.align(Alignment.TopStart), enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
+                // Esc holds the Enter key's place whenever Enter is hidden.
+                androidx.compose.animation.AnimatedVisibility(!enterKeyAwake && cursorKeysAllowed && !arrowKeysShown,
+                    modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(120))) {
                     terminal?.let { view ->
                         CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight) {
                             CursorKey(null, tr("发送 Esc"), "cursor-escape", label = "Esc") {
-                                enterKeyTyping = false
-                                enterKeyTouches++
                                 ctrlArmed = false
                                 shiftArmed = false
                                 view.scrollToBottom()
