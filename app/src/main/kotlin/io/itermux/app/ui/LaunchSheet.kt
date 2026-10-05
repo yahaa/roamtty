@@ -6,17 +6,22 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -82,7 +87,13 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
         catch (_: Exception) { failed = true }
         finally { loading = false }
     }
-    val shown = listing?.takeIf { it.first == current }?.second
+    // While the next folder loads, the last one stays on screen (dimmed) instead of flashing a spinner.
+    val stale = listing?.first != current
+    val shown = listing?.second
+    var filter by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(current) { filter = null }
+    val segments = remember(current) { StartDirectory.segments(current) }
+    val parent = segments.getOrNull(segments.size - 2)?.second ?: shown?.takeIf { !stale }?.parent
 
     fun launch() {
         val dir = StartDirectory.normalize(current)
@@ -93,25 +104,33 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
 
     val colors = MaterialTheme.colorScheme
     AppSheet(onDismiss) {
-        SheetHeader(if (forAgent) tr("用 AI 助手打开") else tr("打开终端"), "${host.name} · ${host.username}@${host.address}", onDismiss)
+        SheetHeader(if (forAgent) tr("用 AI 助手打开") else tr("打开终端"), null, onDismiss)
         Column(Modifier.weight(1f).testTag("launch-sheet")) {
-            CurrentPath(current) { current = StartDirectory.HOME }
             if (recent.isNotEmpty()) RecentFolders(recent, current, onPick = { current = it }, onForget = { dir ->
                 recent = recent - dir
                 preferences.saveRecentStartDirectories(host.id, recent)
             })
             Surface(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Spacing.Page), shape = MaterialTheme.shapes.medium,
                 color = colors.groupedContainer) {
-                when {
-                    browser == null -> CenterNote(tr("输入密码后即可浏览文件夹"), tr("输入密码")) { askPassword = true }
-                    connection != null && !connection.active && !ready -> CenterNote(
-                        connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
-                        tr("重新连接")) { browser.start() }
-                    failed -> CenterNote(tr("无法打开这个文件夹"), tr("回到主目录")) { current = StartDirectory.HOME }
-                    shown == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                Column {
+                    PathBar(segments, parent, canFilter = filter != null || (shown?.folders?.size ?: 0) > FILTER_THRESHOLD,
+                        filtering = filter != null, onNavigate = { current = it },
+                        onFilter = { filter = if (filter == null) "" else null })
+                    filter?.let { text -> FolderFilter(text, { filter = it }) { filter = null } }
+                    GroupedDivider()
+                    Box(Modifier.weight(1f)) {
+                        when {
+                            browser == null -> CenterNote(tr("输入密码后即可浏览文件夹"), tr("输入密码")) { askPassword = true }
+                            connection != null && !connection.active && !ready -> CenterNote(
+                                connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
+                                tr("重新连接")) { browser.start() }
+                            failed -> CenterNote(tr("无法打开这个文件夹"), tr("回到主目录")) { current = StartDirectory.HOME }
+                            shown == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            }
+                            else -> FolderList(shown, filter.orEmpty(), stale || loading) { current = it }
+                        }
                     }
-                    else -> FolderList(shown, loading) { current = it }
                 }
             }
             if (forAgent) AgentChooser(agent, mode, { agent = it }, { mode = it })
@@ -120,7 +139,8 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
             Button(onClick = ::launch, enabled = !failed,
                 colors = ButtonDefaults.buttonColors(containerColor = buttonColor,
                     contentColor = if (yolo) colors.onError else colors.onPrimary),
-                modifier = Modifier.fillMaxWidth().padding(Spacing.Page).heightIn(min = 52.dp).testTag("launch-open")) {
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row)
+                    .heightIn(min = 48.dp).testTag("launch-open")) {
                 if (forAgent) {
                     Icon(painterResource(R.drawable.ic_agent), contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(Spacing.Tight))
@@ -147,24 +167,46 @@ private fun folderName(directory: String) = if (StartDirectory.isHome(directory)
     else directory.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }
 
 /**
- * Where the session will start, as one line: the button below already names the folder, so this only adds the full
- * path. Away from home, the house jumps back in one tap.
+ * Where the session will start, as tappable crumbs (`~ › work › app`), so any folder above is one tap away; the arrow
+ * steps up past home. The magnifier filters long folder lists.
  */
 @Composable
-private fun CurrentPath(directory: String, onHome: () -> Unit) {
+private fun PathBar(segments: List<Pair<String, String>>, parent: String?, canFilter: Boolean, filtering: Boolean,
+    onNavigate: (String) -> Unit, onFilter: () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(bottom = Spacing.Tight).heightIn(min = 40.dp)
-        .clip(MaterialTheme.shapes.small).background(colors.onSurface.copy(alpha = 0.05f))
-        .padding(start = Spacing.Row, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        RemoteFileIcon("", directory = true, size = 18.dp)
-        Spacer(Modifier.width(Spacing.Tight))
-        Text(directory, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.MiddleEllipsis,
-            modifier = Modifier.weight(1f).testTag("launch-path"))
-        if (!StartDirectory.isHome(directory)) IconButton(onClick = onHome, Modifier.size(36.dp).testTag("launch-home")) {
-            Icon(painterResource(R.drawable.ic_hosts), contentDescription = tr("回到主目录"), Modifier.size(18.dp),
-                tint = colors.primary)
+    val scroll = rememberScrollState()
+    LaunchedEffect(segments, scroll.maxValue) { scroll.animateScrollTo(scroll.maxValue) }
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { parent?.let(onNavigate) }, enabled = parent != null, modifier = Modifier.size(40.dp).testTag("launch-parent")) {
+            Icon(painterResource(R.drawable.ic_arrow_up), contentDescription = tr("上一级"), Modifier.size(20.dp))
+        }
+        Row(Modifier.weight(1f).horizontalScroll(scroll).testTag("launch-path"), verticalAlignment = Alignment.CenterVertically) {
+            segments.forEachIndexed { index, (name, path) ->
+                val last = index == segments.lastIndex
+                if (index > 0) Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null,
+                    Modifier.size(14.dp), tint = colors.outline)
+                Text(name, maxLines = 1, softWrap = false,
+                    style = if (last) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+                    color = if (last) colors.onSurface else colors.primary,
+                    modifier = Modifier.clip(MaterialTheme.shapes.extraSmall).clickable(enabled = !last) { onNavigate(path) }
+                        .padding(horizontal = 6.dp, vertical = 10.dp).testTag("launch-crumb-$index"))
+            }
+        }
+        if (canFilter) IconButton(onClick = onFilter, modifier = Modifier.size(40.dp).testTag("launch-filter-toggle")) {
+            Icon(painterResource(R.drawable.ic_search), contentDescription = tr(if (filtering) "关闭筛选" else "筛选当前目录"),
+                Modifier.size(20.dp), tint = if (filtering) colors.primary else colors.onSurfaceVariant)
         }
     }
+}
+
+@Composable
+private fun FolderFilter(value: String, onValueChange: (String) -> Unit, onClose: () -> Unit) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    AppSearchField(value, onValueChange, tr("筛选当前目录"), leadingIcon = R.drawable.ic_filter,
+        trailing = { IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_close), tr("关闭筛选")) } },
+        modifier = Modifier.fillMaxWidth().padding(start = Spacing.Tight, end = Spacing.Tight, bottom = Spacing.Tight)
+            .focusRequester(focus).testTag("launch-filter"))
 }
 
 /** Recently used folders, one tap each; the cross forgets one. */
@@ -184,37 +226,35 @@ private fun RecentFolders(recent: List<String>, current: String, onPick: (String
     }
 }
 
+/** Subfolders of [listing] matching [filter]; [busy] dims them while the next folder loads. */
 @Composable
-private fun FolderList(listing: RemoteFolders, loading: Boolean, onOpen: (String) -> Unit) {
+private fun FolderList(listing: RemoteFolders, filter: String, busy: Boolean, onOpen: (String) -> Unit) {
     val colors = MaterialTheme.colorScheme
-    LazyColumn(Modifier.fillMaxSize().testTag("launch-folders")) {
-        listing.parent?.let { parent ->
-            item(key = "..") {
-                FolderRow(tr("上一级"), R.drawable.ic_arrow_up, "launch-parent") { onOpen(parent) }
-                GroupedDivider(start = 52.dp)
+    val folders = remember(listing, filter) { listing.folders.filter { it.contains(filter.trim(), ignoreCase = true) } }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize().alpha(if (busy) 0.5f else 1f).testTag("launch-folders")) {
+            if (folders.isEmpty()) item(key = "empty") {
+                Text(if (listing.folders.isEmpty()) tr("这里没有子文件夹") else tr("没有匹配的文件夹"),
+                    Modifier.fillMaxWidth().padding(Spacing.Section), style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant)
+            }
+            items(folders, key = { "f:$it" }) { name ->
+                FolderRow(name, enabled = !busy) { onOpen(listing.child(name)) }
+                GroupedDivider(start = 50.dp)
             }
         }
-        if (listing.folders.isEmpty()) item(key = "empty") {
-            Text(tr("这里没有子文件夹"), Modifier.fillMaxWidth().padding(Spacing.Section), style = MaterialTheme.typography.bodyMedium,
-                color = colors.onSurfaceVariant)
-        }
-        items(listing.folders, key = { "f:$it" }) { name ->
-            FolderRow(name, null, "launch-folder-$name") { onOpen(listing.child(name)) }
-            GroupedDivider(start = 52.dp)
-        }
-        if (loading) item(key = "loading") { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
     }
 }
 
 @Composable
-private fun FolderRow(title: String, icon: Int?, tag: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 48.dp)
-        .padding(horizontal = Spacing.Page, vertical = 8.dp).testTag(tag), verticalAlignment = Alignment.CenterVertically) {
-        if (icon != null) Icon(painterResource(icon), contentDescription = null, Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.primary)
-        else RemoteFileIcon(title, directory = true, size = 24.dp)
+private fun FolderRow(name: String, enabled: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).heightIn(min = 44.dp)
+        .padding(horizontal = Spacing.Page, vertical = 6.dp).testTag("launch-folder-$name"),
+        verticalAlignment = Alignment.CenterVertically) {
+        RemoteFileIcon(name, directory = true, size = 22.dp)
         Spacer(Modifier.width(Spacing.Row))
-        Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f))
         Chevron()
     }
@@ -243,8 +283,8 @@ private fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAg
                 .testTag("agent-option-${option.name.lowercase()}"), shape = MaterialTheme.shapes.small,
                 color = if (selected) colors.primary.copy(alpha = 0.08f) else colors.groupedContainer,
                 border = BorderStroke(if (selected) 1.5.dp else 0.5.dp, border)) {
-                Row(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AgentBadge(option, 24.dp)
+                Row(Modifier.heightIn(min = 40.dp).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AgentBadge(option, 20.dp)
                     Spacer(Modifier.width(Spacing.Tight))
                     Text(option.shortLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -264,22 +304,16 @@ private fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAg
             }
         }
     }
-    // One line whatever the mode, so the sheet does not jump while switching.
-    Text(modeHint(mode), Modifier.fillMaxWidth().padding(horizontal = Spacing.Section).padding(top = 6.dp),
-        style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-        color = if (mode == AgentMode.YOLO) colors.error else colors.onSurfaceVariant)
+    // Only YOLO earns a line of warning; the safer modes explain themselves by name.
+    if (mode == AgentMode.YOLO) Text(tr("不经确认直接运行命令、修改或删除文件"),
+        Modifier.fillMaxWidth().padding(horizontal = Spacing.Section).padding(top = 6.dp).testTag("agent-mode-warning"),
+        style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = colors.error)
 }
 
 private fun modeLabel(mode: AgentMode) = when (mode) {
     AgentMode.READ_ONLY -> tr("只读")
     AgentMode.STANDARD -> tr("普通")
     AgentMode.YOLO -> "YOLO"
-}
-
-private fun modeHint(mode: AgentMode) = when (mode) {
-    AgentMode.READ_ONLY -> tr("只查看和分析，不修改文件")
-    AgentMode.STANDARD -> tr("改文件或运行命令前先问你")
-    AgentMode.YOLO -> tr("不经确认直接运行命令、修改或删除文件")
 }
 
 internal fun SharedPreferences.recentStartDirectories(hostId: String): List<String> =
@@ -289,3 +323,4 @@ internal fun SharedPreferences.saveRecentStartDirectories(hostId: String, direct
     edit { putString("$RECENT_KEY:$hostId", directories.joinToString("\n")) }
 
 private const val RECENT_KEY = "startDirectories"
+private const val FILTER_THRESHOLD = 8
