@@ -1,6 +1,7 @@
 package io.itermux.app.ui
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import io.itermux.app.R
 import io.itermux.app.session.AgentLaunch
+import io.itermux.app.session.AgentMode
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.tr
 import io.itermux.app.trf
@@ -44,8 +46,9 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
     val context = LocalContext.current.applicationContext
     val preferences = remember(context) { context.getSharedPreferences("app-settings", Context.MODE_PRIVATE) }
     var agent by remember { mutableStateOf(CodingAgent.from(preferences.getString(AGENT_KEY, null))) }
-    var yolo by remember { mutableStateOf(preferences.getBoolean(YOLO_KEY, false)) }
-    val launch = AgentLaunch(agent, directory, yolo)
+    var mode by remember { mutableStateOf(preferences.agentMode()) }
+    val yolo = mode == AgentMode.YOLO
+    val launch = AgentLaunch(agent, directory, mode)
     val colors = MaterialTheme.colorScheme
     AppSheet(onDismiss, fillHeight = false) {
         Column(Modifier.verticalScroll(rememberScrollState()).testTag("agent-launch-sheet")) {
@@ -64,11 +67,16 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
             SectionCaption(tr("权限"))
             GroupedSection(Modifier.padding(horizontal = Spacing.Page)) {
                 Column(Modifier.selectableGroup()) {
+                    PermissionRow(tr("只读"), tr("只能查看和分析，不会修改文件或执行改动"),
+                        R.drawable.ic_preview, selected = mode == AgentMode.READ_ONLY, danger = false,
+                        tag = "agent-permission-read-only") { mode = AgentMode.READ_ONLY }
+                    GroupedDivider(start = 56.dp)
                     PermissionRow(tr("普通权限"), tr("修改文件或执行命令前先征求你的确认"),
-                        R.drawable.ic_check, selected = !yolo, danger = false, tag = "agent-permission-standard") { yolo = false }
+                        R.drawable.ic_check, selected = mode == AgentMode.STANDARD, danger = false,
+                        tag = "agent-permission-standard") { mode = AgentMode.STANDARD }
                     GroupedDivider(start = 56.dp)
                     PermissionRow(tr("高级权限 · YOLO"), tr("不经确认直接运行命令、修改或删除文件"),
-                        R.drawable.ic_alert, selected = yolo, danger = true, tag = "agent-permission-yolo") { yolo = true }
+                        R.drawable.ic_alert, selected = yolo, danger = true, tag = "agent-permission-yolo") { mode = AgentMode.YOLO }
                 }
             }
             Spacer(Modifier.height(Spacing.Section))
@@ -76,7 +84,7 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
 
             val buttonColor by animateColorAsState(if (yolo) colors.error else colors.primary, label = "agent-launch-button")
             Button(onClick = {
-                preferences.edit { putString(AGENT_KEY, agent.name); putBoolean(YOLO_KEY, yolo) }
+                preferences.saveAgentChoice(agent, mode)
                 onLaunch(launch)
             }, colors = ButtonDefaults.buttonColors(containerColor = buttonColor,
                 contentColor = if (yolo) colors.onError else colors.onPrimary),
@@ -202,5 +210,13 @@ private fun CommandPreview(command: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** The last mode picked; before read-only existed only a YOLO flag was stored, so that still counts. */
+internal fun SharedPreferences.agentMode(): AgentMode = getString(MODE_KEY, null)?.let(AgentMode::from)
+    ?: if (getBoolean(YOLO_KEY, false)) AgentMode.YOLO else AgentMode.STANDARD
+
+internal fun SharedPreferences.saveAgentChoice(agent: CodingAgent, mode: AgentMode) =
+    edit { putString(AGENT_KEY, agent.name); putString(MODE_KEY, mode.name); remove(YOLO_KEY) }
+
 internal const val AGENT_KEY = "agentLaunchAgent"
-internal const val YOLO_KEY = "agentLaunchYolo"
+internal const val MODE_KEY = "agentLaunchMode"
+private const val YOLO_KEY = "agentLaunchYolo"

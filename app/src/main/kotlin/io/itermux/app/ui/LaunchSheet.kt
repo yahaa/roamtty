@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,11 +16,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
@@ -28,6 +29,7 @@ import io.itermux.app.ItermuxApp
 import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.session.AgentLaunch
+import io.itermux.app.session.AgentMode
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.RemoteFolders
 import io.itermux.app.session.StartDirectory
@@ -52,7 +54,8 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     var recent by remember(host.id) { mutableStateOf(preferences.recentStartDirectories(host.id)) }
     var current by remember { mutableStateOf(StartDirectory.HOME) }
     var agent by remember { mutableStateOf(CodingAgent.from(preferences.getString(AGENT_KEY, null))) }
-    var yolo by remember { mutableStateOf(preferences.getBoolean(YOLO_KEY, false)) }
+    var mode by remember { mutableStateOf(preferences.agentMode()) }
+    val yolo = forAgent && mode == AgentMode.YOLO
 
     // Borrow the host page's login; otherwise open one just for browsing while the sheet is up.
     var login by remember(host.id) { mutableStateOf(if (monitor == null && !host.needsTypedPassword) PluginTarget(host) else null) }
@@ -84,20 +87,19 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     fun launch() {
         val dir = StartDirectory.normalize(current)
         preferences.saveRecentStartDirectories(host.id, StartDirectory.remember(recent, dir))
-        if (forAgent) preferences.edit { putString(AGENT_KEY, agent.name); putBoolean(YOLO_KEY, yolo) }
-        onLaunch(dir, if (forAgent) AgentLaunch(agent, dir, yolo) else null)
+        if (forAgent) preferences.saveAgentChoice(agent, mode)
+        onLaunch(dir, if (forAgent) AgentLaunch(agent, dir, mode) else null)
     }
 
     val colors = MaterialTheme.colorScheme
     AppSheet(onDismiss) {
         SheetHeader(if (forAgent) tr("用 AI 助手打开") else tr("打开终端"), "${host.name} · ${host.username}@${host.address}", onDismiss)
         Column(Modifier.weight(1f).testTag("launch-sheet")) {
-            CurrentFolder(current)
-            QuickFolders(recent, current, onPick = { current = it }, onForget = { dir ->
+            CurrentPath(current) { current = StartDirectory.HOME }
+            if (recent.isNotEmpty()) RecentFolders(recent, current, onPick = { current = it }, onForget = { dir ->
                 recent = recent - dir
                 preferences.saveRecentStartDirectories(host.id, recent)
             })
-            Spacer(Modifier.height(Spacing.Tight))
             Surface(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Spacing.Page), shape = MaterialTheme.shapes.medium,
                 color = colors.groupedContainer) {
                 when {
@@ -112,12 +114,12 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
                     else -> FolderList(shown, loading) { current = it }
                 }
             }
-            if (forAgent) AgentChooser(agent, yolo, { agent = it }, { yolo = it })
-            val buttonColor by animateColorAsState(if (forAgent && yolo) colors.error else colors.primary, label = "launch-button")
+            if (forAgent) AgentChooser(agent, mode, { agent = it }, { mode = it })
+            val buttonColor by animateColorAsState(if (yolo) colors.error else colors.primary, label = "launch-button")
             val name = folderName(current)
             Button(onClick = ::launch, enabled = !failed,
                 colors = ButtonDefaults.buttonColors(containerColor = buttonColor,
-                    contentColor = if (forAgent && yolo) colors.onError else colors.onPrimary),
+                    contentColor = if (yolo) colors.onError else colors.onPrimary),
                 modifier = Modifier.fillMaxWidth().padding(Spacing.Page).heightIn(min = 52.dp).testTag("launch-open")) {
                 if (forAgent) {
                     Icon(painterResource(R.drawable.ic_agent), contentDescription = null, Modifier.size(18.dp))
@@ -144,31 +146,32 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
 private fun folderName(directory: String) = if (StartDirectory.isHome(directory)) tr("主目录")
     else directory.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }
 
-/** Where the session will start; changes as the user taps through folders. */
+/**
+ * Where the session will start, as one line: the button below already names the folder, so this only adds the full
+ * path. Away from home, the house jumps back in one tap.
+ */
 @Composable
-private fun CurrentFolder(directory: String) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.Section).padding(bottom = Spacing.Row),
-        verticalAlignment = Alignment.CenterVertically) {
-        RemoteFileIcon("", directory = true, size = 36.dp)
-        Spacer(Modifier.width(Spacing.Row))
-        Column(Modifier.weight(1f)) {
-            Text(folderName(directory), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(directory, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.MiddleEllipsis, modifier = Modifier.testTag("launch-path"))
+private fun CurrentPath(directory: String, onHome: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(bottom = Spacing.Tight).heightIn(min = 40.dp)
+        .clip(MaterialTheme.shapes.small).background(colors.onSurface.copy(alpha = 0.05f))
+        .padding(start = Spacing.Row, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        RemoteFileIcon("", directory = true, size = 18.dp)
+        Spacer(Modifier.width(Spacing.Tight))
+        Text(directory, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.MiddleEllipsis,
+            modifier = Modifier.weight(1f).testTag("launch-path"))
+        if (!StartDirectory.isHome(directory)) IconButton(onClick = onHome, Modifier.size(36.dp).testTag("launch-home")) {
+            Icon(painterResource(R.drawable.ic_hosts), contentDescription = tr("回到主目录"), Modifier.size(18.dp),
+                tint = colors.primary)
         }
     }
 }
 
-/** Home and recently used folders, one tap each; the cross forgets a recent one. */
+/** Recently used folders, one tap each; the cross forgets one. */
 @Composable
-private fun QuickFolders(recent: List<String>, current: String, onPick: (String) -> Unit, onForget: (String) -> Unit) {
-    LazyRow(contentPadding = PaddingValues(horizontal = Spacing.Page), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-        item {
-            FilterChip(StartDirectory.isHome(current), onClick = { onPick(StartDirectory.HOME) }, label = { Text(tr("主目录")) },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_hosts), contentDescription = null, Modifier.size(16.dp)) },
-                modifier = Modifier.testTag("launch-home"))
-        }
+private fun RecentFolders(recent: List<String>, current: String, onPick: (String) -> Unit, onForget: (String) -> Unit) {
+    LazyRow(Modifier.padding(bottom = Spacing.Tight), contentPadding = PaddingValues(horizontal = Spacing.Page),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
         items(recent, key = { it }) { dir ->
             FilterChip(current == dir, onClick = { onPick(dir) }, label = { Text(folderName(dir), maxLines = 1) },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_history), contentDescription = null, Modifier.size(16.dp)) },
@@ -226,9 +229,10 @@ private fun CenterNote(message: String, action: String, onAction: () -> Unit) {
     }
 }
 
-/** The three agents side by side and the YOLO switch, so choosing never leaves the sheet. */
+/** The three agents side by side and how much each may do, so choosing never leaves the sheet. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AgentChooser(agent: CodingAgent, yolo: Boolean, onAgent: (CodingAgent) -> Unit, onYolo: (Boolean) -> Unit) {
+private fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAgent) -> Unit, onMode: (AgentMode) -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().padding(start = Spacing.Page, end = Spacing.Page, top = Spacing.Row).selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
@@ -247,15 +251,35 @@ private fun AgentChooser(agent: CodingAgent, yolo: Boolean, onAgent: (CodingAgen
             }
         }
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(top = Spacing.Tight)
-        .selectable(yolo, onClick = { onYolo(!yolo) }, role = Role.Switch).testTag("agent-yolo"),
-        verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f).padding(start = Spacing.Tight)) {
-            Text(tr("YOLO 模式"), style = MaterialTheme.typography.bodyLarge, color = if (yolo) colors.error else colors.onSurface)
-            Text(tr("不经确认直接运行命令、修改或删除文件"), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+    val modes = AgentMode.entries
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(top = Spacing.Tight)) {
+        modes.forEachIndexed { index, option ->
+            val danger = option == AgentMode.YOLO
+            SegmentedButton(selected = option == mode, onClick = { onMode(option) },
+                shape = SegmentedButtonDefaults.itemShape(index, modes.size),
+                colors = if (danger) SegmentedButtonDefaults.colors(activeContainerColor = colors.errorContainer,
+                    activeContentColor = colors.onErrorContainer) else SegmentedButtonDefaults.colors(),
+                modifier = Modifier.testTag("agent-mode-${option.name.lowercase().replace('_', '-')}")) {
+                Text(modeLabel(option), maxLines = 1)
+            }
         }
-        Switch(yolo, onCheckedChange = null, colors = SwitchDefaults.colors(checkedTrackColor = colors.error))
     }
+    // One line whatever the mode, so the sheet does not jump while switching.
+    Text(modeHint(mode), Modifier.fillMaxWidth().padding(horizontal = Spacing.Section).padding(top = 6.dp),
+        style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        color = if (mode == AgentMode.YOLO) colors.error else colors.onSurfaceVariant)
+}
+
+private fun modeLabel(mode: AgentMode) = when (mode) {
+    AgentMode.READ_ONLY -> tr("只读")
+    AgentMode.STANDARD -> tr("普通")
+    AgentMode.YOLO -> "YOLO"
+}
+
+private fun modeHint(mode: AgentMode) = when (mode) {
+    AgentMode.READ_ONLY -> tr("只查看和分析，不修改文件")
+    AgentMode.STANDARD -> tr("改文件或运行命令前先问你")
+    AgentMode.YOLO -> tr("不经确认直接运行命令、修改或删除文件")
 }
 
 internal fun SharedPreferences.recentStartDirectories(hostId: String): List<String> =
