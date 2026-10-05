@@ -619,11 +619,16 @@ class JschSession(
         try {
             val alive = withContext(Dispatchers.IO) {
                 val probe = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext false }
+                val started = System.nanoTime()
                 try {
                     probe.setCommand("true")
                     probe.connect(timeoutMs)
                     true
-                } catch (_: Exception) { false }
+                } catch (_: Exception) {
+                    // A refusal (MaxSessions 1, exec denied) is still a reply. JSch reports it with the
+                    // same error as a timeout, but it arrives at once; only silence means a dead link.
+                    ssh.isConnected && (System.nanoTime() - started) / 1_000_000 < timeoutMs / 2
+                }
                 finally { probe.disconnect() }
             }
             // A newer attempt or an explicit disconnect owns the transport now.

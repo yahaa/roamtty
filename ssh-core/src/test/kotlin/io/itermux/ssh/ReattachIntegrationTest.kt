@@ -85,6 +85,16 @@ class ReattachIntegrationTest {
         assertEquals(Phase.CONNECTED, ssh.state.value.phase)
     }
 
+    // A server that refuses extra channels is still answering; the probe must not tear down its PTY.
+    @Test fun refusedProbeKeepsLiveConnection() = scenario("reject-probe") { ssh, worker, output ->
+        delay(300)
+        withTimeout(5_000) { ssh.verifyAlive(timeoutMs = 2_000) }
+        delay(500)
+        assertEquals(Phase.CONNECTED, ssh.state.value.phase)
+        assertTrue(worker.isActive)
+        assertTrue("A refused probe must not reattach", output.tryReceive().isFailure)
+    }
+
     @Test fun refusedFirstReconnectDoesNotExhaustRetries() = recovers("refused")
     @Test fun handshakeTimeoutDoesNotExhaustRetries() = recovers("timeout")
     @Test fun handshakeEofDoesNotExhaustRetries() = recovers("handshake-eof")

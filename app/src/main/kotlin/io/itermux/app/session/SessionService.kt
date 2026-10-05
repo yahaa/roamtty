@@ -162,6 +162,8 @@ class SessionService : Service() {
                 current = network
                 if (changed) scope.launch { verifyConnections() }
             }
+            // No replacement network (airplane mode, Wi-Fi gone without mobile data) sends no onAvailable.
+            override fun onLost(network: Network) { scope.launch { verifyConnections() } }
         }
         networkCallback = runCatching {
             getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback)
