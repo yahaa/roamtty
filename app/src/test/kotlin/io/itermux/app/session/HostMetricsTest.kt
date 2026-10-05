@@ -65,4 +65,43 @@ class HostMetricsTest {
         assertNull(m.cpuPercent)
         assertNull(m.memPercent)
     }
+
+    @Test fun parsesNvidiaAndAmdGpus() {
+        val m = HostMetrics.parse(listOf(
+            "gpu=0, NVIDIA GeForce RTX 4090, 35, 1024, 24564, 45, 120.50, 450.00",
+            "gpu=1, Tesla T4, [N/A], 512, 15360, 38, [Not Supported], [Not Supported]",
+            "gpu=NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver.",
+            "gpuproc=4242, /usr/bin/python3, 900",
+            "gpuproc=17, Xorg, [N/A]",
+            "gpuproc=99, /opt/app/train, v2, 2048",
+            "amdgpu=12 1073741824 8589934592 51000 35000000 - AMD Radeon RX 6600",
+            "amdgpu=0 - - - - - ",
+        ))
+        assertEquals(listOf(0, 1, 2, 3), m.gpus.map { it.index })
+        val rtx = m.gpus[0]
+        assertEquals("NVIDIA GeForce RTX 4090", rtx.name)
+        assertEquals(35.0, rtx.utilPercent!!, 0.001)
+        assertEquals(1024L * 1024 * 1024, rtx.memUsedBytes)
+        assertEquals(45.0, rtx.temperatureC!!, 0.001)
+        assertEquals(120.5, rtx.powerWatts!!, 0.001)
+        assertEquals(450.0, rtx.powerLimitWatts!!, 0.001)
+        val t4 = m.gpus[1]
+        assertNull(t4.utilPercent)
+        assertNull(t4.powerWatts)
+        assertEquals(3.333, t4.memPercent!!, 0.001)
+        val amd = m.gpus[2]
+        assertEquals("AMD Radeon RX 6600", amd.name)
+        assertEquals(12.5, amd.memPercent!!, 0.001)
+        assertEquals(51.0, amd.temperatureC!!, 0.001)
+        assertEquals(35.0, amd.powerWatts!!, 0.001)
+        assertNull(amd.powerLimitWatts)
+        assertEquals("AMD GPU", m.gpus[3].name)
+        assertNull(m.gpus[3].memPercent)
+        assertEquals(listOf("train, v2", "python3", "Xorg"), m.gpuProcesses.map { it.name })
+        assertNull(m.gpuProcesses[2].memBytes)
+    }
+
+    @Test fun noGpuLinesMeansNoGpus() {
+        assertEquals(emptyList<HostMetrics.Gpu>(), HostMetrics.parse(linux).gpus)
+    }
 }

@@ -29,6 +29,8 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     val netRate = MutableStateFlow<Pair<Double, Double>?>(null)
     val cpuHistory = MutableStateFlow<List<Double>>(emptyList())
     val memHistory = MutableStateFlow<List<Double>>(emptyList())
+    /** Utilization history per GPU index. */
+    val gpuHistory = MutableStateFlow<Map<Int, List<Double>>>(emptyMap())
     /** Sampling pauses while the app is in the background. */
     val visible = MutableStateFlow(true)
     private var session: JschSession? = null
@@ -110,6 +112,10 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
             }
             current.cpuPercent?.let { cpuHistory.value = (cpuHistory.value + it).takeLast(MONITOR_HISTORY) }
             current.memPercent?.let { memHistory.value = (memHistory.value + it).takeLast(MONITOR_HISTORY) }
+            if (current.gpus.isNotEmpty() || gpuHistory.value.isNotEmpty()) gpuHistory.value = current.gpus.associate { gpu ->
+                val past = gpuHistory.value[gpu.index].orEmpty()
+                gpu.index to (gpu.utilPercent?.let { (past + it).takeLast(MONITOR_HISTORY) } ?: past)
+            }
             metrics.value = current
             sampled = true
             previous = current to now

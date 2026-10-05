@@ -24,11 +24,20 @@ data class HostMetrics(
     val netTxBytes: Long? = null,
     val users: Int? = null,
     val processes: List<Process> = emptyList(),
+    /** NVIDIA (nvidia-smi) and AMD (amdgpu sysfs) GPUs; empty when the host has none or no driver tool. */
+    val gpus: List<Gpu> = emptyList(),
+    /** Processes holding GPU memory, most memory first; NVIDIA only. */
+    val gpuProcesses: List<GpuProcess> = emptyList(),
 ) {
     data class Disk(val mount: String, val totalBytes: Long, val usedBytes: Long, val availableBytes: Long) {
         val percent: Double get() = if (usedBytes + availableBytes > 0) 100.0 * usedBytes / (usedBytes + availableBytes) else 0.0
     }
     data class Process(val name: String, val cpuPercent: Double, val memPercent: Double)
+    data class Gpu(val index: Int, val name: String, val utilPercent: Double?, val memUsedBytes: Long?, val memTotalBytes: Long?,
+        val temperatureC: Double?, val powerWatts: Double?, val powerLimitWatts: Double?) {
+        val memPercent: Double? get() = memUsedBytes?.let { used -> memTotalBytes?.takeIf { it > 0 }?.let { 100.0 * used / it } }
+    }
+    data class GpuProcess(val pid: Long, val name: String, val memBytes: Long?)
 
     val memUsedBytes: Long? get() = if (memTotalBytes != null && memAvailableBytes != null) (memTotalBytes - memAvailableBytes).coerceAtLeast(0) else null
     val memPercent: Double? get() = memUsedBytes?.let { used -> memTotalBytes?.takeIf { it > 0 }?.let { 100.0 * used / it } }
@@ -68,6 +77,18 @@ data class HostMetrics(
             df -Pk / "${'$'}HOME" 2>/dev/null | awk 'NR > 1 && !seen[${'$'}6]++ { m = ${'$'}6; for (i = 7; i <= NF; i++) m = m " " ${'$'}i; print "disk=" ${'$'}2 " " ${'$'}3 " " ${'$'}4 " " m }'
             echo "users=$(who 2>/dev/null | wc -l)"
             { ps -eo pcpu=,pmem=,comm= --sort=-pcpu 2>/dev/null || ps -Aro pcpu=,pmem=,comm= 2>/dev/null; } | head -n 5 | sed 's/^/proc=/'
+            if command -v nvidia-smi >/dev/null 2>&1; then
+              t=; command -v timeout >/dev/null 2>&1 && t="timeout 5"
+              ${'$'}t nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null | sed 's/^/gpu=/'
+              ${'$'}t nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits 2>/dev/null | sed 's/^/gpuproc=/'
+            fi
+            for c in /sys/class/drm/card*; do
+              case ${'$'}{c##*/} in *-*) continue ;; esac
+              d=${'$'}c/device
+              [ -r "${'$'}d/gpu_busy_percent" ] || continue
+              h=$(ls -d "${'$'}d"/hwmon/hwmon* 2>/dev/null | head -n 1)
+              echo "amdgpu=$(cat "${'$'}d/gpu_busy_percent" 2>/dev/null || echo -) $(cat "${'$'}d/mem_info_vram_used" 2>/dev/null || echo -) $(cat "${'$'}d/mem_info_vram_total" 2>/dev/null || echo -) $(cat "${'$'}h/temp1_input" 2>/dev/null || echo -) $(cat "${'$'}h/power1_average" 2>/dev/null || echo -) $(cat "${'$'}h/power1_cap" 2>/dev/null || echo -) $(cat "${'$'}d/product_name" 2>/dev/null)"
+            done
             exit 0
         """.trimIndent()
 
@@ -81,6 +102,8 @@ data class HostMetrics(
             fun number(key: String) = one(key)?.toLongOrNull()
             val load = one("load")?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }.orEmpty()
             val net = one("net")?.split(' ')?.mapNotNull { it.toLongOrNull() }
+            val nvidia = values["gpu"].orEmpty().mapNotNull(::nvidiaGpu)
+            val firstAmd = (nvidia.maxOfOrNull { it.index } ?: -1) + 1
             return HostMetrics(
                 hostname = one("hostname"),
                 os = one("os"),
@@ -111,7 +134,37 @@ data class HostMetrics(
                     val name = parts.getOrNull(2)?.trimEnd('/')?.substringAfterLast('/')
                     if (cpu != null && mem != null && !name.isNullOrEmpty()) Process(name, cpu, mem) else null
                 },
+                gpus = nvidia + values["amdgpu"].orEmpty().mapIndexedNotNull { i, row -> amdGpu(firstAmd + i, row) },
+                gpuProcesses = values["gpuproc"].orEmpty().mapNotNull { row ->
+                    val parts = row.split(',').map { it.trim() }
+                    val pid = parts.firstOrNull()?.toLongOrNull()
+                    val name = parts.drop(1).dropLast(1).joinToString(", ").trimEnd('/').substringAfterLast('/')
+                    if (parts.size >= 3 && pid != null && name.isNotEmpty()) GpuProcess(pid, name, mib(parts.last())) else null
+                }.sortedByDescending { it.memBytes ?: -1 },
             )
+        }
+
+        /** "[N/A]" and "[Not Supported]" read as null. */
+        private fun reading(value: String?) = value?.trim()?.toDoubleOrNull()
+        private fun mib(value: String?) = reading(value)?.let { (it * 1024 * 1024).toLong() }
+
+        /** One `nvidia-smi --query-gpu` CSV row: index, name, util %, memory MiB used/total, °C, W drawn/limit. */
+        internal fun nvidiaGpu(row: String): Gpu? {
+            val parts = row.split(',').map { it.trim() }
+            if (parts.size < 8) return null
+            val index = parts[0].toIntOrNull() ?: return null
+            val tail = parts.takeLast(6)
+            val name = parts.subList(1, parts.size - 6).joinToString(", ").ifEmpty { "GPU $index" }
+            return Gpu(index, name, reading(tail[0]), mib(tail[1]), mib(tail[2]), reading(tail[3]), reading(tail[4]), reading(tail[5]))
+        }
+
+        /** amdgpu sysfs: busy %, VRAM bytes used/total, millidegrees, microwatts drawn/cap, then the product name ("-" for missing). */
+        internal fun amdGpu(index: Int, row: String): Gpu? {
+            val parts = row.trim().split(Regex("\\s+"), limit = 7)
+            if (parts.size < 6) return null
+            fun n(i: Int) = parts[i].toDoubleOrNull()
+            return Gpu(index, parts.getOrNull(6)?.takeIf { it.isNotBlank() } ?: "AMD GPU", n(0), n(1)?.toLong(), n(2)?.toLong(),
+                n(3)?.div(1000), n(4)?.div(1_000_000), n(5)?.takeIf { it > 0 }?.div(1_000_000))
         }
 
         /** Busy share between two `cpu` lines of /proc/stat; iowait counts as idle. */
