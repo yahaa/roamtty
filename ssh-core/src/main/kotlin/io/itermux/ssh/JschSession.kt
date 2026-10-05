@@ -64,21 +64,24 @@ class JschSession(
     private val tmuxName = Tmux.sanitizeSessionName(remoteSessionName)
     private val tmuxHistoryController = TmuxHistoryController(tmuxName, ::runCommand)
 
-    private fun update(phase: Phase, message: String = "") {
-        if (!stopped.get()) mutableState.value = ConnectionState(phase, message)
+    private fun update(phase: Phase, message: String = "", detail: String? = null) {
+        if (!stopped.get()) mutableState.value = ConnectionState(phase, message, detail = detail)
     }
 
     private fun ask(prompt: Prompt): List<String>? = runBlocking(interactionJob) {
         withTimeout(120_000) { interaction(prompt) }
     }
 
-    private enum class AttemptOutcome { TRANSPORT_ENDED, REMOTE_EXIT, FATAL, STOPPED }
+    /** UNREACHABLE: a first connection failed on the network before reaching the server. */
+    private enum class AttemptOutcome { TRANSPORT_ENDED, UNREACHABLE, REMOTE_EXIT, FATAL, STOPPED }
+    @Volatile private var unreachableFailure: Exception? = null
     /** Whether the latest attempt reached CONNECTED; a drop after that earns a fresh retry budget. */
     @Volatile private var reachedConnected = false
 
     override suspend fun connect(onOutput: suspend (ByteArray) -> Unit): Unit = withContext(Dispatchers.IO) {
         check(started.compareAndSet(false, true)) { "A connection attempt cannot be reused" }
         var attempt = 0
+        var firstConnectRetry = 0
         try {
             while (!stopped.get()) {
                 // Discard stale input before each attempt; never replay it after reattachment.
@@ -89,6 +92,18 @@ class JschSession(
                     AttemptOutcome.REMOTE_EXIT -> {
                         update(Phase.DISCONNECTED, "连接已关闭")
                         break
+                    }
+                    AttemptOutcome.UNREACHABLE -> {
+                        if (stopped.get()) break
+                        // A VPN reconnecting or a Wi-Fi handover fails the socket for a few seconds;
+                        // the host list probe then shows the host online while this entry stays failed.
+                        val wait = firstConnectRetryDelayMs(++firstConnectRetry)
+                        if (wait == null) {
+                            update(Phase.FAILED, "网络不可达或连接被中断，请检查网络和 VPN 后重连。", unreachableFailure?.let(::failureDetail))
+                            break
+                        }
+                        update(Phase.CONNECTING, "网络暂不可用，正在重试…")
+                        delay(wait)
                     }
                     AttemptOutcome.TRANSPORT_ENDED -> {
                         if (stopped.get()) break
@@ -295,12 +310,19 @@ class JschSession(
             if (trustFailure == null && (reachedConnected || reattaching) && isRetryableTransportFailure(e)) {
                 return AttemptOutcome.TRANSPORT_ENDED
             }
+            // Host detection and plugin installs answer the user directly, so they fail fast instead.
+            if (trustFailure == null && !detectionOnly && administration == null &&
+                isRetryableTransportFailure(e) && !isTimeoutFailure(e)) {
+                unreachableFailure = e
+                return AttemptOutcome.UNREACHABLE
+            }
+            val detail = failureDetail(failure)
             mutableState.value = when {
                 failure is HostKeyChanged -> ConnectionState(Phase.HOST_KEY_CHANGED, "主机指纹发生变化，连接已阻止。请通过可信渠道核验。", failure.old.fingerprint, failure.received.fingerprint)
                 failure is HostKeyRejected -> ConnectionState(Phase.DISCONNECTED, "未信任此主机")
                 e.message?.contains("Auth", ignoreCase = true) == true -> ConnectionState(Phase.AUTH_FAILED, "认证失败，请检查用户名、凭据或服务器认证配置。")
-                e is SocketTimeoutException || e.message?.contains("timeout", true) == true -> ConnectionState(Phase.FAILED, "连接超时，请检查网络、VPN 和主机端口。")
-                else -> ConnectionState(Phase.FAILED, "连接失败，请检查网络、地址、密钥格式及服务器算法支持。")
+                e is SocketTimeoutException || e.message?.contains("timeout", true) == true -> ConnectionState(Phase.FAILED, "连接超时，请检查网络、VPN 和主机端口。", detail = detail)
+                else -> ConnectionState(Phase.FAILED, "连接失败，请检查网络、地址、密钥格式及服务器算法支持。", detail = detail)
             }
             return AttemptOutcome.FATAL
         } finally {

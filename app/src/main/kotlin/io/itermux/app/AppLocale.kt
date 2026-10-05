@@ -388,6 +388,8 @@ private object EnglishText {
         "连接已取消或验证等待超时" to "Connection canceled or verification timed out",
         "认证失败，请检查用户名、凭据或服务器认证配置。" to "Authentication failed. Check the username, credentials, and server settings.",
         "连接超时，请检查网络、VPN 和主机端口。" to "Connection timed out. Check the network, VPN, and host port.",
+        "网络不可达或连接被中断，请检查网络和 VPN 后重连。" to "The network is unreachable or the connection was cut. Check the network and VPN, then reconnect.",
+        "网络暂不可用，正在重试…" to "Network unavailable, retrying…",
         "连接失败，请检查网络、地址、密钥格式及服务器算法支持。" to "Connection failed. Check the network, address, key format, and server algorithms.",
         "不能下载文件夹" to "Folders cannot be downloaded",
         "SSH 连接未就绪" to "SSH connection is not ready",
