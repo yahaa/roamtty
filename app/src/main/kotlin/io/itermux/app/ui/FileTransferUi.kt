@@ -83,8 +83,18 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
 
     transfer.uploadUri?.let { uri -> UploadFileSheet(session, uri) }
     DownloadFilesUi(session)
-    if (status.running || status.result != null) TransferStatusDialog(status,
-        onCancel = transfer::cancel, onDismiss = transfer::dismiss, onInsertPath = onInsertPath)
+    // A finished image insert needs no dialog: the paths are already in the prompt, so confirm with a toast.
+    val imagesDone = status.imageTotal > 0 && !status.running && (status.succeeded == true || status.cancelled)
+    LaunchedEffect(imagesDone) {
+        if (!imagesDone) return@LaunchedEffect
+        if (status.succeeded == true) Toast.makeText(context, status.result, Toast.LENGTH_SHORT).show()
+        transfer.dismiss()
+    }
+    if (status.imageTotal > 0) {
+        if (status.running || (status.result != null && !imagesDone))
+            ImageInsertDialog(status, onCancel = transfer::cancel, onDismiss = transfer::dismiss, onInsertPath = onInsertPath)
+    } else if (status.running || status.result != null) TransferStatusDialog(status,
+        onCancel = transfer::cancel, onDismiss = transfer::dismiss)
 }
 
 /** The Photo Picker's selection cap for one insert. */

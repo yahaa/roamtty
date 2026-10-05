@@ -205,7 +205,6 @@ fun ItermuxScreen(
         if (uris.isEmpty()) return
         selected = session.id
         page = "terminal"
-        if (uris.size > 1) toast(trf("共 %d 张图片，将依次上传", uris.size))
         if (!session.transfers.uploadSharedImages(context, session, uris))
             toast(tr("已有传输进行中，请稍后再试"))
     }

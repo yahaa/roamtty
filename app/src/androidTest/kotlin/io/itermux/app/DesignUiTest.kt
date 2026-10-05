@@ -111,8 +111,8 @@ class DesignUiTest {
         var dismissed = false
         compose.setContent {
             MaterialTheme(colorScheme = DarkColors) {
-                TransferStatusDialog(TransferStatus("preview.png", 128, 128, result = trf("已上传：%s", path),
-                    remotePath = path), {}, { dismissed = true }, onInsertPath = { inserted = it })
+                ImageInsertDialog(TransferStatus(tr("插入图片"), 128, 128, result = tr("未发送：连接未就绪或输入队列已满。"),
+                    remotePath = path, succeeded = false, imageTotal = 1), {}, { dismissed = true }, onInsertPath = { inserted = it })
             }
         }
         compose.onNodeWithTag("copy-upload-path").performScrollTo().performClick()
@@ -123,5 +123,20 @@ class DesignUiTest {
         compose.onNodeWithTag("insert-upload-path").performScrollTo().performClick()
         assertEquals(path, inserted)
         assertTrue(dismissed)
+    }
+
+    @Test fun imageInsertDialogShowsBatchProgressAndPartialFailure() {
+        var status by mutableStateOf(TransferStatus(tr("插入图片"), 1_200_000, 2_400_000, running = true, imageTotal = 3,
+            imagePaths = listOf("/tmp/roamtty-img-a.png")))
+        compose.setContent {
+            MaterialTheme(colorScheme = DarkColors) { ImageInsertDialog(status, {}, {}) }
+        }
+        compose.onNodeWithTag("image-insert-count").assertTextEquals(trf("第 %d 张，共 %d 张", 2, 3))
+        screenshot("design-image-insert-running")
+        status = status.copy(running = false, succeeded = false, result = tr("未发送：连接未就绪或输入队列已满。"),
+            remotePath = "/tmp/roamtty-img-b.png")
+        compose.onNodeWithTag("image-insert-count").assertTextEquals(trf("已插入 %d 张，其余 %d 张未插入", 1, 2))
+        compose.onNodeWithTag("copy-upload-path").assertExists()
+        screenshot("design-image-insert-failed")
     }
 }

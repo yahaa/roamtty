@@ -5,8 +5,10 @@ import android.content.ClipboardManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,13 +39,11 @@ internal fun readableFolder(path: String): String =
     path.substringBeforeLast('/').removePrefix("/storage/emulated/0/").removePrefix("/sdcard/").ifEmpty { "/" }
 
 @Composable
-internal fun TransferStatusDialog(status: TransferStatus, onCancel: () -> Unit, onDismiss: () -> Unit,
-    onInsertPath: ((String) -> Unit)? = null) {
+internal fun TransferStatusDialog(status: TransferStatus, onCancel: () -> Unit, onDismiss: () -> Unit) {
     val transferring = status.running
     val result = status.result
     val downloads = status.downloads
     val totalBytes = status.total
-    val context = LocalContext.current
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.52f).dp
     val active = downloads.firstOrNull { it.phase == DownloadPhase.RUNNING }
     val completed = downloads.count { it.phase == DownloadPhase.COMPLETE }
@@ -114,23 +114,6 @@ internal fun TransferStatusDialog(status: TransferStatus, onCancel: () -> Unit, 
                         if (details && commonDirectory != null) LocationLine(R.drawable.ic_os_server, trf("来源目录：%s", commonDirectory))
                     }
                 }
-                if (!transferring) status.remotePath?.let { remotePath -> item {
-                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.dialogPanel) {
-                        Column(Modifier.fillMaxWidth().padding(14.dp)) {
-                            SelectionContainer {
-                                Text(remotePath, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-                            }
-                            Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = {
-                                    context.getSystemService(ClipboardManager::class.java)
-                                        .setPrimaryClip(ClipData.newPlainText(tr("远端文件路径"), remotePath))
-                                }, modifier = Modifier.testTag("copy-upload-path")) { Text(tr("复制路径")) }
-                                if (onInsertPath != null) FilledTonalButton(onClick = { onInsertPath(remotePath); onDismiss() },
-                                    modifier = Modifier.testTag("insert-upload-path")) { Text(tr("放入编辑区")) }
-                            }
-                        }
-                    }
-                } }
             }
         },
         dismissButton = if (!transferring && downloads.isNotEmpty()) { {
@@ -145,11 +128,87 @@ internal fun TransferStatusDialog(status: TransferStatus, onCancel: () -> Unit, 
         })
 }
 
+/**
+ * Progress for inserting gallery images into the prompt. Success closes without a dialog (see [FileTransferUi]),
+ * so this shows only the running batch and, on failure, what reached the prompt and what did not.
+ */
 @Composable
-private fun StatusBadge(mood: TransferMood) {
+internal fun ImageInsertDialog(status: TransferStatus, onCancel: () -> Unit, onDismiss: () -> Unit,
+    onInsertPath: ((String) -> Unit)? = null) {
+    val colors = MaterialTheme.colorScheme
+    val running = status.running
+    val total = status.imageTotal
+    val done = status.imagePaths.size
+    val fraction = if (status.total > 0) (status.bytes.toDouble() / status.total).coerceIn(0.0, 1.0).toFloat() else 0f
+    AlertDialog(onDismissRequest = { if (!running) onDismiss() }, modifier = Modifier.testTag("image-insert-dialog"),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusBadge(if (running) TransferMood.RUNNING else TransferMood.PROBLEM, R.drawable.ic_image)
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text(tr(if (running) "正在插入图片" else "图片插入失败"), style = MaterialTheme.typography.titleLarge)
+                    val subtitle = when {
+                        running && total > 1 -> trf("第 %d 张，共 %d 张", (done + 1).coerceAtMost(total), total)
+                        !running && done > 0 -> trf("已插入 %d 张，其余 %d 张未插入", done, total - done)
+                        else -> null
+                    }
+                    subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
+                        modifier = Modifier.testTag("image-insert-count")) }
+                }
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (running) {
+                    RoundedProgress({ (done + fraction) / total }, Modifier.testTag("image-insert-progress"))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(tr(if (status.total < 0) "正在处理图片…" else "正在上传…"), Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+                        if (status.total > 0) Text("${formatRemoteSize(status.bytes)} / ${formatRemoteSize(status.total)}",
+                            style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                            color = colors.onSurfaceVariant)
+                    }
+                } else {
+                    status.result?.let { SelectionContainer {
+                        Text(it, Modifier.testTag("image-insert-error"), style = MaterialTheme.typography.bodyMedium, color = colors.error)
+                    } }
+                    // Uploaded but the paste failed: the file is on the host, so offer its path instead.
+                    status.remotePath?.let { remotePath ->
+                        Surface(shape = MaterialTheme.shapes.medium, color = colors.dialogPanel) {
+                            Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                                Text(tr("图片已上传，可手动使用路径"), style = MaterialTheme.typography.bodySmall,
+                                    color = colors.onSurfaceVariant)
+                                SelectionContainer {
+                                    Text(remotePath, Modifier.padding(top = 6.dp), fontFamily = FontFamily.Monospace,
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
+                                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    val context = LocalContext.current
+                                    OutlinedButton(onClick = {
+                                        context.getSystemService(ClipboardManager::class.java)
+                                            .setPrimaryClip(ClipData.newPlainText(tr("远端文件路径"), remotePath))
+                                    }, modifier = Modifier.testTag("copy-upload-path")) { Text(tr("复制路径")) }
+                                    if (onInsertPath != null) FilledTonalButton(onClick = { onInsertPath(remotePath); onDismiss() },
+                                        modifier = Modifier.testTag("insert-upload-path")) { Text(tr("放入编辑区")) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (running) TextButton(onClick = onCancel, colors = ButtonDefaults.textButtonColors(contentColor = colors.error)) {
+                Text(tr("取消"))
+            } else FilledTonalButton(onClick = onDismiss) { Text(tr("完成")) }
+        })
+}
+
+@Composable
+private fun StatusBadge(mood: TransferMood, runningIcon: Int = R.drawable.ic_download) {
     val scheme = MaterialTheme.colorScheme
     val (icon, container, content) = when (mood) {
-        TransferMood.RUNNING -> Triple(R.drawable.ic_download, scheme.secondaryContainer, scheme.onSecondaryContainer)
+        TransferMood.RUNNING -> Triple(runningIcon, scheme.secondaryContainer, scheme.onSecondaryContainer)
         TransferMood.SUCCESS -> Triple(R.drawable.ic_check, scheme.primaryContainer, scheme.onPrimaryContainer)
         TransferMood.PROBLEM -> Triple(R.drawable.ic_alert, scheme.errorContainer, scheme.onErrorContainer)
     }
