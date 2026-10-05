@@ -127,7 +127,7 @@ class CursorEnterKeyTest {
             compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
             compose.waitUntil(3_000) { enterKeyShown() }
 
-            // A leading slash brings Up/Down keys side by side on the cursor row, in the Enter key's place.
+            // A leading slash brings Up/Down keys stacked on the cursor row, in the Enter key's place.
             type("/")
             outputContains("KEY_2F")
             compose.waitUntil(3_000) { arrowKeysShown() }
@@ -135,9 +135,9 @@ class CursorEnterKeyTest {
             val rowMid = withContext(Dispatchers.Main) { viewTop + view.cursorRowTop + view.lineHeight / 2f }
             val up = compose.onNodeWithTag("cursor-up").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
             val down = compose.onNodeWithTag("cursor-down").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
-            assertTrue("up on the cursor row", abs(up.center.y - rowMid) <= 2f)
-            assertTrue("down on the cursor row", abs(down.center.y - rowMid) <= 2f)
-            assertTrue("up left of down at the right end", up.right <= down.left + 1f && down.right >= view.width * 0.9f)
+            assertTrue("up above the cursor row's middle", abs(up.bottom - rowMid) <= 2f)
+            assertTrue("down below it", abs(down.top - rowMid) <= 2f)
+            assertTrue("stacked at the right end", abs(up.center.x - down.center.x) <= 1f && down.right >= view.width * 0.9f)
             compose.onNodeWithTag("cursor-up").performTouchInput { click() }
             outputContains("KEY_41")
             compose.onNodeWithTag("cursor-down").performTouchInput { click() }

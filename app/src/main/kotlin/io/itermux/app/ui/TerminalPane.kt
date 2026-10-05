@@ -143,7 +143,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var enterKeyAwake by remember { mutableStateOf(false) }
     var enterKeyTouches by remember { mutableIntStateOf(0) }
     var enterKeyTyping by remember { mutableStateOf(false) }
-    // A line starting with `/` brings Up/Down keys onto the cursor row, in the Enter key's place, to
+    // A line starting with `/` brings stacked Up/Down keys to the cursor row, in the Enter key's place, to
     // move through the command menu; they stay until Enter ends the line or a double tap dismisses them.
     val slashCommandLine by session.slashCommandLine.collectAsStateWithLifecycle()
     var arrowKeysDismissedLine by remember { mutableIntStateOf(0) }
@@ -444,9 +444,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 androidx.compose.animation.AnimatedVisibility(arrowKeysShown,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
                     terminal?.let { view ->
-                        // Up and Down side by side at the right end of the cursor row.
-                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight) {
-                            Row {
+                        // Up and Down stacked at the right end, meeting at the middle of the cursor row.
+                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight * 2) {
+                            Column {
                                 CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "cursor-up") {
                                     enterKeyTyping = false
                                     enterKeyTouches++
