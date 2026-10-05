@@ -55,6 +55,7 @@ class CursorEnterKeyTest {
     @After fun restoreTimeout() {
         TerminalToolbox.enterKeyHideMillis = 5_000L
         TerminalToolbox.enterKeyTypingPauseMillis = 700L
+        TerminalToolbox.arrowKeysPauseMillis = 1_200L
     }
 
     private fun terminal(view: View): TerminalView? {
@@ -68,6 +69,7 @@ class CursorEnterKeyTest {
     @Test fun enterKeyFollowsCursorRowAndHidesWhenQuiet() = runBlocking {
         TerminalToolbox.enterKeyHideMillis = 1_500L
         TerminalToolbox.enterKeyTypingPauseMillis = 1_000L
+        TerminalToolbox.arrowKeysPauseMillis = 2_000L
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         (context.applicationContext as ItermuxApp).database.hosts().forgetPin("[127.0.0.1]:22228")
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
@@ -86,6 +88,10 @@ class CursorEnterKeyTest {
             assertEquals("missing $marker", true, found)
         }
         fun enterKeyShown() = compose.onAllNodesWithTag("cursor-enter").fetchSemanticsNodes().isNotEmpty()
+        fun arrowKeysShown() = compose.onAllNodesWithTag("cursor-up").fetchSemanticsNodes().isNotEmpty()
+        fun type(text: String) = compose.activityRule.scenario.onActivity { activity ->
+            requireNotNull(terminal(activity.window.decorView)).onCreateInputConnection(EditorInfo()).commitText(text, 1)
+        }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             outputContains("KEY_ECHO_READY")
@@ -96,11 +102,10 @@ class CursorEnterKeyTest {
             assertTrue("hidden until input", !enterKeyShown())
 
             // It stays hidden while typing and appears on the cursor row once input pauses.
-            compose.activityRule.scenario.onActivity { activity ->
-                requireNotNull(terminal(activity.window.decorView)).onCreateInputConnection(EditorInfo()).commitText("a", 1)
-            }
+            type("a")
             compose.waitForIdle()
             assertTrue("hidden while typing", !enterKeyShown())
+            assertTrue("no arrows for plain text", !arrowKeysShown())
             outputContains("KEY_61")
             compose.waitUntil(3_000) { enterKeyShown() }
             val view = requireNotNull(terminal(compose.activity.window.decorView))
@@ -123,6 +128,21 @@ class CursorEnterKeyTest {
             compose.waitUntil(5_000) { !enterKeyShown() }
             compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
             compose.waitUntil(3_000) { enterKeyShown() }
+
+            // A leading slash swaps in Up/Down keys on the cursor row while keys keep coming.
+            type("/")
+            outputContains("KEY_2F")
+            compose.waitUntil(3_000) { arrowKeysShown() && !enterKeyShown() }
+            val up = compose.onNodeWithTag("cursor-up").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            val down = compose.onNodeWithTag("cursor-down").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            assertTrue("arrows side by side at the right end", up.right <= down.left && down.right >= view.width * 0.9f)
+            compose.onNodeWithTag("cursor-up").performTouchInput { click() }
+            outputContains("KEY_41")
+            compose.onNodeWithTag("cursor-down").performTouchInput { click() }
+            outputContains("KEY_42")
+            assertTrue("arrows stay while pressing", arrowKeysShown())
+            // Once presses pause, Enter takes their place.
+            compose.waitUntil(6_000) { enterKeyShown() && !arrowKeysShown() }
         } finally {
             compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             withContext(Dispatchers.Main) { service.close(session.id) }

@@ -139,16 +139,20 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
     }
     // The cursor-row Enter key stays out of the way while typing and appears once input pauses,
-    // or at once on a double tap; it fades after a quiet spell.
+    // or at once on a double tap; it fades after a quiet spell. While a slash command is being
+    // typed, Up/Down keys take its place to move through the command menu until keys pause.
     var enterKeyAwake by remember { mutableStateOf(false) }
+    var arrowKeysAwake by remember { mutableStateOf(false) }
     var enterKeyTouches by remember { mutableIntStateOf(0) }
     var enterKeyTyping by remember { mutableStateOf(false) }
     LaunchedEffect(enterKeyTouches) {
         if (enterKeyTouches == 0) return@LaunchedEffect
         if (enterKeyTyping) {
             enterKeyAwake = false
-            delay(TerminalToolbox.enterKeyTypingPauseMillis)
+            arrowKeysAwake = session.typingSlashCommand
+            delay(if (arrowKeysAwake) TerminalToolbox.arrowKeysPauseMillis else TerminalToolbox.enterKeyTypingPauseMillis)
         }
+        arrowKeysAwake = false
         enterKeyAwake = true
         val hideAfter = TerminalToolbox.enterKeyHideMillis
         if (hideAfter > 0) {
@@ -419,16 +423,37 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
                 if (showingOutput) OutputHistoryView(recordedOutput, fontSize, lightTheme)
-                androidx.compose.animation.AnimatedVisibility(enterKeyAwake && state.phase == Phase.CONNECTED && !editor && tmuxHistory?.active != true,
+                val cursorKeysAllowed = state.phase == Phase.CONNECTED && !editor && tmuxHistory?.active != true
+                androidx.compose.animation.AnimatedVisibility(enterKeyAwake && cursorKeysAllowed,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
                     terminal?.let { view ->
-                        CursorEnterKey(view, outputRevision, viewportHeight) {
-                            enterKeyTyping = false
-                            enterKeyTouches++
-                            ctrlArmed = false
-                            shiftArmed = false
-                            view.scrollToBottom()
-                            session.write("\r")
+                        CursorRowKeys(view, outputRevision, viewportHeight) {
+                            CursorKey(R.drawable.ic_return, tr("回车"), "cursor-enter") {
+                                enterKeyTyping = false
+                                enterKeyTouches++
+                                ctrlArmed = false
+                                shiftArmed = false
+                                view.scrollToBottom()
+                                session.write("\r")
+                            }
+                        }
+                    }
+                }
+                androidx.compose.animation.AnimatedVisibility(arrowKeysAwake && cursorKeysAllowed,
+                    modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
+                    terminal?.let { view ->
+                        CursorRowKeys(view, outputRevision, viewportHeight) {
+                            // Each press counts as typing, so the keys stay until presses pause.
+                            CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "cursor-up") {
+                                enterKeyTyping = true
+                                enterKeyTouches++
+                                terminalKey(KeyEvent.KEYCODE_DPAD_UP)
+                            }
+                            CursorKey(R.drawable.ic_expand_down, tr("发送下方向键"), "cursor-down") {
+                                enterKeyTyping = true
+                                enterKeyTouches++
+                                terminalKey(KeyEvent.KEYCODE_DPAD_DOWN)
+                            }
                         }
                     }
                 }
@@ -528,35 +553,43 @@ internal object TerminalToolbox {
     @Volatile var enterKeyHideMillis = 5_000L
     /** How long typing must pause before the cursor-row Enter key appears. */
     @Volatile var enterKeyTypingPauseMillis = 700L
+    /** How long key presses must pause before the slash-command Up/Down keys give way to Enter. */
+    @Volatile var arrowKeysPauseMillis = 1_200L
 }
 
-/** An Enter key at the right end of the cursor row; hidden while the cursor is scrolled away. */
+/** Keys at the right end of the cursor row; hidden while the cursor is scrolled away. */
 @Composable
-private fun CursorEnterKey(view: TerminalView, outputRevision: State<Long>, viewportHeight: Int, onClick: () -> Unit) {
+private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewportHeight: Int, keys: @Composable RowScope.() -> Unit) {
     // Output moves the cursor: follow it on every screen revision.
     checkNotNull(outputRevision.value)
     val rowTop = view.getCursorRowTop()
     if (rowTop < 0) return
     val density = LocalDensity.current
-    // A slim key drawn inside a larger touch area.
-    val keyHeight = 32.dp
-    // The terminal view sits 6dp below the viewport top; centre the key on the cursor row.
+    // The terminal view sits 6dp below the viewport top; centre the keys on the cursor row.
     val keyTop = with(density) {
-        val top = 6.dp.roundToPx() + rowTop + view.lineHeight / 2 - keyHeight.roundToPx() / 2
-        top.coerceIn(0, (viewportHeight - keyHeight.roundToPx()).coerceAtLeast(0))
+        val top = 6.dp.roundToPx() + rowTop + view.lineHeight / 2 - CursorKeyHeight.roundToPx() / 2
+        top.coerceIn(0, (viewportHeight - CursorKeyHeight.roundToPx()).coerceAtLeast(0))
     }
+    Row(Modifier.offset { IntOffset(0, keyTop) }, content = keys)
+}
+
+private val CursorKeyHeight = 32.dp
+
+/** A slim key drawn inside a larger touch area, tinted on press. */
+@Composable
+private fun CursorKey(icon: Int, description: String, tag: String, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    Box(Modifier.offset { IntOffset(0, keyTop) }.size(44.dp, keyHeight)
+    Box(Modifier.size(40.dp, CursorKeyHeight)
         .clickable(interaction, indication = null, onClick = onClick)
-        .semantics { contentDescription = tr("回车") }.testTag("cursor-enter"),
-        contentAlignment = Alignment.CenterEnd) {
-        Surface(Modifier.padding(end = 6.dp).size(28.dp, 20.dp), shape = RoundedCornerShape(6.dp),
+        .semantics { contentDescription = description }.testTag(tag),
+        contentAlignment = Alignment.Center) {
+        Surface(Modifier.size(28.dp, 20.dp), shape = RoundedCornerShape(6.dp),
             color = if (pressed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
             contentColor = MaterialTheme.colorScheme.primary,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(painterResource(R.drawable.ic_return), contentDescription = null, modifier = Modifier.size(14.dp))
+                Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(14.dp))
             }
         }
     }
