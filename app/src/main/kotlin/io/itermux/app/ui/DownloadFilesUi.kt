@@ -26,7 +26,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -130,14 +129,18 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
         val editingCompact = compact && WindowInsets.isImeVisible
         fun finishSearch() { focus.clearFocus(force = true); keyboard?.hide() }
         LaunchedEffect(searchExpanded) { if (searchExpanded) searchFocus.requestFocus() }
-        if (!editingCompact) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp),
+        if (!editingCompact) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp).padding(bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { transfer.downloadDirectory = parentRemotePath(currentPath); query = "" },
-                enabled = enabled && !transfer.resolvingDownloadDirectory && currentPath.isNotEmpty() && currentPath != "/" && !selectedOnly,
+            val canNavigate = enabled && !transfer.resolvingDownloadDirectory && !selectedOnly
+            fun navigate(path: String) { transfer.downloadDirectory = path; query = "" }
+            // Back only where there is somewhere to go; the breadcrumb jumps further up in one tap.
+            if (currentPath.isNotEmpty() && currentPath != "/") IconButton(
+                onClick = { navigate(parentRemotePath(currentPath)) }, enabled = canNavigate,
                 modifier = Modifier.testTag("download-parent")) {
-                Icon(painterResource(R.drawable.ic_arrow_up), contentDescription = tr("↑ 上级目录"))
-            }
-            DirectoryTitle(currentPath, Modifier.weight(1f).padding(horizontal = 4.dp))
+                Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = tr("↑ 上级目录"))
+            } else Spacer(Modifier.width(12.dp))
+            FileBrowserPathBar(currentPath.ifBlank { "/" }, session.host.name, canNavigate, ::navigate,
+                Modifier.weight(1f), tagPrefix = "download")
             AppSearchToggle(searchExpanded, onToggle = {
                 if (searchExpanded) { query = ""; finishSearch() }
                 searchExpanded = !searchExpanded
@@ -271,22 +274,6 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun DirectoryTitle(path: String, modifier: Modifier) {
-    val name = path.trimEnd('/').substringAfterLast('/')
-    // At the root or home there is no folder name to lift out, so the path stands alone.
-    if (name.isEmpty()) Text(path.ifBlank { tr("主目录") }, fontFamily = FontFamily.Monospace,
-        style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-        modifier = modifier.testTag("download-directory"))
-    else Column(modifier) {
-        Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        // Start-ellipsize: the deepest folders are the ones that tell paths apart.
-        Text(path, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.StartEllipsis,
-            modifier = Modifier.testTag("download-directory"))
     }
 }
 

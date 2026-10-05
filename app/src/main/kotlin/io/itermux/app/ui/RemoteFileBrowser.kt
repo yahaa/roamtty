@@ -265,13 +265,13 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
  */
 @Composable
 internal fun FileBrowserPathBar(path: String, host: String, enabled: Boolean, onNavigate: (String) -> Unit,
-    modifier: Modifier = Modifier) {
+    modifier: Modifier = Modifier, tagPrefix: String = "files") {
     val folders = remember(path) { breadcrumbSegments(path).drop(if (path.startsWith('/')) 1 else 0) }
     val scroll = rememberScrollState()
     LaunchedEffect(path, scroll.maxValue) { scroll.animateScrollTo(scroll.maxValue) }
     val colors = MaterialTheme.colorScheme
     val fadeWidth = 24.dp
-    Row(modifier.heightIn(min = 48.dp).testTag("files-breadcrumbs")
+    Row(modifier.heightIn(min = 48.dp).testTag("$tagPrefix-breadcrumbs")
         .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
         .drawWithContent {
             drawContent()
@@ -279,7 +279,7 @@ internal fun FileBrowserPathBar(path: String, host: String, enabled: Boolean, on
                 endX = fadeWidth.toPx()), blendMode = BlendMode.DstIn)
         }
         .horizontalScroll(scroll), verticalAlignment = Alignment.CenterVertically) {
-        Crumb(0, host, current = folders.isEmpty(), enabled, onClick = { onNavigate("/") }) {
+        Crumb(0, host, current = folders.isEmpty(), enabled, tagPrefix, onClick = { onNavigate("/") }) {
             Icon(painterResource(R.drawable.ic_os_server), contentDescription = null, Modifier.size(16.dp),
                 tint = colors.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
@@ -287,18 +287,18 @@ internal fun FileBrowserPathBar(path: String, host: String, enabled: Boolean, on
         folders.forEachIndexed { index, (name, target) ->
             Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null,
                 modifier = Modifier.size(14.dp), tint = colors.outline)
-            Crumb(index + 1, name, current = index == folders.lastIndex, enabled, onClick = { onNavigate(target) })
+            Crumb(index + 1, name, current = index == folders.lastIndex, enabled, tagPrefix, onClick = { onNavigate(target) })
         }
     }
 }
 
 @Composable
-private fun Crumb(index: Int, label: String, current: Boolean, enabled: Boolean, onClick: () -> Unit,
+private fun Crumb(index: Int, label: String, current: Boolean, enabled: Boolean, tagPrefix: String, onClick: () -> Unit,
     leading: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.clip(MaterialTheme.shapes.extraSmall).clickable(enabled = enabled && !current, onClick = onClick)
         .padding(horizontal = 6.dp, vertical = 10.dp)
         .then(if (current) Modifier.semantics { heading() } else Modifier)
-        .testTag(if (current) "files-title" else "files-crumb-$index"), verticalAlignment = Alignment.CenterVertically) {
+        .testTag(if (current) "$tagPrefix-title" else "$tagPrefix-crumb-$index"), verticalAlignment = Alignment.CenterVertically) {
         leading()
         Text(label, maxLines = 1, softWrap = false,
             style = if (current) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
