@@ -73,6 +73,21 @@ class OutputHistoryTest {
         assertEquals(listOf("HEADER") + transcript.subList(24, 30) + "> ready", history.snapshot().text().drop(24))
     }
 
+    @Test fun framesAreRecordedOffTheCapturingThreadAndInOrder() {
+        val tasks = ArrayList<Runnable>()
+        val history = OutputHistory(worker = { tasks += it })
+        val transcript = List(12) { "line $it of the answer" }
+        for (end in 1..12) history.capture(chat(transcript, end, "* Working ${end}s"), rows = 8)
+        // One pending drain covers every queued frame, and capturing records nothing itself.
+        assertEquals(1, tasks.size)
+        assertEquals(transcript.subList(0, 6), history.recorded.text())
+        // A drain scheduled before the snapshot caught up finds nothing left to record.
+        tasks.single().run()
+        history.capture(chat(transcript, 12, "> ready"), rows = 8)
+        assertEquals(2, tasks.size)
+        assertEquals(listOf("HEADER") + transcript.subList(6, 12) + "> ready", history.snapshot().text().drop(6))
+    }
+
     @Test fun clearedRegionIsRecordedBeforeTheNextAnswer() {
         val history = OutputHistory()
         history.capture("HEADER\nfirst answer one\nfirst answer two\nfirst answer three\n\n> footer", rows = 6)

@@ -1,6 +1,9 @@
 package io.itermux.app.session
 
 import com.termux.terminal.TerminalEmulator
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
+import java.util.concurrent.Executor
 
 /**
  * In-memory output only. Full-screen chat programs (Claude Code, Codex, Grok) repaint a fixed
@@ -8,8 +11,20 @@ import com.termux.terminal.TerminalEmulator
  * scrolls lines into a terminal history. Rows are recorded once they leave the screen: by
  * scrolling out of the viewport, or because the whole region was replaced. Rows rewritten in
  * place (spinners, streaming lines, input boxes, menus) are transient; the latest frame is live.
+ *
+ * Frames are copied from the emulator on its thread; aligning and recording them runs in order on
+ * [worker], so a streaming chat program does not spend the UI thread's frame budget here.
  */
-internal class OutputHistory(private val maxChars: Int = 2 * 1024 * 1024, private val maxLines: Int = 50_000) {
+internal class OutputHistory(private val maxChars: Int = 2 * 1024 * 1024, private val maxLines: Int = 50_000,
+                             private val worker: Executor = Dispatchers.Default.asExecutor()) {
+    /** Frames copied but not yet recorded, oldest first. Guarded by itself; taken only while holding [state]. */
+    private val queued = ArrayDeque<Frame>()
+    private var draining = false
+    /** The last frame queued; the emulator thread skips repeats without queueing them. */
+    private var lastQueued = emptyList<OutputHistoryLine>()
+    private var deferred = 0
+    /** Guards everything below, which only the recording side touches. */
+    private val state = Any()
     private val lines = ArrayDeque<OutputHistoryLine>()
     private var chars = 0
     /** Absolute index of [lines]'s first row, so key positions survive trimming. */
@@ -19,7 +34,6 @@ internal class OutputHistory(private val maxChars: Int = 2 * 1024 * 1024, privat
     private var replay = -1L
     private var previous = emptyList<OutputHistoryLine>()
     private var alignment = IntArray(0)
-    private var deferred = 0
     private var paragraphBreak = false
 
     /** Before a clear or scroll; a synchronized frame is still being painted and changes as a whole. */
@@ -39,24 +53,41 @@ internal class OutputHistory(private val maxChars: Int = 2 * 1024 * 1024, privat
         for (row in 0 until emulator.mRows) next.add(OutputHistoryLine.capture(emulator, row))
         while (next.lastOrNull()?.blank == true) next.removeAt(next.lastIndex)
         // A cleared screen is about to be repainted; compare the old frame with the repaint.
-        if (next.isEmpty() || next == previous) return
-        // A new width re-lays out the same transcript; the old rows have not left the program.
-        if (previous.isNotEmpty() && previous[0].columns == next[0].columns)
-            recordDisappeared(next, emulator.isAlternateBufferActive)
-        previous = next
+        if (next.isEmpty() || next == lastQueued) return
+        lastQueued = next
+        val schedule = synchronized(queued) {
+            queued.addLast(Frame(next, emulator.isAlternateBufferActive))
+            !draining.also { draining = true }
+        }
+        if (schedule) worker.execute { synchronized(state) { recordQueued() } }
     }
 
-    internal val recorded: List<OutputHistoryLine> get() = lines.toList()
+    /** Records every queued frame in order. Callers hold [state], so frames never interleave. */
+    private fun recordQueued() {
+        while (true) {
+            val frame = synchronized(queued) { queued.removeFirstOrNull() ?: run { draining = false; null } } ?: return
+            val next = frame.rows
+            // A new width re-lays out the same transcript; the old rows have not left the program.
+            if (previous.isNotEmpty() && previous[0].columns == next[0].columns)
+                recordDisappeared(next, frame.alternateBuffer)
+            previous = next
+        }
+    }
+
+    internal val recorded: List<OutputHistoryLine> get() = synchronized(state) { recordQueued(); lines.toList() }
 
     /**
      * Recorded rows followed by the current screen, without the screen rows already recorded (the
      * program scrolled back to them). Immutable rows keep an open view stable.
      */
-    fun snapshot(): List<OutputHistoryLine> = ArrayList<OutputHistoryLine>(lines.size + previous.size).apply {
-        addAll(lines)
-        for (line in previous) {
-            if (line.key.count { !it.isWhitespace() } >= DISTINCT_CHARS && positions[line.key]?.let { it >= dropped } == true) continue
-            add(line)
+    fun snapshot(): List<OutputHistoryLine> = synchronized(state) {
+        recordQueued()
+        ArrayList<OutputHistoryLine>(lines.size + previous.size).apply {
+            addAll(lines)
+            for (line in previous) {
+                if (line.key.count { !it.isWhitespace() } >= DISTINCT_CHARS && positions[line.key]?.let { it >= dropped } == true) continue
+                add(line)
+            }
         }
     }
 
@@ -181,6 +212,8 @@ internal class OutputHistory(private val maxChars: Int = 2 * 1024 * 1024, privat
         }
         return match
     }
+
+    private class Frame(val rows: List<OutputHistoryLine>, val alternateBuffer: Boolean)
 
     private companion object {
         const val DISTINCT_CHARS = 12
