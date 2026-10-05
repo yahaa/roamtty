@@ -61,14 +61,22 @@ class HostDetailDeviceTest {
             compose.onNodeWithTag("host-menu-$id").performClick()
             compose.onNodeWithTag("host-open-terminal-$id").assertExists()
             compose.onNodeWithTag("host-open-agent-$id").performClick()
-            compose.onNodeWithTag("launch-path").assert(hasText("~"))
+            compose.onNodeWithTag("launch-crumb-0").assert(hasText("~"))
             awaitTag("launch-folder-projects")
             compose.onNodeWithTag("launch-folder-notes").assertExists()
             compose.onNodeWithTag("launch-folder-projects").performClick()
             awaitTag("launch-folder-app")
-            compose.onNodeWithTag("launch-path").assert(hasText("~/projects"))
-            compose.onNodeWithTag("launch-parent").assertExists()
+            compose.onNodeWithTag("launch-crumb-1").assert(hasText("projects"))
+            compose.onNodeWithTag("launch-parent").assertIsEnabled()
+            compose.onNodeWithTag("agent-picker").performClick()
             compose.onNodeWithTag("agent-option-codex").performClick()
+            compose.onNodeWithTag("agent-mode-picker").performClick()
+            compose.onNodeWithTag("agent-mode-yolo").performClick()
+            compose.onNodeWithTag("agent-mode-info").performClick()
+            compose.onNodeWithTag("agent-mode-warning").assertExists()
+            screenshot("launch-sheet-yolo")
+            compose.onNodeWithTag("agent-mode-picker").performClick()
+            screenshot("launch-sheet-mode-menu")
             compose.onNodeWithTag("agent-mode-read-only").performClick()
             compose.onNodeWithTag("launch-open").assert(hasText("在 projects 启动 Codex"))
             screenshot("launch-sheet-agent")
@@ -100,6 +108,20 @@ class HostDetailDeviceTest {
             awaitTag("launch-folder-projects", 8000)
             compose.onNodeWithTag("launch-open").assert(hasText("在主目录打开终端"))
             screenshot("launch-sheet-terminal")
+            // Up to `/`, which has plenty of folders: the filter takes the path bar's place and Enter opens the top match.
+            repeat(4) { if (compose.onNodeWithTag("launch-parent").fetchSemanticsNode().config.contains(
+                    androidx.compose.ui.semantics.SemanticsProperties.Disabled).not()) {
+                compose.onNodeWithTag("launch-parent").performClick(); compose.waitForIdle(); Thread.sleep(800) } }
+            awaitTag("launch-folder-bin", 8000)
+            compose.onNodeWithTag("launch-filter-toggle").performClick()
+            compose.onNodeWithTag("launch-filter").performTextInput("us")
+            compose.waitUntil(5000) { compose.onAllNodesWithTag("launch-folder-bin").fetchSemanticsNodes().isEmpty() &&
+                compose.onAllNodesWithTag("launch-folder-usr").fetchSemanticsNodes().isNotEmpty() }
+            screenshot("launch-sheet-filter")
+            compose.onNodeWithTag("launch-filter").performImeAction()
+            compose.waitUntil(8000) { compose.onAllNodesWithTag("launch-crumb-1").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithTag("launch-filter").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("launch-crumb-1").assert(hasText("usr"))
         } finally {
             val service = (serviceRule.bindService(Intent(instrumentation.targetContext, SessionService::class.java)) as SessionService.LocalBinder).service
             withContext(Dispatchers.Main) {

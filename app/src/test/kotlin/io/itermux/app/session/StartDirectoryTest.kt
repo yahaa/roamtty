@@ -21,4 +21,10 @@ class StartDirectoryTest {
         assertEquals(recent, StartDirectory.remember(recent, "~"))
         assertEquals(6, (1..10).fold(emptyList<String>()) { list, i -> StartDirectory.remember(list, "/d$i") }.size)
     }
+    @Test fun segmentsLeadFromHomeOrRoot() {
+        assertEquals(listOf("~" to "~"), StartDirectory.segments("~"))
+        assertEquals(listOf("~" to "~", "work" to "~/work", "app" to "~/work/app"), StartDirectory.segments("~/work/app/"))
+        assertEquals(listOf("/" to "/"), StartDirectory.segments("/"))
+        assertEquals(listOf("/" to "/", "srv" to "/srv", "it" to "/srv/it"), StartDirectory.segments("/srv/it"))
+    }
 }

@@ -22,6 +22,21 @@ object StartDirectory {
         }
     }
 
+    /** Each folder on the way to [directory] as (name, path), from `~` or `/`, so any of them is one tap away. */
+    fun segments(directory: String): List<Pair<String, String>> {
+        val dir = normalize(directory)
+        val (root, rest) = when {
+            dir == HOME || dir.startsWith("~/") -> HOME to dir.removePrefix(HOME)
+            dir.startsWith("/") -> "/" to dir
+            else -> return listOf(dir to dir)
+        }
+        var path = root
+        return listOf(root to root) + rest.split('/').filter { it.isNotEmpty() }.map { name ->
+            path = if (path.endsWith('/')) "$path$name" else "$path/$name"
+            name to path
+        }
+    }
+
     /** [directory] first, without duplicates; home is always offered separately, so it is never stored. */
     fun remember(recent: List<String>, directory: String): List<String> {
         val dir = normalize(directory)
