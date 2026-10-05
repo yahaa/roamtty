@@ -28,13 +28,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.itermux.app.AppLanguage
 import io.itermux.app.TerminalFonts
+import io.itermux.app.session.AgentAlertSettings
 import io.itermux.app.tr
 import kotlinx.coroutines.*
 
 @Composable
 internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
-    language: AppLanguage, onLanguageChange: (AppLanguage) -> Unit) {
+    language: AppLanguage, onLanguageChange: (AppLanguage) -> Unit, onAgentAlertsChange: () -> Unit = {}) {
     val context = LocalContext.current
+    var agentAlerts by remember { mutableStateOf(AgentAlertSettings.enabled(context)) }
     val power = context.getSystemService(PowerManager::class.java)
     var exempt by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(context.packageName)) }
     val scope = rememberCoroutineScope()
@@ -95,6 +97,16 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
                     }
                 }
                 DownloadDirectorySetting()
+                GroupedSection(header = tr("通知"),
+                    footer = tr("主机安装“AI 交互提醒”插件后，Claude Code、Codex、Grok 请求权限或向你提问时发送通知，处理后自动撤销。需要保持会话连接。")) {
+                    GroupedRow(tr("AI 交互提醒"), Modifier.testTag("settings-agent-alerts"), trailing = {
+                        Switch(agentAlerts, null)
+                    }, onClick = {
+                        agentAlerts = !agentAlerts
+                        AgentAlertSettings.set(context, agentAlerts)
+                        onAgentAlertsChange()
+                    })
+                }
                 GroupedSection(header = tr("后台连接"),
                     footer = tr("锁屏后保持 SSH 需要允许后台运行，可能增加耗电。部分手机还需在系统设置中允许自启动。")) {
                     if (exempt) GroupedRow(tr("已允许不受电池优化限制"), Modifier.testTag("battery-exempt"),

@@ -33,6 +33,14 @@ class SessionService : Service() {
     private lateinit var wakeLock: PowerManager.WakeLock
     private val stateWatchers = mutableMapOf<String, Job>()
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val agentAlerts = AgentAlerts()
+    /** One event follower per host, on any of its connected sessions. */
+    private val agentWatchers = mutableMapOf<String, Job>()
+    private var appVisible = false
+    private var screenSession: String? = null
+    private val lastViewed = mutableMapOf<String, Long>()
+    /** Reminders waiting out [AGENT_SHOW_DELAY_MS]; a resolved event in time means none is shown. */
+    private val pendingAlerts = mutableMapOf<String, Job>()
     inner class LocalBinder : Binder() { val service get() = this@SessionService }
     override fun onBind(intent: Intent?) = binder
     override fun onCreate() {
@@ -65,7 +73,115 @@ class SessionService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, tr("SSH 会话"), NotificationManager.IMPORTANCE_LOW).apply { description = tr("保持主动打开的 SSH 连接") }
         )
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(AGENT_CHANNEL, tr("AI 交互提醒"), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = tr("Claude Code、Codex、Grok 请求权限或向你提问时提醒")
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            }
+        )
         if (foreground) refreshNotification()
+    }
+
+    /** The activity is visible; reminders for the session on screen are then not needed. */
+    fun setAppVisible(visible: Boolean) {
+        appVisible = visible
+        screenSession?.let { if (visible) viewed(it) }
+    }
+
+    /** The terminal page shows [sessionId], or no session when null. */
+    fun setScreenSession(sessionId: String?) {
+        screenSession = sessionId
+        if (sessionId != null && appVisible) viewed(sessionId)
+    }
+
+    private fun viewed(sessionId: String) {
+        lastViewed[sessionId] = SystemClock.elapsedRealtime()
+        agentAlerts.onViewed(sessionId)?.let(::apply)
+    }
+
+    /** Plugins were installed or removed on [hostId]: its connected sessions probe again. */
+    fun refreshPlugins(hostId: String) {
+        mutableSessions.value.filter { it.host.id == hostId && it.state.value.phase == Phase.CONNECTED }
+            .forEach { scope.launch { it.reprobePlugins() } }
+    }
+
+    /** Re-reads the "AI 交互提醒" setting: starts or stops following events and withdraws reminders. */
+    fun refreshAgentAlerts() {
+        if (!AgentAlertSettings.enabled(this)) mutableSessions.value.forEach { agentAlerts.forget(it.id)?.let(::apply) }
+        reconcileAgentWatchers()
+    }
+
+    private fun reconcileAgentWatchers() {
+        val hosts = if (!AgentAlertSettings.enabled(this)) emptySet()
+            else mutableSessions.value.filter { it.followsAgentEvents }.mapTo(mutableSetOf()) { it.host.id }
+        agentWatchers.keys.filter { it !in hosts }.forEach { agentWatchers.remove(it)?.cancel() }
+        hosts.filter { it !in agentWatchers }.forEach { hostId -> agentWatchers[hostId] = scope.launch { followAgentEvents(hostId) } }
+    }
+
+    private suspend fun followAgentEvents(hostId: String) {
+        try {
+            while (true) {
+                val connection = mutableSessions.value.firstOrNull { it.host.id == hostId && it.followsAgentEvents } ?: break
+                connection.followAgentEvents { line -> AgentEvent.parse(line)?.let { onAgentEvent(hostId, it) } }
+                // The SSH side dropped (mosh keeps the terminal) or the command ended; try again shortly.
+                delay(AGENT_RETRY_MS)
+            }
+        } finally {
+            if (agentWatchers[hostId] === currentCoroutineContext()[Job]) agentWatchers.remove(hostId)
+        }
+    }
+
+    private fun onAgentEvent(hostId: String, event: AgentEvent) {
+        val sessions = mutableSessions.value.filter { it.host.id == hostId }
+        // Live sessions first, the most recently viewed one leading; detached tmux entries can still own a reminder.
+        val candidates = sessions.sortedWith(compareByDescending<TerminalConnection> { it.state.value.active }
+            .thenByDescending { lastViewed[it.id] ?: 0L })
+            .map { AgentAlerts.Candidate(it.id, it.tmuxName) }
+        agentAlerts.onEvent(hostId, event, candidates, screenSession.takeIf { appVisible })?.let(::apply)
+    }
+
+    private fun apply(action: AgentAlerts.Action) {
+        val notifications = getSystemService(NotificationManager::class.java)
+        pendingAlerts.remove(action.sessionId)?.cancel()
+        when (action) {
+            is AgentAlerts.Action.Cancel -> notifications.cancel(action.sessionId, AGENT_NOTIFICATION)
+            // CLIs sometimes ask and settle at once (auto-approved requests); those should not buzz.
+            is AgentAlerts.Action.Show -> pendingAlerts[action.sessionId] = scope.launch {
+                delay(AGENT_SHOW_DELAY_MS)
+                pendingAlerts.remove(action.sessionId)
+                val connection = mutableSessions.value.find { it.id == action.sessionId } ?: return@launch
+                notifications.notify(action.sessionId, AGENT_NOTIFICATION, agentNotification(connection, action.event, action.alert))
+            }
+        }
+    }
+
+    private fun agentNotification(connection: TerminalConnection, event: AgentEvent, alert: Boolean): Notification {
+        val open = PendingIntent.getActivity(this, connection.id.hashCode(),
+            Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_SESSION_ID, connection.id)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val agent = CodingAgent.entries.firstOrNull { it.command == event.agent }?.shortLabel ?: event.agent.replaceFirstChar { it.uppercase() }
+        val question = event.reason == "question"
+        val text = when {
+            event.msg.isBlank() -> trf(if (question) "%s 在等你回答" else "%s 请求权限", agent)
+            else -> trf(if (question) "%s 在等你回答：%s" else "%s 请求权限：%s", agent, event.msg)
+        }
+        // The lock screen shows that an agent waits, never what it asks.
+        val public = NotificationCompat.Builder(this, AGENT_CHANNEL).setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Roamtty").setContentText(tr("AI 助手在等你操作")).build()
+        return NotificationCompat.Builder(this, AGENT_CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(connection.displayTitle)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(public)
+            .setSilent(!alert)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .build()
     }
     suspend fun awaitRestoration() { restoration.join() }
     private fun saveSessions() = journal.save(mutableSessions.value)
@@ -102,7 +218,10 @@ class SessionService : Service() {
     private fun track(connection: TerminalConnection) {
         ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
         saveSessions()
-        stateWatchers[connection.id] = scope.launch { connection.state.collect { refreshNotification() } }
+        stateWatchers[connection.id] = scope.launch {
+            launch { connection.detectedPlugins.collect { reconcileAgentWatchers() } }
+            connection.state.collect { refreshNotification(); reconcileAgentWatchers() }
+        }
     }
 
     /**
@@ -140,6 +259,8 @@ class SessionService : Service() {
         stateWatchers.remove(id)?.cancel()
         val existing = mutableSessions.value.find { it.id == id } ?: return
         existing.disconnect()
+        agentAlerts.forget(id)?.let(::apply)
+        reconcileAgentWatchers()
         // Detach preserves the remote task. Keep its addressable identity for reconnect.
         if (existing.mode != SessionMode.TMUX)
             mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
@@ -151,6 +272,8 @@ class SessionService : Service() {
         check(!existing.state.value.active)
         stateWatchers.remove(id)?.cancel()
         mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+        agentAlerts.forget(id)?.let(::apply)
+        lastViewed.remove(id)
         saveSessions()
     }
     /** Sockets bound to a lost network or frozen by a long sleep can look connected for minutes. */
@@ -178,7 +301,7 @@ class SessionService : Service() {
         }.getOrNull()
     }
 
-    fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; refreshNotification() }
+    fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; refreshNotification(); reconcileAgentWatchers() }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == DISCONNECT_ALL) { disconnectAll(); stopSelf(); return START_NOT_STICKY }
         ServiceCompat.startForeground(this, NOTIFICATION, notification(),
@@ -223,5 +346,10 @@ class SessionService : Service() {
         private const val CHANNEL = "ssh-sessions"
         private const val NOTIFICATION = 20
         private const val DISCONNECT_ALL = "io.itermux.DISCONNECT_ALL"
+        private const val AGENT_CHANNEL = "agent-attention"
+        /** Tagged with the session id: one reminder per session. */
+        private const val AGENT_NOTIFICATION = 21
+        private const val AGENT_RETRY_MS = 3_000L
+        private const val AGENT_SHOW_DELAY_MS = 1_500L
     }
 }

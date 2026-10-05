@@ -1,8 +1,11 @@
 package io.itermux.ssh
 
-/** Remote helpers Roamtty can use: tmux keeps sessions alive, mosh keeps the terminal alive over roaming UDP. */
-enum class HostPlugin(val id: String) {
-    TMUX("tmux"), MOSH("mosh");
+/**
+ * Remote helpers Roamtty can use: tmux keeps sessions alive, mosh keeps the terminal alive over roaming UDP,
+ * notify reports AI CLIs waiting for the user ([AgentNotify]). [packaged] ones come from the package manager.
+ */
+enum class HostPlugin(val id: String, val packaged: Boolean = true) {
+    TMUX("tmux"), MOSH("mosh"), NOTIFY("notify", packaged = false);
 
     companion object {
         /** Stored as a comma-separated list; null means "never probed". */
@@ -16,6 +19,7 @@ enum class HostPlugin(val id: String) {
 internal object HostPluginProbe {
     const val TMUX = "__ITERMUX_TMUX__="
     const val MOSH = "__ITERMUX_MOSH__="
+    const val NOTIFY = "__ITERMUX_NOTIFY__="
     const val command = "/bin/sh -s"
 
     /** Looks mosh-server up in [m] with the Homebrew, MacPorts and snap paths a non-login shell misses. */
@@ -26,6 +30,7 @@ m=${'$'}(command -v mosh-server 2>/dev/null)"""
         $moshLookup
         printf '$TMUX%s\n' "${'$'}(command -v tmux 2>/dev/null)"
         printf '$MOSH%s\n' "${'$'}m"
+        [ -x "${'$'}HOME/${AgentNotify.SCRIPT}" ] && echo '${NOTIFY}1'
         exit 0
     """.trimIndent()
 
@@ -36,6 +41,7 @@ m=${'$'}(command -v mosh-server 2>/dev/null)"""
         return buildSet {
             if (tmux.removePrefix(TMUX).isNotBlank()) add(HostPlugin.TMUX)
             if (mosh.removePrefix(MOSH).isNotBlank()) add(HostPlugin.MOSH)
+            if (lines.any { it == "${NOTIFY}1" }) add(HostPlugin.NOTIFY)
         }
     }
 }
@@ -54,6 +60,7 @@ object HostPluginInstaller {
      * `sudo -S -k` always reads the password line, so it is never passed on to the package manager.
      */
     fun script(plugin: HostPlugin, sudoPassword: String?): String {
+        if (plugin == HostPlugin.NOTIFY) return AgentNotify.installScript()
         val password = sudoPassword?.takeIf { it.isNotEmpty() && '\n' !in it && '\r' !in it }.orEmpty()
         val quoted = "'" + password.replace("'", "'\\''") + "'"
         val pkg = plugin.id

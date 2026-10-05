@@ -32,6 +32,9 @@ val Host.newSessionMode: SessionMode get() = installedPlugins?.let { if (HostPlu
 /** Terminals prefer mosh whenever the host has mosh-server. */
 val Host.prefersMosh: Boolean get() = installedPlugins?.contains(HostPlugin.MOSH) == true
 
+/** The AI reminder hooks ([io.itermux.ssh.AgentNotify]) are installed on this host. */
+val Host.hasAgentNotify: Boolean get() = installedPlugins?.contains(HostPlugin.NOTIFY) == true
+
 @Entity(tableName = "host_pins")
 data class StoredPin(@PrimaryKey val endpoint: String, val algorithm: String, val key: String) {
     fun toPin() = HostPin(endpoint, algorithm, key)

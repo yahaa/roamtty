@@ -37,4 +37,11 @@ class AgentLaunchTest {
         assertEquals(CodingAgent.CODEX, CodingAgent.from("nope"))
         assertEquals(CodingAgent.GROK, CodingAgent.from("GROK"))
     }
+
+    @Test fun codexTrustsNotifyHooksBeforeStarting() {
+        assertEquals("~/.roamtty/bin/roamtty-notify --trust-codex; cd '/a' && codex",
+            AgentLaunch(CodingAgent.CODEX, "/a").commandLine(notifyHooks = true))
+        assertEquals("cd '/a' && claude", AgentLaunch(CodingAgent.CLAUDE, "/a").commandLine(notifyHooks = true))
+        assertEquals("cd '/a' && codex", AgentLaunch(CodingAgent.CODEX, "/a").commandLine(notifyHooks = false))
+    }
 }

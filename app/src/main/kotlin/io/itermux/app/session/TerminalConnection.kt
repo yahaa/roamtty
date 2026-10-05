@@ -100,6 +100,15 @@ class TerminalConnection(
     val detectedSystem = ssh.detectedSystem
     /** SSH or mosh once connected; null before the first connection. */
     val transport = ssh.transport
+    val detectedPlugins = ssh.detectedPlugins
+    /** The remote tmux session this entry attaches, as the AI reminder hooks report it. */
+    val tmuxName: String? get() = if (mode == SessionMode.TMUX) Tmux.sanitizeSessionName(remoteSessionName) else null
+    /** Connected to a host whose AI reminder hooks are installed. */
+    val followsAgentEvents: Boolean
+        get() = state.value.phase == Phase.CONNECTED && detectedPlugins.value?.contains(HostPlugin.NOTIFY) == true
+    /** Follows the host's AI reminder events until the SSH side drops or the caller cancels. */
+    suspend fun followAgentEvents(onLine: suspend (String) -> Unit) = ssh.follow(AgentNotify.WATCH_COMMAND, onLine)
+    suspend fun reprobePlugins() = ssh.reprobePlugins()
     private val systemWatcher = if (credentials == null) null else scope.launch {
         launch {
             ssh.detectedPlugins.filterNotNull().collect { plugins ->

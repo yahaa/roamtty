@@ -24,11 +24,15 @@ class MainActivity : ComponentActivity() {
     private var terminalVisible = false
     private var lightTheme = false
     private var pendingShareImages by mutableStateOf<List<Uri>>(emptyList())
+    /** A session to open, from a tapped AI reminder. */
+    private var openSessionRequest by mutableStateOf<String?>(null)
+    private var started = false
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             service = (binder as SessionService.LocalBinder).service.also {
                 // Returning to the app (often after a night of sleep) must not show a frozen terminal.
                 it.verifyConnections()
+                it.setAppVisible(started)
             }
         }
         override fun onServiceDisconnected(name: ComponentName?) { service = null }
@@ -52,12 +56,15 @@ class MainActivity : ComponentActivity() {
         }
         pendingShareImages = savedInstanceState?.getStringArrayList("pendingShareImages")?.map(Uri::parse)
             ?: ShareImageIntents.takeImageUris(intent)
+        if (savedInstanceState == null) openSessionRequest = intent.getStringExtra(EXTRA_SESSION_ID)
         setContent {
             ItermuxScreen(
                 application as ItermuxApp,
                 service,
                 pendingShareImages = pendingShareImages,
                 onShareImagesConsumed = { pendingShareImages = emptyList() },
+                openSessionRequest = openSessionRequest,
+                onOpenSessionConsumed = { openSessionRequest = null },
             ) { visible, light ->
                 terminalVisible = visible
                 lightTheme = light
@@ -69,6 +76,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingShareImages = pendingShareImages + ShareImageIntents.takeImageUris(intent)
+        intent.getStringExtra(EXTRA_SESSION_ID)?.let { openSessionRequest = it }
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putStringArrayList("pendingShareImages", ArrayList(pendingShareImages.map(Uri::toString)))
@@ -105,13 +113,21 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         android.util.Log.i("RoamttyConn", "activity start")
+        started = true
+        service?.setAppVisible(true)
         bound = bindService(Intent(this, SessionService::class.java), connection, BIND_AUTO_CREATE)
     }
     override fun onStop() {
         android.util.Log.i("RoamttyConn", "activity stop")
+        started = false
+        service?.setAppVisible(false)
         if (bound) { unbindService(connection); bound = false }
         // Keep the terminal UI and editor state while the activity is in the background.
         // The foreground service still owns the connection; onStart rebinds to the current service.
         super.onStop()
+    }
+
+    companion object {
+        const val EXTRA_SESSION_ID = "io.itermux.SESSION_ID"
     }
 }

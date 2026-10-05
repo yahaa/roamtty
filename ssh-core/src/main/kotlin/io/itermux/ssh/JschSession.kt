@@ -607,6 +607,58 @@ class JschSession(
     suspend fun makeDirectory(path: String) = withFiles { files.makeDirectory(path) }
     suspend fun isDirectory(path: String) = withFiles { files.isDirectory(path) }
 
+    /**
+     * Runs a long-lived [command] on the SSH connection (beside mosh too) and hands each output line
+     * to [onLine] until the command ends, the connection drops or the caller is cancelled. The
+     * command's stdin stays open the whole time and reaches EOF when the channel closes.
+     */
+    suspend fun follow(command: String, onLine: suspend (String) -> Unit) {
+        val ssh = auxiliarySession(interactive = false) ?: return
+        val stdin = java.io.PipedOutputStream()
+        val exec = withContext(Dispatchers.IO) {
+            try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { null }
+        } ?: return
+        try {
+            val output = withContext(Dispatchers.IO) {
+                exec.setCommand(command)
+                exec.setInputStream(java.io.PipedInputStream(stdin))
+                exec.inputStream.also { exec.connect(connectTimeoutMs) }
+            }
+            val line = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(4096)
+            while (!stopped.get()) {
+                var lines = emptyList<String>()
+                val open = withContext(Dispatchers.IO) {
+                    val ready = mutableListOf<String>()
+                    while (output.available() > 0) {
+                        val count = output.read(buffer)
+                        if (count < 0) break
+                        for (i in 0 until count) {
+                            if (buffer[i] == '\n'.code.toByte()) {
+                                ready += line.toString(Charsets.UTF_8.name()).trimEnd('\r'); line.reset()
+                            } else if (line.size() < 64 * 1024) line.write(buffer[i].toInt())
+                        }
+                    }
+                    lines = ready
+                    !exec.isClosed
+                }
+                lines.forEach { onLine(it) }
+                if (!open) break
+                delay(250)
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { /* A dropped connection ends the follow; the caller decides whether to retry. */ }
+        finally {
+            withContext(NonCancellable + Dispatchers.IO) {
+                runCatching { stdin.close() }
+                exec.disconnect()
+            }
+        }
+    }
+
+    /** Probes the plugins again, e.g. after one was installed while this session was connected. */
+    suspend fun reprobePlugins() { auxiliarySession(interactive = false)?.let { probePlugins(it) } }
+
     /** File operations first restore the SSH side of a mosh session if it dropped. */
     private suspend fun <T> withFiles(block: suspend () -> T): T { auxiliarySession(); return block() }
 

@@ -37,6 +37,7 @@ import io.itermux.app.AppLocale
 import io.itermux.app.trf
 import io.itermux.app.R
 import io.itermux.app.data.Host
+import io.itermux.app.data.hasAgentNotify
 import io.itermux.app.data.newSessionMode
 import io.itermux.app.data.prefersMosh
 import io.itermux.app.session.*
@@ -55,6 +56,8 @@ fun ItermuxScreen(
     service: SessionService?,
     pendingShareImages: List<Uri> = emptyList(),
     onShareImagesConsumed: () -> Unit = {},
+    openSessionRequest: String? = null,
+    onOpenSessionConsumed: () -> Unit = {},
     onChromeChange: (Boolean, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -99,6 +102,18 @@ fun ItermuxScreen(
         service?.awaitRestoration()
         if (service != null && page == "terminal" && service.sessions.value.none { it.id == selected }) page = "sessions"
         if (service != null && page == "files" && service.sessions.value.none { it.id == selected }) page = "hosts"
+    }
+    // A tapped AI reminder opens its session.
+    LaunchedEffect(service, openSessionRequest) {
+        val id = openSessionRequest ?: return@LaunchedEffect
+        val bound = service ?: return@LaunchedEffect
+        bound.awaitRestoration()
+        if (bound.sessions.value.any { it.id == id }) { selected = id; page = "terminal" }
+        onOpenSessionConsumed()
+    }
+    // Reminders are withdrawn once their session is on screen, and not raised while it stays there.
+    LaunchedEffect(service, page, selected, sessions) {
+        service?.setScreenSession(selected.takeIf { page == "terminal" && sessions.any { it.id == selected } })
     }
     var search by rememberSaveable { mutableStateOf("") }
     var sessionSearch by rememberSaveable { mutableStateOf("") }
@@ -171,7 +186,7 @@ fun ItermuxScreen(
 
     /** A new session in [directory]; with [agent], that agent is started there and names the session. */
     fun launchOn(host: Host, directory: String, agent: AgentLaunch?) {
-        if (agent != null) connect(host, title = agent.title, startupCommand = agent.commandLine)
+        if (agent != null) connect(host, title = agent.title, startupCommand = agent.commandLine(host.hasAgentNotify))
         else connect(host, startupCommand = StartDirectory.command(directory))
     }
 
@@ -379,8 +394,8 @@ fun ItermuxScreen(
                             RemoteFileBrowserPage(filesSession, onBack = { page = "hosts" }, Modifier.weight(1f),
                                 // A new terminal session (tmux when the host has it) so the agent outlives the browser.
                                 onLaunchAgent = { launch ->
-                                    connect(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host,
-                                        title = launch.title, startupCommand = launch.commandLine)
+                                    val host = hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host
+                                    connect(host, title = launch.title, startupCommand = launch.commandLine(host.hasAgentNotify))
                                 }, onOpenTerminal = { directory ->
                                     launchOn(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host, directory, null)
                                 })
@@ -393,7 +408,8 @@ fun ItermuxScreen(
                     SettingsPage(theme, { option ->
                         theme = option
                         prefs.edit { putString("theme", option.name) }
-                    }, AppLocale.language, { option -> AppLocale.set(context, option); service?.refreshLanguage() })
+                    }, AppLocale.language, { option -> AppLocale.set(context, option); service?.refreshLanguage() },
+                        onAgentAlertsChange = { service?.refreshAgentAlerts() })
                 } else if (sessions.isEmpty()) {
                     EmptyState(tr("终端已就绪"), tr("连接一台主机，开始远端工作。"), Modifier.fillMaxSize(),
                         action = { FilledTonalButton(onClick = { page = "sessions" }) { Text(tr("返回会话列表")) } })
@@ -436,7 +452,7 @@ fun ItermuxScreen(
         pluginTarget?.let { target ->
             val controller = remember(target) { HostPluginsController(app, target, scope).also { it.start() } }
             DisposableEffect(controller) { onDispose { controller.close() } }
-            HostPluginsSheet(controller) { pluginTarget = null }
+            HostPluginsSheet(controller) { pluginTarget = null; service?.refreshPlugins(target.host.id) }
         }
         reverify?.let { session -> AlertDialog(onDismissRequest = { reverify = null }, title = { Text(tr("重新核验主机指纹")) }, text = { Text(trf("请先向服务器管理员确认新指纹。继续会移除此地址原有的信任记录，关闭该地址的连接，并在重连时重新展示指纹。\n\n%s", session.host.target().endpoint)) },
             confirmButton = { TextButton(onClick = { scope.launch {
