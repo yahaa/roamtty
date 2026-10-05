@@ -151,6 +151,8 @@ public final class TerminalView extends View {
     private static final float SWIPE_MIN_DISTANCE_DP = 32f;
     /** A swipe travels at least this many times as far sideways as vertically. */
     private static final float SWIPE_MIN_RATIO = 1.5f;
+    /** A sideways swipe that stays still this long before lifting is a swipe-and-hold. */
+    private Runnable mSwipeHold;
 
     public TerminalView(Context context, AttributeSet attributes) { // NO_UCD (unused code)
         super(context, attributes);
@@ -161,11 +163,34 @@ public final class TerminalView extends View {
             float downX, downY;
             /** A pinch in this gesture: its final lift is never a swipe. */
             boolean scaledInGesture;
+            /** Where the finger last moved past the touch slop, and where it is now, while a swipe may become a hold. */
+            float holdX, holdY, lastX, lastY;
+            /** The swipe-and-hold already fired: lifting sends nothing more. */
+            boolean swipeHeld;
+            final int touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+            final Runnable swipeHold = () -> {
+                int direction = swipeDirection(lastX, lastY);
+                if (direction == 0) return;
+                swipeHeld = true;
+                requestFocus();
+                if (direction < 0) mClient.onSwipeHoldLeft();
+                else mClient.onSwipeHoldRight();
+            };
+
+            {
+                mSwipeHold = swipeHold;
+            }
 
             @Override
             public boolean onUp(MotionEvent event) {
                 mScrollRemainder = 0.0f;
-                if (isSwipeLeft(event)) {
+                cancelSwipeHold();
+                if (swipeHeld) {
+                    swipeHeld = false;
+                    scrolledWithFinger = false;
+                    return true;
+                }
+                if (swipeDirection(event.getX(), event.getY()) < 0) {
                     scrolledWithFinger = false;
                     requestFocus();
                     mClient.onSwipeLeft(event);
@@ -207,7 +232,11 @@ public final class TerminalView extends View {
                 } else {
                     scrolledWithFinger = true;
                     // A sideways drag is a swipe in progress: do not scroll (or send arrow keys) for its small vertical drift.
-                    if (isSideways(e)) return true;
+                    if (isSideways(e)) {
+                        trackSwipeHold(e);
+                        return true;
+                    }
+                    cancelSwipeHold();
                     distanceY += mScrollRemainder;
                     int deltaRows = (int) (distanceY / mRenderer.mFontLineSpacing);
                     mScrollRemainder = distanceY - deltaRows * mRenderer.mFontLineSpacing;
@@ -229,7 +258,7 @@ public final class TerminalView extends View {
             public boolean onFling(final MotionEvent e2, float velocityX, float velocityY) {
                 if (mEmulator == null) return true;
                 // A sideways fling is a swipe, judged by distance when the finger lifts (onUp).
-                if (isSideways(e2)) return true;
+                if (isSideways(e2) || swipeHeld) return true;
                 // Do not start scrolling until last fling has been taken care of:
                 if (!mScroller.isFinished()) return true;
 
@@ -292,6 +321,8 @@ public final class TerminalView extends View {
                 downX = x;
                 downY = y;
                 scaledInGesture = false;
+                swipeHeld = false;
+                holdX = Float.MAX_VALUE;
                 // Why is true not returned here?
                 // https://developer.android.com/training/gestures/detector.html#detect-a-subset-of-supported-gestures
                 // Although setting this to true still does not solve the following errors when long pressing in terminal view text area
@@ -302,15 +333,37 @@ public final class TerminalView extends View {
             }
 
             private boolean isSideways(MotionEvent e) {
-                return Math.abs(e.getX() - downX) > SWIPE_MIN_RATIO * Math.abs(e.getY() - downY);
+                return isSideways(e.getX(), e.getY());
             }
 
-            /** A left swipe, at any speed, travels far enough and mostly sideways; vertical drags keep scrolling. */
-            private boolean isSwipeLeft(MotionEvent e) {
+            private boolean isSideways(float x, float y) {
+                return Math.abs(x - downX) > SWIPE_MIN_RATIO * Math.abs(y - downY);
+            }
+
+            /**
+             * -1 for a left swipe, 1 for a right swipe ending at (x, y), else 0. A swipe, at any speed, travels far
+             * enough and mostly sideways on a writable terminal; vertical drags keep scrolling.
+             */
+            private int swipeDirection(float x, float y) {
                 if (mEmulator == null || mTermSession == null || mTermSession.isReadOnly() || isSelectingText()
-                    || e.isFromSource(InputDevice.SOURCE_MOUSE) || scaledInGesture || mGestureRecognizer.isInProgress()) return false;
+                    || scaledInGesture || mGestureRecognizer.isInProgress() || !isSideways(x, y)) return 0;
                 float minDistance = SWIPE_MIN_DISTANCE_DP * getResources().getDisplayMetrics().density;
-                return downX - e.getX() >= minDistance && isSideways(e);
+                if (downX - x >= minDistance) return -1;
+                if (x - downX >= minDistance) return 1;
+                return 0;
+            }
+
+            /** Restarts the hold timer whenever the finger moves past the touch slop, so it fires only once the finger rests. */
+            private void trackSwipeHold(MotionEvent e) {
+                lastX = e.getX();
+                lastY = e.getY();
+                if (swipeHeld || e.isFromSource(InputDevice.SOURCE_MOUSE)) return;
+                boolean scheduled = holdX != Float.MAX_VALUE;
+                if (scheduled && Math.abs(lastX - holdX) <= touchSlop && Math.abs(lastY - holdY) <= touchSlop) return;
+                holdX = lastX;
+                holdY = lastY;
+                removeCallbacks(swipeHold);
+                postDelayed(swipeHold, ViewConfiguration.getLongPressTimeout());
             }
 
             @Override
@@ -894,8 +947,10 @@ public final class TerminalView extends View {
             }
             return true;
         }
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_CANCEL)
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
             stopScrolling();
+            cancelSwipeHold();
+        }
         if (mTranscriptScrollBar.onTouch(event)) return true;
         final int action = event.getAction();
 
@@ -1403,6 +1458,11 @@ public final class TerminalView extends View {
     }
 
     /** A fresh touch, session switch, or detached view must not compete with a queued fling. */
+    /** Drops a pending swipe-and-hold: the finger lifted, moved off sideways, or the gesture was cancelled. */
+    private void cancelSwipeHold() {
+        if (mSwipeHold != null) removeCallbacks(mSwipeHold);
+    }
+
     void stopScrolling() {
         mScroller.abortAnimation();
         if (mFlingRunnable != null) removeCallbacks(mFlingRunnable);
@@ -1427,6 +1487,18 @@ public final class TerminalView extends View {
             setTopRow(0);
             mTranscriptScrollBar.show();
         }
+    }
+
+    /** Sends raw input such as a control character, after finishing any pending IME composition. */
+    public void sendInputText(String text) {
+        mImeBackspace.reset();
+        if (mEmulator == null || mTermSession == null) return;
+        if (mInputConnection != null && mInputConnection.getEditable().length() > 0) {
+            mInputConnection.finishComposingText();
+            ((InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE)).restartInput(this);
+        }
+        scrollToBottom();
+        mTermSession.write(text);
     }
 
     /** Finish a pending IME composition before moving/deleting in the remote input. */

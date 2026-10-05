@@ -37,6 +37,12 @@ public interface TerminalViewClient {
     /** A mostly horizontal fling to the left on a writable terminal. Read-only history never calls this. */
     default void onSwipeLeft(MotionEvent e) {}
 
+    /** A left swipe whose finger rests before lifting, on a writable terminal; lifting then sends nothing more. */
+    default void onSwipeHoldLeft() {}
+
+    /** A right swipe whose finger rests before lifting, on a writable terminal; lifting then sends nothing more. */
+    default void onSwipeHoldRight() {}
+
     boolean shouldBackButtonBeMappedToEscape();
 
     boolean shouldEnforceCharBasedInput();

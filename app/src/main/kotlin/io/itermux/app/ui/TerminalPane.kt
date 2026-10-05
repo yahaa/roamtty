@@ -207,6 +207,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         ctrlArmed = false
         shiftArmed = false
     }
+    /** Swipe-and-hold jumps to the line start (Ctrl+A) or end (Ctrl+E); armed modifiers are dropped, not applied. */
+    fun lineEdge(control: String) {
+        terminal?.sendInputText(control)
+        ctrlArmed = false
+        shiftArmed = false
+    }
     fun hideKeyboard() {
         // Clear Compose/native focus before hiding so focus transfer cannot reopen the IME.
         ctrlArmed = false
@@ -411,7 +417,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
                             shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
                             onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); arrowKeysDismissedLine = slashCommandLine; enterKeyTyping = false; enterKeyTouches++ }, onTripleTap = { pasteClipboard() },
-                            onSwipeLeft = { shiftArrowLeft() }))
+                            onSwipeLeft = { shiftArrowLeft() },
+                            onSwipeHoldLeft = { lineEdge("\u0001") }, onSwipeHoldRight = { lineEdge("\u0005") }))
                         setUserInputListener { enterKeyTyping = true; enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                         isFocusableInTouchMode = true
