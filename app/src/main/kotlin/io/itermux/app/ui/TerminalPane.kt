@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -135,11 +138,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             toolboxAwake = false
         }
     }
-    // The cursor-row Enter key appears on typing or a double tap and fades after a quiet spell.
+    // The cursor-row Enter key stays out of the way while typing and appears once input pauses,
+    // or at once on a double tap; it fades after a quiet spell.
     var enterKeyAwake by remember { mutableStateOf(false) }
     var enterKeyTouches by remember { mutableIntStateOf(0) }
+    var enterKeyTyping by remember { mutableStateOf(false) }
     LaunchedEffect(enterKeyTouches) {
         if (enterKeyTouches == 0) return@LaunchedEffect
+        if (enterKeyTyping) {
+            enterKeyAwake = false
+            delay(TerminalToolbox.enterKeyTypingPauseMillis)
+        }
         enterKeyAwake = true
         val hideAfter = TerminalToolbox.enterKeyHideMillis
         if (hideAfter > 0) {
@@ -385,8 +394,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
                             shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
-                            onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); enterKeyTouches++ }, onTripleTap = { pasteClipboard() }))
-                        setUserInputListener { enterKeyTouches++ }
+                            onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); enterKeyTyping = false; enterKeyTouches++ }, onTripleTap = { pasteClipboard() }))
+                        setUserInputListener { enterKeyTyping = true; enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                         isFocusableInTouchMode = true
                     }
@@ -409,6 +418,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
                     terminal?.let { view ->
                         CursorEnterKey(view, outputRevision, viewportHeight) {
+                            enterKeyTyping = false
                             enterKeyTouches++
                             ctrlArmed = false
                             shiftArmed = false
@@ -511,6 +521,8 @@ internal object TerminalToolbox {
     @Volatile var shortcutHideMillis = 5_000L
     /** Idle timeout of the cursor-row Enter key; 0 keeps it until the pane leaves. */
     @Volatile var enterKeyHideMillis = 5_000L
+    /** How long typing must pause before the cursor-row Enter key appears. */
+    @Volatile var enterKeyTypingPauseMillis = 700L
 }
 
 /** An Enter key at the right end of the cursor row; hidden while the cursor is scrolled away. */
@@ -521,20 +533,26 @@ private fun CursorEnterKey(view: TerminalView, outputRevision: State<Long>, view
     val rowTop = view.getCursorRowTop()
     if (rowTop < 0) return
     val density = LocalDensity.current
-    val keyHeight = 28.dp
+    // A slim key drawn inside a larger touch area.
+    val keyHeight = 32.dp
     // The terminal view sits 6dp below the viewport top; centre the key on the cursor row.
     val keyTop = with(density) {
         val top = 6.dp.roundToPx() + rowTop + view.lineHeight / 2 - keyHeight.roundToPx() / 2
         top.coerceIn(0, (viewportHeight - keyHeight.roundToPx()).coerceAtLeast(0))
     }
-    // A light pill like the floating dock, so it reads as a key without hiding the text behind it.
-    Surface(onClick = onClick, modifier = Modifier.offset { IntOffset(0, keyTop) }.padding(end = 6.dp).size(40.dp, keyHeight)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Box(Modifier.offset { IntOffset(0, keyTop) }.size(44.dp, keyHeight)
+        .clickable(interaction, indication = null, onClick = onClick)
         .semantics { contentDescription = tr("回车") }.testTag("cursor-enter"),
-        shape = RoundedCornerShape(percent = 50), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-        contentColor = MaterialTheme.colorScheme.primary, shadowElevation = 3.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(painterResource(R.drawable.ic_return), contentDescription = null, modifier = Modifier.size(18.dp))
+        contentAlignment = Alignment.CenterEnd) {
+        Surface(Modifier.padding(end = 6.dp).size(28.dp, 20.dp), shape = RoundedCornerShape(6.dp),
+            color = if (pressed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+            contentColor = MaterialTheme.colorScheme.primary,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_return), contentDescription = null, modifier = Modifier.size(14.dp))
+            }
         }
     }
 }
