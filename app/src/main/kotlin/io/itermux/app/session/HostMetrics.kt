@@ -90,7 +90,9 @@ data class HostMetrics(
                 /"model" = / { n = $0; sub(/.*"model" = "/, "", n); sub(/".*/, "", n) }
                 END { if (seen) print "macgpu=" u " " m " " n }'
             fi
-            df -Pk / "${'$'}HOME" 2>/dev/null | awk 'NR > 1 && !seen[${'$'}6]++ { m = ${'$'}6; for (i = 7; i <= NF; i++) m = m " " ${'$'}i; print "disk=" ${'$'}2 " " ${'$'}3 " " ${'$'}4 " " m }'
+            # macOS keeps / as a small sealed system volume; files live on the Data volume of the same container.
+            r=/; [ "${'$'}s" = Darwin ] && [ -d /System/Volumes/Data ] && r=/System/Volumes/Data
+            df -Pk "${'$'}r" "${'$'}HOME" 2>/dev/null | awk 'NR > 1 && !seen[${'$'}6]++ { m = ${'$'}6; for (i = 7; i <= NF; i++) m = m " " ${'$'}i; print "disk=" ${'$'}2 " " ${'$'}3 " " ${'$'}4 " " m }'
             echo "users=$(who 2>/dev/null | wc -l)"
             { ps -eo pcpu=,pmem=,comm= --sort=-pcpu 2>/dev/null || ps -Aro pcpu=,pmem=,comm= 2>/dev/null; } | head -n 5 | sed 's/^/proc=/'
             if command -v nvidia-smi >/dev/null 2>&1; then
