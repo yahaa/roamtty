@@ -526,6 +526,7 @@ private object EnglishText {
         "没有匹配的项目" to "No matching items",
         "没有匹配的文件夹" to "No matching folders",
         "YOLO 模式说明" to "About YOLO mode",
+        "跳过所有确认，直接执行" to "Runs everything without asking",
         "已选择" to "Selected",
         "文件夹名称" to "Folder name",
         "创建" to "Create",

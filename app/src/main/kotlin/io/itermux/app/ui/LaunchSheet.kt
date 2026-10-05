@@ -116,7 +116,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     }
 
     val colors = MaterialTheme.colorScheme
-    AppSheet(onDismiss) {
+    AppSheet(onDismiss, fullScreen = true) {
         if (!typing) SheetHeader(if (forAgent) tr("用 AI 助手打开") else tr("打开终端"), null, onDismiss)
         Column(Modifier.weight(1f).testTag("launch-sheet")) {
             if (recent.isNotEmpty() && !typing) RecentFolders(recent, current, onPick = { current = it }, onForget = { dir ->
@@ -314,7 +314,7 @@ private fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAg
             CodingAgent.entries.forEach { option ->
                 PickerItem(option == agent, "agent-option-${option.name.lowercase()}", onClick = { onAgent(option); close() },
                     leading = { AgentBadge(option, 24.dp) }) {
-                    Text(option.label, style = MaterialTheme.typography.bodyLarge)
+                    Text(option.shortLabel, style = MaterialTheme.typography.bodyLarge)
                     Text(option.command, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         color = colors.onSurfaceVariant)
                 }
@@ -331,7 +331,7 @@ private fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAg
                     onClick = { onMode(option); close() }) {
                     Text(modeLabel(option), style = MaterialTheme.typography.bodyLarge,
                         color = if (danger) colors.error else colors.onSurface)
-                    Text(modeHint(option), style = MaterialTheme.typography.bodySmall,
+                    Text(modeHint(option), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         color = if (danger) colors.error else colors.onSurfaceVariant)
                 }
             }
@@ -378,7 +378,7 @@ private fun YoloWarning() {
     val scope = rememberCoroutineScope()
     TooltipBox(TooltipDefaults.rememberPlainTooltipPositionProvider(), state = state, tooltip = {
         PlainTooltip(containerColor = colors.surfaceContainerHighest, contentColor = colors.error) {
-            Text(modeHint(AgentMode.YOLO), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("agent-mode-warning"))
+            Text(modeHint(AgentMode.YOLO), style = MaterialTheme.typography.bodyMedium, maxLines = 1, modifier = Modifier.testTag("agent-mode-warning"))
         }
     }) {
         Icon(painterResource(R.drawable.ic_alert), contentDescription = tr("YOLO 模式说明"), tint = colors.error,
@@ -396,7 +396,7 @@ private fun modeLabel(mode: AgentMode) = when (mode) {
 private fun modeHint(mode: AgentMode) = when (mode) {
     AgentMode.READ_ONLY -> tr("只查看和分析，不修改文件")
     AgentMode.STANDARD -> tr("改文件或运行命令前先问你")
-    AgentMode.YOLO -> tr("不经确认直接运行命令、修改或删除文件")
+    AgentMode.YOLO -> tr("跳过所有确认，直接执行")
 }
 
 internal fun SharedPreferences.recentStartDirectories(hostId: String): List<String> =

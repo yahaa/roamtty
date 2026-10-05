@@ -21,7 +21,8 @@ import io.itermux.app.tr
 /** Shared, content-first presentation for short selection tasks. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AppSheet(onDismiss: () -> Unit, fillHeight: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
+internal fun AppSheet(onDismiss: () -> Unit, fillHeight: Boolean = true, fullScreen: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -31,8 +32,16 @@ internal fun AppSheet(onDismiss: () -> Unit, fillHeight: Boolean = true, content
         tonalElevation = 0.dp,
     ) {
         SheetSystemBars()
-        Column(Modifier.fillMaxWidth().then(if (fillHeight) Modifier.fillMaxHeight(0.88f) else Modifier).imePadding(),
-            content = content)
+        // Full screen stops just below the status bar, so the drag handle never sits under the clock.
+        val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        BoxWithConstraints {
+            Column(Modifier.fillMaxWidth().then(when {
+                fullScreen -> Modifier.height(maxHeight - statusBar)
+                fillHeight -> Modifier.fillMaxHeight(0.88f)
+                else -> Modifier
+            }).imePadding(),
+                content = content)
+        }
     }
 }
 
