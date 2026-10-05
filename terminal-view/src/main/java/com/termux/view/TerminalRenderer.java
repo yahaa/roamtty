@@ -36,6 +36,12 @@ public final class TerminalRenderer {
     final int mFontLineSpacingAndAscent;
 
     private final float[] asciiMeasures = new float[127];
+    /**
+     * Advances of other BMP code points, measured on first use: CJK text, box drawing and spinner glyphs
+     * would otherwise go through {@link Paint#measureText} for every cell of every frame. Pages of 256 code
+     * points are allocated as text uses them; 0 means not yet measured (a zero advance is measured again).
+     */
+    private final float[][] bmpMeasures = new float[0x100][];
 
     /**
      * Glyphs needing more horizontal shrinking than this are scaled uniformly rather than squashed. Small
@@ -140,8 +146,7 @@ public final class TerminalRenderer {
                 // This could happen for some fonts which are not truly monospace, or for more exotic characters such as
                 // smileys which android font renders as wide.
                 // If this is detected, we draw this code point scaled to match what wcwidth() expects.
-                final float measuredCodePointWidth = (codePoint < asciiMeasures.length) ? asciiMeasures[codePoint] : mTextPaint.measureText(line,
-                    currentCharIndex, charsForCodePoint);
+                final float measuredCodePointWidth = measure(codePoint, line, currentCharIndex, charsForCodePoint);
                 final boolean fontWidthMismatch = Math.abs(measuredCodePointWidth / mFontWidth - codePointWcWidth) > 0.01;
 
                 if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch) {
@@ -187,6 +192,16 @@ public final class TerminalRenderer {
             drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun, lastRunStartIndex, charsSinceLastRun,
                 measuredWidthForRun, cursorColor, cursorShape, lastRunStyle, reverseVideo || invertCursorTextColor || lastRunInsideSelection);
         }
+    }
+
+    private float measure(int codePoint, char[] line, int index, int chars) {
+        if (codePoint < asciiMeasures.length) return asciiMeasures[codePoint];
+        if (codePoint > 0xFFFF) return mTextPaint.measureText(line, index, chars);
+        float[] page = bmpMeasures[codePoint >> 8];
+        if (page == null) page = bmpMeasures[codePoint >> 8] = new float[0x100];
+        float width = page[codePoint & 0xFF];
+        if (width == 0) width = page[codePoint & 0xFF] = mTextPaint.measureText(line, index, chars);
+        return width;
     }
 
     private void drawTextRun(Canvas canvas, char[] text, int[] palette, float y, int startColumn, int runWidthColumns,
@@ -238,7 +253,19 @@ public final class TerminalRenderer {
             canvas.drawRect(left, y - cursorHeight, right, y, mTextPaint);
         }
 
-        if ((effect & TextStyle.CHARACTER_ATTRIBUTE_INVISIBLE) == 0) {
+        // Trailing blanks (the rest of most rows) draw nothing unless a line runs through them; leaving
+        // them out spares text layout most of the screen. Spaces are one column wide and measured exactly.
+        int textColumns = runWidthColumns;
+        int textChars = runWidthChars;
+        if (!underline && !strikeThrough) {
+            while (textChars > 0 && text[startCharIndex + textChars - 1] == ' ') {
+                textChars--;
+                textColumns--;
+                mes -= asciiMeasures[' '] / mFontWidth;
+            }
+        }
+
+        if ((effect & TextStyle.CHARACTER_ATTRIBUTE_INVISIBLE) == 0 && textChars > 0) {
             if (dim) {
                 int red = (0xFF & (foreColor >> 16));
                 int green = (0xFF & (foreColor >> 8));
@@ -258,8 +285,8 @@ public final class TerminalRenderer {
             mTextPaint.setColor(foreColor);
 
             boolean savedMatrix = false;
-            if (Math.abs(mes - runWidthColumns) > 0.01) {
-                final float scale = runWidthColumns / mes;
+            if (Math.abs(mes - textColumns) > 0.01) {
+                final float scale = textColumns / mes;
                 canvas.save();
                 if (scale < WIDE_GLYPH_UNIFORM_SCALE_BELOW) {
                     // Square icons (Nerd Font symbols) and wide emoji: shrink both axes so the glyph keeps
@@ -277,9 +304,9 @@ public final class TerminalRenderer {
 
             // The text alignment is the default Paint.Align.LEFT.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, false, mTextPaint);
+                canvas.drawTextRun(text, startCharIndex, textChars, startCharIndex, textChars, left, y - mFontLineSpacingAndAscent, false, mTextPaint);
             } else {
-                canvas.drawText(text, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, mTextPaint);
+                canvas.drawText(text, startCharIndex, textChars, left, y - mFontLineSpacingAndAscent, mTextPaint);
             }
 
             if (savedMatrix) canvas.restore();
