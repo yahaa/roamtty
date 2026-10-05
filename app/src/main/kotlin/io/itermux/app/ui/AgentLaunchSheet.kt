@@ -67,16 +67,13 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
             SectionCaption(tr("权限"))
             GroupedSection(Modifier.padding(horizontal = Spacing.Page)) {
                 Column(Modifier.selectableGroup()) {
-                    PermissionRow(tr("只读"), tr("只能查看和分析，不会修改文件或执行改动"),
-                        R.drawable.ic_preview, selected = mode == AgentMode.READ_ONLY, danger = false,
+                    PermissionRow(AgentMode.READ_ONLY, R.drawable.ic_preview, selected = mode == AgentMode.READ_ONLY, danger = false,
                         tag = "agent-permission-read-only") { mode = AgentMode.READ_ONLY }
                     GroupedDivider(start = 56.dp)
-                    PermissionRow(tr("普通权限"), tr("修改文件或执行命令前先征求你的确认"),
-                        R.drawable.ic_check, selected = mode == AgentMode.STANDARD, danger = false,
+                    PermissionRow(AgentMode.STANDARD, R.drawable.ic_check, selected = mode == AgentMode.STANDARD, danger = false,
                         tag = "agent-permission-standard") { mode = AgentMode.STANDARD }
                     GroupedDivider(start = 56.dp)
-                    PermissionRow(tr("高级权限 · YOLO"), tr("不经确认直接运行命令、修改或删除文件"),
-                        R.drawable.ic_alert, selected = yolo, danger = true, tag = "agent-permission-yolo") { mode = AgentMode.YOLO }
+                    PermissionRow(AgentMode.YOLO, R.drawable.ic_alert, selected = yolo, danger = true, tag = "agent-permission-yolo") { mode = AgentMode.YOLO }
                 }
             }
             Spacer(Modifier.height(Spacing.Section))
@@ -170,7 +167,7 @@ internal fun AgentBadge(agent: CodingAgent, size: androidx.compose.ui.unit.Dp) {
 }
 
 @Composable
-private fun PermissionRow(title: String, subtitle: String, icon: Int, selected: Boolean, danger: Boolean, tag: String,
+private fun PermissionRow(option: AgentMode, icon: Int, selected: Boolean, danger: Boolean, tag: String,
     onSelect: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val accent = if (danger) colors.error else colors.primary
@@ -183,8 +180,9 @@ private fun PermissionRow(title: String, subtitle: String, icon: Int, selected: 
         }
         Spacer(Modifier.width(Spacing.Row))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = if (danger && selected) colors.error else colors.onSurface)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            Text(modeLabel(option), style = MaterialTheme.typography.bodyLarge, color = if (danger) colors.error else colors.onSurface)
+            Text(modeHint(option), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (danger) colors.error else colors.onSurfaceVariant)
         }
         RadioButton(selected = selected, onClick = null,
             colors = RadioButtonDefaults.colors(selectedColor = accent))

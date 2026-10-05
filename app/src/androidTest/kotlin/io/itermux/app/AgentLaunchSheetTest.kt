@@ -43,13 +43,16 @@ class AgentLaunchSheetTest {
                 }
             }
         }
+        // Nothing saved yet: Codex in YOLO.
+        compose.onNodeWithTag("agent-launch-command").onChildren()
+            .assertAny(hasText("codex --dangerously-bypass-approvals-and-sandbox"))
+        screenshot("$name-yolo")
+        compose.onNodeWithTag("agent-option-claude").performClick()
+        compose.onNodeWithTag("agent-permission-standard").performClick()
         compose.onNodeWithTag("agent-launch-command").onChildren().assertAny(hasText("claude"))
         screenshot("$name-standard")
         compose.onNodeWithTag("agent-option-codex").performClick()
         compose.onNodeWithTag("agent-permission-yolo").performClick()
-        compose.onNodeWithTag("agent-launch-command").onChildren()
-            .assertAny(hasText("codex --dangerously-bypass-approvals-and-sandbox"))
-        screenshot("$name-yolo")
         compose.onNodeWithTag("agent-launch").performClick()
         compose.waitForIdle()
         return launched

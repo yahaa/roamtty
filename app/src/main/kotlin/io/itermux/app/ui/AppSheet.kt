@@ -32,16 +32,12 @@ internal fun AppSheet(onDismiss: () -> Unit, fillHeight: Boolean = true, fullScr
         tonalElevation = 0.dp,
     ) {
         SheetSystemBars()
-        // Full screen stops just below the status bar, so the drag handle never sits under the clock.
-        val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-        BoxWithConstraints {
-            Column(Modifier.fillMaxWidth().then(when {
-                fullScreen -> Modifier.height(maxHeight - statusBar)
-                fillHeight -> Modifier.fillMaxHeight(0.88f)
-                else -> Modifier
-            }).imePadding(),
-                content = content)
-        }
+        Column(Modifier.fillMaxWidth().then(when {
+            fullScreen -> Modifier.fillMaxHeight()
+            fillHeight -> Modifier.fillMaxHeight(0.88f)
+            else -> Modifier
+        }).imePadding(),
+            content = content)
     }
 }
 

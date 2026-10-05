@@ -387,13 +387,13 @@ private fun YoloWarning() {
     }
 }
 
-private fun modeLabel(mode: AgentMode) = when (mode) {
+internal fun modeLabel(mode: AgentMode) = when (mode) {
     AgentMode.READ_ONLY -> tr("只读")
     AgentMode.STANDARD -> tr("普通")
     AgentMode.YOLO -> "YOLO"
 }
 
-private fun modeHint(mode: AgentMode) = when (mode) {
+internal fun modeHint(mode: AgentMode) = when (mode) {
     AgentMode.READ_ONLY -> tr("只查看和分析，不修改文件")
     AgentMode.STANDARD -> tr("改文件或运行命令前先问你")
     AgentMode.YOLO -> tr("跳过所有确认，直接执行")
