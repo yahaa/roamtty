@@ -118,6 +118,7 @@ fun ItermuxScreen(
     var editorOpen by rememberSaveable { mutableStateOf(false) }
     var editHostId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteHost by remember { mutableStateOf<Host?>(null) }
+    var startDirectoryHost by remember { mutableStateOf<Host?>(null) }
     var connectRequest by remember { mutableStateOf<ConnectRequest?>(null) }
     var reverify by remember { mutableStateOf<TerminalConnection?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
@@ -312,7 +313,7 @@ fun ItermuxScreen(
                                 action = { Button(onClick = { editHostId = null; editorOpen = true }) { Text(tr("添加主机")) } })
                             else EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.weight(1f))
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
-                            items(filtered, key = { it.id }) { host -> HostCard(host, { connect(host) }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
+                            items(filtered, key = { it.id }) { host -> HostCard(host, { startDirectoryHost = host }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
                                 hostReachability.statusOf(host).let { probed ->
                                     if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
                                 }) }
@@ -389,6 +390,12 @@ fun ItermuxScreen(
             if (editHostId == null || editHost != null) HostEditor(app, editHost,
                 onDismiss = { editorOpen = false; editHostId = null },
                 onSaved = { editorOpen = false; editHostId = null })
+        }
+        startDirectoryHost?.let { host ->
+            StartDirectorySheet(host, onDismiss = { startDirectoryHost = null }) { directory ->
+                startDirectoryHost = null
+                connect(host, startupCommand = StartDirectory.command(directory))
+            }
         }
         deleteHost?.let { host -> AlertDialog(onDismissRequest = { deleteHost = null }, title = { Text(trf("删除 %s？", host.name)) }, text = { Text(tr("将删除这台主机及保存的凭据，并关闭它的连接。远端 tmux 任务不受影响。")) },
             confirmButton = { TextButton(onClick = { scope.launch { sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }; app.database.hosts().delete(host.id); deleteHost = null } }) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) } },
