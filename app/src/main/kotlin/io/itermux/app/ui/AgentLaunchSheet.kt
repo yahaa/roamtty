@@ -50,9 +50,10 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
     val yolo = mode == AgentMode.YOLO
     val launch = AgentLaunch(agent, directory, mode)
     val colors = MaterialTheme.colorScheme
-    AppSheet(onDismiss, fillHeight = false) {
-        Column(Modifier.verticalScroll(rememberScrollState()).testTag("agent-launch-sheet")) {
-            SheetHeader(tr("用 AI 助手打开"), null, onDismiss)
+    AppSheet(onDismiss, fullScreen = true) {
+        SheetHeader(tr("用 AI 助手打开"), null, onDismiss)
+        // Choices scroll in the middle; the command and the launch button stay at the bottom.
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).testTag("agent-launch-sheet")) {
             FolderLabel(directory, Modifier.padding(horizontal = Spacing.Section).padding(bottom = Spacing.Section))
 
             SectionCaption(tr("助手"))
@@ -77,6 +78,8 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
                 }
             }
             Spacer(Modifier.height(Spacing.Section))
+        }
+        Column {
             CommandPreview(launch.agentCommand, Modifier.padding(horizontal = Spacing.Page))
 
             val buttonColor by animateColorAsState(if (yolo) colors.error else colors.primary, label = "agent-launch-button")
