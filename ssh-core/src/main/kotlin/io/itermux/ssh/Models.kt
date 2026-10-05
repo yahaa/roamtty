@@ -8,7 +8,8 @@ import java.util.UUID
 enum class AuthMethod { PASSWORD, KEY, INTERACTIVE }
 enum class SessionMode { SHELL, TMUX }
 enum class Phase { CONNECTING, VERIFYING, AUTHENTICATING, CONNECTED, DISCONNECTED, AUTH_FAILED, HOST_KEY_CHANGED, FAILED, TMUX_MISSING }
-data class ConnectionState(val phase: Phase, val message: String = "", val oldFingerprint: String? = null, val newFingerprint: String? = null) {
+/** [detail] names the underlying error of a failure ("SocketException: …"); it is never translated. */
+data class ConnectionState(val phase: Phase, val message: String = "", val oldFingerprint: String? = null, val newFingerprint: String? = null, val detail: String? = null) {
     val active: Boolean get() = phase in setOf(Phase.CONNECTING, Phase.VERIFYING, Phase.AUTHENTICATING, Phase.CONNECTED)
 }
 

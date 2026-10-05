@@ -7,6 +7,8 @@ import org.junit.Test
 import java.io.EOFException
 import java.io.IOException
 import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
@@ -38,5 +40,23 @@ class TransportFailureTest {
         for (failure in listOf(HostKeyChanged(pin, pin), HostKeyRejected(), CancellationException("canceled"))) {
             assertFalse(isRetryableTransportFailure(JSchException("timeout", failure)))
         }
+    }
+
+    @Test fun firstConnectRetriesThreeTimesWithGrowingWaits() {
+        assertEquals(listOf(2_000L, 4_000L, 6_000L, null), (1..4).map(::firstConnectRetryDelayMs))
+    }
+
+    @Test fun timeoutsAreToldApartFromUnreachableNetworks() {
+        assertTrue(isTimeoutFailure(JSchException("Session.connect", SocketTimeoutException("connect timed out"))))
+        assertTrue(isTimeoutFailure(JSchException("timeout: socket is not established")))
+        assertFalse(isTimeoutFailure(JSchException("Session.connect", NoRouteToHostException("No route to host"))))
+        assertFalse(isTimeoutFailure(JSchException("Session.connect", SocketException("Network is unreachable"))))
+    }
+
+    @Test fun detailNamesTheInnermostCause() {
+        val failure = JSchException("java.net.SocketException: connect failed", SocketException("connect failed: ENETUNREACH (Network is unreachable)"))
+        assertEquals("SocketException: connect failed: ENETUNREACH (Network is unreachable)", failureDetail(failure))
+        assertEquals("EOFException", failureDetail(JSchException("Session.connect", EOFException())))
+        assertEquals(200, failureDetail(IOException("x".repeat(500))).length - "IOException: ".length)
     }
 }

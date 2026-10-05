@@ -57,6 +57,12 @@ internal fun TerminalConnectionNotice(
         }
     }) {
         if (state.message.isNotBlank()) Text(tr(state.message), style = MaterialTheme.typography.bodyMedium)
+        state.detail?.let {
+            SelectionContainer {
+                Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp))
+            }
+        }
         if (state.phase == Phase.HOST_KEY_CHANGED) {
             SelectionContainer {
                 Text(trf("原指纹：%s\n新指纹：%s", state.oldFingerprint.orEmpty(), state.newFingerprint.orEmpty()),
