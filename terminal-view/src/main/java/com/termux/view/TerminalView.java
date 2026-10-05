@@ -93,6 +93,8 @@ public final class TerminalView extends View {
     private BaseInputConnection mInputConnection;
     private final ImeBackspaceTracker mImeBackspace = new ImeBackspaceTracker();
     private Integer mExtractedTextToken;
+    /** Roamtty: told about every key or IME edit the user makes, before it reaches the terminal. */
+    @Nullable private Runnable mUserInputListener;
 
     /** What was left in from scrolling movement. */
     float mScrollRemainder;
@@ -324,6 +326,14 @@ public final class TerminalView extends View {
      * @param client The {@link TerminalViewClient} interface implementation to allow
      *                           for communication between {@link TerminalView} and its client.
      */
+    public void setUserInputListener(@Nullable Runnable listener) {
+        mUserInputListener = listener;
+    }
+
+    private void noteUserInput() {
+        if (mUserInputListener != null) mUserInputListener.run();
+    }
+
     public void setTerminalViewClient(TerminalViewClient client) {
         this.mClient = client;
     }
@@ -456,12 +466,14 @@ public final class TerminalView extends View {
 
             @Override
             public boolean setComposingText(CharSequence text, int newCursorPosition) {
+                noteUserInput();
                 mImeBackspace.reset();
                 return super.setComposingText(text, newCursorPosition);
             }
 
             @Override
             public boolean sendKeyEvent(KeyEvent event) {
+                noteUserInput();
                 if (event.getKeyCode() == KeyEvent.KEYCODE_DEL && event.hasNoModifiers()) {
                     if (event.getAction() == KeyEvent.ACTION_DOWN) {
                         if (consumeImeBackspace()) return true;
@@ -484,6 +496,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean commitText(CharSequence text, int newCursorPosition) {
+                noteUserInput();
                 mImeBackspace.reset();
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: commitText(\"" + text + "\", " + newCursorPosition + ")");
@@ -508,6 +521,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean deleteSurroundingText(int leftLength, int rightLength) {
+                noteUserInput();
                 ImeDeleteGuard.Plan plan = ImeDeleteGuard.plan(leftLength, rightLength);
                 if (plan == ImeDeleteGuard.Plan.REJECT) return false;
                 // WeChat IME "一键删除" / clear-all often sends Integer.MAX_VALUE (one or both sides).
@@ -538,6 +552,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean deleteSurroundingTextInCodePoints(int leftLength, int rightLength) {
+                noteUserInput();
                 ImeDeleteGuard.Plan plan = ImeDeleteGuard.plan(leftLength, rightLength);
                 if (plan == ImeDeleteGuard.Plan.REJECT) return false;
                 if (plan == ImeDeleteGuard.Plan.CLEAR_ALL) {
@@ -1015,6 +1030,7 @@ public final class TerminalView extends View {
         if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
             mClient.logInfo(LOG_TAG, "onKeyDown(keyCode=" + keyCode + ", isSystem()=" + event.isSystem() + ", event=" + event + ")");
         if (mEmulator == null) return true;
+        if (!event.isSystem()) noteUserInput();
         if (isSelectingText()) {
             stopTextSelectionMode();
         }
@@ -1328,6 +1344,19 @@ public final class TerminalView extends View {
 
     public int getTopRow() {
         return mTopRow;
+    }
+
+    /** Roamtty: the cursor row's top edge in view pixels, or -1 while it is scrolled out of view. */
+    public int getCursorRowTop() {
+        if (mEmulator == null || mRenderer == null) return -1;
+        int row = mEmulator.getCursorRow() - mTopRow;
+        if (row < 0 || row >= mEmulator.mRows) return -1;
+        // Matches TerminalRenderer: row r spans [lineSpacingAndAscent + r * lineSpacing, + lineSpacing).
+        return mRenderer.mFontLineSpacingAndAscent + row * mRenderer.mFontLineSpacing;
+    }
+
+    public int getLineHeight() {
+        return mRenderer == null ? 0 : mRenderer.mFontLineSpacing;
     }
 
     public void setRemoteHistory(int rows, int position, @Nullable RemoteHistoryListener listener) {
