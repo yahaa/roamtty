@@ -202,5 +202,5 @@ private fun CommandPreview(command: String, modifier: Modifier = Modifier) {
     }
 }
 
-private const val AGENT_KEY = "agentLaunchAgent"
-private const val YOLO_KEY = "agentLaunchYolo"
+internal const val AGENT_KEY = "agentLaunchAgent"
+internal const val YOLO_KEY = "agentLaunchYolo"
