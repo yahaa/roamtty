@@ -381,7 +381,7 @@ private fun GaugeCard(label: String, value: Double?, detail: String?, history: L
     }
 }
 
-/** One GPU: name, temperature and power on top, then utilization and VRAM bars and the utilization trend. */
+/** One GPU: name, frequency, temperature and power on top, then utilization and VRAM bars and the utilization trend. */
 @Composable
 private fun GpuRow(gpu: HostMetrics.Gpu, history: List<Double>) {
     val colors = MaterialTheme.colorScheme
@@ -390,6 +390,8 @@ private fun GpuRow(gpu: HostMetrics.Gpu, history: List<Double>) {
             Text("${gpu.index} · ${gpu.name}", style = MaterialTheme.typography.bodyLarge, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             val extras = listOfNotNull(
+                gpu.freqMHz?.let { f -> String.format(Locale.US, "%.0f", f) + (gpu.freqMaxMHz?.let { String.format(Locale.US, "/%.0f", it) } ?: "") + " MHz" },
+                gpu.memUsedBytes?.takeIf { gpu.memTotalBytes == null }?.let { trf("内存 %s", bytes(it)) },
                 gpu.temperatureC?.let { String.format(Locale.US, "%.0f°C", it) },
                 gpu.powerWatts?.let { w -> String.format(Locale.US, "%.0f", w) + (gpu.powerLimitWatts?.let { String.format(Locale.US, "/%.0f", it) } ?: "") + " W" },
             )
@@ -398,8 +400,11 @@ private fun GpuRow(gpu: HostMetrics.Gpu, history: List<Double>) {
         }
         Spacer(Modifier.height(Spacing.Tight))
         UsageBar(tr("利用率"), gpu.utilPercent, gpu.utilPercent?.let(::percent))
-        Spacer(Modifier.height(6.dp))
-        UsageBar(tr("显存"), gpu.memPercent, gpu.memUsedBytes?.let { used -> gpu.memTotalBytes?.let { usage(used, it) } })
+        // Integrated GPUs share system memory, so there is no VRAM total to fill a bar against.
+        if (gpu.memTotalBytes != null) {
+            Spacer(Modifier.height(6.dp))
+            UsageBar(tr("显存"), gpu.memPercent, gpu.memUsedBytes?.let { usage(it, gpu.memTotalBytes) })
+        }
         if (history.size >= 2) {
             Spacer(Modifier.height(6.dp))
             Sparkline(history, levelColor(gpu.utilPercent), Modifier.fillMaxWidth().height(22.dp))

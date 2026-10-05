@@ -104,4 +104,35 @@ class HostMetricsTest {
     @Test fun noGpuLinesMeansNoGpus() {
         assertEquals(emptyList<HostMetrics.Gpu>(), HostMetrics.parse(linux).gpus)
     }
+
+    @Test fun intelBusyComesFromRc6Residency() {
+        val m = HostMetrics.parse(listOf(
+            "rc6a=card0 1000.00 50000",
+            "rc6a=card1 1000.00 0",
+            "rc6b=card0 1000.50 50400",
+            "gpu=0, Tesla T4, 10, 512, 15360, 38, 20, 70",
+            "igpu=card0 300 1300 Intel Alder Lake-P Integrated Graphics Controller",
+            "igpu=card1 - - ",
+        ))
+        assertEquals(listOf(0, 1, 2), m.gpus.map { it.index })
+        val intel = m.gpus[1]
+        assertEquals("Intel Alder Lake-P Integrated Graphics Controller", intel.name)
+        // 500 ms elapsed, 400 of them in RC6.
+        assertEquals(20.0, intel.utilPercent!!, 0.001)
+        assertEquals(300.0, intel.freqMHz!!, 0.001)
+        assertEquals(1300.0, intel.freqMaxMHz!!, 0.001)
+        assertNull(intel.memTotalBytes)
+        assertEquals("Intel GPU", m.gpus[2].name)
+        assertNull(m.gpus[2].utilPercent)
+    }
+
+    @Test fun parsesMacGpu() {
+        val m = HostMetrics.parse(listOf("macgpu=7 1073741824 Apple M2 Pro", "macgpu=- - "))
+        assertEquals("Apple M2 Pro", m.gpus[0].name)
+        assertEquals(7.0, m.gpus[0].utilPercent!!, 0.001)
+        assertEquals(1073741824L, m.gpus[0].memUsedBytes)
+        assertNull(m.gpus[0].memPercent)
+        assertEquals("GPU", m.gpus[1].name)
+        assertNull(m.gpus[1].utilPercent)
+    }
 }

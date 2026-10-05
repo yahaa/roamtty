@@ -33,8 +33,10 @@ data class HostMetrics(
         val percent: Double get() = if (usedBytes + availableBytes > 0) 100.0 * usedBytes / (usedBytes + availableBytes) else 0.0
     }
     data class Process(val name: String, val cpuPercent: Double, val memPercent: Double)
+    /** [memTotalBytes] is null for integrated GPUs sharing system memory; [memUsedBytes] may still be known (macOS). */
     data class Gpu(val index: Int, val name: String, val utilPercent: Double?, val memUsedBytes: Long?, val memTotalBytes: Long?,
-        val temperatureC: Double?, val powerWatts: Double?, val powerLimitWatts: Double?) {
+        val temperatureC: Double?, val powerWatts: Double?, val powerLimitWatts: Double?,
+        val freqMHz: Double? = null, val freqMaxMHz: Double? = null) {
         val memPercent: Double? get() = memUsedBytes?.let { used -> memTotalBytes?.takeIf { it > 0 }?.let { 100.0 * used / it } }
     }
     data class GpuProcess(val pid: Long, val name: String, val memBytes: Long?)
@@ -48,6 +50,12 @@ data class HostMetrics(
         val script = """
             export LC_ALL=C
             s=$(uname -s 2>/dev/null)
+            # Intel GPUs: idle (RC6) residency in ms next to uptime; busy share comes from two readings.
+            rc6() { for c in /sys/class/drm/card*; do
+              case ${'$'}{c##*/} in *-*) continue ;; esac
+              r=${'$'}c/power/rc6_residency_ms; [ -r "${'$'}r" ] || r=${'$'}c/device/tile0/gt0/gtidle/idle_residency_ms
+              [ -r "${'$'}r" ] && echo "$1=${'$'}{c##*/} $(cut -d ' ' -f 1 /proc/uptime) $(cat "${'$'}r")"
+            done; }
             echo "hostname=$(hostname 2>/dev/null || uname -n)"
             echo "kernel=$(uname -sr 2>/dev/null)"
             echo "arch=$(uname -m 2>/dev/null)"
@@ -57,8 +65,10 @@ data class HostMetrics(
               echo "cpus=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)"
               echo "model=$(sed -n 's/^model name[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo | head -n 1)"
               echo "cpu1=$(head -n 1 /proc/stat)"
+              rc6 rc6a 2>/dev/null
               sleep 0.5 2>/dev/null || sleep 1
               echo "cpu2=$(head -n 1 /proc/stat)"
+              rc6 rc6b 2>/dev/null
               echo "load=$(cut -d ' ' -f 1-4 /proc/loadavg)"
               echo "uptime=$(cut -d ' ' -f 1 /proc/uptime)"
               awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree):/ { sub(":", "", ${'$'}1); print "kb_" ${'$'}1 "=" ${'$'}2 }' /proc/meminfo
@@ -73,6 +83,12 @@ data class HostMetrics(
               echo "bytes_MemTotal=$(sysctl -n hw.memsize 2>/dev/null)"
               vm_stat 2>/dev/null | awk '/page size of/ { p = ${'$'}8 } /^Pages (free|inactive|speculative)/ { gsub("\\.", "", ${'$'}NF); n += ${'$'}NF } END { if (p) printf "bytes_MemAvailable=%.0f\n", n * p }'
               netstat -ibn 2>/dev/null | awk '${'$'}1 !~ /^lo/ && ${'$'}3 ~ /Link/ { rx += ${'$'}7; tx += ${'$'}10 } END { printf "net=%.0f %.0f\n", rx, tx }'
+              ioreg -r -d 1 -w 0 -c IOAccelerator 2>/dev/null | awk '
+                function num(key) { if (match($0, "\"" key "\"=[0-9]+")) { v = substr($0, RSTART, RLENGTH); sub(/.*=/, "", v); return v } return "" }
+                /^\+-o/ { if (seen) print "macgpu=" u " " m " " n; seen = 1; u = "-"; m = "-"; n = "" }
+                /"PerformanceStatistics" =/ { v = num("Device Utilization %"); if (v == "") v = num("GPU Activity\\(%\\)"); if (v != "") u = v; v = num("In use system memory"); if (v != "") m = v }
+                /"model" = / { n = $0; sub(/.*"model" = "/, "", n); sub(/".*/, "", n) }
+                END { if (seen) print "macgpu=" u " " m " " n }'
             fi
             df -Pk / "${'$'}HOME" 2>/dev/null | awk 'NR > 1 && !seen[${'$'}6]++ { m = ${'$'}6; for (i = 7; i <= NF; i++) m = m " " ${'$'}i; print "disk=" ${'$'}2 " " ${'$'}3 " " ${'$'}4 " " m }'
             echo "users=$(who 2>/dev/null | wc -l)"
@@ -89,6 +105,15 @@ data class HostMetrics(
               h=$(ls -d "${'$'}d"/hwmon/hwmon* 2>/dev/null | head -n 1)
               echo "amdgpu=$(cat "${'$'}d/gpu_busy_percent" 2>/dev/null || echo -) $(cat "${'$'}d/mem_info_vram_used" 2>/dev/null || echo -) $(cat "${'$'}d/mem_info_vram_total" 2>/dev/null || echo -) $(cat "${'$'}h/temp1_input" 2>/dev/null || echo -) $(cat "${'$'}h/power1_average" 2>/dev/null || echo -) $(cat "${'$'}h/power1_cap" 2>/dev/null || echo -) $(cat "${'$'}d/product_name" 2>/dev/null)"
             done
+            for c in /sys/class/drm/card*; do
+              case ${'$'}{c##*/} in *-*) continue ;; esac
+              [ -r "${'$'}c/power/rc6_residency_ms" ] || [ -r "${'$'}c/device/tile0/gt0/gtidle/idle_residency_ms" ] || continue
+              f=${'$'}c/device/tile0/gt0/freq0
+              a=$(cat "${'$'}c/gt_act_freq_mhz" 2>/dev/null || cat "${'$'}f/act_freq" 2>/dev/null || echo -)
+              x=$(cat "${'$'}c/gt_RP0_freq_mhz" 2>/dev/null || cat "${'$'}f/rp0_freq" 2>/dev/null || echo -)
+              n=$(lspci -s "$(basename "$(readlink "${'$'}c/device")")" 2>/dev/null | sed 's/^[^ ]* [^:]*: //; s/ (rev [0-9a-f]*)$//; s/Corporation //')
+              echo "igpu=${'$'}{c##*/} ${'$'}a ${'$'}x ${'$'}n"
+            done
             exit 0
         """.trimIndent()
 
@@ -103,7 +128,7 @@ data class HostMetrics(
             val load = one("load")?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }.orEmpty()
             val net = one("net")?.split(' ')?.mapNotNull { it.toLongOrNull() }
             val nvidia = values["gpu"].orEmpty().mapNotNull(::nvidiaGpu)
-            val firstAmd = (nvidia.maxOfOrNull { it.index } ?: -1) + 1
+            val firstOther = (nvidia.maxOfOrNull { it.index } ?: -1) + 1
             return HostMetrics(
                 hostname = one("hostname"),
                 os = one("os"),
@@ -134,7 +159,10 @@ data class HostMetrics(
                     val name = parts.getOrNull(2)?.trimEnd('/')?.substringAfterLast('/')
                     if (cpu != null && mem != null && !name.isNullOrEmpty()) Process(name, cpu, mem) else null
                 },
-                gpus = nvidia + values["amdgpu"].orEmpty().mapIndexedNotNull { i, row -> amdGpu(firstAmd + i, row) },
+                gpus = (values["amdgpu"].orEmpty().mapNotNull { amdGpu(0, it) } +
+                    values["igpu"].orEmpty().mapNotNull { intelGpu(it, values["rc6a"].orEmpty(), values["rc6b"].orEmpty()) } +
+                    values["macgpu"].orEmpty().mapNotNull(::macGpu)).mapIndexed { i, gpu -> gpu.copy(index = firstOther + i) }
+                    .let { nvidia + it },
                 gpuProcesses = values["gpuproc"].orEmpty().mapNotNull { row ->
                     val parts = row.split(',').map { it.trim() }
                     val pid = parts.firstOrNull()?.toLongOrNull()
@@ -156,6 +184,30 @@ data class HostMetrics(
             val tail = parts.takeLast(6)
             val name = parts.subList(1, parts.size - 6).joinToString(", ").ifEmpty { "GPU $index" }
             return Gpu(index, name, reading(tail[0]), mib(tail[1]), mib(tail[2]), reading(tail[3]), reading(tail[4]), reading(tail[5]))
+        }
+
+        /**
+         * Intel i915/xe: `card act-MHz max-MHz name`; busy share is the time not spent in RC6 between the `card uptime-s rc6-ms`
+         * readings taken before and after the CPU sample's sleep.
+         */
+        internal fun intelGpu(row: String, before: List<String>, after: List<String>): Gpu? {
+            val parts = row.trim().split(Regex("\\s+"), limit = 4)
+            if (parts.size < 3) return null
+            fun rc6(lines: List<String>) = lines.map { it.trim().split(Regex("\\s+")) }.firstOrNull { it.size == 3 && it[0] == parts[0] }
+                ?.let { (_, up, ms) -> up.toDoubleOrNull()?.let { u -> ms.toDoubleOrNull()?.let { u * 1000 to it } } }
+            val a = rc6(before); val b = rc6(after)
+            val busy = if (a != null && b != null && b.first > a.first)
+                (100.0 * (1 - (b.second - a.second) / (b.first - a.first))).coerceIn(0.0, 100.0) else null
+            val name = parts.getOrNull(3)?.takeIf { it.isNotBlank() }?.let { if (it.startsWith("Intel")) it else "Intel $it" } ?: "Intel GPU"
+            return Gpu(0, name, busy, null, null, null, null, null, parts[1].toDoubleOrNull(), parts[2].toDoubleOrNull())
+        }
+
+        /** macOS IOAccelerator: device utilization %, bytes of unified memory in use ("-" for missing), then the model. */
+        internal fun macGpu(row: String): Gpu? {
+            val parts = row.trim().split(Regex("\\s+"), limit = 3)
+            if (parts.size < 2) return null
+            return Gpu(0, parts.getOrNull(2)?.takeIf { it.isNotBlank() } ?: "GPU", parts[0].toDoubleOrNull(), parts[1].toLongOrNull(), null,
+                null, null, null)
         }
 
         /** amdgpu sysfs: busy %, VRAM bytes used/total, millidegrees, microwatts drawn/cap, then the product name ("-" for missing). */
