@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -70,13 +71,13 @@ private fun MdText.annotated(colors: MarkdownColors, uriHandler: UriHandler): An
 @Composable
 internal fun MarkdownView(blocks: List<MdBlock>, loadImage: (suspend (String) -> ImageBitmap?)?, modifier: Modifier = Modifier,
     background: Color = MaterialTheme.colorScheme.surface,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp)) {
+    contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp), sideInsets: WindowInsets = WindowInsets(0)) {
     val scheme = MaterialTheme.colorScheme
     val colors = MarkdownColors(scheme.primary, scheme.surfaceContainerHighest, scheme.onSurfaceVariant, scheme.outlineVariant,
         rememberTerminalFontFamily())
     SelectionContainer(modifier) {
         LazyColumn(Modifier.fillMaxSize().background(background).testTag("file-preview-markdown"),
-            contentPadding = contentPadding,
+            contentPadding = contentPadding.plus(sideInsets.asPaddingValues()),
             verticalArrangement = Arrangement.spacedBy(6.dp)) {
             // List items sit close together; every other block gets a little more air.
             items(blocks) { block ->
@@ -210,4 +211,13 @@ private fun MarkdownImage(image: MdBlock.Image, colors: MarkdownColors, loadImag
                 color = colors.muted, maxLines = 1)
         }
     }
+}
+
+private fun PaddingValues.plus(other: PaddingValues): PaddingValues = object : PaddingValues {
+    override fun calculateLeftPadding(layoutDirection: LayoutDirection) =
+        this@plus.calculateLeftPadding(layoutDirection) + other.calculateLeftPadding(layoutDirection)
+    override fun calculateTopPadding() = this@plus.calculateTopPadding() + other.calculateTopPadding()
+    override fun calculateRightPadding(layoutDirection: LayoutDirection) =
+        this@plus.calculateRightPadding(layoutDirection) + other.calculateRightPadding(layoutDirection)
+    override fun calculateBottomPadding() = this@plus.calculateBottomPadding() + other.calculateBottomPadding()
 }

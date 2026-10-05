@@ -1,5 +1,6 @@
 package io.itermux.app.ui
 
+import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -124,18 +126,27 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
 
     Dialog(onDismissRequest = { if (searching) { searching = false; query = "" } else onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        SheetSystemBars()
+        // Landscape is short on rows: hide the system bars and fold the status line into the header.
+        val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+        SheetSystemBars(immersive = landscape)
+        // Content backgrounds run under a side cutout; only their text is inset.
+        val sideInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
         Surface(Modifier.fillMaxSize().testTag("file-preview"), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            Column(Modifier.safeDrawingPadding()) {
+            Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))) {
                 if (searching) SearchBar(query, { query = it }, matches.size, currentMatch, ::step,
-                    onClose = { searching = false; query = "" })
-                else Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    onClose = { searching = false; query = "" }, Modifier.windowInsetsPadding(sideInsets))
+                else Row(Modifier.fillMaxWidth().windowInsetsPadding(sideInsets).padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onDismiss, modifier = Modifier.testTag("file-preview-close")) {
                         Icon(painterResource(R.drawable.ic_chevron_left), tr("返回文件列表"))
                     }
                     // The full path stays one tap away under "Copy path" in the overflow menu.
                     Text(name, Modifier.weight(1f).padding(start = 4.dp).testTag("file-preview-title"),
                         style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (landscape) preview?.let {
+                        Text(statusText(it), Modifier.padding(horizontal = 8.dp).testTag("file-preview-status"),
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
                     if (preview?.markdown != null) IconButton(onClick = { rendered = !rendered },
                         modifier = Modifier.testTag("file-preview-markdown-toggle")) {
                         Icon(painterResource(if (rendered) R.drawable.ic_file_code else R.drawable.ic_preview),
@@ -200,42 +211,44 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                                 .padding(horizontal = 16.dp, vertical = 8.dp).testTag("file-preview-truncated"),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                         if (value.document == null) PreviewMessage(tr("此文件为空"), Modifier.weight(1f))
-                        else if (showRendered) MarkdownView(value.markdown!!, loadImage, Modifier.weight(1f).fillMaxWidth())
+                        else if (showRendered) MarkdownView(value.markdown!!, loadImage, Modifier.weight(1f).fillMaxWidth(), sideInsets = sideInsets)
                         else CodeViewer(value.document, options.codeWrap, options.codeFontSize, listState, horizontal,
-                            matches, currentMatch, Modifier.weight(1f).fillMaxWidth())
+                            matches, currentMatch, Modifier.weight(1f).fillMaxWidth(), sideInsets)
                     }
                     else -> PreviewMessage(tr("此文件格式暂不支持预览，或图片超过 8 MiB。请下载后查看。"),
                         Modifier.weight(1f).testTag("file-preview-unsupported")) {
                         TextButton(onClick = onDownload, enabled = canDownload) { Text(tr("下载")) }
                     }
                 }
-                value?.let { StatusBar(it) }
+                if (!landscape) value?.let { StatusBar(it, Modifier.windowInsetsPadding(sideInsets)) }
             }
         }
     }
 }
 
 /** Editor-style status line: language, line count, size. */
-@Composable
-private fun StatusBar(preview: FilePreview) {
-    val parts = buildList {
+private fun statusText(preview: FilePreview): String = buildList {
         preview.document?.let {
             add(it.language.displayName.let { label -> if (label == "Plain Text") tr("纯文本") else label })
             add(trf("%d 行", it.lineCount))
         }
         if (preview.image != null) add("${preview.imageWidth} × ${preview.imageHeight}")
         add(formatRemoteSize(preview.size))
-    }
+    }.joinToString("  ·  ")
+
+@Composable
+private fun StatusBar(preview: FilePreview, modifier: Modifier = Modifier) {
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-    Text(parts.joinToString("  ·  "), Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag("file-preview-status"),
+    Text(statusText(preview), modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag("file-preview-status"),
         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
 }
 
 @Composable
-private fun SearchBar(query: String, onQuery: (String) -> Unit, count: Int, current: Int, onStep: (Int) -> Unit, onClose: () -> Unit) {
+private fun SearchBar(query: String, onQuery: (String) -> Unit, count: Int, current: Int, onStep: (Int) -> Unit, onClose: () -> Unit,
+    modifier: Modifier = Modifier) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp).testTag("file-preview-search-bar"),
+    Row(modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp).testTag("file-preview-search-bar"),
         verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onClose, modifier = Modifier.testTag("file-preview-search-close")) {
             Icon(painterResource(R.drawable.ic_chevron_left), tr("关闭查找"))

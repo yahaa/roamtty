@@ -13,6 +13,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.itermux.app.R
@@ -43,7 +45,7 @@ internal fun AppSheet(onDismiss: () -> Unit, fillHeight: Boolean = true, fullScr
 
 /** Material 3 1.3 uses the system theme for its dialog window, while our app can override it. */
 @Composable
-internal fun SheetSystemBars(background: Color = MaterialTheme.colorScheme.surfaceContainerLow) {
+internal fun SheetSystemBars(background: Color = MaterialTheme.colorScheme.surfaceContainerLow, immersive: Boolean = false) {
     val window = (LocalView.current.parent as? DialogWindowProvider)?.window
     val light = background.luminance() > 0.5f
     SideEffect {
@@ -51,6 +53,9 @@ internal fun SheetSystemBars(background: Color = MaterialTheme.colorScheme.surfa
             WindowCompat.getInsetsController(it, it.decorView).apply {
                 isAppearanceLightStatusBars = light
                 isAppearanceLightNavigationBars = light
+                // Immersive sheets give the whole screen to content; an edge swipe brings the bars back for a moment.
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                if (immersive) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
             }
         }
     }
