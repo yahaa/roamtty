@@ -45,7 +45,7 @@ class HostDetailDeviceTest {
         app.database.hosts().forgetPin("[127.0.0.1]:22228")
         val id = "host-detail-device"
         app.getSharedPreferences("app-settings", 0).edit().remove("startDirectories:$id")
-            .putString("agentLaunchAgent", "CLAUDE").putBoolean("agentLaunchYolo", false).commit()
+            .putString("agentLaunchAgent", "CLAUDE").putString("agentLaunchMode", "STANDARD").commit()
         app.database.hosts().save(Host(id = id, name = "Fixture box", address = "127.0.0.1", port = 22228, username = "itermux_test",
             mode = "SHELL", encryptedPassword = app.vault.encrypt(password.toByteArray(), "$id:password")))
         try {
@@ -69,6 +69,7 @@ class HostDetailDeviceTest {
             compose.onNodeWithTag("launch-path").assert(hasText("~/projects"))
             compose.onNodeWithTag("launch-parent").assertExists()
             compose.onNodeWithTag("agent-option-codex").performClick()
+            compose.onNodeWithTag("agent-mode-read-only").performClick()
             compose.onNodeWithTag("launch-open").assert(hasText("在 projects 启动 Codex"))
             screenshot("launch-sheet-agent")
             compose.onNodeWithTag("launch-open").performClick()

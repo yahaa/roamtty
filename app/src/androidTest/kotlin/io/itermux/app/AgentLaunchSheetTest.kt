@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.itermux.app.session.AgentLaunch
+import io.itermux.app.session.AgentMode
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.ui.*
 import org.junit.Assert.assertEquals
@@ -33,7 +34,7 @@ class AgentLaunchSheetTest {
     }
 
     private fun launch(colors: ColorScheme, name: String): AgentLaunch? {
-        context.getSharedPreferences("app-settings", 0).edit().remove("agentLaunchAgent").remove("agentLaunchYolo").commit()
+        context.getSharedPreferences("app-settings", 0).edit().remove("agentLaunchAgent").remove("agentLaunchMode").remove("agentLaunchYolo").commit()
         var launched: AgentLaunch? = null
         compose.setContent {
             MaterialTheme(colorScheme = colors) {
@@ -55,13 +56,13 @@ class AgentLaunchSheetTest {
     }
 
     @Test fun darkLaunchesCodexInYolo() {
-        assertEquals(AgentLaunch(CodingAgent.CODEX, "/home/dev/projects/roamtty", true), launch(DarkColors, "agent-sheet-dark"))
+        assertEquals(AgentLaunch(CodingAgent.CODEX, "/home/dev/projects/roamtty", AgentMode.YOLO), launch(DarkColors, "agent-sheet-dark"))
     }
 
     @Test fun lightRemembersChoice() {
         launch(LightColors, "agent-sheet-light")
         val prefs = context.getSharedPreferences("app-settings", 0)
         assertEquals("CODEX", prefs.getString("agentLaunchAgent", null))
-        assertEquals(true, prefs.getBoolean("agentLaunchYolo", false))
+        assertEquals("YOLO", prefs.getString("agentLaunchMode", null))
     }
 }
