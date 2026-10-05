@@ -25,11 +25,11 @@ import io.itermux.app.tr
 import io.itermux.app.trf
 
 /**
- * Asked when a host is tapped: which directory the new terminal starts in. The field starts at `~` (home), so
+ * Which directory a new terminal (or, with [forAgent], an AI agent) starts in. The field starts at `~` (home), so
  * the default stays one tap; folders opened before on this host are listed for a quick pick.
  */
 @Composable
-internal fun StartDirectorySheet(host: Host, onDismiss: () -> Unit, onOpen: (String) -> Unit) {
+internal fun StartDirectorySheet(host: Host, onDismiss: () -> Unit, forAgent: Boolean = false, onOpen: (String) -> Unit) {
     val context = LocalContext.current.applicationContext
     val preferences = remember(context) { context.getSharedPreferences("app-settings", Context.MODE_PRIVATE) }
     var recent by remember(host.id) { mutableStateOf(preferences.recentStartDirectories(host.id)) }
@@ -42,7 +42,7 @@ internal fun StartDirectorySheet(host: Host, onDismiss: () -> Unit, onOpen: (Str
     }
     AppSheet(onDismiss, fillHeight = false) {
         Column(Modifier.verticalScroll(rememberScrollState()).testTag("start-directory-sheet")) {
-            SheetHeader(trf("打开 %s", host.name), "${host.username}@${host.address}", onDismiss)
+            SheetHeader(if (forAgent) tr("用 AI 助手打开") else tr("打开终端"), "${host.name} · ${host.username}@${host.address}", onDismiss)
             AppSearchField(field, { field = it }, tr("留空进入主目录"),
                 Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).testTag("start-directory-input"),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
@@ -66,7 +66,11 @@ internal fun StartDirectorySheet(host: Host, onDismiss: () -> Unit, onOpen: (Str
 
             Button(onClick = { open(field) },
                 modifier = Modifier.fillMaxWidth().padding(Spacing.Page).heightIn(min = 52.dp).testTag("start-directory-open")) {
-                Text(if (StartDirectory.isHome(field)) tr("在主目录打开终端") else tr("在此目录打开终端"),
+                Text(when {
+                    forAgent -> tr("下一步：选择助手")
+                    StartDirectory.isHome(field) -> tr("在主目录打开终端")
+                    else -> tr("在此目录打开终端")
+                },
                     style = MaterialTheme.typography.labelLarge)
             }
         }

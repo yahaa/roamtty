@@ -35,11 +35,12 @@ import io.itermux.ssh.HostSystem
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.TerminalTransport
 
-@Composable internal fun HostCard(host: Host, connect: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit,
-    managePlugins: () -> Unit = {}, reachability: HostReachability = HostReachability.Checking) {
+@Composable internal fun HostCard(host: Host, openDetail: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit,
+    managePlugins: () -> Unit = {}, reachability: HostReachability = HostReachability.Checking,
+    openTerminal: () -> Unit = {}, launchAgent: () -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
-    ListCard(onClick = connect, onClickLabel = tr("连接"), modifier = Modifier.testTag("host-card-${host.id}")) {
+    ListCard(onClick = openDetail, onClickLabel = tr("查看详情"), modifier = Modifier.testTag("host-card-${host.id}")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HostSystemIcon(host.os)
             Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
@@ -53,6 +54,13 @@ import io.itermux.ssh.TerminalTransport
                         tint = colors.onSurfaceVariant)
                 }
                 DropdownMenu(menu, { menu = false }) {
+                    DropdownMenuItem(text = { Text(tr("打开终端")) }, onClick = { menu = false; openTerminal() },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_sessions), contentDescription = null) },
+                        modifier = Modifier.testTag("host-open-terminal-${host.id}"))
+                    DropdownMenuItem(text = { Text(tr("AI 助手")) }, onClick = { menu = false; launchAgent() },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_agent), contentDescription = null) },
+                        modifier = Modifier.testTag("host-open-agent-${host.id}"))
+                    HorizontalDivider()
                     DropdownMenuItem(text = { Text(tr("编辑主机")) }, onClick = { menu = false; edit() },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_edit), contentDescription = null) })
                     DropdownMenuItem(text = { Text(tr("查看文件")) }, onClick = { menu = false; browseFiles() },

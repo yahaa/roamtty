@@ -16,6 +16,10 @@ class AgentLaunchTest {
         assertEquals("cd '/srv/it'\\''s $(x) dir' && codex",
             AgentLaunch(CodingAgent.CODEX, "/srv/it's \$(x) dir", false).commandLine)
     }
+    @Test fun homeFolderNeedsNoCd() {
+        assertEquals("claude", AgentLaunch(CodingAgent.CLAUDE, "~", false).commandLine)
+        assertEquals("cd ~/'work/app' && grok", AgentLaunch(CodingAgent.GROK, "~/work/app", false).commandLine)
+    }
     @Test fun titleNamesAgentAndFolder() {
         assertEquals("Grok · web", AgentLaunch(CodingAgent.GROK, "/srv/web/", false).title)
         assertEquals("Codex · /", AgentLaunch(CodingAgent.CODEX, "/", false).title)

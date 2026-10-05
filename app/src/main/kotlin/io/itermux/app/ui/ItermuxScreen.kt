@@ -82,6 +82,8 @@ fun ItermuxScreen(
     val prefs = remember(context) { context.getSharedPreferences("app-settings", Context.MODE_PRIVATE) }
     var theme by remember { mutableStateOf(AppTheme.from(prefs.getString("theme", null))) }
     var settingsReturnPage by rememberSaveable { mutableStateOf("hosts") }
+    /** The host whose detail page is shown when [page] is "host". */
+    var detailHostId by rememberSaveable { mutableStateOf<String?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val lightTheme = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
     val terminalVisible = page == "terminal" && sessions.isNotEmpty()
@@ -119,6 +121,8 @@ fun ItermuxScreen(
     var editHostId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteHost by remember { mutableStateOf<Host?>(null) }
     var startDirectoryHost by remember { mutableStateOf<Host?>(null) }
+    var agentDirectoryHost by remember { mutableStateOf<Host?>(null) }
+    var agentLaunchTarget by remember { mutableStateOf<Pair<Host, String>?>(null) }
     var connectRequest by remember { mutableStateOf<ConnectRequest?>(null) }
     var reverify by remember { mutableStateOf<TerminalConnection?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
@@ -228,7 +232,7 @@ fun ItermuxScreen(
             return@MaterialTheme
         }
         val colors = MaterialTheme.colorScheme
-        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files",
+        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files" && page != "host",
             drawerContent = {
                 ItermuxDrawer(page, hosts.size, sessionsByActivity,
                     onHosts = { page = "hosts"; scope.launch { drawerState.close() } },
@@ -248,7 +252,7 @@ fun ItermuxScreen(
             // keeps its text and controls clear of the status bar and cutouts itself.
             val contentInsets = if (terminalVisible) WindowInsets.captionBar else WindowInsets.safeDrawing
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).imePadding()) {
-                if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files") AppToolbar(
+                if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files" && page != "host") AppToolbar(
                     navigation = {
                         ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo")) {
                             focusManager.clearFocus(force = true)
@@ -313,10 +317,10 @@ fun ItermuxScreen(
                                 action = { Button(onClick = { editHostId = null; editorOpen = true }) { Text(tr("添加主机")) } })
                             else EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.weight(1f))
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
-                            items(filtered, key = { it.id }) { host -> HostCard(host, { startDirectoryHost = host }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
+                            items(filtered, key = { it.id }) { host -> HostCard(host, { detailHostId = host.id; page = "host" }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
                                 hostReachability.statusOf(host).let { probed ->
                                     if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
-                                }) }
+                                }, openTerminal = { startDirectoryHost = host }, launchAgent = { agentDirectoryHost = host }) }
                         }
                     }
                 } else if (page == "sessions") {
@@ -345,6 +349,22 @@ fun ItermuxScreen(
                             }
                         }
                     }
+                } else if (page == "host") {
+                    val detailHost = hosts.firstOrNull { it.id == detailHostId }
+                    if (detailHost != null) key(detailHost.id) {
+                        val connected = sessions.any { it.host.id == detailHost.id && (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
+                        HostDetailPage(detailHost,
+                            hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
+                            sessionCount = sessions.count { it.host.id == detailHost.id },
+                            onBack = { page = "hosts" },
+                            onOpenTerminal = { startDirectoryHost = detailHost },
+                            onLaunchAgent = { agentDirectoryHost = detailHost },
+                            onBrowseFiles = { browseFiles(detailHost) },
+                            onEdit = { editHostId = detailHost.id; editorOpen = true },
+                            onManagePlugins = { managePlugins(detailHost) },
+                            onDelete = { deleteHost = detailHost },
+                            modifier = Modifier.weight(1f))
+                    } else if (loadedHosts != null) LaunchedEffect(Unit) { page = "hosts" } // deleted, or gone after a restore
                 } else if (page == "files") {
                     val filesSession = sessions.find { it.id == selected }
                     if (filesSession != null) {
@@ -395,6 +415,18 @@ fun ItermuxScreen(
             StartDirectorySheet(host, onDismiss = { startDirectoryHost = null }) { directory ->
                 startDirectoryHost = null
                 connect(host, startupCommand = StartDirectory.command(directory))
+            }
+        }
+        agentDirectoryHost?.let { host ->
+            StartDirectorySheet(host, onDismiss = { agentDirectoryHost = null }, forAgent = true) { directory ->
+                agentDirectoryHost = null
+                agentLaunchTarget = host to directory
+            }
+        }
+        agentLaunchTarget?.let { (host, directory) ->
+            AgentLaunchSheet(directory, onDismiss = { agentLaunchTarget = null }) { launch ->
+                agentLaunchTarget = null
+                connect(host, title = launch.title, startupCommand = launch.commandLine)
             }
         }
         deleteHost?.let { host -> AlertDialog(onDismissRequest = { deleteHost = null }, title = { Text(trf("删除 %s？", host.name)) }, text = { Text(tr("将删除这台主机及保存的凭据，并关闭它的连接。远端 tmux 任务不受影响。")) },

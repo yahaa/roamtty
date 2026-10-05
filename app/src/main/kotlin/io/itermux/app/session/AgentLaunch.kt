@@ -14,8 +14,8 @@ enum class CodingAgent(val label: String, val shortLabel: String, val command: S
 data class AgentLaunch(val agent: CodingAgent, val directory: String, val yolo: Boolean) {
     val agentCommand: String get() = if (yolo) "${agent.command} ${agent.yoloFlag}" else agent.command
 
-    /** Typed into the new session's shell; single quotes work in sh, bash, zsh and fish alike. */
-    val commandLine: String get() = "cd ${shellQuote(directory)} && $agentCommand"
+    /** Typed into the new session's shell; single quotes work in sh, bash, zsh and fish alike. Home needs no cd. */
+    val commandLine: String get() = StartDirectory.command(directory)?.let { "$it && $agentCommand" } ?: agentCommand
 
     /** Session title: the agent and the folder it works in. */
     val title: String get() = "${agent.label} · ${directory.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }}"
