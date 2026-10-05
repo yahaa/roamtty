@@ -78,7 +78,7 @@ class TerminalGesturesTest {
                         it.setTypeface(android.graphics.Typeface.MONOSPACE)
                         it.setTerminalViewClient(MobileTerminalClient(it, {}, { false }, {},
                             onDoubleTap = { doubleTaps++ }, onTripleTap = { tripleTaps++ },
-                            onSwipeLeft = { swipeLefts++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT, KeyHandler.KEYMOD_SHIFT) },
+                            onSwipeLeft = { swipeLefts++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT) },
                             onSwipeHoldLeft = { it.sendInputText("\u0001") }, onSwipeHoldRight = { it.sendInputText("\u0005") }))
                         it.isFocusableInTouchMode = true
                         it.attachSession(session)
@@ -94,9 +94,9 @@ class TerminalGesturesTest {
     @Test fun leftSwipeSendsShiftLeftButOtherSwipesDoNot() {
         terminalContent()
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeLeft(startX = centerRight.x - 20, endX = centerLeft.x + 20, durationMillis = 150) }
-        compose.runOnIdle { assertEquals(1, swipeLefts); assertEquals("\u001b[1;2D", input.toString()); input.clear() }
+        compose.runOnIdle { assertEquals(1, swipeLefts); assertEquals("\u001b[D", input.toString()); input.clear() }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 120, y = center.y + 60), 900) }
-        compose.runOnIdle { assertEquals("A slow, slightly slanted swipe still counts", 2, swipeLefts); assertEquals("\u001b[1;2D", input.toString()); input.clear() }
+        compose.runOnIdle { assertEquals("A slow, slightly slanted swipe still counts", 2, swipeLefts); assertEquals("\u001b[D", input.toString()); input.clear() }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeRight(startX = centerLeft.x + 20, endX = centerRight.x - 20, durationMillis = 150) }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeUp(durationMillis = 150) }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 300, y = center.y + 300), 150) }
@@ -124,7 +124,7 @@ class TerminalGesturesTest {
         dragAndHold(200f, -10f, hold)
         compose.runOnIdle { assertEquals("Right swipe-and-hold sends Ctrl+E", "\u0005", input.toString()); input.clear() }
         dragAndHold(-200f, 10f, 0)
-        compose.runOnIdle { assertEquals("Lifting without resting still sends Shift+Left", "\u001b[1;2D", input.toString()); input.clear() }
+        compose.runOnIdle { assertEquals("Lifting without resting still sends Left", "\u001b[D", input.toString()); input.clear() }
         dragAndHold(200f, 0f, 0)
         dragAndHold(-30f, 0f, hold)
         compose.runOnIdle { assertEquals("A quick right swipe or a short hold sends nothing", "", input.toString()) }
