@@ -85,11 +85,12 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             isAppearanceLightStatusBars = lightTheme
             isAppearanceLightNavigationBars = lightTheme
-            // Portrait terminals keep the status bar (clock, battery, network); landscape gives every row to the terminal.
+            // Landscape gives every row to content on all pages; portrait terminals keep the status bar
+            // (clock, battery, network) and other portrait pages keep both bars.
             val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             when {
-                !terminalVisible -> show(WindowInsetsCompat.Type.systemBars())
                 landscape -> hide(WindowInsetsCompat.Type.systemBars())
+                !terminalVisible -> show(WindowInsetsCompat.Type.systemBars())
                 else -> {
                     show(WindowInsetsCompat.Type.statusBars())
                     hide(WindowInsetsCompat.Type.navigationBars())

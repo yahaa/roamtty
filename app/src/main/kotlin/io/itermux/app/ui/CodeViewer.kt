@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -27,6 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.itermux.app.TerminalFonts
 import io.itermux.app.code.CodeDocument
 import io.itermux.app.code.CodeLine
 import io.itermux.app.code.TokenType
@@ -111,14 +113,23 @@ internal fun annotatedCode(document: CodeDocument, theme: CodeTheme): AnnotatedS
     }
 }.toAnnotatedString()
 
+/** The face the terminal draws with, so code reads the same in previews as in the shell. */
+@Composable
+internal fun rememberTerminalFontFamily(): FontFamily {
+    val context = LocalContext.current
+    return remember(TerminalFonts.selection, TerminalFonts.revision) { FontFamily(TerminalFonts.resolveTypeface(context)) }
+}
+
 @Composable
 internal fun CodeViewer(document: CodeDocument, wrap: Boolean, fontSize: Float, listState: LazyListState,
-    horizontalScroll: ScrollState, matches: List<CodeMatch>, currentMatch: Int, modifier: Modifier = Modifier) {
+    horizontalScroll: ScrollState, matches: List<CodeMatch>, currentMatch: Int, modifier: Modifier = Modifier,
+    sideInsets: WindowInsets = WindowInsets(0)) {
     val theme = rememberCodeTheme()
-    val textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = fontSize.sp, lineHeight = (fontSize * 1.5f).sp,
+    val fontFamily = rememberTerminalFontFamily()
+    val textStyle = TextStyle(fontFamily = fontFamily, fontSize = fontSize.sp, lineHeight = (fontSize * 1.5f).sp,
         color = MaterialTheme.colorScheme.onSurface)
     val measurer = rememberTextMeasurer()
-    val charWidth = remember(fontSize) { measurer.measure("0000000000", textStyle).size.width / 10f }
+    val charWidth = remember(fontSize, fontFamily) { measurer.measure("0000000000", textStyle).size.width / 10f }
     val density = LocalDensity.current
     val gutterWidth = with(density) { (charWidth * maxOf(3, document.lineCount.toString().length)).toDp() }
     val contentWidth = with(density) { (charWidth * (document.maxColumns + 2)).toDp() }
@@ -126,7 +137,7 @@ internal fun CodeViewer(document: CodeDocument, wrap: Boolean, fontSize: Float, 
     val current = matches.getOrNull(currentMatch)
     SelectionContainer(modifier) {
         LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest).testTag("file-preview-text"),
-            state = listState, contentPadding = PaddingValues(vertical = 8.dp)) {
+            state = listState, contentPadding = sideInsets.add(WindowInsets(top = 8.dp, bottom = 8.dp)).asPaddingValues()) {
             itemsIndexed(document.lines) { row, line ->
                 val rowMatches = byRow[row].orEmpty()
                 val text = remember(line, theme, rowMatches, current) {

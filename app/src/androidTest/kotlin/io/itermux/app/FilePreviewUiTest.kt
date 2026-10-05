@@ -90,6 +90,12 @@ class FilePreviewUiTest {
             compose.waitUntil(5_000) { compose.onAllNodesWithText("1/1").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("file-preview-search-close").performClick()
             compose.onNodeWithTag("file-preview-title").assertIsDisplayed()
+            // Double tap hides the header and status line; another double tap brings them back.
+            compose.onNodeWithTag("file-preview-text").performTouchInput { doubleClick() }
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("file-preview-title").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("file-preview-status").assertDoesNotExist()
+            compose.onNodeWithTag("file-preview-text").performTouchInput { doubleClick() }
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("file-preview-title").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("file-preview").captureToImage().asAndroidBitmap().let { bitmap ->
                 File(context.getExternalFilesDir(null), "file-preview-text.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             }

@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -37,7 +38,7 @@ import io.itermux.app.R
 import io.itermux.app.code.*
 import io.itermux.app.tr
 
-private class MarkdownColors(val link: Color, val codeBackground: Color, val muted: Color, val rule: Color)
+private class MarkdownColors(val link: Color, val codeBackground: Color, val muted: Color, val rule: Color, val codeFont: FontFamily)
 
 private val bullets = listOf("•", "◦", "▪")
 
@@ -53,7 +54,7 @@ private fun MdText.annotated(colors: MarkdownColors, uriHandler: UriHandler): An
             MdStyle.BOLD -> addStyle(SpanStyle(fontWeight = FontWeight.Bold), span.start, span.end)
             MdStyle.ITALIC -> addStyle(SpanStyle(fontStyle = FontStyle.Italic), span.start, span.end)
             MdStyle.STRIKE -> addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), span.start, span.end)
-            MdStyle.CODE -> addStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 0.88.em,
+            MdStyle.CODE -> addStyle(SpanStyle(fontFamily = colors.codeFont, fontSize = 0.88.em,
                 background = colors.codeBackground), span.start, span.end)
             MdStyle.LINK, MdStyle.IMAGE -> {
                 val url = span.url.orEmpty()
@@ -70,12 +71,13 @@ private fun MdText.annotated(colors: MarkdownColors, uriHandler: UriHandler): An
 @Composable
 internal fun MarkdownView(blocks: List<MdBlock>, loadImage: (suspend (String) -> ImageBitmap?)?, modifier: Modifier = Modifier,
     background: Color = MaterialTheme.colorScheme.surface,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp)) {
+    contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp), sideInsets: WindowInsets = WindowInsets(0)) {
     val scheme = MaterialTheme.colorScheme
-    val colors = MarkdownColors(scheme.primary, scheme.surfaceContainerHighest, scheme.onSurfaceVariant, scheme.outlineVariant)
+    val colors = MarkdownColors(scheme.primary, scheme.surfaceContainerHighest, scheme.onSurfaceVariant, scheme.outlineVariant,
+        rememberTerminalFontFamily())
     SelectionContainer(modifier) {
         LazyColumn(Modifier.fillMaxSize().background(background).testTag("file-preview-markdown"),
-            contentPadding = contentPadding,
+            contentPadding = contentPadding.plus(sideInsets.asPaddingValues()),
             verticalArrangement = Arrangement.spacedBy(6.dp)) {
             // List items sit close together; every other block gets a little more air.
             items(blocks) { block ->
@@ -103,7 +105,7 @@ private fun MarkdownBlock(block: MdBlock, colors: MarkdownColors, loadImage: (su
             if (block.level <= 2) HorizontalDivider(Modifier.padding(top = 6.dp), color = colors.rule)
         }
         is MdBlock.Paragraph -> Text(block.text.annotated(colors, uriHandler), style = body)
-        is MdBlock.Code -> CodeBlock(block)
+        is MdBlock.Code -> CodeBlock(block, colors.codeFont)
         is MdBlock.Quote -> Row(Modifier.height(IntrinsicSize.Min)) {
             Box(Modifier.width(3.dp).fillMaxHeight().clip(RoundedCornerShape(2.dp)).background(colors.rule))
             Column(Modifier.padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -127,7 +129,7 @@ private fun MarkdownBlock(block: MdBlock, colors: MarkdownColors, loadImage: (su
 }
 
 @Composable
-private fun CodeBlock(block: MdBlock.Code) {
+private fun CodeBlock(block: MdBlock.Code, font: FontFamily) {
     val theme = rememberCodeTheme()
     val clipboard = LocalClipboardManager.current
     val language = remember(block.language) { Languages.forFence(block.language) ?: Languages.PLAIN }
@@ -147,7 +149,7 @@ private fun CodeBlock(block: MdBlock.Code) {
                 }
             }
             Text(text, Modifier.horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
-                fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 19.sp, softWrap = false,
+                fontFamily = font, fontSize = 13.sp, lineHeight = 19.sp, softWrap = false,
                 color = MaterialTheme.colorScheme.onSurface)
         }
     }
@@ -209,4 +211,13 @@ private fun MarkdownImage(image: MdBlock.Image, colors: MarkdownColors, loadImag
                 color = colors.muted, maxLines = 1)
         }
     }
+}
+
+private fun PaddingValues.plus(other: PaddingValues): PaddingValues = object : PaddingValues {
+    override fun calculateLeftPadding(layoutDirection: LayoutDirection) =
+        this@plus.calculateLeftPadding(layoutDirection) + other.calculateLeftPadding(layoutDirection)
+    override fun calculateTopPadding() = this@plus.calculateTopPadding() + other.calculateTopPadding()
+    override fun calculateRightPadding(layoutDirection: LayoutDirection) =
+        this@plus.calculateRightPadding(layoutDirection) + other.calculateRightPadding(layoutDirection)
+    override fun calculateBottomPadding() = this@plus.calculateBottomPadding() + other.calculateBottomPadding()
 }
