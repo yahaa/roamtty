@@ -78,7 +78,7 @@ data class HostMetrics(
               echo "model=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
               echo "idle=$(top -l 2 -n 0 -s 1 2>/dev/null | sed -n 's/.* \([0-9.]*\)% idle.*/\1/p' | tail -n 1)"
               echo "load=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')"
-              b=$(sysctl -n kern.boottime 2>/dev/null | sed 's/.*sec = \([0-9]*\).*/\1/')
+              b=$(sysctl -n kern.boottime 2>/dev/null | sed 's/.*{ sec = \([0-9]*\).*/\1/')
               [ -n "${'$'}b" ] && echo "uptime=$(( $(date +%s) - b ))"
               echo "bytes_MemTotal=$(sysctl -n hw.memsize 2>/dev/null)"
               vm_stat 2>/dev/null | awk '/page size of/ { p = ${'$'}8 } /^Pages (free|inactive|speculative)/ { gsub("\\.", "", ${'$'}NF); n += ${'$'}NF } END { if (p) printf "bytes_MemAvailable=%.0f\n", n * p }'
