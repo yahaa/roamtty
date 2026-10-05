@@ -15,7 +15,8 @@ internal class MobileTerminalClient(
     private val shiftArmed: () -> Boolean = { false },
     private val consumeShift: () -> Unit = {},
     private val onDoubleTap: () -> Unit = {},
-    private val onTripleTap: () -> Unit = {}
+    private val onTripleTap: () -> Unit = {},
+    private val onSwipeLeft: () -> Unit = {}
 ) : TerminalViewClient {
     override fun onScale(scale: Float): Float { if (scale < 0.9f || scale > 1.1f) onScale(scale); return 1f }
     override fun onSingleTapUp(e: MotionEvent?) {
@@ -24,6 +25,7 @@ internal class MobileTerminalClient(
     }
     override fun onDoubleTap(e: MotionEvent?) = onDoubleTap()
     override fun onTripleTap(e: MotionEvent?) = onTripleTap()
+    override fun onSwipeLeft(e: MotionEvent?) = onSwipeLeft()
     override fun shouldBackButtonBeMappedToEscape() = false
     override fun shouldEnforceCharBasedInput() = true
     override fun shouldUseCtrlSpaceWorkaround() = false

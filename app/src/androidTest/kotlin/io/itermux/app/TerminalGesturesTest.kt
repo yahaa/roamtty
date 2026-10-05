@@ -33,6 +33,7 @@ class TerminalGesturesTest {
     private val input = StringBuilder()
     private var doubleTaps = 0
     private var tripleTaps = 0
+    private var swipeLefts = 0
     private var readOnly = false
     private val emulator = TerminalEmulator(object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) { input.append(String(data, offset, count)) }
@@ -76,7 +77,8 @@ class TerminalGesturesTest {
                         it.setTextSize(36)
                         it.setTypeface(android.graphics.Typeface.MONOSPACE)
                         it.setTerminalViewClient(MobileTerminalClient(it, {}, { false }, {},
-                            onDoubleTap = { doubleTaps++ }, onTripleTap = { tripleTaps++ }))
+                            onDoubleTap = { doubleTaps++ }, onTripleTap = { tripleTaps++ },
+                            onSwipeLeft = { swipeLefts++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT, KeyHandler.KEYMOD_SHIFT) }))
                         it.isFocusableInTouchMode = true
                         it.attachSession(session)
                         it.setCursorDraggingEnabled(true)
@@ -87,6 +89,19 @@ class TerminalGesturesTest {
         compose.waitForIdle()
     }
     private fun rowY(row: Int) = (row + 0.8f) * terminal.mRenderer.fontLineSpacing
+
+    @Test fun leftSwipeSendsShiftLeftButOtherSwipesDoNot() {
+        terminalContent()
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeLeft(startX = centerRight.x - 20, endX = centerLeft.x + 20, durationMillis = 150) }
+        compose.runOnIdle { assertEquals(1, swipeLefts); assertEquals("\u001b[1;2D", input.toString()); input.clear() }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeRight(startX = centerLeft.x + 20, endX = centerRight.x - 20, durationMillis = 150) }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeUp(durationMillis = 150) }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 300, y = center.y + 300), 150) }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 20), 150) }
+        compose.runOnIdle { assertEquals("Right, vertical, diagonal and short swipes send nothing", 1, swipeLefts); readOnly = true }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeLeft(startX = centerRight.x - 20, endX = centerLeft.x + 20, durationMillis = 150) }
+        compose.runOnIdle { assertEquals("Read-only history never swipes", 1, swipeLefts) }
+    }
 
     @Test fun completedTripleTapFiresOnceAndReadOnlyHistoryNeverFires() {
         terminalContent()
