@@ -136,12 +136,16 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         // Landscape is short on rows: hide the system bars and fold the status line into the header.
         val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-        SheetSystemBars(immersive = landscape || fullscreen)
+        // Portrait fullscreen keeps the status bar, see-through, with the content scrolling under it.
+        val underStatusBar = fullscreen && !landscape
+        SheetSystemBars(immersive = landscape, hideNavigation = underStatusBar)
         val toggleFullscreen = Modifier.observeDoubleTap { if (!searching) fullscreen = !fullscreen }
         // Content backgrounds run under a side cutout; only their text is inset.
         val sideInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
+        val topInset = if (underStatusBar) WindowInsets.safeDrawing.only(WindowInsetsSides.Top) else WindowInsets(0)
         Surface(Modifier.fillMaxSize().testTag("file-preview"), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))) {
+            Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(
+                if (underStatusBar) WindowInsetsSides.Bottom else WindowInsetsSides.Vertical))) {
                 if (!fullscreen) {
                     if (searching) SearchBar(query, { query = it }, matches.size, currentMatch, ::step,
                         onClose = { searching = false; query = "" }, Modifier.windowInsetsPadding(sideInsets))
@@ -220,13 +224,14 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                     value.text != null -> {
                         if (value.truncated) Text(tr("仅显示文件开头 256 KiB，下载可查看完整内容。"),
                             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer)
-                                .padding(horizontal = 16.dp, vertical = 8.dp).testTag("file-preview-truncated"),
+                                .windowInsetsPadding(topInset).padding(horizontal = 16.dp, vertical = 8.dp).testTag("file-preview-truncated"),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        val insets = if (value.truncated) sideInsets else sideInsets.add(topInset)
                         if (value.document == null) PreviewMessage(tr("此文件为空"), Modifier.weight(1f))
                         else if (showRendered) MarkdownView(value.markdown!!, loadImage, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen),
-                            sideInsets = sideInsets)
+                            insets = insets)
                         else CodeViewer(value.document, options.codeWrap, options.codeFontSize, listState, horizontal,
-                            matches, currentMatch, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen), sideInsets)
+                            matches, currentMatch, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen), insets)
                     }
                     else -> PreviewMessage(tr("此文件格式暂不支持预览，或图片超过 8 MiB。请下载后查看。"),
                         Modifier.weight(1f).testTag("file-preview-unsupported")) {

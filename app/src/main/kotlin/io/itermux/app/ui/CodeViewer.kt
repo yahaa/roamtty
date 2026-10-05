@@ -123,7 +123,7 @@ internal fun rememberTerminalFontFamily(): FontFamily {
 @Composable
 internal fun CodeViewer(document: CodeDocument, wrap: Boolean, fontSize: Float, listState: LazyListState,
     horizontalScroll: ScrollState, matches: List<CodeMatch>, currentMatch: Int, modifier: Modifier = Modifier,
-    sideInsets: WindowInsets = WindowInsets(0)) {
+    insets: WindowInsets = WindowInsets(0)) {
     val theme = rememberCodeTheme()
     val fontFamily = rememberTerminalFontFamily()
     val textStyle = TextStyle(fontFamily = fontFamily, fontSize = fontSize.sp, lineHeight = (fontSize * 1.5f).sp,
@@ -137,7 +137,7 @@ internal fun CodeViewer(document: CodeDocument, wrap: Boolean, fontSize: Float, 
     val current = matches.getOrNull(currentMatch)
     SelectionContainer(modifier) {
         LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest).testTag("file-preview-text"),
-            state = listState, contentPadding = sideInsets.add(WindowInsets(top = 8.dp, bottom = 8.dp)).asPaddingValues()) {
+            state = listState, contentPadding = insets.add(WindowInsets(top = 8.dp, bottom = 8.dp)).asPaddingValues()) {
             itemsIndexed(document.lines) { row, line ->
                 val rowMatches = byRow[row].orEmpty()
                 val text = remember(line, theme, rowMatches, current) {

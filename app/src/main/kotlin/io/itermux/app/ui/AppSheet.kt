@@ -47,7 +47,8 @@ internal fun AppSheet(onDismiss: () -> Unit, fillHeight: Boolean = true, fullScr
 
 /** Material 3 1.3 uses the system theme for its dialog window, while our app can override it. */
 @Composable
-internal fun SheetSystemBars(background: Color = MaterialTheme.colorScheme.surfaceContainerLow, immersive: Boolean = false) {
+internal fun SheetSystemBars(background: Color = MaterialTheme.colorScheme.surfaceContainerLow, immersive: Boolean = false,
+    hideNavigation: Boolean = false) {
     val window = (LocalView.current.parent as? DialogWindowProvider)?.window
     val light = background.luminance() > 0.5f
     // Landscape is short on rows everywhere, so sheets hide the bars just like the pages beneath them.
@@ -59,7 +60,11 @@ internal fun SheetSystemBars(background: Color = MaterialTheme.colorScheme.surfa
                 isAppearanceLightNavigationBars = light
                 // An edge swipe brings hidden bars back for a moment.
                 systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                if (hideBars) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
+                if (hideBars) hide(WindowInsetsCompat.Type.systemBars())
+                else {
+                    show(WindowInsetsCompat.Type.statusBars())
+                    if (hideNavigation) hide(WindowInsetsCompat.Type.navigationBars()) else show(WindowInsetsCompat.Type.navigationBars())
+                }
             }
         }
     }
