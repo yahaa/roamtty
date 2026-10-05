@@ -139,20 +139,20 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
     }
     // The cursor-row Enter key stays out of the way while typing and appears once input pauses,
-    // or at once on a double tap; it fades after a quiet spell. While a slash command is being
-    // typed, Up/Down keys take its place to move through the command menu until keys pause.
+    // or at once on a double tap; it fades after a quiet spell.
     var enterKeyAwake by remember { mutableStateOf(false) }
-    var arrowKeysAwake by remember { mutableStateOf(false) }
     var enterKeyTouches by remember { mutableIntStateOf(0) }
     var enterKeyTyping by remember { mutableStateOf(false) }
+    // A line starting with `/` brings Up/Down keys above and below the cursor row to move through
+    // the command menu; they stay until Enter ends the line or a double tap dismisses them.
+    val slashCommandLine by session.slashCommandLine.collectAsStateWithLifecycle()
+    var arrowKeysDismissedLine by remember { mutableIntStateOf(0) }
     LaunchedEffect(enterKeyTouches) {
         if (enterKeyTouches == 0) return@LaunchedEffect
         if (enterKeyTyping) {
             enterKeyAwake = false
-            arrowKeysAwake = session.typingSlashCommand
-            delay(if (arrowKeysAwake) TerminalToolbox.arrowKeysPauseMillis else TerminalToolbox.enterKeyTypingPauseMillis)
+            delay(TerminalToolbox.enterKeyTypingPauseMillis)
         }
-        arrowKeysAwake = false
         enterKeyAwake = true
         val hideAfter = TerminalToolbox.enterKeyHideMillis
         if (hideAfter > 0) {
@@ -403,7 +403,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
                             shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
-                            onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); enterKeyTyping = false; enterKeyTouches++ }, onTripleTap = { pasteClipboard() }))
+                            onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); arrowKeysDismissedLine = slashCommandLine; enterKeyTyping = false; enterKeyTouches++ }, onTripleTap = { pasteClipboard() }))
                         setUserInputListener { enterKeyTyping = true; enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                         isFocusableInTouchMode = true
@@ -427,7 +427,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 androidx.compose.animation.AnimatedVisibility(enterKeyAwake && cursorKeysAllowed,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
                     terminal?.let { view ->
-                        CursorRowKeys(view, outputRevision, viewportHeight) {
+                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight) {
                             CursorKey(R.drawable.ic_return, tr("回车"), "cursor-enter") {
                                 enterKeyTyping = false
                                 enterKeyTouches++
@@ -439,20 +439,23 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         }
                     }
                 }
-                androidx.compose.animation.AnimatedVisibility(arrowKeysAwake && cursorKeysAllowed,
+                androidx.compose.animation.AnimatedVisibility(slashCommandLine != 0 && slashCommandLine != arrowKeysDismissedLine && cursorKeysAllowed,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
                     terminal?.let { view ->
-                        CursorRowKeys(view, outputRevision, viewportHeight) {
-                            // Each press counts as typing, so the keys stay until presses pause.
-                            CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "cursor-up") {
-                                enterKeyTyping = true
-                                enterKeyTouches++
-                                terminalKey(KeyEvent.KEYCODE_DPAD_UP)
-                            }
-                            CursorKey(R.drawable.ic_expand_down, tr("发送下方向键"), "cursor-down") {
-                                enterKeyTyping = true
-                                enterKeyTouches++
-                                terminalKey(KeyEvent.KEYCODE_DPAD_DOWN)
+                        // Up above the cursor row, Down below; the Enter key keeps the row itself.
+                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight * 3) {
+                            Column {
+                                CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "cursor-up") {
+                                    enterKeyTyping = false
+                                    enterKeyTouches++
+                                    terminalKey(KeyEvent.KEYCODE_DPAD_UP)
+                                }
+                                Spacer(Modifier.height(CursorKeyHeight))
+                                CursorKey(R.drawable.ic_expand_down, tr("发送下方向键"), "cursor-down") {
+                                    enterKeyTyping = false
+                                    enterKeyTouches++
+                                    terminalKey(KeyEvent.KEYCODE_DPAD_DOWN)
+                                }
                             }
                         }
                     }
@@ -553,13 +556,11 @@ internal object TerminalToolbox {
     @Volatile var enterKeyHideMillis = 5_000L
     /** How long typing must pause before the cursor-row Enter key appears. */
     @Volatile var enterKeyTypingPauseMillis = 700L
-    /** How long key presses must pause before the slash-command Up/Down keys give way to Enter. */
-    @Volatile var arrowKeysPauseMillis = 1_200L
 }
 
-/** Keys at the right end of the cursor row; hidden while the cursor is scrolled away. */
+/** Keys at the right end of the cursor row, [height] tall and centred on it; hidden while the cursor is scrolled away. */
 @Composable
-private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewportHeight: Int, keys: @Composable RowScope.() -> Unit) {
+private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewportHeight: Int, height: Dp, keys: @Composable () -> Unit) {
     // Output moves the cursor: follow it on every screen revision.
     checkNotNull(outputRevision.value)
     val rowTop = view.getCursorRowTop()
@@ -567,10 +568,10 @@ private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewp
     val density = LocalDensity.current
     // The terminal view sits 6dp below the viewport top; centre the keys on the cursor row.
     val keyTop = with(density) {
-        val top = 6.dp.roundToPx() + rowTop + view.lineHeight / 2 - CursorKeyHeight.roundToPx() / 2
-        top.coerceIn(0, (viewportHeight - CursorKeyHeight.roundToPx()).coerceAtLeast(0))
+        val top = 6.dp.roundToPx() + rowTop + view.lineHeight / 2 - height.roundToPx() / 2
+        top.coerceIn(0, (viewportHeight - height.roundToPx()).coerceAtLeast(0))
     }
-    Row(Modifier.offset { IntOffset(0, keyTop) }, content = keys)
+    Box(Modifier.offset { IntOffset(0, keyTop) }) { keys() }
 }
 
 private val CursorKeyHeight = 32.dp

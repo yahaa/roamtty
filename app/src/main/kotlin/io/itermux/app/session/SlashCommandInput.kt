@@ -11,8 +11,11 @@ internal class SlashCommandInput {
     private enum class State { TEXT, ESC, CSI, SS3, OSC, OSC_ESC }
     private var state = State.TEXT
     private var length = 0
+    private var lines = 0
     @Volatile var active = false
         private set
+    /** 0 unless [active]; otherwise numbers the slash-command line, so each new one is distinct. */
+    val line: Int get() = if (active) lines else 0
 
     @Synchronized fun feed(data: ByteArray, offset: Int = 0, count: Int = data.size) {
         for (i in offset until offset + count) {
@@ -49,7 +52,10 @@ internal class SlashCommandInput {
             b == 0x7f || b == 0x08 -> if (length > 0 && --length == 0) active = false
             b < 0x20 || b in 0x80..0xbf -> Unit // other controls, UTF-8 continuation bytes
             else -> {
-                if (length == 0) active = b == '/'.code
+                if (length == 0) {
+                    active = b == '/'.code
+                    if (active) lines++
+                }
                 length++
             }
         }

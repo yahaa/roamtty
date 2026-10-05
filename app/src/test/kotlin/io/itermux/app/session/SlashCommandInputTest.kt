@@ -30,6 +30,14 @@ class SlashCommandInputTest {
         input.type("\u007f", "/")
         assertTrue(input.active)
     }
+    @Test fun eachCommandLineIsNumbered() {
+        val input = SlashCommandInput().type("/a")
+        val first = input.line
+        assertTrue(first != 0)
+        assertTrue(input.type("b").line == first)
+        assertTrue(input.type("\r").line == 0)
+        assertTrue(input.type("/").line.let { it != 0 && it != first })
+    }
     @Test fun multiByteCharactersCountOnce() {
         val input = SlashCommandInput().type("/", "中", "\u007f")
         assertTrue(input.active)
