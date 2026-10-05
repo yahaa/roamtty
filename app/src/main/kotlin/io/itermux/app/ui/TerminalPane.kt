@@ -318,7 +318,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             InputControlButton(if (tmuxHistory?.active == true) tr("实时") else tr("历史"),
                 if (tmuxHistory?.active == true) tr("返回实时画面") else tr("浏览历史记录"),
                 "tmux-history", enabled = state.phase == Phase.CONNECTED, selected = tmuxHistory?.active == true,
-                icon = if (tmuxHistory?.active == true) R.drawable.ic_live else R.drawable.ic_history,
+                icon = if (tmuxHistory?.active == true) R.drawable.ic_scrollback_live else R.drawable.ic_scrollback,
                 onClick = { hideKeyboard(); if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
             fileControls()
             IconButton(
@@ -540,12 +540,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             }
             if (dockReserved) TerminalDockPlacement(
                 Modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.End))
-                    .width(if (landscape && !imeVisible && safeDockHeight >= 320.dp) 96.dp else 48.dp),
+                    .width(if (terminalDockTwoColumns(landscape, imeVisible, safeDockHeight)) 96.dp else 48.dp),
                 endInset = 0.dp, content = dock)
         }
         if (floatingDock) {
             TerminalDockPlacement { height ->
-                Surface(shape = RoundedCornerShape(percent = 50),
+                Surface(shape = terminalDockShape(terminalDockTwoColumns(landscape, imeVisible, height)),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f), shadowElevation = 4.dp
                 ) { dock(height) }
             }
