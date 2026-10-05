@@ -104,9 +104,11 @@ class MainActivity : ComponentActivity() {
     }
     override fun onStart() {
         super.onStart()
+        android.util.Log.i("RoamttyConn", "activity start")
         bound = bindService(Intent(this, SessionService::class.java), connection, BIND_AUTO_CREATE)
     }
     override fun onStop() {
+        android.util.Log.i("RoamttyConn", "activity stop")
         if (bound) { unbindService(connection); bound = false }
         // Keep the terminal UI and editor state while the activity is in the background.
         // The foreground service still owns the connection; onStart rebinds to the current service.

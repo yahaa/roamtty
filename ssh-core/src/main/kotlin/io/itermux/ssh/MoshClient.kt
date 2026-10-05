@@ -26,6 +26,8 @@ internal class MoshClient(
     private val port: Int,
     key: String,
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
+    /** Connection diagnostics only: timings and state numbers, never terminal content. */
+    private val log: (String) -> Unit = {},
 ) {
     enum class End { SERVER_SHUTDOWN, STOPPED, TIMED_OUT, NO_CONTACT }
 
@@ -108,18 +110,25 @@ internal class MoshClient(
                 if (isStopped()) return@coroutineScope End.STOPPED
                 val now = clock()
                 if (!heardAny && now - start > firstContactTimeoutMs) return@coroutineScope End.NO_CONTACT
-                if (heardAny && now - lastHeard > silenceLimitMs) return@coroutineScope End.TIMED_OUT
+                if (heardAny && now - lastHeard > silenceLimitMs) {
+                    log("mosh silent ${now - lastHeard} ms, giving up")
+                    return@coroutineScope End.TIMED_OUT
+                }
                 if (probeRequested) {
                     probeRequested = false
                     if (heardAny) {
                         // A socket from before the sleep may sit on a stale NAT/VPN mapping: hop at once.
                         if (probeSince < 0) probeSince = now
+                        log("mosh probe: last heard ${now - lastHeard} ms ago, last applied ${now - lastAccepted} ms ago")
                         hopPort(now)
                         send(now)
                         continue
                     }
                 }
-                if (stallLimitMs != null && heardAny && stalled(now, stallLimitMs)) return@coroutineScope End.TIMED_OUT
+                if (stallLimitMs != null && heardAny && stalled(now, stallLimitMs)) {
+                    log("mosh stalled: probe=${if (probeSince < 0) -1 else now - probeSince} ms input=${if (inputPendingSince < 0) -1 else now - inputPendingSince} ms heard=${now - lastHeard} ms applied=${now - lastAccepted} ms")
+                    return@coroutineScope End.TIMED_OUT
+                }
                 // Like mosh, hop to a fresh source port when the server goes quiet (NAT rebinding, roaming).
                 if (heardAny && now - lastHeard > PORT_HOP_MS && now - lastHop > PORT_HOP_MS) hopPort(now)
                 val due = nextSendAt(now)
@@ -224,6 +233,8 @@ internal class MoshClient(
                 else { rttvar = 0.75 * rttvar + 0.25 * kotlin.math.abs(srtt - rtt); srtt = 0.875 * srtt + 0.125 * rtt }
             }
         }
+        if (probeSince >= 0) log("mosh probe answered after ${now - probeSince} ms")
+        if (now - lastHeard > PORT_HOP_MS && heardAny) log("mosh heard again after ${now - lastHeard} ms")
         lastHeard = now
         probeSince = -1L
         if (!heardAny) { heardAny = true; lastAccepted = now; onConnected() }
@@ -271,6 +282,7 @@ internal class MoshClient(
 
     private fun hopPort(now: Long) {
         lastHop = now
+        log("mosh port hop, silent ${now - lastHeard} ms")
         val old = socket
         socket = try { DatagramSocket() } catch (_: SocketException) { return }
         old.close()

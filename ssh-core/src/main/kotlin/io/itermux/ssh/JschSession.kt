@@ -34,6 +34,8 @@ class JschSession(
      * already expired looking connected while every keystroke is lost.
      */
     private val elapsedMillis: () -> Long = { System.nanoTime() / 1_000_000 },
+    /** Connection diagnostics only: phases, timings and outcomes, never credentials or terminal content. */
+    private val log: (String) -> Unit = {},
 ) : SshSession, TmuxHistoryAccess {
     override val historyConnected: Boolean get() = state.value.phase == Phase.CONNECTED
     private val mutableState = MutableStateFlow(ConnectionState(Phase.CONNECTING))
@@ -66,7 +68,9 @@ class JschSession(
     private val tmuxHistoryController = TmuxHistoryController(tmuxName, ::runCommand)
 
     private fun update(phase: Phase, message: String = "", detail: String? = null) {
-        if (!stopped.get()) mutableState.value = ConnectionState(phase, message, detail = detail)
+        if (stopped.get()) return
+        if (mutableState.value.phase != phase) log("phase $phase")
+        mutableState.value = ConnectionState(phase, message, detail = detail)
     }
 
     private fun ask(prompt: Prompt): List<String>? = runBlocking(interactionJob) {
@@ -88,7 +92,9 @@ class JschSession(
                 // Discard stale input before each attempt; never replay it after reattachment.
                 queues.reopen()
                 tmuxHistoryController.reset()
-                when (runAttempt(onOutput, reattaching = attempt > 0)) {
+                val outcome = runAttempt(onOutput, reattaching = attempt > 0)
+                log("attempt ended: $outcome (attempt $attempt, reached connected $reachedConnected)")
+                when (outcome) {
                     AttemptOutcome.STOPPED, AttemptOutcome.FATAL -> break
                     AttemptOutcome.REMOTE_EXIT -> {
                         update(Phase.DISCONNECTED, "连接已关闭")
@@ -340,7 +346,8 @@ class JschSession(
         update(Phase.CONNECTING, "正在启动 mosh…")
         val connect = startMoshServer(ssh) ?: return null
         val address = remoteAddress ?: return null
-        val client = MoshClient(address, connect.port, connect.key, elapsedMillis)
+        log("mosh-server started on port ${connect.port}")
+        val client = MoshClient(address, connect.port, connect.key, elapsedMillis, log)
         moshClient = client
         val end = try {
             coroutineScope {
@@ -368,6 +375,7 @@ class JschSession(
                 } finally { systemProbe.cancel(); keeper.cancel() }
             }
         } finally { queues.setAccepting(false); moshClient = null }
+        log("mosh ended: $end")
         return when (end) {
             MoshClient.End.NO_CONTACT -> null
             MoshClient.End.STOPPED -> AttemptOutcome.STOPPED
@@ -639,7 +647,11 @@ class JschSession(
      */
     suspend fun verifyAlive(timeoutMs: Int = 10_000) {
         // mosh is UDP: its client asks the server for a reply and reattaches tmux if none comes.
-        if (mutableTransport.value == TerminalTransport.MOSH) { moshClient?.probe(); return }
+        if (mutableTransport.value == TerminalTransport.MOSH) {
+            log("verify: mosh probe (client ${if (moshClient == null) "absent" else "present"}, phase ${state.value.phase})")
+            moshClient?.probe(); return
+        }
+        log("verify: transport ${mutableTransport.value}, phase ${state.value.phase}")
         if (mutableTransport.value != TerminalTransport.SSH || state.value.phase != Phase.CONNECTED) return
         val ssh = session ?: return
         if (!probing.compareAndSet(false, true)) return
@@ -658,6 +670,7 @@ class JschSession(
                 }
                 finally { probe.disconnect() }
             }
+            log("verify: ssh probe ${if (alive) "answered" else "unanswered, closing transport"}")
             // A newer attempt or an explicit disconnect owns the transport now.
             if (!alive && !stopped.get() && session === ssh) withContext(Dispatchers.IO) { ssh.disconnect() }
         } finally { probing.set(false) }
