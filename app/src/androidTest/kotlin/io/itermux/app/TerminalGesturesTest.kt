@@ -94,13 +94,15 @@ class TerminalGesturesTest {
         terminalContent()
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeLeft(startX = centerRight.x - 20, endX = centerLeft.x + 20, durationMillis = 150) }
         compose.runOnIdle { assertEquals(1, swipeLefts); assertEquals("\u001b[1;2D", input.toString()); input.clear() }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 120, y = center.y + 60), 900) }
+        compose.runOnIdle { assertEquals("A slow, slightly slanted swipe still counts", 2, swipeLefts); assertEquals("\u001b[1;2D", input.toString()); input.clear() }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeRight(startX = centerLeft.x + 20, endX = centerRight.x - 20, durationMillis = 150) }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeUp(durationMillis = 150) }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 300, y = center.y + 300), 150) }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 20), 150) }
-        compose.runOnIdle { assertEquals("Right, vertical, diagonal and short swipes send nothing", 1, swipeLefts); readOnly = true }
+        compose.runOnIdle { assertEquals("Right, vertical, diagonal and short swipes send nothing", 2, swipeLefts); readOnly = true }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeLeft(startX = centerRight.x - 20, endX = centerLeft.x + 20, durationMillis = 150) }
-        compose.runOnIdle { assertEquals("Read-only history never swipes", 1, swipeLefts) }
+        compose.runOnIdle { assertEquals("Read-only history never swipes", 2, swipeLefts) }
     }
 
     @Test fun completedTripleTapFiresOnceAndReadOnlyHistoryNeverFires() {

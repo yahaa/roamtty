@@ -148,7 +148,9 @@ public final class TerminalView extends View {
     public final static int KEY_EVENT_SOURCE_SOFT_KEYBOARD = 0;
 
     private static final String LOG_TAG = "TerminalView";
-    private static final float SWIPE_MIN_DISTANCE_DP = 48f;
+    private static final float SWIPE_MIN_DISTANCE_DP = 32f;
+    /** A swipe travels at least this many times as far sideways as vertically. */
+    private static final float SWIPE_MIN_RATIO = 1.5f;
 
     public TerminalView(Context context, AttributeSet attributes) { // NO_UCD (unused code)
         super(context, attributes);
@@ -157,10 +159,18 @@ public final class TerminalView extends View {
 
             boolean scrolledWithFinger;
             float downX, downY;
+            /** A pinch in this gesture: its final lift is never a swipe. */
+            boolean scaledInGesture;
 
             @Override
             public boolean onUp(MotionEvent event) {
                 mScrollRemainder = 0.0f;
+                if (isSwipeLeft(event)) {
+                    scrolledWithFinger = false;
+                    requestFocus();
+                    mClient.onSwipeLeft(event);
+                    return true;
+                }
                 if (mEmulator != null && mEmulator.isMouseTrackingActive() && !event.isFromSource(InputDevice.SOURCE_MOUSE) && !isSelectingText() && !scrolledWithFinger) {
                     // Quick event processing when mouse tracking is active - do not wait for check of double tapping
                     // for zooming.
@@ -197,7 +207,7 @@ public final class TerminalView extends View {
                 } else {
                     scrolledWithFinger = true;
                     // A sideways drag is a swipe in progress: do not scroll (or send arrow keys) for its small vertical drift.
-                    if (Math.abs(e.getX() - downX) > 2 * Math.abs(e.getY() - downY)) return true;
+                    if (isSideways(e)) return true;
                     distanceY += mScrollRemainder;
                     int deltaRows = (int) (distanceY / mRenderer.mFontLineSpacing);
                     mScrollRemainder = distanceY - deltaRows * mRenderer.mFontLineSpacing;
@@ -208,6 +218,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onScale(float focusX, float focusY, float scale) {
+                scaledInGesture = true;
                 if (mEmulator == null || isSelectingText()) return true;
                 mScaleFactor *= scale;
                 mScaleFactor = mClient.onScale(mScaleFactor);
@@ -217,11 +228,8 @@ public final class TerminalView extends View {
             @Override
             public boolean onFling(final MotionEvent e2, float velocityX, float velocityY) {
                 if (mEmulator == null) return true;
-                if (isSwipeLeft(e2, velocityX, velocityY)) {
-                    requestFocus();
-                    mClient.onSwipeLeft(e2);
-                    return true;
-                }
+                // A sideways fling is a swipe, judged by distance when the finger lifts (onUp).
+                if (isSideways(e2)) return true;
                 // Do not start scrolling until last fling has been taken care of:
                 if (!mScroller.isFinished()) return true;
 
@@ -283,6 +291,7 @@ public final class TerminalView extends View {
                 scrolledWithFinger = false;
                 downX = x;
                 downY = y;
+                scaledInGesture = false;
                 // Why is true not returned here?
                 // https://developer.android.com/training/gestures/detector.html#detect-a-subset-of-supported-gestures
                 // Although setting this to true still does not solve the following errors when long pressing in terminal view text area
@@ -292,14 +301,16 @@ public final class TerminalView extends View {
                 return false;
             }
 
-            /** A left swipe travels far enough and at least twice as far sideways as vertically; vertical flings keep scrolling. */
-            private boolean isSwipeLeft(MotionEvent e, float velocityX, float velocityY) {
-                if (mTermSession == null || mTermSession.isReadOnly() || isSelectingText()
-                    || e.isFromSource(InputDevice.SOURCE_MOUSE) || mGestureRecognizer.isInProgress()) return false;
-                float dx = e.getX() - downX, dy = e.getY() - downY;
+            private boolean isSideways(MotionEvent e) {
+                return Math.abs(e.getX() - downX) > SWIPE_MIN_RATIO * Math.abs(e.getY() - downY);
+            }
+
+            /** A left swipe, at any speed, travels far enough and mostly sideways; vertical drags keep scrolling. */
+            private boolean isSwipeLeft(MotionEvent e) {
+                if (mEmulator == null || mTermSession == null || mTermSession.isReadOnly() || isSelectingText()
+                    || e.isFromSource(InputDevice.SOURCE_MOUSE) || scaledInGesture || mGestureRecognizer.isInProgress()) return false;
                 float minDistance = SWIPE_MIN_DISTANCE_DP * getResources().getDisplayMetrics().density;
-                return velocityX < 0 && dx <= -minDistance
-                    && Math.abs(dx) >= 2 * Math.abs(dy) && Math.abs(velocityX) >= 2 * Math.abs(velocityY);
+                return downX - e.getX() >= minDistance && isSideways(e);
             }
 
             @Override
