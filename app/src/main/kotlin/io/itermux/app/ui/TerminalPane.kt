@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -520,17 +521,21 @@ private fun CursorEnterKey(view: TerminalView, outputRevision: State<Long>, view
     val rowTop = view.getCursorRowTop()
     if (rowTop < 0) return
     val density = LocalDensity.current
-    val keyHeight = 32.dp
+    val keyHeight = 28.dp
     // The terminal view sits 6dp below the viewport top; centre the key on the cursor row.
     val keyTop = with(density) {
         val top = 6.dp.roundToPx() + rowTop + view.lineHeight / 2 - keyHeight.roundToPx() / 2
         top.coerceIn(0, (viewportHeight - keyHeight.roundToPx()).coerceAtLeast(0))
     }
-    Surface(onClick = onClick, modifier = Modifier.offset { IntOffset(0, keyTop) }.padding(end = 4.dp).size(44.dp, keyHeight)
+    // A light pill like the floating dock, so it reads as a key without hiding the text behind it.
+    Surface(onClick = onClick, modifier = Modifier.offset { IntOffset(0, keyTop) }.padding(end = 6.dp).size(40.dp, keyHeight)
         .semantics { contentDescription = tr("回车") }.testTag("cursor-enter"),
-        shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer, shadowElevation = 2.dp) {
-        Box(contentAlignment = Alignment.Center) { Text("↵", fontSize = 20.sp) }
+        shape = RoundedCornerShape(percent = 50), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+        contentColor = MaterialTheme.colorScheme.primary, shadowElevation = 3.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(painterResource(R.drawable.ic_return), contentDescription = null, modifier = Modifier.size(18.dp))
+        }
     }
 }
 
