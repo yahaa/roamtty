@@ -53,7 +53,7 @@ import kotlinx.coroutines.CancellationException
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Unit, modifier: Modifier = Modifier,
-    onLaunchAgent: ((AgentLaunch) -> Unit)? = null) {
+    onLaunchAgent: ((AgentLaunch) -> Unit)? = null, onOpenTerminal: ((String) -> Unit)? = null) {
     val connection by session.state.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
     val transfer = session.transfers
@@ -111,14 +111,19 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                     tint = if (browser.filtering) MaterialTheme.colorScheme.primary else LocalContentColor.current)
             }
             RemoteFileOptionsMenu(options) { dismissMenu ->
+                if (onOpenTerminal != null) DropdownMenuItem(text = { Text(tr("打开终端")) },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_sessions), contentDescription = null) },
+                    onClick = { dismissMenu(); onOpenTerminal(currentPath) },
+                    enabled = currentPath.isNotEmpty() && listing != null,
+                    modifier = Modifier.testTag("files-open-terminal"))
                 if (onLaunchAgent != null) {
                     DropdownMenuItem(text = { Text(tr("AI 助手")) },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_agent), contentDescription = null) },
                         onClick = { agentDirectory = currentPath; dismissMenu() },
                         enabled = currentPath.isNotEmpty() && listing != null,
                         modifier = Modifier.testTag("files-open-agent"))
-                    HorizontalDivider()
                 }
+                if (onOpenTerminal != null || onLaunchAgent != null) HorizontalDivider()
                 DropdownMenuItem(text = { Text(tr("刷新")) },
                     leadingIcon = { Icon(painterResource(R.drawable.ic_refresh), contentDescription = null) },
                     onClick = { browser.refresh(); dismissMenu() },
@@ -212,6 +217,8 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                                             clipboard.setText(AnnotatedString(path)); browser.dismissMenu()
                                         }, onOpenWithAgent = if (onLaunchAgent != null && entry.isDirectory) {
                                             { browser.dismissMenu(); agentDirectory = path }
+                                        } else null, onOpenTerminal = if (onOpenTerminal != null && entry.isDirectory) {
+                                            { browser.dismissMenu(); onOpenTerminal(path) }
                                         } else null, onDismiss = browser::dismissMenu)
                                 }
                             }
@@ -379,11 +386,15 @@ private fun BrowserMessage(message: String, busy: Boolean, modifier: Modifier, i
 @Composable
 internal fun FileActionsMenu(entry: RemoteEntry, expanded: Boolean, busy: Boolean, onOpen: () -> Unit,
     onDownload: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit,
-    onSaveAs: () -> Unit = onDownload, onCopyPath: (() -> Unit)? = null, onOpenWithAgent: (() -> Unit)? = null) {
+    onSaveAs: () -> Unit = onDownload, onCopyPath: (() -> Unit)? = null, onOpenWithAgent: (() -> Unit)? = null,
+    onOpenTerminal: (() -> Unit)? = null) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss,
         modifier = Modifier.widthIn(min = 200.dp, max = 280.dp).testTag("files-actions-list")) {
         DropdownMenuItem(text = { Text(tr(if (entry.isDirectory) "打开" else "查看内容")) },
             onClick = onOpen, enabled = !busy, modifier = Modifier.testTag("files-action-open"))
+        if (onOpenTerminal != null) DropdownMenuItem(text = { Text(tr("打开终端")) }, onClick = onOpenTerminal,
+            trailingIcon = { Icon(painterResource(R.drawable.ic_sessions), contentDescription = null, Modifier.size(18.dp)) },
+            modifier = Modifier.testTag("files-action-open-terminal"))
         if (onOpenWithAgent != null) DropdownMenuItem(text = { Text(tr("AI 助手")) }, onClick = onOpenWithAgent,
             trailingIcon = { Icon(painterResource(R.drawable.ic_agent), contentDescription = null, Modifier.size(18.dp)) },
             modifier = Modifier.testTag("files-action-open-agent"))
