@@ -52,7 +52,10 @@ class CursorEnterKeyTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     @get:Rule val serviceRule = ServiceTestRule()
 
-    @After fun restoreTimeout() { TerminalToolbox.enterKeyHideMillis = 5_000L }
+    @After fun restoreTimeout() {
+        TerminalToolbox.enterKeyHideMillis = 5_000L
+        TerminalToolbox.enterKeyTypingPauseMillis = 700L
+    }
 
     private fun terminal(view: View): TerminalView? {
         if (view is TerminalView) return view
@@ -64,6 +67,7 @@ class CursorEnterKeyTest {
 
     @Test fun enterKeyFollowsCursorRowAndHidesWhenQuiet() = runBlocking {
         TerminalToolbox.enterKeyHideMillis = 1_500L
+        TerminalToolbox.enterKeyTypingPauseMillis = 1_000L
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         (context.applicationContext as ItermuxApp).database.hosts().forgetPin("[127.0.0.1]:22228")
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
@@ -91,10 +95,12 @@ class CursorEnterKeyTest {
             compose.waitForIdle()
             assertTrue("hidden until input", !enterKeyShown())
 
-            // Typing reveals it on the cursor row.
+            // It stays hidden while typing and appears on the cursor row once input pauses.
             compose.activityRule.scenario.onActivity { activity ->
                 requireNotNull(terminal(activity.window.decorView)).onCreateInputConnection(EditorInfo()).commitText("a", 1)
             }
+            compose.waitForIdle()
+            assertTrue("hidden while typing", !enterKeyShown())
             outputContains("KEY_61")
             compose.waitUntil(3_000) { enterKeyShown() }
             val view = requireNotNull(terminal(compose.activity.window.decorView))
