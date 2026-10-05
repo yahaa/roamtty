@@ -117,16 +117,19 @@ class SessionService : Service() {
         existing.disconnect()
         // Plugins may have been installed since this entry was created; keep the entry's mode.
         val current = (application as ItermuxApp).database.hosts().find(existing.host.id) ?: existing.host
+        // Callbacks capture the host, never `existing`: each replacement would otherwise keep the connection it
+        // replaced (and its terminal buffer) alive, chaining every reconnect of the session.
+        val host = existing.host
         val replacement = TerminalConnection(
-            existing.host, existing.mode, credentials, (application as ItermuxApp).pins, scope,
+            host, existing.mode, credentials, (application as ItermuxApp).pins, scope,
             id = existing.id,
             initialTitle = existing.title.value,
             sessionNumber = existing.sessionNumber,
             remoteSessionName = existing.remoteSessionName,
             onRename = ::saveSessions,
-            onHostSystemDetected = { updateHostSystem(existing.host, it) },
+            onHostSystemDetected = { updateHostSystem(host, it) },
             preferMosh = current.prefersMosh,
-            onPluginsDetected = { updatePlugins(existing.host, it) }
+            onPluginsDetected = { updatePlugins(host, it) }
         )
         mutableSessions.value = mutableSessions.value.map { if (it.id == id) replacement else it }
         track(replacement)
