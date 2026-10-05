@@ -110,6 +110,7 @@ public final class TerminalRenderer {
             int lastRunStartColumn = -1;
             int lastRunStartIndex = 0;
             boolean lastRunFontWidthMismatch = false;
+            float lastRunWidthRatio = 1f;
             int currentCharIndex = 0;
             float measuredWidthForRun = 0.f;
 
@@ -148,8 +149,13 @@ public final class TerminalRenderer {
                 // If this is detected, we draw this code point scaled to match what wcwidth() expects.
                 final float measuredCodePointWidth = measure(codePoint, line, currentCharIndex, charsForCodePoint);
                 final boolean fontWidthMismatch = Math.abs(measuredCodePointWidth / mFontWidth - codePointWcWidth) > 0.01;
+                // Glyphs off the cell grid by the same ratio (a fallback CJK font, say) share one run and one scale:
+                // each still lands on its own cells, and a line of CJK text is one draw instead of one per glyph.
+                final float widthRatio = codePointWcWidth > 0 ? measuredCodePointWidth / (codePointWcWidth * mFontWidth) : Float.NaN;
+                final boolean sameScale = fontWidthMismatch == lastRunFontWidthMismatch &&
+                    (!fontWidthMismatch || Math.abs(widthRatio - lastRunWidthRatio) <= 0.001f);
 
-                if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch) {
+                if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || !sameScale) {
                     if (column == 0 || column == lastRunStartColumn) {
                         // Skip first column as there is nothing to draw, just record the current style.
                     } else {
@@ -171,6 +177,7 @@ public final class TerminalRenderer {
                     lastRunStartColumn = column;
                     lastRunStartIndex = currentCharIndex;
                     lastRunFontWidthMismatch = fontWidthMismatch;
+                    lastRunWidthRatio = widthRatio;
                 }
                 measuredWidthForRun += measuredCodePointWidth;
                 column += codePointWcWidth;
