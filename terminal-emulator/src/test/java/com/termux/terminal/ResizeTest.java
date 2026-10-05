@@ -209,4 +209,21 @@ public class ResizeTest extends TerminalTestCase {
 		resize(5, rows).assertLinesAre("ＱＲ ", "     ", "     ", "     ");
 	}
 
+	public void testColumnResizeAllocatesOnlyUsedRows() {
+		TerminalBuffer buffer = new TerminalBuffer(80, 1000, 5);
+		int[] cursor = {0, 0};
+		buffer.resize(40, 5, 1000, cursor, TextStyle.NORMAL, false);
+		int allocated = 0;
+		for (TerminalRow row : buffer.mLines) if (row != null) allocated++;
+		assertEquals(5, allocated);
+	}
+
+	public void testColumnResizeKeepsHistoryAndGrowsIt() {
+		final int rows = 3;
+		withTerminalSized(4, rows).enterString("aaaa\r\nbbbb\r\ncccc\r\ndddd\r\neeee").assertLinesAre("cccc", "dddd", "eeee");
+		resize(2, rows).assertLinesAre("dd", "ee", "ee");
+		enterString("\r\nff\r\ngg\r\nhh").assertLinesAre("ff", "gg", "hh");
+		resize(4, rows).assertLinesAre("ff  ", "gg  ", "hh  ");
+	}
+
 }

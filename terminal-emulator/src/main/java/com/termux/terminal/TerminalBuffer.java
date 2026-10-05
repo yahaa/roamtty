@@ -299,7 +299,9 @@ public final class TerminalBuffer {
             // Copy away old state and update new:
             TerminalRow[] oldLines = mLines;
             mLines = new TerminalRow[newTotalRows];
-            for (int i = 0; i < newTotalRows; i++)
+            // Like the constructor, allocate only the screen: scrolling allocates rows as the transcript grows, so an
+            // emulator with a large transcript limit does not pay for every row up front on each column change.
+            for (int i = 0; i < newRows; i++)
                 mLines[i] = new TerminalRow(newColumns, currentStyle);
 
             final int oldActiveTranscriptRows = mActiveTranscriptRows;

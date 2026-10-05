@@ -54,7 +54,8 @@ class TerminalConnection(
     var onScreenChanged: (() -> Unit)? = null
     var copyToClipboard: ((String) -> Unit)? = null
     var pasteFromClipboard: (() -> Unit)? = null
-    private val parser = TerminalEmulator(this, 80, 24, 8, 16, 50000, SilentTerminalClient())
+    // Every row kept costs ~0.5 KB of heap at phone widths, for each open session.
+    private val parser = TerminalEmulator(this, 80, 24, 8, 16, 10000, SilentTerminalClient())
     private val outputHistory = OutputHistory()
     internal fun outputHistorySnapshot(): List<OutputHistoryLine> {
         if (recordsOutput) captureIdleOutput.run()
