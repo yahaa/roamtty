@@ -112,7 +112,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
             }
             RemoteFileOptionsMenu(options) { dismissMenu ->
                 if (onLaunchAgent != null) {
-                    DropdownMenuItem(text = { Text(tr("用 AI 助手打开")) },
+                    DropdownMenuItem(text = { Text(tr("AI 助手")) },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_agent), contentDescription = null) },
                         onClick = { agentDirectory = currentPath; dismissMenu() },
                         enabled = currentPath.isNotEmpty() && listing != null,
@@ -384,7 +384,7 @@ internal fun FileActionsMenu(entry: RemoteEntry, expanded: Boolean, busy: Boolea
         modifier = Modifier.widthIn(min = 200.dp, max = 280.dp).testTag("files-actions-list")) {
         DropdownMenuItem(text = { Text(tr(if (entry.isDirectory) "打开" else "查看内容")) },
             onClick = onOpen, enabled = !busy, modifier = Modifier.testTag("files-action-open"))
-        if (onOpenWithAgent != null) DropdownMenuItem(text = { Text(tr("用 AI 助手打开")) }, onClick = onOpenWithAgent,
+        if (onOpenWithAgent != null) DropdownMenuItem(text = { Text(tr("AI 助手")) }, onClick = onOpenWithAgent,
             trailingIcon = { Icon(painterResource(R.drawable.ic_agent), contentDescription = null, Modifier.size(18.dp)) },
             modifier = Modifier.testTag("files-action-open-agent"))
         if (!entry.isDirectory) DropdownMenuItem(text = { Text(tr("下载")) }, onClick = onDownload,

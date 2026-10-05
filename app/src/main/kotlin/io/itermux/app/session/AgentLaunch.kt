@@ -1,10 +1,10 @@
 package io.itermux.app.session
 
 /** AI coding CLIs the file browser can start in a folder. [yoloFlag] skips every approval prompt. */
-enum class CodingAgent(val label: String, val command: String, val yoloFlag: String) {
-    CLAUDE("Claude Code", "claude", "--dangerously-skip-permissions"),
-    CODEX("Codex", "codex", "--dangerously-bypass-approvals-and-sandbox"),
-    GROK("Grok", "grok", "--always-approve");
+enum class CodingAgent(val label: String, val shortLabel: String, val command: String, val yoloFlag: String) {
+    CLAUDE("Claude Code", "Claude", "claude", "--dangerously-skip-permissions"),
+    CODEX("Codex", "Codex", "codex", "--dangerously-bypass-approvals-and-sandbox"),
+    GROK("Grok", "Grok", "grok", "--always-approve");
 
     companion object {
         fun from(value: String?) = entries.firstOrNull { it.name == value } ?: CLAUDE

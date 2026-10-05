@@ -1,14 +1,10 @@
 package io.itermux.app.ui
 
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -71,16 +67,10 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
                     PermissionRow(tr("普通权限"), tr("修改文件或执行命令前先征求你的确认"),
                         R.drawable.ic_check, selected = !yolo, danger = false, tag = "agent-permission-standard") { yolo = false }
                     GroupedDivider(start = 56.dp)
-                    PermissionRow(tr("高级权限 · YOLO"), tr("跳过所有确认，自动执行全部操作"),
+                    PermissionRow(tr("高级权限 · YOLO"), tr("不经确认直接运行命令、修改或删除文件"),
                         R.drawable.ic_alert, selected = yolo, danger = true, tag = "agent-permission-yolo") { yolo = true }
                 }
             }
-            AnimatedVisibility(yolo, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                Text(tr("助手将不经确认直接运行命令、修改或删除文件。请只在可信的项目目录中使用。"),
-                    Modifier.padding(start = Spacing.Section, end = Spacing.Section, top = Spacing.Tight),
-                    style = MaterialTheme.typography.bodySmall, color = colors.error)
-            }
-
             Spacer(Modifier.height(Spacing.Section))
             CommandPreview(launch.agentCommand, Modifier.padding(horizontal = Spacing.Page))
 
@@ -136,7 +126,7 @@ private fun AgentCard(agent: CodingAgent, selected: Boolean, modifier: Modifier 
             Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.Row, vertical = 14.dp)) {
                 AgentBadge(agent, 36.dp)
                 Spacer(Modifier.height(10.dp))
-                Text(agent.label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                Text(agent.shortLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = colors.onSurface)
                 Text(agent.command, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     color = colors.onSurfaceVariant, maxLines = 1)
@@ -193,16 +183,22 @@ private fun PermissionRow(title: String, subtitle: String, icon: Int, selected: 
     }
 }
 
-/** The exact command the new session will run, so nothing happens behind the user's back. */
+/**
+ * The exact command the new session will run, so nothing happens behind the user's back. It stays one line
+ * (scrolling sideways when long): a bottom sheet whose height changed with each agent would jump on every tap.
+ */
 @Composable
 private fun CommandPreview(command: String, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
+    val scroll = rememberScrollState()
+    LaunchedEffect(command) { scroll.scrollTo(0) }
     Row(modifier.fillMaxWidth().clip(MaterialTheme.shapes.small)
         .background(colors.onSurface.copy(alpha = 0.05f))
+        .horizontalScroll(scroll)
         .padding(horizontal = 14.dp, vertical = 12.dp).testTag("agent-launch-command")) {
         val mono = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
         Text("$ ", style = mono, color = colors.primary)
-        Text(command, style = mono, color = colors.onSurface)
+        Text(command, style = mono, color = colors.onSurface, maxLines = 1, softWrap = false)
     }
 }
 
