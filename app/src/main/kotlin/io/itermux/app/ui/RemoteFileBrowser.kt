@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.tr
 import io.itermux.app.trf
+import io.itermux.app.session.AgentLaunch
 import io.itermux.app.session.DownloadItem
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.session.breadcrumbSegments
@@ -51,7 +52,8 @@ import kotlinx.coroutines.CancellationException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Unit, modifier: Modifier = Modifier) {
+internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Unit, modifier: Modifier = Modifier,
+    onLaunchAgent: ((AgentLaunch) -> Unit)? = null) {
     val connection by session.state.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
     val transfer = session.transfers
@@ -66,6 +68,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
     var error by remember { mutableStateOf<String?>(null) }
     val downloads = rememberDownloadActions(session)
     val connected = connection.phase == Phase.CONNECTED
+    var agentDirectory by remember { mutableStateOf<String?>(null) }
     fun navigateBack() {
         if (browser.filtering) browser.clearFilter() else if (!browser.goBack()) onBack()
     }
@@ -108,6 +111,14 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                     tint = if (browser.filtering) MaterialTheme.colorScheme.primary else LocalContentColor.current)
             }
             RemoteFileOptionsMenu(options) { dismissMenu ->
+                if (onLaunchAgent != null) {
+                    DropdownMenuItem(text = { Text(tr("用 AI 助手打开")) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_agent), contentDescription = null) },
+                        onClick = { agentDirectory = currentPath; dismissMenu() },
+                        enabled = currentPath.isNotEmpty() && listing != null,
+                        modifier = Modifier.testTag("files-open-agent"))
+                    HorizontalDivider()
+                }
                 DropdownMenuItem(text = { Text(tr("刷新")) },
                     leadingIcon = { Icon(painterResource(R.drawable.ic_refresh), contentDescription = null) },
                     onClick = { browser.refresh(); dismissMenu() },
@@ -199,7 +210,9 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                                             browser.deletePath = path; browser.deleteIsDirectory = entry.isDirectory; browser.dismissMenu()
                                         }, onCopyPath = {
                                             clipboard.setText(AnnotatedString(path)); browser.dismissMenu()
-                                        }, onDismiss = browser::dismissMenu)
+                                        }, onOpenWithAgent = if (onLaunchAgent != null && entry.isDirectory) {
+                                            { browser.dismissMenu(); agentDirectory = path }
+                                        } else null, onDismiss = browser::dismissMenu)
                                 }
                             }
                         }
@@ -217,6 +230,12 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
             }, onDismiss = { browser.previewPath = null })
     }
     DownloadFilesUi(session, downloads)
+    if (onLaunchAgent != null) agentDirectory?.let { directory ->
+        AgentLaunchSheet(directory, onDismiss = { agentDirectory = null }) { launch ->
+            agentDirectory = null
+            onLaunchAgent(launch)
+        }
+    }
     pending?.let { PromptDialog(it) }
     browser.renamePath?.let { path ->
         AlertDialog(onDismissRequest = { browser.renamePath = null }, title = { Text(tr("重命名")) },
@@ -360,11 +379,14 @@ private fun BrowserMessage(message: String, busy: Boolean, modifier: Modifier, i
 @Composable
 internal fun FileActionsMenu(entry: RemoteEntry, expanded: Boolean, busy: Boolean, onOpen: () -> Unit,
     onDownload: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit,
-    onSaveAs: () -> Unit = onDownload, onCopyPath: (() -> Unit)? = null) {
+    onSaveAs: () -> Unit = onDownload, onCopyPath: (() -> Unit)? = null, onOpenWithAgent: (() -> Unit)? = null) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss,
         modifier = Modifier.widthIn(min = 200.dp, max = 280.dp).testTag("files-actions-list")) {
         DropdownMenuItem(text = { Text(tr(if (entry.isDirectory) "打开" else "查看内容")) },
             onClick = onOpen, enabled = !busy, modifier = Modifier.testTag("files-action-open"))
+        if (onOpenWithAgent != null) DropdownMenuItem(text = { Text(tr("用 AI 助手打开")) }, onClick = onOpenWithAgent,
+            trailingIcon = { Icon(painterResource(R.drawable.ic_agent), contentDescription = null, Modifier.size(18.dp)) },
+            modifier = Modifier.testTag("files-action-open-agent"))
         if (!entry.isDirectory) DropdownMenuItem(text = { Text(tr("下载")) }, onClick = onDownload,
             enabled = !busy, modifier = Modifier.testTag("files-action-download"))
         if (!entry.isDirectory) DropdownMenuItem(text = { Text(tr("另存为…")) }, onClick = onSaveAs,
