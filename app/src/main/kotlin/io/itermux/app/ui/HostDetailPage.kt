@@ -106,7 +106,7 @@ internal fun HostDetailPage(
                 verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
                 val metrics = monitor?.metrics?.collectAsStateWithLifecycle()?.value
                 HostHeader(host, reachability, metrics)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
                     HostAction(tr("终端"), R.drawable.ic_sessions, primary = true, tag = "host-detail-terminal",
                         modifier = Modifier.weight(1f)) { launching = false }
                     HostAction(tr("AI 助手"), R.drawable.ic_agent, tag = "host-detail-agent", modifier = Modifier.weight(1f)) {
@@ -168,20 +168,20 @@ private fun ReachabilityDot(reachability: HostReachability) {
     }
 }
 
+/** A compact pill: icon beside the label, so the three actions take one slim row instead of a block of tiles. */
 @Composable
 private fun HostAction(label: String, icon: Int, tag: String, modifier: Modifier = Modifier, primary: Boolean = false,
     onClick: () -> Unit) {
     val content: @Composable RowScope.() -> Unit = {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(painterResource(icon), contentDescription = null, Modifier.size(20.dp))
-            Spacer(Modifier.height(4.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-        }
+        Icon(painterResource(icon), contentDescription = null, Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
-    val shape = MaterialTheme.shapes.medium
-    val padding = PaddingValues(vertical = Spacing.Row)
-    if (primary) Button(onClick, modifier.heightIn(min = 64.dp).testTag(tag), shape = shape, contentPadding = padding, content = content)
-    else FilledTonalButton(onClick, modifier.heightIn(min = 64.dp).testTag(tag), shape = shape, contentPadding = padding, content = content)
+    val shape = MaterialTheme.shapes.small
+    val padding = PaddingValues(horizontal = Spacing.Tight)
+    val sized = modifier.height(40.dp).testTag(tag)
+    if (primary) Button(onClick, sized, shape = shape, contentPadding = padding, content = content)
+    else FilledTonalButton(onClick, sized, shape = shape, contentPadding = padding, content = content)
 }
 
 /** Every session the app holds for this host; a tap opens its terminal. */
