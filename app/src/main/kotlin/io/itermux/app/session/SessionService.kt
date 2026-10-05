@@ -7,6 +7,8 @@ import android.app.*
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.*
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -30,6 +32,7 @@ class SessionService : Service() {
     private lateinit var restoration: Job
     private lateinit var wakeLock: PowerManager.WakeLock
     private val stateWatchers = mutableMapOf<String, Job>()
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
     inner class LocalBinder : Binder() { val service get() = this@SessionService }
     override fun onBind(intent: Intent?) = binder
     override fun onCreate() {
@@ -38,6 +41,7 @@ class SessionService : Service() {
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Roamtty:SSH").apply { setReferenceCounted(false) }
         refreshLanguage()
+        watchNetwork()
         restoration = scope.launch {
             val app = application as ItermuxApp
             val usedNumbers = mutableMapOf<String, MutableSet<Int>>()
@@ -146,6 +150,27 @@ class SessionService : Service() {
         mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
         saveSessions()
     }
+    /** Sockets bound to a lost network or frozen by a long sleep can look connected for minutes. */
+    fun verifyConnections() = mutableSessions.value.forEach { it.verifyAlive() }
+
+    private fun watchNetwork() {
+        var current: Network? = null
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                // The first callback reports the network the sessions already use.
+                val changed = current != null && current != network
+                current = network
+                if (changed) scope.launch { verifyConnections() }
+            }
+            // No replacement network (airplane mode, Wi-Fi gone without mobile data) sends no onAvailable.
+            override fun onLost(network: Network) { scope.launch { verifyConnections() } }
+        }
+        networkCallback = runCatching {
+            getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback)
+            callback
+        }.getOrNull()
+    }
+
     fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; refreshNotification() }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == DISCONNECT_ALL) { disconnectAll(); stopSelf(); return START_NOT_STICKY }
@@ -180,6 +205,7 @@ class SessionService : Service() {
         } else if (foreground) getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification())
     }
     override fun onDestroy() {
+        networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         mutableSessions.value.forEach { it.disconnect() }
         scope.cancel()
         if (wakeLock.isHeld) wakeLock.release()

@@ -603,6 +603,39 @@ class JschSession(
         finally { exec.disconnect() }
     }
 
+    private val probing = AtomicBoolean(false)
+
+    /**
+     * Confirms the SSH terminal still reaches the server. After a night of sleep or a network
+     * switch the socket can be dead while nothing has noticed yet: keepalives only run while the
+     * CPU is awake and need a minute of silence, so the screen stays frozen and every keystroke
+     * vanishes. A channel open needs a server reply; without one the transport is closed so the
+     * attempt ends now — tmux reattaches, a plain shell reports the drop.
+     */
+    suspend fun verifyAlive(timeoutMs: Int = 10_000) {
+        if (mutableTransport.value != TerminalTransport.SSH || state.value.phase != Phase.CONNECTED) return
+        val ssh = session ?: return
+        if (!probing.compareAndSet(false, true)) return
+        try {
+            val alive = withContext(Dispatchers.IO) {
+                val probe = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext false }
+                val started = System.nanoTime()
+                try {
+                    probe.setCommand("true")
+                    probe.connect(timeoutMs)
+                    true
+                } catch (_: Exception) {
+                    // A refusal (MaxSessions 1, exec denied) is still a reply. JSch reports it with the
+                    // same error as a timeout, but it arrives at once; only silence means a dead link.
+                    ssh.isConnected && (System.nanoTime() - started) / 1_000_000 < timeoutMs / 2
+                }
+                finally { probe.disconnect() }
+            }
+            // A newer attempt or an explicit disconnect owns the transport now.
+            if (!alive && !stopped.get() && session === ssh) withContext(Dispatchers.IO) { ssh.disconnect() }
+        } finally { probing.set(false) }
+    }
+
     override fun disconnect() {
         stopped.set(true)
         queues.setAccepting(false)

@@ -25,7 +25,12 @@ class MainActivity : ComponentActivity() {
     private var lightTheme = false
     private var pendingShareImages by mutableStateOf<List<Uri>>(emptyList())
     private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) { service = (binder as SessionService.LocalBinder).service }
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            service = (binder as SessionService.LocalBinder).service.also {
+                // Returning to the app (often after a night of sleep) must not show a frozen terminal.
+                it.verifyConnections()
+            }
+        }
         override fun onServiceDisconnected(name: ComponentName?) { service = null }
     }
     override fun onCreate(savedInstanceState: Bundle?) {

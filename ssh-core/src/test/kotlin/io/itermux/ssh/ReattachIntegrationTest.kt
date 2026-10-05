@@ -42,7 +42,8 @@ class ReattachIntegrationTest {
 
     private suspend fun awaitReady(output: Channel<String>) = withTimeout(15_000) {
         val received = StringBuilder()
-        while (!received.contains("READY:exec tmux new-session -A -s 'itermux-reattach-regression'\r\n")) {
+        val ready = "READY:${Tmux.attachCommand("itermux-reattach-regression")}\r\n"
+        while (!received.contains(ready)) {
             received.append(output.receive())
         }
     }
@@ -67,6 +68,31 @@ class ReattachIntegrationTest {
         awaitReady(output)
         assertEquals(Phase.CONNECTED, ssh.state.value.phase)
         assertTrue(worker.isActive)
+    }
+
+    // A socket that died during sleep looks connected until keepalives run out; the probe on
+    // returning to the app must notice at once and reattach tmux.
+    @Test fun unansweredProbeReattachesFrozenConnection() = scenario("frozen") { ssh, worker, output ->
+        delay(300)
+        assertEquals(Phase.CONNECTED, ssh.state.value.phase)
+        withTimeout(5_000) { ssh.verifyAlive(timeoutMs = 700) }
+        withTimeout(3_000) { ssh.state.first { it.phase == Phase.CONNECTING } }
+        awaitReady(output)
+        assertEquals(Phase.CONNECTED, ssh.state.value.phase)
+        assertTrue(worker.isActive)
+        // A live connection passes the probe untouched.
+        ssh.verifyAlive(timeoutMs = 2_000)
+        assertEquals(Phase.CONNECTED, ssh.state.value.phase)
+    }
+
+    // A server that refuses extra channels is still answering; the probe must not tear down its PTY.
+    @Test fun refusedProbeKeepsLiveConnection() = scenario("reject-probe") { ssh, worker, output ->
+        delay(300)
+        withTimeout(5_000) { ssh.verifyAlive(timeoutMs = 2_000) }
+        delay(500)
+        assertEquals(Phase.CONNECTED, ssh.state.value.phase)
+        assertTrue(worker.isActive)
+        assertTrue("A refused probe must not reattach", output.tryReceive().isFailure)
     }
 
     @Test fun refusedFirstReconnectDoesNotExhaustRetries() = recovers("refused")

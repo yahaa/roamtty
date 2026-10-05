@@ -19,6 +19,7 @@ mode = sys.argv[1]
 key = paramiko.RSAKey.generate(2048)
 replacement_key = paramiko.RSAKey.generate(2048)
 outage = threading.Event()
+frozen = threading.Event()
 
 
 class Server(paramiko.ServerInterface):
@@ -35,6 +36,12 @@ class Server(paramiko.ServerInterface):
         return paramiko.AUTH_SUCCESSFUL
 
     def check_channel_request(self, kind, chanid):
+        if mode == "frozen" and self.attempt == 1 and frozen.is_set():
+            # A dead network: the server never answers again, yet the socket stays open.
+            time.sleep(30)
+        if mode == "reject-probe" and frozen.is_set():
+            # Like OpenSSH with MaxSessions 1: the live PTY keeps working, extra channels are refused.
+            return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
         return paramiko.OPEN_SUCCEEDED
 
     def check_channel_pty_request(self, *args):
@@ -47,16 +54,19 @@ class Server(paramiko.ServerInterface):
         def execute():
             # Let the exec request acknowledgement reach the client first.
             time.sleep(0.05)
-            if command.startswith(b"command -v tmux"):
+            if b"command -v tmux" in command:
                 channel.send_exit_status(1 if mode == "missing-tmux" and self.attempt > 1 else 0)
                 channel.close()
                 return
-            if not command.startswith(b"exec tmux "):
+            if not command.startswith(b"exec ") or b"tmux new-session -A" not in command:
                 channel.send_exit_status(127)
                 channel.close()
                 return
             channel.sendall(b"READY:" + command + b"\r\n")
             channel.recv(1024)
+            if mode in ("frozen", "reject-probe") and self.attempt == 1:
+                frozen.set()
+                return
             if mode.startswith("exit"):
                 if mode == "exit-delayed":
                     channel.shutdown_write()
