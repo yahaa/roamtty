@@ -248,6 +248,9 @@ class TerminalConnection(
             saved?.source.orEmpty())
     }
 
+    /** Detects a connection that died while the phone slept or changed networks. */
+    fun verifyAlive() { if (job != null) scope.launch { ssh.verifyAlive() } }
+
     override fun reset() { parser.reset(); onScreenChanged?.invoke() }
     override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
     override fun onCopyTextToClipboard(text: String) { copyToClipboard?.invoke(text) }
