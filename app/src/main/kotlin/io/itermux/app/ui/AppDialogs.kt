@@ -85,7 +85,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• Host cards show the system icon, online status and SSH latency. Tap a card for its details: live CPU, memory, disk, network, GPU and process monitoring, plus the host's sessions. The ⋮ menu offers AI agent, Open terminal, Browse files, Install plugins, Edit and Delete.",
     "Sessions and AI agents" to "• AI agent starts Claude Code, Codex or Grok in a folder you pick. Claude's Plan mode analyses first and starts changing files after you approve the plan. Codex and Grok start Read-only with a sandbox; Grok can still write its state in ~/.grok/ and temporary directories. You can change permissions in the agent. Normal (asks before editing files or running commands) and YOLO (skips confirmations) modes are also available, and your last choice is remembered. Open terminal can also start in a chosen folder.\n" +
         "• Install plugins detects and installs tmux and mosh. With tmux, each new session gets its own remote tmux session that keeps running after a disconnect or closing the app; reconnecting reattaches it. With mosh, sessions use UDP (allow ports 60000–61000) and fall back to SSH if it does not answer.\n" +
-        "• The Sessions tab lists every session (up to 8 per host); filter by host and tap the pencil to rename. Closing a connection keeps a tmux session and its card for reconnecting; Remove then drops the card.\n" +
+        "• The Sessions tab lists every session (up to 8 per host); filter by host and tap the pencil to rename. Closing a connection keeps a tmux session and its card for reconnecting; Remove then drops the card, optionally ending the remote tmux session and its tasks.\n" +
         "• The notification can disconnect everything. To stay connected while the screen is locked, allow background running in Settings.",
     "Terminal gestures" to "• Tap the terminal to show the keyboard. Double-tap sends Tab (completion), triple-tap pastes the clipboard, pinch changes the font size.\n" +
         "• Swipe left to send Shift+Left (answers Codex questions). Swipe left or right and keep your finger down to jump to the start or end of the line.\n" +
@@ -105,7 +105,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• 主机卡片显示系统图标、在线状态与延迟。点卡片进入详情页，实时查看 CPU、内存、磁盘、网络、GPU 与进程，并列出该主机的会话。右侧 ⋮ 菜单可选 AI 助手、打开终端、查看文件、安装插件、编辑或删除主机。",
     "会话与 AI 助手" to "• “AI 助手”在选定文件夹启动 Claude Code、Codex 或 Grok。Claude 的“计划”模式先分析，批准计划后开始修改；Codex 与 Grok 的“只读”使用沙箱启动，Grok 的 ~/.grok/ 状态目录和临时目录仍可写。你可在助手中调整权限，也可选择普通（改文件或运行命令前先问你）或 YOLO（跳过确认）模式，应用会记住上次选择。“打开终端”同样可以先选起始文件夹。\n" +
         "• “安装插件”检测并安装 tmux 与 mosh。装有 tmux 时每个新会话有独立的远端 tmux 会话，断网或关闭 App 后任务继续运行，重连即附着原会话；装有 mosh 时优先走 UDP（需放行 60000–61000），无回应自动回退 SSH。\n" +
-        "• “会话”标签列出全部会话（每台主机最多 8 个），可按主机筛选，点铅笔修改标题。“关闭连接”后 tmux 远端会话与卡片仍保留，可稍后重连；不再需要时点“移除”删除卡片。\n" +
+        "• “会话”标签列出全部会话（每台主机最多 8 个），可按主机筛选，点铅笔修改标题。“关闭连接”后 tmux 远端会话与卡片仍保留，可稍后重连；不再需要时点“移除”删除卡片，可勾选同时终止远端 tmux 会话及任务。\n" +
         "• 通知栏可一键全部断开。锁屏后要保持连接，请在设置中允许后台运行。",
     "终端手势" to "• 点击终端弹出键盘；双击发送 Tab（补全），三击粘贴剪贴板，双指缩放调整字号。\n" +
         "• 向左滑动发送 Shift+←（用于回答 Codex 的提问）；左右滑动后按住不放，可跳到行首或行尾。\n" +

@@ -120,6 +120,15 @@ object Tmux {
     }
 
     fun attachCommand(sessionName: String): String = "exec " + attachShellCommand(sessionName)
+
+    /**
+     * POSIX script ending [sessionName] and the processes in its panes; exits 0 when the session is
+     * already gone. `=` matches the name exactly, so a missing legacy name never prefix-matches another.
+     */
+    fun killSessionScript(sessionName: String): String {
+        val name = sanitizeSessionName(sessionName)
+        return "$PATH_SETUP\ntmux has-session -t =$name 2>/dev/null || exit 0\nexec tmux kill-session -t =$name\n"
+    }
 }
 
 enum class TerminalTransport { SSH, MOSH }

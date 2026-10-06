@@ -17,7 +17,9 @@ internal data class ConnectRequest(
     /** Credentials are for the plugin installer, not a terminal. */
     val plugins: Boolean = false,
     /** Typed into the new terminal once it connects, e.g. an AI coding agent started from the file browser. */
-    val startupCommand: String? = null
+    val startupCommand: String? = null,
+    /** Credentials end this closed entry's remote tmux session instead of opening a terminal. */
+    val terminateSessionId: String? = null
 )
 
 internal fun authLabel(auth: String) = when (auth) {
