@@ -131,6 +131,7 @@ class TerminalConnection(
                 lastOutput = now
                 withContext(Dispatchers.Main.immediate) {
                     parser.append(bytes, bytes.size)
+                    updateSlashCommand()
                     if (recordsOutput) scheduleOutputCapture()
                     revision.value++
                     onScreenChanged?.invoke()
@@ -154,13 +155,20 @@ class TerminalConnection(
         parser.resize(cols, lines, cellWidthPixels, cellHeightPixels)
         ssh.resize(cols, lines, cols * cellWidthPixels, lines * cellHeightPixels)
     }
-    private val slashInput = SlashCommandInput()
     private val slashCommand = MutableStateFlow(0)
-    /** Non-zero while the line being typed starts with `/`, numbering each such line. */
+    private var slashLines = 0
+    /** Non-zero while the input on the cursor row starts with `/`, numbering each such line. */
     val slashCommandLine = slashCommand.asStateFlow()
+    private fun updateSlashCommand() {
+        val row = parser.cursorRow
+        val slash = SlashCommandLine.startsWithSlash(parser.screen.getSelectedText(0, row, parser.mColumns, row, false, false))
+        slashCommand.value = when {
+            !slash -> 0
+            slashCommand.value != 0 -> slashCommand.value
+            else -> ++slashLines
+        }
+    }
     override fun write(data: ByteArray, offset: Int, count: Int) {
-        slashInput.feed(data, offset, count)
-        slashCommand.value = slashInput.line
         if (!ssh.write(data.copyOfRange(offset, offset + count))) inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
     }
     override fun writeCodePoint(prependEscape: Boolean, codePoint: Int) {
