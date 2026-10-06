@@ -10,7 +10,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -132,6 +131,7 @@ class TerminalConnection(
                 lastOutput = now
                 withContext(Dispatchers.Main.immediate) {
                     parser.append(bytes, bytes.size)
+                    updateSlashCommand()
                     if (recordsOutput) scheduleOutputCapture()
                     revision.value++
                     onScreenChanged?.invoke()
@@ -155,13 +155,20 @@ class TerminalConnection(
         parser.resize(cols, lines, cellWidthPixels, cellHeightPixels)
         ssh.resize(cols, lines, cols * cellWidthPixels, lines * cellHeightPixels)
     }
-    private val slashInput = SlashCommandInput()
     private val slashCommand = MutableStateFlow(0)
-    /** Non-zero while the line being typed starts with `/`, numbering each such line. */
+    private var slashLines = 0
+    /** Non-zero while the input on the cursor row starts with `/`, numbering each such line. */
     val slashCommandLine = slashCommand.asStateFlow()
+    private fun updateSlashCommand() {
+        val row = parser.cursorRow
+        val slash = SlashCommandLine.startsWithSlash(parser.screen.getSelectedText(0, row, parser.mColumns, row, false, false))
+        slashCommand.value = when {
+            !slash -> 0
+            slashCommand.value != 0 -> slashCommand.value
+            else -> ++slashLines
+        }
+    }
     override fun write(data: ByteArray, offset: Int, count: Int) {
-        slashInput.feed(data, offset, count)
-        slashCommand.value = slashInput.line
         if (!ssh.write(data.copyOfRange(offset, offset + count))) inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
     }
     override fun writeCodePoint(prependEscape: Boolean, codePoint: Int) {
@@ -263,21 +270,15 @@ class TerminalConnection(
     }
 
     private var startupJob: Job? = null
-    /** Types [command] once, after the first connection is up and the shell has finished drawing its prompt. */
+    /** Types [command] once into a ready writer; explicitly rejected input may wait for reattachment. */
     fun runWhenConnected(command: String) {
         startupJob?.cancel()
         startupJob = scope.launch {
-            ssh.state.first { it.phase == Phase.CONNECTED }
-            // rc files and tmux's first pane print for a moment; wait for output to go quiet so the line lands at a prompt.
-            val deadline = SystemClock.uptimeMillis() + STARTUP_SETTLE_MAX_MS
-            var seen = -1L
-            while (SystemClock.uptimeMillis() < deadline) {
-                val current = revision.value
-                if (current == seen && current > 0) break
-                seen = current
-                delay(STARTUP_QUIET_MS)
-            }
-            if (!ssh.write("$command\r".toByteArray(Charsets.UTF_8))) inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
+            val input = "$command\r".toByteArray(Charsets.UTF_8)
+            try {
+                if (!enqueueStartupCommand(ssh.state, ssh.inputEpoch, revision) { epoch -> ssh.write(input, epoch) })
+                    inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
+            } finally { input.fill(0) }
         }
     }
 
@@ -309,5 +310,3 @@ class TerminalConnection(
 
 private const val OUTPUT_QUIET_MS = 15L
 private const val OUTPUT_CAPTURE_MAX_DELAY_MS = 120L
-private const val STARTUP_QUIET_MS = 350L
-private const val STARTUP_SETTLE_MAX_MS = 4000L

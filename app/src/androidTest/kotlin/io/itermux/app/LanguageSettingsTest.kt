@@ -2,7 +2,6 @@ package io.itermux.app
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.view.WindowManager
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
@@ -38,7 +37,6 @@ class LanguageSettingsTest {
             compose.onNodeWithText("Language").assertIsDisplayed()
             compose.onNodeWithText("Appearance").assertIsDisplayed()
             assertEquals("ENGLISH", prefs.getString("language", null))
-            compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             File(context.getExternalFilesDir(null), "language-settings-en.png").outputStream().use {
                 compose.onRoot().captureToImage().asAndroidBitmap()
                     .compress(Bitmap.CompressFormat.PNG, 100, it)
@@ -61,7 +59,6 @@ class LanguageSettingsTest {
                 AppLocale.set(context, AppLanguage.from(previous))
                 if (previous == null) prefs.edit().remove("language").commit()
             }
-            compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
         }
     }
 }

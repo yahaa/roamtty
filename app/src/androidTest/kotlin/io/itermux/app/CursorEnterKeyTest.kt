@@ -3,7 +3,6 @@ package io.itermux.app
 import android.content.Intent
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
@@ -119,7 +118,6 @@ class CursorEnterKeyTest {
             assertTrue("key centre ${key.center.y} on cursor row $rowCentre", abs(key.center.y - rowCentre) <= 2f)
             assertTrue("key at the right end", key.right >= view.width * 0.9f)
             compose.waitUntil(3_000) { !escapeKeyShown() }
-            compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
                 File(context.getExternalFilesDir(null), "cursor-enter.png").outputStream().use {
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
@@ -155,7 +153,6 @@ class CursorEnterKeyTest {
             outputContains("KEY_41")
             compose.onNodeWithTag("cursor-down").performTouchInput { click() }
             outputContains("KEY_42")
-            compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
                 File(context.getExternalFilesDir(null), "cursor-arrows.png").outputStream().use {
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
@@ -178,7 +175,6 @@ class CursorEnterKeyTest {
             type("\n")
             compose.waitUntil(3_000) { !arrowKeysShown() }
         } finally {
-            compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             withContext(Dispatchers.Main) { service.close(session.id) }
             prompts.cancel()
         }

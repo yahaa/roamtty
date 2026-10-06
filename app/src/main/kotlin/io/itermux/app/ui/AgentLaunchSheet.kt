@@ -34,6 +34,7 @@ import io.itermux.app.R
 import io.itermux.app.session.AgentLaunch
 import io.itermux.app.session.AgentMode
 import io.itermux.app.session.CodingAgent
+import io.itermux.app.session.StartDirectory
 import io.itermux.app.tr
 import io.itermux.app.trf
 
@@ -49,6 +50,7 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
     var mode by remember { mutableStateOf(preferences.agentMode()) }
     val yolo = mode == AgentMode.YOLO
     val launch = AgentLaunch(agent, directory, mode)
+    val supported = StartDirectory.isSupported(directory)
     val colors = MaterialTheme.colorScheme
     AppSheet(onDismiss, fullScreen = true) {
         SheetHeader(tr("用 AI 助手打开"), null, onDismiss)
@@ -68,25 +70,29 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
             SectionCaption(tr("权限"))
             GroupedSection(Modifier.padding(horizontal = Spacing.Page)) {
                 Column(Modifier.selectableGroup()) {
-                    PermissionRow(AgentMode.READ_ONLY, R.drawable.ic_preview, selected = mode == AgentMode.READ_ONLY, danger = false,
+                    PermissionRow(agent, AgentMode.READ_ONLY, R.drawable.ic_preview, selected = mode == AgentMode.READ_ONLY, danger = false,
                         tag = "agent-permission-read-only") { mode = AgentMode.READ_ONLY }
                     GroupedDivider(start = 56.dp)
-                    PermissionRow(AgentMode.STANDARD, R.drawable.ic_check, selected = mode == AgentMode.STANDARD, danger = false,
+                    PermissionRow(agent, AgentMode.STANDARD, R.drawable.ic_check, selected = mode == AgentMode.STANDARD, danger = false,
                         tag = "agent-permission-standard") { mode = AgentMode.STANDARD }
                     GroupedDivider(start = 56.dp)
-                    PermissionRow(AgentMode.YOLO, R.drawable.ic_alert, selected = yolo, danger = true, tag = "agent-permission-yolo") { mode = AgentMode.YOLO }
+                    PermissionRow(agent, AgentMode.YOLO, R.drawable.ic_alert, selected = yolo, danger = true, tag = "agent-permission-yolo") { mode = AgentMode.YOLO }
                 }
             }
             Spacer(Modifier.height(Spacing.Section))
         }
         Column {
+            if (!supported) Text(tr(StartDirectory.UNSUPPORTED_MESSAGE),
+                Modifier.padding(horizontal = Spacing.Page).testTag("agent-launch-path-error"),
+                color = colors.error, style = MaterialTheme.typography.bodySmall)
             CommandPreview(launch.agentCommand, Modifier.padding(horizontal = Spacing.Page))
 
             val buttonColor by animateColorAsState(if (yolo) colors.error else colors.primary, label = "agent-launch-button")
             Button(onClick = {
+                if (!StartDirectory.isSupported(directory)) return@Button
                 preferences.saveAgentChoice(agent, mode)
                 onLaunch(launch)
-            }, colors = ButtonDefaults.buttonColors(containerColor = buttonColor,
+            }, enabled = supported, colors = ButtonDefaults.buttonColors(containerColor = buttonColor,
                 contentColor = if (yolo) colors.onError else colors.onPrimary),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Page)
                     .heightIn(min = 52.dp).testTag("agent-launch")) {
@@ -170,7 +176,7 @@ internal fun AgentBadge(agent: CodingAgent, size: androidx.compose.ui.unit.Dp) {
 }
 
 @Composable
-private fun PermissionRow(option: AgentMode, icon: Int, selected: Boolean, danger: Boolean, tag: String,
+private fun PermissionRow(agent: CodingAgent, option: AgentMode, icon: Int, selected: Boolean, danger: Boolean, tag: String,
     onSelect: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val accent = if (danger) colors.error else colors.primary
@@ -183,8 +189,8 @@ private fun PermissionRow(option: AgentMode, icon: Int, selected: Boolean, dange
         }
         Spacer(Modifier.width(Spacing.Row))
         Column(Modifier.weight(1f)) {
-            Text(modeLabel(option), style = MaterialTheme.typography.bodyLarge, color = if (danger) colors.error else colors.onSurface)
-            Text(modeHint(option), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(modeLabel(option, agent), style = MaterialTheme.typography.bodyLarge, color = if (danger) colors.error else colors.onSurface)
+            Text(modeHint(option, agent), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 color = if (danger) colors.error else colors.onSurfaceVariant)
         }
         RadioButton(selected = selected, onClick = null,

@@ -61,6 +61,9 @@ public interface TerminalViewClient {
 
     boolean onKeyUp(int keyCode, KeyEvent e);
 
+    /** Remote input was cleared without key events; consume any one-shot modifiers. */
+    default void onInputCleared() {}
+
     boolean onLongPress(MotionEvent event);
 
 

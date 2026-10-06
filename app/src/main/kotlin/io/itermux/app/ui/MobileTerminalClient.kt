@@ -47,6 +47,7 @@ internal class MobileTerminalClient(
         if (!modifierKey) consumeModifiers()
         return false
     }
+    override fun onInputCleared() = consumeModifiers()
     override fun onLongPress(event: MotionEvent?) = false
     override fun readControlKey() = controlArmed()
     override fun readAltKey() = false

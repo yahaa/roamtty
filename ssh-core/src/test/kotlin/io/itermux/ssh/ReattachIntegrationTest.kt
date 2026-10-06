@@ -7,6 +7,8 @@ import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
+import java.io.OutputStream
+import java.net.SocketException
 import java.util.concurrent.TimeUnit
 
 /** Real SSH handshakes over loopback. Skips when Python 3/paramiko is unavailable. */
@@ -93,6 +95,31 @@ class ReattachIntegrationTest {
         assertEquals(Phase.CONNECTED, ssh.state.value.phase)
         assertTrue(worker.isActive)
         assertTrue("A refused probe must not reattach", output.tryReceive().isFailure)
+    }
+
+    @Test fun delayedRefusalStillProvesTheServerAnswered() = scenario("reject-probe-delayed") { ssh, worker, output ->
+        delay(300)
+        ssh.verifyAlive(timeoutMs = 2_000)
+        assertEquals(Phase.CONNECTED, ssh.state.value.phase)
+        assertTrue(worker.isActive)
+        assertTrue(output.tryReceive().isFailure)
+    }
+
+    @Test fun immediateSocketWriteFailureClosesTheFrozenTransport() = scenario("frozen") { ssh, _, output ->
+        delay(300)
+        // Fault only the actual JSch socket writer, leaving its reader and connected flag live.
+        val sessionField = JschSession::class.java.getDeclaredField("session").apply { isAccessible = true }
+        val transport = requireNotNull(sessionField.get(ssh))
+        val io = transport.javaClass.getDeclaredField("io").apply { isAccessible = true }.get(transport)
+        io.javaClass.getDeclaredField("out").apply { isAccessible = true }.set(io, object : OutputStream() {
+            override fun write(byte: Int) { throw SocketException("Network is unreachable") }
+            override fun write(bytes: ByteArray, offset: Int, count: Int) { throw SocketException("Network is unreachable") }
+        })
+        ssh.verifyAlive(timeoutMs = 2_000)
+        assertFalse((transport as com.jcraft.jsch.Session).isConnected)
+        withTimeout(3_000) { ssh.state.first { it.phase == Phase.CONNECTING } }
+        awaitReady(output)
+        assertEquals(Phase.CONNECTED, ssh.state.value.phase)
     }
 
     @Test fun refusedFirstReconnectDoesNotExhaustRetries() = recovers("refused")

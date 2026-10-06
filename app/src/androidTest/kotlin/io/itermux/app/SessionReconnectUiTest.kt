@@ -5,7 +5,6 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -147,7 +146,6 @@ class SessionReconnectUiTest {
             compose.onNodeWithTag("session-${session.id}").performClick()
             for (landscape in listOf(false, true)) {
                 compose.activityRule.scenario.onActivity {
-                    it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                     it.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 }
                 compose.waitUntil(8_000) {
@@ -189,7 +187,6 @@ class SessionReconnectUiTest {
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id) }
             compose.activityRule.scenario.onActivity {
-                it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         }

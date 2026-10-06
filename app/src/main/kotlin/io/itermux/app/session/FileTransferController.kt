@@ -93,6 +93,7 @@ class FileTransferController(private val scope: CoroutineScope) {
         start(tr("插入图片"), images = queue.size) { progress ->
             for ((index, uri) in queue.withIndex()) {
                 mutableStatus.update { it.copy(bytes = 0, total = -1) }
+                progress(0)
                 val name = withContext(Dispatchers.IO) { displayName(application, uri) } ?: trf("图片 %d", index + 1)
                 val remotePath = CodexImageAttach.newRemotePngPath()
                 val uploaded = try {
@@ -144,12 +145,14 @@ class FileTransferController(private val scope: CoroutineScope) {
         mutableStatus.value = TransferStatus(name = name, total = total, running = true, downloads = downloads, imageTotal = images)
         val task = scope.launch(start = CoroutineStart.LAZY) {
             var reported = 0L
+            var latestBytes: Long? = null
             var lastReport = System.nanoTime()
             val started = lastReport
             try {
                 val customResult = operation { bytes ->
+                    latestBytes = bytes
                     val now = System.nanoTime()
-                    if (bytes - reported >= 256 * 1024 || now - lastReport >= 100_000_000L) {
+                    if (bytes == 0L || bytes < reported || bytes - reported >= 256 * 1024 || now - lastReport >= 100_000_000L) {
                         mutableStatus.update { it.copy(bytes = bytes,
                             bytesPerSecond = bytes / ((now - started) / 1e9).coerceAtLeast(0.001)) }
                         reported = bytes
@@ -158,7 +161,7 @@ class FileTransferController(private val scope: CoroutineScope) {
                 }
                 ensureActive()
                 mutableStatus.update {
-                    it.copy(bytes = if (it.total >= 0) it.total else it.bytes, result = customResult ?: tr("传输完成"),
+                    it.copy(bytes = latestBytes ?: it.bytes, result = customResult ?: tr("传输完成"),
                         succeeded = it.downloads.none { file -> file.phase != DownloadPhase.COMPLETE })
                 }
             } catch (e: CancellationException) {
@@ -173,7 +176,7 @@ class FileTransferController(private val scope: CoroutineScope) {
                 }
                 mutableStatus.update { it.copy(result = message, succeeded = false) }
             } finally {
-                mutableStatus.update { it.copy(running = false, bytesPerSecond = 0.0) }
+                mutableStatus.update { it.copy(bytes = latestBytes ?: it.bytes, running = false, bytesPerSecond = 0.0) }
                 job = null
             }
         }

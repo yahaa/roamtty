@@ -163,6 +163,9 @@ public final class TerminalView extends View {
             float downX, downY;
             /** A pinch in this gesture: its final lift is never a swipe. */
             boolean scaledInGesture;
+            /** Input gestures must start and finish in the same live, writable view. */
+            boolean writableAtDown;
+            TerminalSession sessionAtDown;
             /** Where the finger last moved past the touch slop, and where it is now, while a swipe may become a hold. */
             float holdX, holdY, lastX, lastY;
             /** The swipe-and-hold already fired: lifting sends nothing more. */
@@ -320,6 +323,8 @@ public final class TerminalView extends View {
                 scrolledWithFinger = false;
                 downX = x;
                 downY = y;
+                sessionAtDown = mTermSession;
+                writableAtDown = isWritableLiveViewport();
                 scaledInGesture = false;
                 swipeHeld = false;
                 holdX = Float.MAX_VALUE;
@@ -345,12 +350,17 @@ public final class TerminalView extends View {
              * enough and mostly sideways on a writable terminal; vertical drags keep scrolling.
              */
             private int swipeDirection(float x, float y) {
-                if (mEmulator == null || mTermSession == null || mTermSession.isReadOnly() || isSelectingText()
+                if (!writableAtDown || mTermSession != sessionAtDown || !isWritableLiveViewport() || isSelectingText()
                     || scaledInGesture || mGestureRecognizer.isInProgress() || !isSideways(x, y)) return 0;
                 float minDistance = SWIPE_MIN_DISTANCE_DP * getResources().getDisplayMetrics().density;
                 if (downX - x >= minDistance) return -1;
                 if (x - downX >= minDistance) return 1;
                 return 0;
+            }
+
+            private boolean isWritableLiveViewport() {
+                return mEmulator != null && mTermSession != null && !mTermSession.isReadOnly()
+                    && mTopRow == 0 && !mRemoteHistory.isActive();
             }
 
             /** Restarts the hold timer whenever the finger moves past the touch slop, so it fires only once the finger rests. */
@@ -506,11 +516,32 @@ public final class TerminalView extends View {
         outAttrs.initialSelEnd = initial.selectionEnd;
         if (Build.VERSION.SDK_INT >= 30) outAttrs.setInitialSurroundingText(initial.text);
 
+        final TerminalSession inputOwner = mTermSession;
         return mInputConnection = new BaseInputConnection(this, true) {
+
+            /** A detached IME may finish or edit its old connection after a session change. */
+            private boolean isCurrentConnection() {
+                return mInputConnection == this && mTermSession == inputOwner;
+            }
+
+            private void clearEditable() {
+                Editable content = getEditable();
+                content.clear();
+                BaseInputConnection.removeComposingSpans(content);
+                Selection.setSelection(content, 0);
+            }
+
+            /** Deliver both halves synchronously so sticky modifiers belong to one deletion. */
+            private void sendDeleteKey(int keyCode) {
+                long now = SystemClock.uptimeMillis();
+                TerminalView.this.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0));
+                TerminalView.this.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0));
+            }
 
             @Override
             public ExtractedText getExtractedText(ExtractedTextRequest request, int flags) {
-                if (request != null && (flags & GET_EXTRACTED_TEXT_MONITOR) != 0) mExtractedTextToken = request.token;
+                if (isCurrentConnection() && request != null && (flags & GET_EXTRACTED_TEXT_MONITOR) != 0)
+                    mExtractedTextToken = request.token;
                 return imeSnapshot(getEditable());
             }
 
@@ -551,6 +582,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean setComposingText(CharSequence text, int newCursorPosition) {
+                if (!isCurrentConnection()) return false;
                 noteUserInput();
                 mImeBackspace.reset();
                 return super.setComposingText(text, newCursorPosition);
@@ -558,12 +590,25 @@ public final class TerminalView extends View {
 
             @Override
             public boolean sendKeyEvent(KeyEvent event) {
+                if (!isCurrentConnection()) return false;
                 noteUserInput();
-                if (event.getKeyCode() == KeyEvent.KEYCODE_DEL && event.hasNoModifiers()) {
+                boolean backwardDelete = event.getKeyCode() == KeyEvent.KEYCODE_DEL;
+                if ((backwardDelete || event.getKeyCode() == KeyEvent.KEYCODE_FORWARD_DEL) && event.hasNoModifiers()) {
                     if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                        if (consumeImeBackspace()) return true;
-                        if (getEditable().length() > 0) return super.deleteSurroundingText(1, 0);
+                        if (getEditable().length() > 0) {
+                            mImeBackspace.reset();
+                            return super.deleteSurroundingText(backwardDelete ? 1 : 0, backwardDelete ? 0 : 1);
+                        }
+                        if (backwardDelete) {
+                            if (consumeImeBackspace()) return true;
+                        } else {
+                            mImeBackspace.reset();
+                        }
+                        sendDeleteKey(event.getKeyCode());
+                        return true;
                     }
+                    // The DOWN already delivered a complete pair, or only edited local text.
+                    if (event.getAction() == KeyEvent.ACTION_UP) return true;
                 } else if (event.getAction() == KeyEvent.ACTION_DOWN) {
                     mImeBackspace.reset();
                 }
@@ -572,6 +617,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean finishComposingText() {
+                if (!isCurrentConnection()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) mClient.logInfo(LOG_TAG, "IME: finishComposingText()");
                 super.finishComposingText();
 
@@ -581,6 +627,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean commitText(CharSequence text, int newCursorPosition) {
+                if (!isCurrentConnection()) return false;
                 noteUserInput();
                 mImeBackspace.reset();
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
@@ -595,20 +642,30 @@ public final class TerminalView extends View {
             }
 
             private void flushCommittedText() {
+                if (!isCurrentConnection()) return;
                 Editable content = getEditable();
                 String committed = content.toString();
                 // Clear before sending: an immediate echo or a repeated finish must never resend it.
-                content.clear();
-                BaseInputConnection.removeComposingSpans(content);
-                Selection.setSelection(content, 0);
+                clearEditable();
                 sendTextToTerminal(committed);
             }
 
             @Override
             public boolean deleteSurroundingText(int leftLength, int rightLength) {
+                if (!isCurrentConnection()) return false;
                 noteUserInput();
                 ImeDeleteGuard.Plan plan = ImeDeleteGuard.plan(leftLength, rightLength);
                 if (plan == ImeDeleteGuard.Plan.REJECT) return false;
+                // Uncommitted text belongs to the IME. No delete/clear may cross into remote input.
+                if (getEditable().length() > 0) {
+                    mImeBackspace.reset();
+                    if (plan == ImeDeleteGuard.Plan.CLEAR_ALL) {
+                        clearEditable();
+                        return true;
+                    }
+                    return super.deleteSurroundingText(
+                        ImeDeleteGuard.clampEmit(leftLength), ImeDeleteGuard.clampEmit(rightLength));
+                }
                 // WeChat IME "一键删除" / clear-all often sends Integer.MAX_VALUE (one or both sides).
                 if (plan == ImeDeleteGuard.Plan.CLEAR_ALL) {
                     mImeBackspace.reset();
@@ -622,43 +679,39 @@ public final class TerminalView extends View {
                 }
                 int emitLeft = ImeDeleteGuard.clampEmit(leftLength);
                 int emitRight = ImeDeleteGuard.clampEmit(rightLength);
-                // Roamtty: editing an uncommitted composition must not delete remote text.
-                if (getEditable().length() > 0) return super.deleteSurroundingText(emitLeft, emitRight);
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: deleteSurroundingText(" + leftLength + ", " + rightLength + ")");
                 }
                 // The stock Samsung keyboard with 'Auto check spelling' enabled sends leftLength > 1.
-                KeyEvent deleteKey = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL);
-                for (int i = 0; i < emitLeft; i++) super.sendKeyEvent(deleteKey);
-                KeyEvent forwardDelete = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_FORWARD_DEL);
-                for (int i = 0; i < emitRight; i++) super.sendKeyEvent(forwardDelete);
+                for (int i = 0; i < emitLeft; i++) sendDeleteKey(KeyEvent.KEYCODE_DEL);
+                for (int i = 0; i < emitRight; i++) sendDeleteKey(KeyEvent.KEYCODE_FORWARD_DEL);
                 return super.deleteSurroundingText(emitLeft, emitRight);
             }
 
             @Override
             public boolean deleteSurroundingTextInCodePoints(int leftLength, int rightLength) {
+                if (!isCurrentConnection()) return false;
                 noteUserInput();
                 ImeDeleteGuard.Plan plan = ImeDeleteGuard.plan(leftLength, rightLength);
                 if (plan == ImeDeleteGuard.Plan.REJECT) return false;
-                if (plan == ImeDeleteGuard.Plan.CLEAR_ALL) {
+                if (getEditable().length() > 0) {
                     mImeBackspace.reset();
-                    clearCurrentInput(false);
-                    return true;
+                    if (plan == ImeDeleteGuard.Plan.CLEAR_ALL) {
+                        clearEditable();
+                        return true;
+                    }
+                    return super.deleteSurroundingTextInCodePoints(
+                        ImeDeleteGuard.clampEmit(leftLength), ImeDeleteGuard.clampEmit(rightLength));
                 }
-                if (getEditable().length() == 0) return deleteSurroundingText(leftLength, rightLength);
-                if (leftLength > 0 && rightLength == 0) {
-                    if (consumeImeBackspace()) return true;
-                } else {
-                    mImeBackspace.reset();
-                }
-                return super.deleteSurroundingTextInCodePoints(
-                    ImeDeleteGuard.clampEmit(leftLength), ImeDeleteGuard.clampEmit(rightLength));
+                return deleteSurroundingText(leftLength, rightLength);
             }
 
             void sendTextToTerminal(CharSequence text) {
+                if (!isCurrentConnection()) return;
                 stopTextSelectionMode();
                 final int textLengthInChars = text.length();
                 for (int i = 0; i < textLengthInChars; i++) {
+                    if (!isCurrentConnection()) return;
                     char firstChar = text.charAt(i);
                     int codePoint;
                     if (Character.isHighSurrogate(firstChar)) {
@@ -1540,7 +1593,8 @@ public final class TerminalView extends View {
             if (restartIme) ((InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE)).restartInput(this);
         }
         scrollToBottom();
-        mTermSession.write("");
+        mTermSession.write("\u0015\u000b");
+        if (mClient != null) mClient.onInputCleared();
     }
 
     public void setTopRow(int topRow) {

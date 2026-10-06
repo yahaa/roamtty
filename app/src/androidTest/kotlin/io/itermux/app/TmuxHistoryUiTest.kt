@@ -9,7 +9,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -107,9 +106,6 @@ class TmuxHistoryUiTest {
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
             }
             bitmap.recycle()
-            compose.activityRule.scenario.onActivity {
-                it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-            }
             compose.activityRule.scenario.onActivity { activity ->
                 val root = activity.window.decorView
                 val screen = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)

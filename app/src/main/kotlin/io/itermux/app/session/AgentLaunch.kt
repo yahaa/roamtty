@@ -1,14 +1,14 @@
 package io.itermux.app.session
 
 /**
- * AI coding CLIs the file browser can start in a folder. [readOnlyFlag] lets it look but not touch (plan mode or a
- * read-only sandbox); [yoloFlag] skips every approval prompt.
+ * AI coding CLIs the file browser can start in a folder. [readOnlyFlag] starts a plan (Claude) or read-only sandbox;
+ * [yoloFlag] skips approval prompts. Users can subsequently change the CLI's permissions.
  */
 enum class CodingAgent(val label: String, val shortLabel: String, val command: String, val readOnlyFlag: String,
     val yoloFlag: String) {
     CLAUDE("Claude Code", "Claude", "claude", "--permission-mode plan", "--dangerously-skip-permissions"),
     CODEX("Codex", "Codex", "codex", "--sandbox read-only", "--dangerously-bypass-approvals-and-sandbox"),
-    GROK("Grok", "Grok", "grok", "--permission-mode plan", "--always-approve");
+    GROK("Grok", "Grok", "grok", "--sandbox read-only", "--always-approve");
 
     companion object {
         fun from(value: String?) = entries.firstOrNull { it.name == value } ?: CODEX

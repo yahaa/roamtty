@@ -3,7 +3,6 @@ package io.itermux.app
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
-import android.view.WindowManager
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -154,7 +153,6 @@ class HostSystemUiTest {
                 compose.activityRule.scenario.recreate()
                 compose.waitUntil(5000) { compose.onAllNodesWithTag("host-grid").fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${first.id}"))
-                compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
                 File(context.getExternalFilesDir(null), "host-system-icons-${theme.lowercase()}.png").outputStream().use {
                     compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
                 }
@@ -162,7 +160,6 @@ class HostSystemUiTest {
         } finally {
             preferences.edit().apply { if (previousTheme == null) remove("theme") else putString("theme", previousTheme) }.commit()
             hosts.forEach { app.database.hosts().delete(it.id) }
-            compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
         }
     }
 }

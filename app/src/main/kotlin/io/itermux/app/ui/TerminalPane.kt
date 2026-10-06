@@ -149,7 +149,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var enterKeyTouches by remember { mutableIntStateOf(0) }
     var enterKeyTyping by remember { mutableStateOf(false) }
     // A line starting with `/` brings stacked Up/Down keys to the cursor row, in the Enter key's place, to
-    // move through the command menu; they stay until Enter ends the line or a double tap dismisses them.
+    // move through the command menu. A double tap (Tab) swaps them for the Enter key; once that hides
+    // again they come back for as long as the line still starts with `/`.
     val slashCommandLine by session.slashCommandLine.collectAsStateWithLifecycle()
     var arrowKeysDismissedLine by remember { mutableIntStateOf(0) }
     LaunchedEffect(enterKeyTouches) {
@@ -163,6 +164,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         if (hideAfter > 0) {
             delay(hideAfter)
             enterKeyAwake = false
+            arrowKeysDismissedLine = 0
         }
     }
     // The shortcut popup stays open across key presses; it closes on an outside tap or after
@@ -581,7 +583,7 @@ internal object TerminalToolbox {
     /** Idle timeout of the open shortcut popup; 0 keeps it open until dismissed. */
     @Volatile var shortcutHideMillis = 5_000L
     /** Idle timeout of the cursor-row Enter key; 0 keeps it until the pane leaves. */
-    @Volatile var enterKeyHideMillis = 5_000L
+    @Volatile var enterKeyHideMillis = 3_000L
     /** How long typing must pause before the cursor-row Enter key appears. */
     @Volatile var enterKeyTypingPauseMillis = 700L
 }

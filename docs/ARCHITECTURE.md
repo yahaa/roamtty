@@ -26,11 +26,13 @@ flowchart LR
 
 `JschSession.connect` 在 IO dispatcher 执行握手和读取。输出按最多 8192 字节逐段交给挂起回调，回调等待主线程完成解析后才读下一段，因此 UI 慢时不会积压无界输出。所有终端 append、resize、paste、按键生成和绘制均在主线程串行执行。历史上限 50000 行；每个终端有独立的解析器和缓冲区。
 
-输入有界队列容量 64，单次原始写入上限 256 KiB，编辑/粘贴上限 128 KiB。断开关闭队列并清空剩余数据；每次重连创建新的 transport 和终端，不重放旧输入。PTY resize 使用合并队列，只发送最新尺寸，网络写入不阻塞 UI。SSH keepalive 间隔 15 秒，最多 3 次未响应后断开。
+输入有界队列容量 64，单次原始写入上限 256 KiB，编辑/粘贴上限 128 KiB。断开关闭队列并清空剩余数据；自动重连创建新的 transport 和输入队列，不重放旧输入。PTY resize 使用合并队列，只发送最新尺寸，网络写入不阻塞 UI。SSH keepalive 间隔配置为 15 秒，`serverAliveCountMax` 为 4；约一分钟的静默可能触发断开，实际时间还取决于传输状态和 JSch 的超时处理。
+
+启动目录与 agent 命令等待当前连接进入就绪状态，并绑定该次输入 writer 的代次；等待输出稳定期间若连接或代次变化，会重新等待。仅在明确未入本地队列时重试，成功入队后不会跨重连重放；入队成功不代表远端已执行。用户主动断开会取消等待中的启动命令。网络变化时 SSH 探活通过打开一个不启动 shell、也不执行命令的 session channel 获取往返回复；真实的 `SSH_OPEN_FAILURE` reason 表明服务器仍有回应，socket 写入失败或未收到回复则关闭旧 transport，不按异常返回速度猜测存活。
 
 ## 信任与凭据
 
-主机指纹按规范化后的 `[hostname]:port` 存储，IPv6 地址统一去掉输入方括号后再规范化。首次未知指纹需用户确认；已知地址收到不同公钥立即失败，既不会降级也不会使用通用“忽略主机密钥”开关。首次确认的写入在 Room 事务中采用 insert-if-absent，防止两个并行首次连接互相覆盖。重新核验是单独的显式操作，会关闭同地址连接并清除原信任记录，再重连核验。
+服务器信任记录按规范化后的 `[hostname]:port` 存储算法和公钥，指纹由公钥计算；IPv6 地址统一去掉输入方括号后再规范化。首次未知指纹需用户确认；已知地址收到不同公钥立即失败，既不会降级也不会使用通用“忽略主机密钥”开关。首次确认的写入在 Room 事务中采用 insert-if-absent，防止两个并行首次连接互相覆盖。同地址和端口的主机共享信任记录；删除主机配置不撤销该记录。重新核验是单独的显式操作，会关闭同地址连接并清除原信任记录，再重连核验。
 
 Keystore 持有不可导出的 AES 密钥，AES-GCM 随机 IV 和 128 位认证标签保护本地凭据。AAD 包含主机 ID 与 `password` / `key` 用途，避免密文跨主机或跨字段置换。凭据与主机同一 Room 行保存；删除主机同时移除密文。备份、设备迁移、凭据日志、终端日志、遥测都关闭。密钥口令不落盘。不可变的 JVM/Compose 字符串不能保证立即擦除，但不会持久化，字节数组在认证完成或取消时清零。
 
@@ -40,13 +42,13 @@ Keystore 持有不可导出的 AES 密钥，AES-GCM 随机 IV 和 128 位认证�
 
 用户主动打开连接时启动 `specialUse` 前台服务，并立即提供通知。Activity 只绑定服务和订阅 StateFlow，旋转和切换会话不负责维护底层 socket。关闭最后一个活动连接后停止前台状态并调用 stopSelf；若 Activity 仍绑定服务，可继续查看已断开的终端内容。服务使用 START_NOT_STICKY，不在系统重启后静默重连。
 
-`SessionJournal` 只保存最多 8 条会话的 ID、Room 主机 ID、模式与标题。服务重新创建时读取对应主机并创建无凭据、无连接任务的已断开条目；已删除主机的记录不恢复。新建连接等待恢复完成，避免覆盖已有列表。断开保留记录，主动关闭移除记录，终端输出、输入队列和编辑草稿不会写盘。
+`SessionJournal` 每台主机最多保存 8 条会话的 ID、Room 主机 ID、模式、标题、远端 tmux 会话名和会话序号。服务重新创建时读取对应主机并创建无凭据、无连接任务的已断开条目；已删除主机的记录不恢复。新建连接等待恢复完成，避免覆盖已有列表。断开保留记录；关闭 tmux 连接也保留卡片，显式“移除”调用 `forget()` 才删除，普通 shell 的关闭会移除条目。终端输出、输入队列和编辑草稿不会写盘。常用命令保存在会话内存中，断开后可继续查看，不写入会话日志，进程结束后不保留。
 
 活动连接持有 `PARTIAL_WAKE_LOCK`，所有连接非活动或服务销毁时释放。锁的寿命与用户打开的连接一致，没有会导致长连接再次休眠的固定到期时间。前台服务与唤醒锁仍受深度 Doze 限制；设置页提供系统电池优化管理入口，由用户选择豁免，不申请自动豁免权限。[Android 唤醒锁](https://developer.android.com/develop/background-work/background-tasks/awake/wakelock)、[Doze 限制](https://developer.android.com/training/monitoring-device-state/doze-standby)。
 
 `FileTransferController` 由 `TerminalConnection` 持有，使用服务作用域与 StateFlow 管理任务/进度，Activity 只展示状态。SAF 下载失败或取消在 `NonCancellable + IO` 中删除文档；文档 URI 使用 `DocumentsContract.deleteDocument`，删除失败显式反馈。SFTP 操作统一转义字面路径中的 `\`、`*`、`?`（JSch `realpath` 例外，接受原始路径）；上传使用同目录固定长度随机临时文件名，避免合法目标文件名因追加后缀超长。
 
-tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec channel 执行经校验的独立会话名命令 `exec tmux new-session -A -s 'roamtty-<id>'`。普通 SSH 使用 shell channel。用户进入“历史”后，同一 SSH 连接的短时 exec channel 对对应远端会话运行 `copy-mode`、`display-message` 和 `send-keys -X`；命令在 Mutex 下串行，长距离定位先用 `history-top` / `history-bottom` 或翻页，避免逐行重绘。客户端只保存当前窗格的历史行数、滚动位置和浏览状态，并用它驱动右侧滑块；“实时”执行 `cancel` 后退出复制模式。文件传输使用相同已认证 SSH 连接上的独立 SFTP channel，Android SAF 提供手机侧输入输出流；上传先写远端临时文件，确认目标不存在后改名。没有远端安装、端口转发、文件同步或后台自动命令重放。
+tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec channel 附着经校验的独立会话名 `roamtty-<id>`。附着前仅取消该窗格遗留的 copy-mode；`tmux new-session -A -D -s <会话名>` 创建或附着会话，并断开旧客户端，保留会话内的远端任务。普通 SSH 使用 shell channel。用户进入“历史”后，同一 SSH 连接的短时 exec channel 对对应远端会话运行 `copy-mode`、`display-message` 和 `send-keys -X`；命令在 Mutex 下串行，长距离定位先用 `history-top` / `history-bottom` 或翻页，避免逐行重绘。客户端只保存当前窗格的历史行数、滚动位置和浏览状态，并用它驱动右侧滑块；“实时”执行 `cancel` 后退出复制模式。文件传输使用相同已认证 SSH 连接上的独立 SFTP channel，Android SAF 提供手机侧输入输出流；上传先写远端临时文件，确认目标不存在后改名。下载统计成功写入目标流的实际字节数；普通文件显式提供正数大小时，EOF 后核对是否一致，长度变化或下载不完整会失败并按现有 SAF 清理流程删除本地半成品。特殊文件、缺少大小属性或 stat 大小为零的动态流以未知总量显示，不用声明大小覆盖实际进度。连接时不会自动安装远端软件；用户在主机菜单显式点击安装后，`HostPluginInstaller` 可通过远端包管理器安装 tmux / mosh。没有端口转发、文件同步或后台自动命令重放。
 
 `ssh-core` 的 `TmuxHistoryController` 负责远端命令和状态解析，`app.session.TmuxHistoryCoordinator` 负责当前连接的轮询、请求失效与乐观滚动状态，`terminal-view.RemoteHistoryState` 只管理滑块位置和回调。断连会使等待中的历史请求失效；拖动期间收到的远端位置在松手时同步。协调器在同一个 Mutex 内检查请求代次并执行远端命令，退出等待当前命令结束；过期滚动不会重新进入 copy-mode。
 
@@ -54,9 +56,9 @@ tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec 
 
 ## 上游适配
 
-输入法长按兼容：`ImeBackspaceTracker` 按接收时间识别间隔不超过 250 ms、持续 1000 ms 的退格流，清空后抑制同次长按的剩余退格。新的文字输入、方向键、重新建立输入连接或退格间隔中断会重置。入口覆盖 `sendKeyEvent`、`deleteSurroundingText` 和码点版本，操作栏和硬件键盘不参与推断。微信输入法不提供有效 repeatCount/downTime，快速连续点按可能触发相同规则。
+输入法长按兼容：`ImeBackspaceTracker` 按接收时间识别间隔不超过 150 ms、持续 1000 ms 的退格流，清空后抑制同次长按的剩余退格。新的文字输入、方向键、重新建立输入连接或退格间隔中断会重置。入口覆盖 `sendKeyEvent`、`deleteSurroundingText` 和码点版本，操作栏和硬件键盘不参与推断。微信输入法不提供有效 repeatCount/downTime，快速连续点按可能触发相同规则。
 
-`InputConnection` 使用实际光标所在逻辑行（向前包含自动折行，最多八个屏幕行）或正在组合的文本响应 extracted/surrounding text 查询，保留 UTF-16 选区与空格，不返回整个历史，也不伪造占位文字。提供该上下文后微信输入法才能持续发送长按退格。[Android InputConnection 接口](https://developer.android.com/reference/android/view/inputmethod/InputConnection)。
+`InputConnection` 使用本地 Editable 中非空的组合文本响应 extracted/surrounding text 查询，保留 UTF-16 选区与空格；没有组合文本时返回空字符串及零选区。不读取远端光标所在逻辑行，不返回终端历史，也不伪造占位文字。[Android InputConnection 接口](https://developer.android.com/reference/android/view/inputmethod/InputConnection)。
 
 输入控件：草稿以 `TextFieldValue` 保存选区，ICU `BreakIterator` 按字素边界移动和删除，内容仍只存于 `TerminalConnection.draft` 内存。终端方向键与退格经 `KeyHandler` 生成，与远端普通/应用光标模式一致；长按清空发送 Ctrl+U、Ctrl+K，不调用 emulator reset，也不清除滚动历史。
 
@@ -64,4 +66,4 @@ tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec 
 
 固定 Termux commit：`4584488513c099f2e98bcfcd00f006d213248729`。只复制明确声明 Apache-2.0 例外的 terminal-emulator 和 terminal-view。TerminalSession 被改为接口，删除了 JNI/local-process 实现，不需要安装 Termux。IME 配置改成真正的文本输入类型；组合阶段只改本地 Editable，commit 才写入终端；组合输入期间的删除不回传远端。远端 OSC 52 不可写 Android 剪贴板，用户选择复制仍可用。粘贴的 bracketed 起止序列和内容以一次写入入队。
 
-应用窗口默认禁止系统截图与最近任务快照。测试仅在测试 Activity 中临时关闭该标志，截图内容均来自专用测试环境。
+应用窗口允许系统截图，并遵循系统正常的最近任务预览行为，不设置 `FLAG_SECURE`。测试截图内容均来自专用测试环境。

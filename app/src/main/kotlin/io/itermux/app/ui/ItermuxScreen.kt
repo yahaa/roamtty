@@ -173,6 +173,10 @@ fun ItermuxScreen(
 
     /** A new session in [directory]; with [agent], that agent is started there and names the session. */
     fun launchOn(host: Host, directory: String, agent: AgentLaunch?) {
+        if (!StartDirectory.isSupported(directory)) {
+            toast(tr(StartDirectory.UNSUPPORTED_MESSAGE))
+            return
+        }
         if (agent != null) connect(host, title = agent.title, startupCommand = agent.commandLine)
         else connect(host, startupCommand = StartDirectory.command(directory))
     }
@@ -428,7 +432,7 @@ fun ItermuxScreen(
                 launchOn(host, directory, agent)
             }
         }
-        deleteHost?.let { host -> AlertDialog(onDismissRequest = { deleteHost = null }, title = { Text(trf("删除 %s？", host.name)) }, text = { Text(tr("将删除这台主机及保存的凭据，并关闭它的连接。远端 tmux 任务不受影响。")) },
+        deleteHost?.let { host -> AlertDialog(onDismissRequest = { deleteHost = null }, title = { Text(trf("删除 %s？", host.name)) }, text = { Text(tr("将删除这台主机及保存的凭据，并关闭它的连接。服务器信任记录会独立保留，可通过重新核验移除。远端 tmux 任务不受影响。")) },
             confirmButton = { TextButton(onClick = { scope.launch { sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }; app.database.hosts().delete(host.id); deleteHost = null } }) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { deleteHost = null }) { Text(tr("取消")) } }) }
         connectRequest?.let { request -> CredentialsDialog(request, { connectRequest = null }) { password, phrase ->

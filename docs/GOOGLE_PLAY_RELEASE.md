@@ -1,6 +1,6 @@
 # Google Play 上架清单
 
-本文列出把 Roamtty（原名 iTermux）发布到 Google Play 还需完成的工作，按执行顺序排列。现状核对基于 `main@f29c99a`（2026-10），并随后续改动更新。
+本文列出把 Roamtty（原名 iTermux）发布到 Google Play 还需完成的工作，按执行顺序排列。现状核对基于 `main@b34f995`（2026-10），并随后续改动更新。
 
 ## 现状
 
@@ -30,9 +30,8 @@
 
 ## 2. 构建与签名
 
-1. **增加 AAB 构建**：发布使用 `./gradlew :app:bundleRelease`，产物在 `app/build/outputs/bundle/release/app-release.aab`。需要：
-   - 把 `scripts/release.ps1` 扩展为同时输出 AAB（或新增 `scripts/release-bundle.sh`，Linux 环境也能出包）；
-   - 用 `bundletool build-apks --mode=universal` 从 AAB 生成通用 APK 做冒烟测试，确认 R8 规则（`app/proguard-rules.pro`）对 JSch / Bouncy Castle 仍然有效。
+1. **使用现有发布脚本**：运行 `scripts/release.sh`（Linux / macOS）或 `scripts/release.ps1`（Windows），同时构建签名 APK 与 AAB，输出 `dist/Roamtty-<版本>.apk`、`dist/Roamtty-<版本>.aab`，校验签名并生成 `dist/SHA256SUMS.txt`。
+   - AAB 产出已实现；发布前仍需用 `bundletool build-apks --mode=universal` 从该 AAB 生成通用 APK 做安装冒烟测试，确认 R8 规则（`app/proguard-rules.pro`）对 JSch / Bouncy Castle 仍然有效。这项验证尚未由发布脚本自动化。
 2. **Play 应用签名**：首次上传时启用 Play App Signing（新应用强制）。两种做法任选其一：
    - 由 Google 生成应用签名密钥，现有 `itermux-release.p12` 作为**上传密钥**（推荐，上传密钥丢失可申请重置）；
    - 或把现有密钥导入为应用签名密钥，以保持与 GitHub 发布的 APK 同签名、可互相覆盖升级。如需 GitHub APK 与 Play 版互通升级，必须选这一项，并用 `pepk` 工具导出加密密钥。
@@ -131,3 +130,4 @@
 | 9 | 内部测试 → 封闭测试（≥ 12 人 × 14 天） | 测试 | 待办 |
 | 10 | 申请正式版，分阶段发布并监控 vitals | 发布 | 待办 |
 | 11 | 应用更名为 Roamtty，包名 `com.roamtty.app` | 代码 | 已完成 |
+| 12 | 用 bundletool 从 AAB 生成通用 APK 并完成安装冒烟测试 | 测试 | 待办；发布脚本尚未自动化 |

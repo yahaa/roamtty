@@ -33,7 +33,6 @@ class ExploratoryQaTest {
         Assume.assumeTrue("Use the disposable QA emulator", android.os.Build.HARDWARE in listOf("ranchu", "goldfish"))
         compose.activityRule.scenario.onActivity {
             AppLocale.set(it, AppLanguage.ZH_CN)
-            it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
             it.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
@@ -108,7 +107,6 @@ class ExploratoryQaTest {
             capture("download-dialog-before-recreation")
             compose.activityRule.scenario.recreate()
             compose.waitForIdle()
-            compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             capture("download-dialog-after-recreation")
             assertEquals("The SSH session remains connected", Phase.CONNECTED, session.state.value.phase)
             compose.onNodeWithTag("download-remote-path").assertTextContains("/phone-a/important.bin")
@@ -130,7 +128,6 @@ class InteractiveQaHarness {
         check(android.os.Build.HARDWARE in listOf("ranchu", "goldfish"))
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         activity.scenario.onActivity {
-            it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
             it.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         val stop = File(context.getExternalFilesDir(null), "qa-stop")
