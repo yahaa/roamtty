@@ -1,6 +1,8 @@
 package io.itermux.app.session
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -13,22 +15,17 @@ class SlashCommandInputTest {
         assertFalse(SlashCommandInput().type("a", "/").active)
         assertFalse(SlashCommandInput().type("ls /tmp").active)
     }
-    @Test fun movementHistoryAndCompletionInvalidateTheEstimate() {
-        listOf("\u001b[C", "\u001bOD", "\u001b[1~", "\t", "\u0001", "\u0005", "\u0002", "\u0006").forEach { edit ->
-            val input = SlashCommandInput().type("/he", edit)
-            assertFalse(edit, input.active)
-            assertFalse(input.type("/another").active)
-            assertTrue(input.type("\r", "/fresh").active)
-        }
-    }
-    @Test fun upAndDownKeepTheSlashMenu() {
-        listOf("\u001b[A", "\u001b[B", "\u001bOA", "\u001bOB").forEach { key ->
+    @Test fun keysThatLeaveTheLineKeepTheArrows() {
+        listOf("\u001b", "\u001b[A", "\u001b[B", "\u001bOA", "\u001bOB", "\t", "\u001b[12;3R", "\u001b[I",
+            "\u001b]11;rgb:0/0/0\u0007", "\u001b[1;2D", "\u001b[C", "\u0001", "\u0005").forEach { key ->
             val input = SlashCommandInput().type("/he")
             val line = input.line
-            assertTrue(key, input.type(key, key).line == line)
+            assertEquals(key, line, input.type(key, key).line)
         }
-        // Up/Down on an ordinary line recall shell history, so the line is no longer known.
-        assertFalse(SlashCommandInput().type("ls", "\u001b[A", "/x").active)
+    }
+    @Test fun escThenSlashAgainStillShows() {
+        assertTrue(SlashCommandInput().type("/", "\u001b", "\u007f", "/").active)
+        assertTrue(SlashCommandInput().type("/", "\u001b", "/").active)
     }
     @Test fun newLineEndsCommand() {
         assertFalse(SlashCommandInput().type("/help", "\r").active)
@@ -44,6 +41,17 @@ class SlashCommandInputTest {
         input.type("\u007f", "/")
         assertTrue(input.active)
     }
+    @Test fun editingAtTheCursorFollowsTheRealFirstCharacter() {
+        assertFalse(SlashCommandInput().type("/help", "\u0001", "x").active) // x/help
+        assertTrue(SlashCommandInput().type("help", "\u0001", "/").active) // /help
+        assertTrue(SlashCommandInput().type("/help", "\u0001", "x", "\u0001", "\u0004").active) // x deleted
+        assertTrue(SlashCommandInput().type("/help word", "\u0017").active)
+        assertTrue(SlashCommandInput().type("/help", "\u001b[D", "\u0004").active) // /hel
+        assertFalse(SlashCommandInput().type("/help", "\u0001", "\u001b[3~").active) // help
+        assertTrue(SlashCommandInput().type("x/help", "\u001b[H", "\u001b[C", "\u0015").active) // /help
+        assertFalse(SlashCommandInput().type("/help", "\u0001", "\u000b").active)
+        assertTrue(SlashCommandInput().type("/a b", "\u001b\u007f").active)
+    }
     @Test fun eachCommandLineIsNumbered() {
         val input = SlashCommandInput().type("/a")
         val first = input.line
@@ -51,42 +59,19 @@ class SlashCommandInputTest {
         assertTrue(input.type("b").line == first)
         assertTrue(input.type("\r").line == 0)
         assertTrue(input.type("/").line.let { it != 0 && it != first })
+        assertNotEquals(input.line, input.type("x\r/y").line)
     }
     @Test fun multiByteCharactersCountOnce() {
         val input = SlashCommandInput().type("/", "中", "\u007f")
         assertTrue(input.active)
         assertFalse(input.type("\u007f").active)
     }
-    @Test fun bareEscapeStartsANewLineButAltEditingDoesNot() {
-        assertFalse(SlashCommandInput().type("/he", "\u001b").active)
-        assertFalse(SlashCommandInput().type("/he", "\u001bb", "/again").active)
-        assertTrue(SlashCommandInput().type("/he", "\u001b", "/again").active)
-    }
-    @Test fun terminalRepliesAndPasteBracketsAreSkipped() {
-        assertTrue(SlashCommandInput().type("/", "\u001b[12;3R", "\u001b]11;rgb:0/0/0\u0007", "\u001b[I").active)
+    @Test fun pasteIsTypedText() {
         assertTrue(SlashCommandInput().type("\u001b[200~/model\u001b[201~").active)
+        assertTrue(SlashCommandInput().type("\u001b[200~/a\nb\u001b[201~").active)
     }
-    @Test fun partialDeletionDoesNotStartAFakeNewLine() {
-        listOf("\u0004", "\u0017", "\u000b").forEach { edit ->
-            val input = SlashCommandInput().type("/help word", edit, "/another")
-            assertFalse(input.active)
-            assertFalse(input.type("\u007f".repeat(30), "/still-unknown").active)
-            assertTrue(input.type("\u0003", "/fresh").active)
-        }
-    }
-    @Test fun ctrlUOnlyClearsAKnownEndOfLine() {
-        assertTrue(SlashCommandInput().type("text", "\u0015", "/fresh").active)
-        assertFalse(SlashCommandInput().type("/help", "\u0001", "\u0015", "/unknown").active)
-    }
-    @Test fun pastedNewlinesCannotResynchronizeAnUnknownLine() {
-        val input = SlashCommandInput().type("text", "\u0001", "\u001b[200~\n/help\u001b[201~")
-        assertFalse(input.active)
-        assertTrue(input.type("\r", "/fresh").active)
-    }
-    @Test fun splitAndInterruptedEscapeSequencesDoNotBecomeText() {
-        val input = SlashCommandInput().type("/help", "\u001b", "[", "D", "/unknown")
-        assertFalse(input.active)
-        assertTrue(input.type("\r", "/fresh").active)
-        assertTrue(input.type("\u001b[", "\u0003", "/fresh").active)
+    @Test fun splitEscapeSequencesDoNotBecomeText() {
+        assertTrue(SlashCommandInput().type("/help", "\u001b[", "D").active)
+        assertTrue(SlashCommandInput().type("\u001b[", "\u0003", "/fresh").active)
     }
 }

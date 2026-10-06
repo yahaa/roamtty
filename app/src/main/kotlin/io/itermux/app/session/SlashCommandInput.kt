@@ -4,19 +4,19 @@ package io.itermux.app.session
  * Follows the bytes sent to the remote and tells whether the line being typed starts with `/`,
  * i.e. the user is picking a slash command (Claude Code, Codex, …).
  *
- * Only a local estimate. Up/Down on a slash line move through the command menu and keep it; other
- * cursor movement, completion and ambiguous editing invalidate it until Enter or Ctrl+C starts a
- * known line, and a bare Esc dismisses the menu and starts a new one. Ctrl+U clears a line only while its cursor is still known
- * to be at the end. Terminal replies and paste framing do not change the estimate.
+ * Only a local estimate: it keeps its own copy of the input line and cursor, applying typing,
+ * Backspace/Delete, Ctrl+A/E/B/F/D/K/U/W, Left/Right/Home/End and Alt+Backspace the way Readline
+ * does. Enter and Ctrl+C start a new line. Esc, Tab, Up/Down, terminal replies and paste framing
+ * leave the line as it is, so the arrows stay for as long as its first character is `/`.
  */
 internal class SlashCommandInput {
     private enum class State { TEXT, ESC, CSI, SS3, OSC, OSC_ESC }
     private var state = State.TEXT
-    private var length = 0
-    private var known = true
     private var pasting = false
     private val sequence = StringBuilder()
-    private val cursorReport = Regex("[?]?[0-9]+;[0-9]+R")
+    /** The line as UTF-8 lead bytes: one entry per character, which is all `/` and word edits need. */
+    private val chars = ArrayList<Int>()
+    private var cursor = 0
     private var lines = 0
     @Volatile var active = false
         private set
@@ -28,7 +28,7 @@ internal class SlashCommandInput {
             val b = data[i].toInt() and 0xff
             if (!pasting && state != State.OSC && state != State.OSC_ESC &&
                 (b == '\r'.code || b == '\n'.code || b == 0x03)) {
-                reset()
+                clearLine()
                 state = State.TEXT
                 continue
             }
@@ -38,24 +38,23 @@ internal class SlashCommandInput {
                     '['.code -> { sequence.setLength(0); State.CSI }
                     ']'.code -> State.OSC
                     'O'.code -> State.SS3
-                    0x1b -> { invalidate(); State.ESC }
-                    else -> { invalidate(); State.TEXT }
+                    0x1b -> State.ESC
+                    else -> { alt(b); State.TEXT }
                 }
                 State.CSI -> {
-                    if (sequence.length < 64) sequence.append(b.toChar()) else invalidate()
+                    if (sequence.length < 64) sequence.append(b.toChar())
                     if (b in 0x40..0x7e) {
-                        when (val completed = sequence.toString()) {
-                            "200~" -> pasting = true
-                            "201~" -> pasting = false
-                            "I", "O" -> Unit // focus replies
-                            "A", "B" -> if (!active) invalidate() // Up/Down pick from the slash menu
-                            else -> if (!completed.matches(cursorReport)) invalidate()
-                        }
+                        csi(sequence.toString())
                         state = State.TEXT
                     }
                 }
                 State.SS3 -> {
-                    if (!(active && (b == 'A'.code || b == 'B'.code))) invalidate()
+                    when (b) {
+                        'C'.code -> moveTo(cursor + 1)
+                        'D'.code -> moveTo(cursor - 1)
+                        'H'.code -> moveTo(0)
+                        'F'.code -> moveTo(chars.size)
+                    }
                     state = State.TEXT
                 }
                 State.OSC -> when (b) {
@@ -65,40 +64,87 @@ internal class SlashCommandInput {
                 State.OSC_ESC -> state = if (b == '\\'.code) State.TEXT else State.OSC
             }
         }
-        // A lone Esc key press arrives on its own and dismisses the command menu.
-        if (state == State.ESC) {
-            reset()
-            state = State.TEXT
-        }
+        // A lone Esc key press arrives on its own; it closes a menu but leaves the line as typed.
+        if (state == State.ESC) state = State.TEXT
+        update()
     }
 
     private fun text(b: Int) {
-        when {
-            b == 0x1b -> state = State.ESC
-            b == '\r'.code || b == '\n'.code || b == 0x03 -> if (pasting) invalidate() else reset()
-            b == 0x15 -> if (known && !pasting) reset() else invalidate()
-            b == 0x7f || b == 0x08 -> if (known && length > 0 && --length == 0) active = false
-            b < 0x20 -> invalidate() // completion, movement, word/forward deletion, vi-mode controls
-            b in 0x80..0xbf || !known -> Unit // UTF-8 continuation bytes, or an unknown input line
-            else -> {
-                if (length == 0) {
-                    active = b == '/'.code
-                    if (active) lines++
-                }
-                length++
+        when (b) {
+            0x1b -> state = State.ESC
+            0x7f, 0x08 -> if (cursor > 0) chars.removeAt(--cursor)
+            0x01 -> moveTo(0)
+            0x05 -> moveTo(chars.size)
+            0x02 -> moveTo(cursor - 1)
+            0x06 -> moveTo(cursor + 1)
+            0x04 -> if (chars.isEmpty()) clearLine() else if (cursor < chars.size) chars.removeAt(cursor)
+            0x0b -> chars.subList(cursor, chars.size).clear()
+            0x15 -> { chars.subList(0, cursor).clear(); cursor = 0 }
+            0x17 -> deleteWordBack()
+            '\r'.code, '\n'.code -> Unit // inside a bracketed paste: the line goes on
+            else -> when {
+                b < 0x20 || b in 0x80..0xbf -> Unit // Tab and other controls, UTF-8 continuation bytes
+                chars.size < MAX_CHARS -> chars.add(cursor++, b)
             }
         }
     }
 
-    private fun reset() {
-        length = 0
-        known = true
-        active = false
+    private fun alt(b: Int) {
+        when (b) {
+            0x7f, 0x08 -> deleteWordBack()
+            'b'.code -> moveTo(wordStartBefore(cursor))
+            'f'.code -> {
+                var i = cursor
+                while (i < chars.size && chars[i] == ' '.code) i++
+                while (i < chars.size && chars[i] != ' '.code) i++
+                moveTo(i)
+            }
+        }
     }
 
-    private fun invalidate() {
-        length = 0
-        known = false
-        active = false
+    private fun csi(seq: String) {
+        when (seq) {
+            "200~" -> pasting = true
+            "201~" -> pasting = false
+            "3~" -> if (cursor < chars.size) chars.removeAt(cursor)
+            "1~", "7~" -> moveTo(0)
+            "4~", "8~" -> moveTo(chars.size)
+            else -> when (seq.last()) {
+                'C' -> moveTo(cursor + 1)
+                'D' -> moveTo(cursor - 1)
+                'H' -> moveTo(0)
+                'F' -> moveTo(chars.size)
+                else -> Unit // Up/Down pick from a menu; replies and other keys leave the line alone
+            }
+        }
+    }
+
+    private fun moveTo(position: Int) { cursor = position.coerceIn(0, chars.size) }
+
+    private fun wordStartBefore(position: Int): Int {
+        var i = position
+        while (i > 0 && chars[i - 1] == ' '.code) i--
+        while (i > 0 && chars[i - 1] != ' '.code) i--
+        return i
+    }
+
+    private fun deleteWordBack() {
+        val start = wordStartBefore(cursor)
+        chars.subList(start, cursor).clear()
+        cursor = start
+    }
+
+    private fun clearLine() {
+        chars.clear()
+        cursor = 0
+        active = false // the next slash line gets a new number, even within one write
+    }
+
+    private fun update() {
+        val slash = chars.firstOrNull() == '/'.code
+        if (slash && !active) lines++
+        active = slash
     }
 }
+
+private const val MAX_CHARS = 4096
