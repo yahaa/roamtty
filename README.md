@@ -48,6 +48,7 @@ Windows 上可用 `scripts/bootstrap.ps1`、`scripts/install-sdk.ps1` 在项目�
 
 - [架构与设计约束](docs/ARCHITECTURE.md)
 - [Termius 功能对照](docs/TERMIUS_COMPARISON.md)
+- [低延时远程桌面调研与 WebRTC 接入方案](docs/REMOTE_DESKTOP_WEBRTC_PLAN.md)
 - [Google Play 上架清单](docs/GOOGLE_PLAY_RELEASE.md)
 - [隐私政策](docs/PRIVACY.md)
 - [Logo 设计预览](docs/previews/logo-redesign.html)
