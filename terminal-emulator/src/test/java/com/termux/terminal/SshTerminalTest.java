@@ -21,6 +21,21 @@ public class SshTerminalTest extends TerminalTestCase {
         mTerminal.paste("hello");
         assertEquals("hello", mOutput.getOutputAndClear());
     }
+    public void testPasteFiltersHiddenControlsAndPreservesTextInBothModes() {
+        withTerminalSized(12, 4);
+        StringBuilder hidden = new StringBuilder();
+        for (char c = 0; c < 32; c++) {
+            if (c != '\t' && c != '\n' && c != '\r') hidden.append(c);
+        }
+        for (char c = 127; c <= 159; c++) hidden.append(c);
+        String pasted = "中文🙂\tfirst\r\nsecond\nthird\r" + hidden;
+        String text = "中文🙂\tfirst\rsecond\rthird\r";
+        mTerminal.paste(pasted);
+        assertEquals(text, mOutput.getOutputAndClear());
+        enterString("\033[?2004h");
+        mTerminal.paste(pasted);
+        assertEquals("\033[200~" + text + "\033[201~", mOutput.getOutputAndClear());
+    }
     public void testRemoteOsc52CannotWriteClipboard() {
         withTerminalSized(12, 4);
         enterString("\033]52;c;aGVsbG8=\007");

@@ -2,10 +2,12 @@ package io.itermux.ssh
 
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.Session
+import com.jcraft.jsch.SftpATTRS
 import com.jcraft.jsch.SftpException
 import com.jcraft.jsch.SftpProgressMonitor
 import kotlinx.coroutines.*
 import java.io.InputStream
+import java.io.IOException
 import java.io.OutputStream
 import java.nio.file.FileAlreadyExistsException
 import java.util.UUID
@@ -41,9 +43,36 @@ internal class SftpOperations(
         val path = literalSftpPath(validTransferPath(remotePath))
         val attributes = sftp.stat(path)
         require(!attributes.isDir) { "不能下载文件夹" }
-        onSize(attributes.size)
-        sftp.get(path, destination, transferMonitor(coroutineContext[Job], onProgress))
+        // A zero stat size may describe a dynamic pseudo-file, rather than an empty stream.
+        // Only a positive, explicitly supplied ordinary-file size is a usable length contract.
+        val expected = attributes.size.takeIf {
+            (attributes.flags and SftpATTRS.SSH_FILEXFER_ATTR_SIZE) != 0 && attributes.isReg && it > 0
+        }
+        onSize(expected ?: -1)
+        var transferred = 0L
+        val counted = object : OutputStream() {
+            override fun write(value: Int) {
+                destination.write(value)
+                transferred++
+                onProgress(transferred)
+            }
+            override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                destination.write(buffer, offset, length)
+                transferred += length
+                onProgress(transferred)
+            }
+            override fun flush() = destination.flush()
+        }
+        try {
+            sftp.get(path, counted, transferMonitor(coroutineContext[Job]) {})
+        } finally {
+            // Include empty transfers and the final count even when a UI throttles intermediate updates.
+            onProgress(transferred)
+        }
         coroutineContext.ensureActive()
+        if (isStopped()) throw CancellationException("Transfer cancelled")
+        if (expected != null && transferred != expected)
+            throw IOException("远端文件大小已变化或下载不完整，请重试。")
     }
 
     suspend fun readFileContent(remotePath: String, maxBytes: Int): RemoteFileContent = withSftp { sftp ->

@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.view.WindowManager
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -46,7 +45,6 @@ class NavigationThemeTest {
         val session = withContext(Dispatchers.Main) {
             service.open(host, SessionMode.SHELL, Credentials("test-only".toByteArray()))
         }
-        compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
         fun capture(name: String) {
             val path = File(context.getExternalFilesDir(null), "$name.png")
             path.outputStream().use { compose.onAllNodes(isRoot()).onFirst().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -163,7 +161,6 @@ class NavigationThemeTest {
             app.database.hosts().delete(linuxHost.id)
             app.database.hosts().delete(macHost.id)
             prefs.edit().apply { previousTheme?.let { putString("theme", it) } ?: remove("theme") }.commit()
-            compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
         }
     }
 }

@@ -68,6 +68,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     val preferences = remember(context) { context.getSharedPreferences("app-settings", Context.MODE_PRIVATE) }
     var recent by remember(host.id) { mutableStateOf(preferences.recentStartDirectories(host.id)) }
     var current by remember { mutableStateOf(StartDirectory.HOME) }
+    val unsupported = !StartDirectory.isSupported(current)
     var agent by remember { mutableStateOf(CodingAgent.from(preferences.getString(AGENT_KEY, null))) }
     var mode by remember { mutableStateOf(preferences.agentMode()) }
     val yolo = forAgent && mode == AgentMode.YOLO
@@ -109,6 +110,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     val parent = segments.getOrNull(segments.size - 2)?.second ?: shown?.takeIf { !stale }?.parent
 
     fun launch() {
+        if (!StartDirectory.isSupported(current)) return
         val dir = StartDirectory.normalize(current)
         preferences.saveRecentStartDirectories(host.id, StartDirectory.remember(recent, dir))
         if (forAgent) preferences.saveAgentChoice(agent, mode)
@@ -134,6 +136,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
                     GroupedDivider()
                     Box(Modifier.weight(1f)) {
                         when {
+                            unsupported -> CenterNote(tr(StartDirectory.UNSUPPORTED_MESSAGE), tr("回到主目录")) { current = StartDirectory.HOME }
                             browser == null -> CenterNote(tr("输入密码后即可浏览文件夹"), tr("输入密码")) { askPassword = true }
                             connection != null && !connection.active && !ready -> CenterNote(
                                 connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
@@ -151,7 +154,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
             if (forAgent) AgentChooser(agent, mode, { agent = it }, { mode = it })
             val buttonColor by animateColorAsState(if (yolo) colors.error else colors.primary, label = "launch-button")
             val name = folderName(current)
-            Button(onClick = ::launch, enabled = !failed,
+            Button(onClick = ::launch, enabled = !failed && !unsupported,
                 colors = ButtonDefaults.buttonColors(containerColor = buttonColor,
                     contentColor = if (yolo) colors.onError else colors.onPrimary),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row)
@@ -321,7 +324,7 @@ private fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAg
             }
         }
         Picker(Modifier.weight(1f), "agent-mode-picker", borderColor = if (yolo) colors.error else null, anchor = {
-            Text(modeLabel(mode), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(modeLabel(mode, agent), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (yolo) colors.error else colors.onSurface, modifier = Modifier.weight(1f, fill = false))
             if (yolo) YoloWarning()
         }) { close ->
@@ -329,9 +332,9 @@ private fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAg
                 val danger = option == AgentMode.YOLO
                 PickerItem(option == mode, "agent-mode-${option.name.lowercase().replace('_', '-')}",
                     onClick = { onMode(option); close() }) {
-                    Text(modeLabel(option), style = MaterialTheme.typography.bodyLarge,
+                    Text(modeLabel(option, agent), style = MaterialTheme.typography.bodyLarge,
                         color = if (danger) colors.error else colors.onSurface)
-                    Text(modeHint(option), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    Text(modeHint(option, agent), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
                         color = if (danger) colors.error else colors.onSurfaceVariant)
                 }
             }
@@ -387,23 +390,27 @@ private fun YoloWarning() {
     }
 }
 
-internal fun modeLabel(mode: AgentMode) = when (mode) {
-    AgentMode.READ_ONLY -> tr("只读")
+internal fun modeLabel(mode: AgentMode, agent: CodingAgent = CodingAgent.CODEX) = when (mode) {
+    AgentMode.READ_ONLY -> tr(if (agent == CodingAgent.CLAUDE) "计划" else "只读")
     AgentMode.STANDARD -> tr("普通")
     AgentMode.YOLO -> "YOLO"
 }
 
-internal fun modeHint(mode: AgentMode) = when (mode) {
-    AgentMode.READ_ONLY -> tr("只查看和分析，不修改文件")
+internal fun modeHint(mode: AgentMode, agent: CodingAgent = CodingAgent.CODEX) = when (mode) {
+    AgentMode.READ_ONLY -> tr(when (agent) {
+        CodingAgent.CLAUDE -> "先分析并制定计划，批准后开始修改"
+        CodingAgent.CODEX -> "以只读沙箱启动，可在助手中调整权限"
+        CodingAgent.GROK -> "只读沙箱；状态与临时目录仍可写"
+    })
     AgentMode.STANDARD -> tr("改文件或运行命令前先问你")
     AgentMode.YOLO -> tr("跳过所有确认，直接执行")
 }
 
 internal fun SharedPreferences.recentStartDirectories(hostId: String): List<String> =
-    getString("$RECENT_KEY:$hostId", null).orEmpty().split('\n').filter { it.isNotEmpty() }
+    StartDirectory.sanitizeRecent(getString("$RECENT_KEY:$hostId", null).orEmpty().split('\n'))
 
 internal fun SharedPreferences.saveRecentStartDirectories(hostId: String, directories: List<String>) =
-    edit { putString("$RECENT_KEY:$hostId", directories.joinToString("\n")) }
+    edit { putString("$RECENT_KEY:$hostId", StartDirectory.sanitizeRecent(directories).joinToString("\n")) }
 
 private const val RECENT_KEY = "startDirectories"
 private const val FILTER_THRESHOLD = 8

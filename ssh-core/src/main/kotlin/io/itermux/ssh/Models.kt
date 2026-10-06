@@ -109,8 +109,13 @@ object Tmux {
     fun attachShellCommand(sessionName: String): String {
         val name = sanitizeSessionName(sessionName)
         val pane = BOTTOM_PROMPT_PANE.replace("\"", "\\\"").replace("$", "\\$")
-        return "/bin/sh -c '$PATH_SETUP; case \"\$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux new-session -A -s $name;; esac; " +
-            "exec tmux new-session -A -s $name /bin/sh -c \"$pane\"'"
+        // A lost client leaves pane copy-mode and, with mosh, its old tmux attachment behind.
+        // Reconcile the app's own session before accepting keys; -D detaches clients, not the task.
+        return "/bin/sh -c '$PATH_SETUP; " +
+            "if [ \"\$(tmux display-message -p -t $name \"#{pane_mode}\" 2>/dev/null)\" = copy-mode ]; then " +
+            "tmux send-keys -t $name -X cancel || exit; fi; " +
+            "case \"\$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux new-session -A -D -s $name;; esac; " +
+            "exec tmux new-session -A -D -s $name /bin/sh -c \"$pane\"'"
     }
 
     fun attachCommand(sessionName: String): String = "exec " + attachShellCommand(sessionName)

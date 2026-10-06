@@ -2,7 +2,12 @@ package io.itermux.app.session
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 class RemoteFoldersTest {
     @Test fun parsesAndSortsFolders() {
@@ -29,5 +34,55 @@ class RemoteFoldersTest {
         assert(RemoteFolders.script("~").startsWith("cd -- \"\$HOME\" "))
         assert(RemoteFolders.script("~/my dir").startsWith("cd -- \"\$HOME\"/'my dir' "))
         assert(RemoteFolders.script("/it's").startsWith("cd -- '/it'\\''s' "))
+    }
+    @Test fun malformedNamesAndUnsupportedProtocolHeadersAreRejected() {
+        val folder = RemoteFolders.parse(listOf("/home/v", "/srv", ".", "..", "a/b", "bad\u0015", "bad\u0085", "safe"))!!
+        assertEquals(listOf("safe"), folder.folders)
+        listOf(".", "..", "a/b", "bad\nname", "bad\u0085").forEach { name ->
+            assertThrows(IllegalArgumentException::class.java) { folder.child(name) }
+        }
+        assertNull(RemoteFolders.parse(listOf("/home/\u0015v", "/srv", "safe")))
+        assertNull(RemoteFolders.parse(listOf("/home/v", "/srv\u0085", "safe")))
+        assertNull(RemoteFolders.parse(listOf("relative", "/srv", "safe")))
+    }
+    @Test fun backslashIsALiteralPartOfAUnixFolderName() {
+        val folder = RemoteFolders.parse(listOf("/home/v", "/srv", "a\\b"))!!
+        assertEquals(listOf("a\\b"), folder.folders)
+        assertEquals("/srv/a\\b", folder.child("a\\b"))
+        assertEquals("cd -- '/srv/a\\b'", StartDirectory.command(folder.child("a\\b")))
+    }
+    @Test fun actualScriptDoesNotSplitControlCharacterNamesIntoOtherFolders() {
+        assumeTrue(File("/bin/sh").canExecute())
+        val directory = Files.createTempDirectory("remote-folders-test-").toFile()
+        try {
+            listOf("proj\n..", "a\nb", "carriage\r", "kill\u0015", "delete\u007f", "a\\b", "it's a 中文 folder").forEach {
+                assertTrue(File(directory, it).mkdir())
+            }
+            val process = ProcessBuilder("/bin/sh", "-c", RemoteFolders.script(directory.path)).apply {
+                environment()["HOME"] = directory.path
+            }.start()
+            val lines = process.inputStream.bufferedReader().readLines()
+            assertEquals(0, process.waitFor())
+            val listing = RemoteFolders.parse(lines)!!
+            assertEquals(listOf("a\\b", "it's a 中文 folder"), listing.folders)
+            assertEquals("~/a\\b", listing.child(listing.folders.first()))
+            assertEquals("~/it's a 中文 folder", listing.child(listing.folders.last()))
+        } finally { directory.deleteRecursively() }
+    }
+    @Test fun actualScriptRejectsUnsafeHomeAndPhysicalWorkingDirectory() {
+        assumeTrue(File("/bin/sh").canExecute())
+        val directory = Files.createTempDirectory("remote-folders-home-").toFile()
+        try {
+            val unsafe = File(directory, "trailing\n").apply { assertTrue(mkdir()) }
+            // Use a safe symlink so the requested input is valid but pwd reveals the unsupported physical path.
+            val link = directory.toPath().resolve("safe-link")
+            Files.createSymbolicLink(link, unsafe.toPath())
+            val physical = ProcessBuilder("/bin/sh", "-c", RemoteFolders.script(link.toString())).start()
+            assertEquals(3, physical.waitFor())
+            val home = ProcessBuilder("/bin/sh", "-c", RemoteFolders.script(directory.path)).apply {
+                environment()["HOME"] = "/home/a\nb"
+            }.start()
+            assertEquals(3, home.waitFor())
+        } finally { directory.deleteRecursively() }
     }
 }

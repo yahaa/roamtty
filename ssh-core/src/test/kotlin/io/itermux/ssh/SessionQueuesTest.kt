@@ -5,6 +5,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionQueuesTest {
+    @Test fun staleStartupGenerationCannotEnterReplacementQueue() = runBlocking {
+        val queues = SessionQueues()
+        val previous = queues.reopen()
+        queues.setAccepting(true)
+        val current = queues.reopen()
+        queues.setAccepting(true)
+        assertFalse(queues.write("old".toByteArray(), stopped = false, expectedGeneration = previous))
+        assertTrue(queues.currentInput().tryReceive().isFailure)
+        assertTrue(queues.write("new".toByteArray(), stopped = false, expectedGeneration = current))
+        assertArrayEquals("new".toByteArray(), queues.currentInput().receive())
+    }
+
     @Test fun writeRejectedWhenNotAccepting() {
         val queues = SessionQueues()
         assertFalse(queues.isAccepting())

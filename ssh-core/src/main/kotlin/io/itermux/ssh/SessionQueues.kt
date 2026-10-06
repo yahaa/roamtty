@@ -11,11 +11,13 @@ internal class SessionQueues {
     private val accepting = AtomicBoolean(false)
     @Volatile private var input: Channel<ByteArray> = Channel(64)
     @Volatile private var sizes: Channel<IntArray> = Channel(Channel.CONFLATED)
+    private var generation = 0L
 
     @Synchronized fun setAccepting(value: Boolean) { accepting.set(value) }
     fun isAccepting(): Boolean = accepting.get()
 
-    @Synchronized fun write(bytes: ByteArray, stopped: Boolean): Boolean {
+    @Synchronized fun write(bytes: ByteArray, stopped: Boolean, expectedGeneration: Long? = null): Boolean {
+        if (expectedGeneration != null && expectedGeneration != generation) return false
         if (bytes.isEmpty()) return true
         if (bytes.size > 256 * 1024 || stopped || !accepting.get()) return false
         val queue = input
@@ -32,10 +34,11 @@ internal class SessionQueues {
     fun currentInput(): Channel<ByteArray> = input
     fun currentSizes(): Channel<IntArray> = sizes
 
-    @Synchronized fun reopen() {
+    @Synchronized fun reopen(): Long {
         close()
         input = Channel(64)
         sizes = Channel(Channel.CONFLATED)
+        return ++generation
     }
 
     /** Stop accepting and wipe any input that was never written. */

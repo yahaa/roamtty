@@ -49,7 +49,6 @@ class ChatTuiHistoryTest {
         assumeTrue("chatFixture argument required", fixture != null)
         compose.activityRule.scenario.onActivity {
             it.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) // Test screenshots only.
         }
         val context = instrumentation.targetContext
         val app = context.applicationContext as ItermuxApp

@@ -8,7 +8,6 @@ import android.graphics.Canvas
 import android.os.Build
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -173,11 +172,6 @@ class TerminalExtraKeysTest {
             outputContains("KEY_41") // Up arrow is ESC [ A.
             shortcut("terminal-down")
             outputContains("KEY_42")
-
-            compose.activityRule.scenario.onActivity {
-                // Capture only the isolated fixture, never the user's protected app.
-                it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-            }
             compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
                 File(context.getExternalFilesDir(null), "extra-keys-compose.png").outputStream().use {
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
@@ -269,7 +263,6 @@ class TerminalExtraKeysTest {
             compose.onNodeWithTag("session-switcher").assertIsDisplayed()
             compose.onNodeWithContentDescription(tr("终端设置")).assertIsDisplayed()
             compose.onNodeWithTag("download-file").assertIsDisplayed()
-            compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.onNodeWithTag("download-file").performClick()
             compose.onNodeWithTag("download-remote-path").assertDoesNotExist()
             compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
@@ -283,7 +276,6 @@ class TerminalExtraKeysTest {
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
                 }
             }
-            compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.onNodeWithTag("download-files-list").performScrollToNode(hasTestTag("download-entry-phone-a"))
             compose.onNodeWithTag("download-entry-phone-a").performClick()
             compose.waitForDownloadEntry("assets", 8_000)
@@ -294,9 +286,6 @@ class TerminalExtraKeysTest {
             compose.onNodeWithTag("download-confirm").assertIsEnabled()
             compose.onNodeWithContentDescription("关闭").performClick()
             compose.onNodeWithTag("terminal-menu").assertIsDisplayed()
-            compose.activityRule.scenario.onActivity {
-                it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-            }
             compose.waitForIdle()
             delay(500)
             val landscapeTags = listOf("terminal-workspace", "terminal-dock", "session-switcher",
@@ -368,7 +357,6 @@ class TerminalExtraKeysTest {
                 (session.commonCommands.value as io.itermux.app.session.CommonCommandsState.Ready).commands.first())
             Unit
         } finally {
-            compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
             withContext(Dispatchers.Main) { service.close(session.id) }
             prompts.cancel()

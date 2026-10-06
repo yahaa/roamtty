@@ -58,6 +58,16 @@ class JschSession(
     private val stopped = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
     private val queues = SessionQueues()
+    @Volatile private var queueGeneration = 0L
+    private val mutableInputEpoch = MutableStateFlow<Long?>(null)
+    /** Non-null only while this exact terminal writer accepts input. */
+    val inputEpoch = mutableInputEpoch.asStateFlow()
+
+    private fun setInputAccepting(accepting: Boolean) {
+        if (!accepting) mutableInputEpoch.value = null
+        queues.setAccepting(accepting)
+        if (accepting) mutableInputEpoch.value = queueGeneration
+    }
     private val interactionJob = SupervisorJob()
     @Volatile private var session: Session? = null
     @Volatile private var channel: com.jcraft.jsch.Channel? = null
@@ -90,7 +100,7 @@ class JschSession(
         try {
             while (!stopped.get()) {
                 // Discard stale input before each attempt; never replay it after reattachment.
-                queues.reopen()
+                queueGeneration = queues.reopen()
                 tmuxHistoryController.reset()
                 val outcome = runAttempt(onOutput, reattaching = attempt > 0)
                 log("attempt ended: $outcome (attempt $attempt, reached connected $reachedConnected)")
@@ -127,7 +137,7 @@ class JschSession(
                 }
             }
         } finally {
-            queues.setAccepting(false)
+            setInputAccepting(false)
             closeTransport()
             credentials.clear()
             interactionJob.cancel()
@@ -252,7 +262,7 @@ class JschSession(
             val stdin = terminal.outputStream
             terminal.connect(connectTimeoutMs)
             // Accept input only while the PTY writer is live — not during post-EOF exit-status grace.
-            queues.setAccepting(true)
+            setInputAccepting(true)
             mutableTransport.value = TerminalTransport.SSH
             update(Phase.CONNECTED)
             reachedConnected = true
@@ -289,7 +299,7 @@ class JschSession(
                 }
             } finally {
                 // Stop accepting before the exit-status grace wait so UI CONNECTED cannot queue dead writes.
-                queues.setAccepting(false)
+                setInputAccepting(false)
             }
             // EOF/closed channels can precede exit-status or JSch's transport disconnect flag.
             // Even a closed channel needs this grace period when no exit status has arrived.
@@ -369,14 +379,14 @@ class JschSession(
                         isStopped = stopped::get,
                         onConnected = {
                             mutableTransport.value = TerminalTransport.MOSH
-                            queues.setAccepting(true)
+                            setInputAccepting(true)
                             update(Phase.CONNECTED)
                             reachedConnected = true
                         },
                         onOutput = onOutput)
                 } finally { systemProbe.cancel(); keeper.cancel() }
             }
-        } finally { queues.setAccepting(false); moshClient = null }
+        } finally { setInputAccepting(false); moshClient = null }
         log("mosh ended: $end")
         return when (end) {
             MoshClient.End.NO_CONTACT -> null
@@ -563,6 +573,9 @@ class JschSession(
 
     override fun write(bytes: ByteArray): Boolean = queues.write(bytes, stopped.get())
 
+    /** Startup input must never cross a writer replacement between readiness checking and insertion. */
+    fun write(bytes: ByteArray, expectedEpoch: Long): Boolean = queues.write(bytes, stopped.get(), expectedEpoch)
+
     override fun resize(columns: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) {
         dimensions = intArrayOf(columns.coerceIn(2, 500), rows.coerceIn(2, 300), pixelWidth.coerceAtLeast(0), pixelHeight.coerceAtLeast(0))
         queues.trySendSize(dimensions)
@@ -660,20 +673,7 @@ class JschSession(
         val ssh = session ?: return
         if (!probing.compareAndSet(false, true)) return
         try {
-            val alive = withContext(Dispatchers.IO) {
-                val probe = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext false }
-                val started = System.nanoTime()
-                try {
-                    probe.setCommand("true")
-                    probe.connect(timeoutMs)
-                    true
-                } catch (_: Exception) {
-                    // A refusal (MaxSessions 1, exec denied) is still a reply. JSch reports it with the
-                    // same error as a timeout, but it arrives at once; only silence means a dead link.
-                    ssh.isConnected && (System.nanoTime() - started) / 1_000_000 < timeoutMs / 2
-                }
-                finally { probe.disconnect() }
-            }
+            val alive = withContext(Dispatchers.IO) { probeSshAlive(ssh, timeoutMs) }
             log("verify: ssh probe ${if (alive) "answered" else "unanswered, closing transport"}")
             // A newer attempt or an explicit disconnect owns the transport now.
             if (!alive && !stopped.get() && session === ssh) withContext(Dispatchers.IO) { ssh.disconnect() }
@@ -682,7 +682,7 @@ class JschSession(
 
     override fun disconnect() {
         stopped.set(true)
-        queues.setAccepting(false)
+        setInputAccepting(false)
         credentials.clear()
         mutableState.value = ConnectionState(Phase.DISCONNECTED, "连接已关闭")
         interactionJob.cancel()

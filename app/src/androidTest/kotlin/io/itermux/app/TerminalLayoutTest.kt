@@ -77,8 +77,6 @@ class TerminalLayoutTest {
         }
         compose.activityRule.scenario.onActivity {
             it.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            // Test fixture output only. Production continues to prohibit secure screenshots.
-            it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
         compose.waitForIdle()
     }

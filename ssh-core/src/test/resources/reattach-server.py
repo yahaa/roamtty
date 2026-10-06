@@ -39,8 +39,10 @@ class Server(paramiko.ServerInterface):
         if mode == "frozen" and self.attempt == 1 and frozen.is_set():
             # A dead network: the server never answers again, yet the socket stays open.
             time.sleep(30)
-        if mode == "reject-probe" and frozen.is_set():
+        if mode in ("reject-probe", "reject-probe-delayed") and frozen.is_set():
             # Like OpenSSH with MaxSessions 1: the live PTY keeps working, extra channels are refused.
+            if mode == "reject-probe-delayed":
+                time.sleep(1.2)
             return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
         return paramiko.OPEN_SUCCEEDED
 
@@ -64,7 +66,7 @@ class Server(paramiko.ServerInterface):
                 return
             channel.sendall(b"READY:" + command + b"\r\n")
             channel.recv(1024)
-            if mode in ("frozen", "reject-probe") and self.attempt == 1:
+            if mode in ("frozen", "reject-probe", "reject-probe-delayed") and self.attempt == 1:
                 frozen.set()
                 return
             if mode.startswith("exit"):

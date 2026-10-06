@@ -275,7 +275,6 @@ class TerminalUiTest {
             compose.onNodeWithTag("sessions-tab").performClick()
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
-            compose.activityRule.scenario.onActivity { it.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             val view = withContext(Dispatchers.Main) { requireNotNull(terminal(compose.activity.window.decorView)) }
             compose.onNodeWithTag("terminal").performTouchInput { click(center) }
             compose.waitUntil(8000) { !keyboardHidden() }
@@ -454,8 +453,6 @@ class TerminalUiTest {
                 foreground()
             }
             withContext(Dispatchers.Main) {
-                // Disable secure capture only within this instrumentation test, never in production.
-                compose.activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 session.write("stty -echo; cat\r")
             }
             delay(500)
@@ -504,7 +501,6 @@ class TerminalUiTest {
                 }
             }
             withContext(Dispatchers.Main) {
-                compose.activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 val view = requireNotNull(terminal(compose.activity.window.decorView))
                 view.onKeyDown(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN))
             }
@@ -547,7 +543,6 @@ class TerminalUiTest {
         }.forEach { app.database.hosts().delete(it.id) }
         val label = "UI 测试 ${UUID.randomUUID().toString().take(6)}"
         compose.onNodeWithTag("host-search").assertDoesNotExist()
-        compose.activity.runOnUiThread { compose.activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
         capture("hosts-compact")
         compose.onNodeWithTag("add-host").performClick()
         compose.onNodeWithText("名称").performTextInput(label)

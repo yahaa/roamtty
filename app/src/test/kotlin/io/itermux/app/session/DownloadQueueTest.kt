@@ -6,6 +6,21 @@ import org.junit.Test
 import java.io.IOException
 
 class DownloadQueueTest {
+    @Test fun incompleteKnownLengthRemainsFailedWithoutInflatingBytesAndLaterFilesContinue() = runBlocking {
+        val result = runDownloadQueue(listOf(DownloadItem("short"), DownloadItem("normal")), { _, _ -> }) { file, progress ->
+            if (file.path == "short") {
+                progress(32, 100)
+                throw IOException("远端文件大小已变化或下载不完整，请重试。")
+            }
+            progress(32, 32)
+        }
+        assertEquals(DownloadPhase.FAILED, result[0].phase)
+        assertEquals(32L, result[0].bytes)
+        assertEquals(100L, result[0].total)
+        assertEquals(DownloadPhase.COMPLETE, result[1].phase)
+        assertEquals(32L, result[1].bytes)
+    }
+
     @Test fun publishedSnapshotsNeverChangeAsLaterFilesProgress() = runBlocking {
         val snapshots = mutableListOf<List<DownloadItem>>()
         val frozen = mutableListOf<List<DownloadItem>>()
