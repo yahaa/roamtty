@@ -52,7 +52,12 @@ private enum class AboutPage { GUIDE, PRIVACY, LICENSES }
                 AboutPage.GUIDE -> {
                     Text(trf("版本 %s", BuildConfig.VERSION_NAME), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(guideText())
+                    guideSections().forEach { (heading, body) ->
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(heading, style = MaterialTheme.typography.titleSmall)
+                            Text(body, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
                 }
                 AboutPage.PRIVACY -> MarkdownView(privacyPolicy, null, Modifier.weight(1f, fill = false).fillMaxWidth(),
                     background = AlertDialogDefaults.containerColor, contentPadding = PaddingValues(0.dp))
@@ -73,7 +78,45 @@ internal fun privacyPolicySection(markdown: String, english: Boolean): String {
     return (if (english) markdown.substring(starts[1]) else markdown.substring(starts[0], starts[1])).trim()
 }
 
-private fun guideText(): String = if (AppLocale.language == AppLanguage.ENGLISH)
-    "1. Add a host. For key authentication, import an Ed25519 or RSA key in OpenSSH or PEM format. Verify the SHA-256 fingerprint before trusting a host.\n\n2. The terminal controls start hidden. Tap the ghost with the wrench on the right edge to open them. Tap the terminal to show the keyboard; double-tap it to send Tab, triple-tap it to paste the clipboard, or swipe left across it to send Shift+Left. Swipe left or right and keep your finger down to jump to the start or end of the line.\n\n3. Use the menu to edit text, paste, or adjust font size. Review draft text before sending; Send text and Enter are separate. Hold the current command line to show a magnifier and drag the cursor horizontally or across lines. Hold other output to select and copy it. The arrow buttons move the cursor. Tap ⌫ to delete a character or hold it to clear input. Clearing a remote line requires Ctrl+U/Ctrl+K support.\n\n4. Terminal sessions use the full screen. Swipe from an edge to reveal system bars temporarily. Use the session button to switch sessions. You can pin or hide the control bar in the menu. Drag the far-right scrollbar to read earlier output; scrolling to the bottom resumes following new output.\n\n5. In tmux mode, each new connection gets its own remote tmux session, and reconnecting reattaches it. You can disconnect all sessions from the notification."
-else
-    "1. 添加主机；使用私钥时导入 OpenSSH 或 PEM 格式的 Ed25519/RSA 私钥。首次连接先核对 SHA-256 指纹。\n\n2. 连接后操作栏默认隐藏，点击右侧拿着扳手的小幽灵展开。键盘默认收起；点击终端输入区自动弹出，双击终端发送 Tab（用于补全），三击终端粘贴剪贴板文字。\n\n3. 更多菜单中可打开“编辑文本”、粘贴或调整字号。编辑框中的文字先留在草稿，确认后发送；发送文本与回车分开。长按当前命令行显示放大镜，可左右或上下跨行拖动光标；长按其他输出可选择复制。右侧和编辑框中的 ←/→ 可移动光标，⌫ 点按删除字符、长按清空当前输入。终端内持续按住输入法删除键，连续退格约 1 秒后清空当前行；快速点按只逐字删除。清空需远端支持 Ctrl+U/Ctrl+K。\n\n4. 连接页横竖屏都默认全屏，边缘滑动可临时显示系统栏。会话图标用于切换会话。更多菜单可将操作栏固定在右侧，固定偏好会保留；选择“隐藏操作栏”后，点击右侧小幽灵恢复。编辑文字时暂时收起操作栏，关闭编辑框后恢复。拖动最右侧滚动条可查看本地历史，停止后自动隐藏；阅读旧内容时保持位置，拖到底部继续跟随输出。\n\n5. tmux 模式为每个新连接创建独立的远端会话；断线后手动重连即可附着原会话，继续远端任务。通知栏可全部断开连接。"
+/** Help sections as (title, body); each body line is one tip. */
+private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language == AppLanguage.ENGLISH) listOf(
+    "Hosts" to "• Tap Add host on the Hosts tab. Sign in with a password, keyboard-interactive login or an Ed25519/RSA private key in OpenSSH or PEM format (encrypted keys work). A password is saved, encrypted with the Android Keystore, only when you tick the option; key passphrases are never saved.\n" +
+        "• On the first connection, check the SHA-256 fingerprint before trusting the host. If it later changes, the connection is blocked until you re-verify it.\n" +
+        "• Host cards show the system icon, online status and SSH latency. Tap a card for its details: live CPU, memory, disk, network, GPU and process monitoring, plus the host's sessions. The ⋮ menu offers AI agent, Open terminal, Browse files, Install plugins, Edit and Delete.",
+    "Sessions and AI agents" to "• AI agent starts Claude Code, Codex or Grok in a folder you pick, in Read-only, Normal (asks before editing files or running commands) or YOLO (skips every confirmation) mode. Your last choice is remembered. Open terminal can also start in a chosen folder.\n" +
+        "• Install plugins detects and installs tmux and mosh. With tmux, each new session gets its own remote tmux session that keeps running after a disconnect or closing the app; reconnecting reattaches it. With mosh, sessions use UDP (allow ports 60000–61000) and fall back to SSH if it does not answer.\n" +
+        "• The Sessions tab lists every session (up to 8 per host); filter by host and tap the pencil to rename. Closing a connection keeps a tmux session and its card for reconnecting; Remove then drops the card.\n" +
+        "• The notification can disconnect everything. To stay connected while the screen is locked, allow background running in Settings.",
+    "Terminal gestures" to "• Tap the terminal to show the keyboard. Double-tap sends Tab (completion), triple-tap pastes the clipboard, pinch changes the font size.\n" +
+        "• Swipe left to send Shift+Left (answers Codex questions). Swipe left or right and keep your finger down to jump to the start or end of the line.\n" +
+        "• Hold the command line to show a magnifier and drag the cursor, even across lines; hold other output to select and copy it.\n" +
+        "• Holding the keyboard's delete key for about a second clears the line; quick taps delete one character each. Clearing needs Ctrl+U/Ctrl+K on the remote side.\n" +
+        "• When you stop typing, an Enter key appears at the end of the cursor row; otherwise an Esc key sits there. On a line starting with / (slash commands), ↑/↓ keys appear there instead; double-tap to dismiss them.",
+    "Toolbox" to "• The controls start hidden. Tap the ghost with the wrench on the right edge to open them; it fades after a few seconds and returns when you touch the screen.\n" +
+        "• Toolbox buttons: History, Upload file, Download file, Insert image (up to 9 photos, their remote paths are typed in), Common commands (from the remote shell history), ⌘ shortcuts (Esc, Tab, Ctrl, Shift and arrows; Ctrl and Shift apply to the next key) and the session switcher.\n" +
+        "• The settings button has Edit text, Pin/Hide toolbar, Paste, font size and Close connection. Edited text stays a draft until you send it; Send text and Enter are separate.\n" +
+        "• Terminal pages are full screen; swipe from an edge to reveal the system bars for a moment. Drag the far-right scrollbar to read earlier output; dragging back to the bottom follows new output again. In tmux, History browses the remote history, and full-screen programs like Claude Code show this connection's output; tap Live to return.",
+    "Files" to "• Browse files lists the remote folders over SFTP. Preview text, highlighted code, Markdown and images; double-tap a preview (single-tap an image) for full screen. Rename, delete, create folders, copy paths, and download one or many files.\n" +
+        "• Its menus can open a terminal or start an AI agent in the current folder.\n" +
+        "• Share images from other apps to Roamtty to upload them to a session.",
+) else listOf(
+    "主机" to "• 在“主机”标签点“添加主机”。可用密码、交互式认证，或 OpenSSH/PEM 格式的 Ed25519/RSA 私钥（支持加密私钥）。密码仅在勾选后用系统 Keystore 加密保存，私钥口令不保存。\n" +
+        "• 首次连接先核对 SHA-256 指纹再信任；指纹之后若变化会直接阻止连接，需确认后重新核验。\n" +
+        "• 主机卡片显示系统图标、在线状态与延迟。点卡片进入详情页，实时查看 CPU、内存、磁盘、网络、GPU 与进程，并列出该主机的会话。右侧 ⋮ 菜单可选 AI 助手、打开终端、查看文件、安装插件、编辑或删除主机。",
+    "会话与 AI 助手" to "• “AI 助手”在选定文件夹启动 Claude Code、Codex 或 Grok，权限可选只读、普通（改文件或运行命令前先问你）或 YOLO（跳过所有确认），会记住上次选择。“打开终端”同样可以先选起始文件夹。\n" +
+        "• “安装插件”检测并安装 tmux 与 mosh。装有 tmux 时每个新会话有独立的远端 tmux 会话，断网或关闭 App 后任务继续运行，重连即附着原会话；装有 mosh 时优先走 UDP（需放行 60000–61000），无回应自动回退 SSH。\n" +
+        "• “会话”标签列出全部会话（每台主机最多 8 个），可按主机筛选，点铅笔修改标题。“关闭连接”后 tmux 远端会话与卡片仍保留，可稍后重连；不再需要时点“移除”删除卡片。\n" +
+        "• 通知栏可一键全部断开。锁屏后要保持连接，请在设置中允许后台运行。",
+    "终端手势" to "• 点击终端弹出键盘；双击发送 Tab（补全），三击粘贴剪贴板，双指缩放调整字号。\n" +
+        "• 向左滑动发送 Shift+←（用于回答 Codex 的提问）；左右滑动后按住不放，可跳到行首或行尾。\n" +
+        "• 长按当前命令行显示放大镜，可左右或跨行拖动光标；长按其他输出可选择复制。\n" +
+        "• 按住输入法删除键约 1 秒清空当前行，快速点按只逐字删除；清空需远端支持 Ctrl+U/Ctrl+K。\n" +
+        "• 停止输入后，光标行末尾出现回车键，其余时间显示 Esc 键；输入以 / 开头的斜杠命令时，这里换成 ↑/↓ 键，双击终端可收起。",
+    "操作栏" to "• 操作栏默认隐藏，点击右侧拿着扳手的小幽灵展开；小幽灵闲置几秒后淡出，触摸屏幕即重新出现。\n" +
+        "• 操作栏按钮：历史、上传文件、下载文件、插入图片（最多 9 张，自动填入远端路径）、常用命令（来自远端 shell 历史）、⌘ 快捷键（Esc、Tab、Ctrl、Shift 与方向键，Ctrl/Shift 作用于下一次按键）以及会话切换。\n" +
+        "• 设置按钮中有编辑文本、固定/隐藏操作栏、粘贴、字号与关闭连接。编辑框中的文字先留作草稿，确认后才发送；发送文本与回车分开。\n" +
+        "• 终端页全屏显示，边缘滑动可临时显示系统栏。拖动最右侧滚动条回看本地历史，拖到底部继续跟随输出。tmux 会话中“历史”浏览远端历史，Claude Code 等全屏程序显示本次连接的输出记录；点“实时”返回。",
+    "文件" to "• “查看文件”通过 SFTP 浏览远端目录，可预览文本、代码高亮、Markdown 和图片；双击预览（图片为单击）切换全屏。支持重命名、删除、新建文件夹、复制路径以及单个或批量下载。\n" +
+        "• 文件浏览菜单可在当前文件夹打开终端或启动 AI 助手。\n" +
+        "• 在其他 App 中把图片分享给 Roamtty，即可上传到某个会话。",
+)
