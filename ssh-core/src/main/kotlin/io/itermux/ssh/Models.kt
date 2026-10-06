@@ -111,9 +111,10 @@ object Tmux {
         val pane = BOTTOM_PROMPT_PANE.replace("\"", "\\\"").replace("$", "\\$")
         // A lost client leaves pane copy-mode and, with mosh, its old tmux attachment behind.
         // Reconcile the app's own session before accepting keys; -D detaches clients, not the task.
+        // A failed cancel must not block the attach itself.
         return "/bin/sh -c '$PATH_SETUP; " +
             "if [ \"\$(tmux display-message -p -t $name \"#{pane_mode}\" 2>/dev/null)\" = copy-mode ]; then " +
-            "tmux send-keys -t $name -X cancel || exit; fi; " +
+            "tmux send-keys -t $name -X cancel || true; fi; " +
             "case \"\$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux new-session -A -D -s $name;; esac; " +
             "exec tmux new-session -A -D -s $name /bin/sh -c \"$pane\"'"
     }

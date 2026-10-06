@@ -4,8 +4,9 @@ package io.itermux.app.session
  * Follows the bytes sent to the remote and tells whether the line being typed starts with `/`,
  * i.e. the user is picking a slash command (Claude Code, Codex, …).
  *
- * Only a local estimate. Cursor movement, completion and ambiguous editing invalidate it until
- * Enter or Ctrl+C starts a known line. Ctrl+U clears a line only while its cursor is still known
+ * Only a local estimate. Up/Down on a slash line move through the command menu and keep it; other
+ * cursor movement, completion and ambiguous editing invalidate it until Enter or Ctrl+C starts a
+ * known line, and a bare Esc dismisses the menu and starts a new one. Ctrl+U clears a line only while its cursor is still known
  * to be at the end. Terminal replies and paste framing do not change the estimate.
  */
 internal class SlashCommandInput {
@@ -47,12 +48,16 @@ internal class SlashCommandInput {
                             "200~" -> pasting = true
                             "201~" -> pasting = false
                             "I", "O" -> Unit // focus replies
+                            "A", "B" -> if (!active) invalidate() // Up/Down pick from the slash menu
                             else -> if (!completed.matches(cursorReport)) invalidate()
                         }
                         state = State.TEXT
                     }
                 }
-                State.SS3 -> { invalidate(); state = State.TEXT }
+                State.SS3 -> {
+                    if (!(active && (b == 'A'.code || b == 'B'.code))) invalidate()
+                    state = State.TEXT
+                }
                 State.OSC -> when (b) {
                     0x07 -> state = State.TEXT
                     0x1b -> state = State.OSC_ESC
@@ -60,10 +65,10 @@ internal class SlashCommandInput {
                 State.OSC_ESC -> state = if (b == '\\'.code) State.TEXT else State.OSC
             }
         }
-        // A lone Esc dismisses the menu, but does not prove that the remote input line is empty.
-        // Keep the parser state so a split escape sequence cannot become printable input.
+        // A lone Esc key press arrives on its own and dismisses the command menu.
         if (state == State.ESC) {
-            invalidate()
+            reset()
+            state = State.TEXT
         }
     }
 

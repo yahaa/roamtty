@@ -14,12 +14,21 @@ class SlashCommandInputTest {
         assertFalse(SlashCommandInput().type("ls /tmp").active)
     }
     @Test fun movementHistoryAndCompletionInvalidateTheEstimate() {
-        listOf("\u001b[A", "\u001bOB", "\u001b[C", "\u001b[1~", "\t", "\u0001", "\u0005", "\u0002", "\u0006").forEach { edit ->
+        listOf("\u001b[C", "\u001bOD", "\u001b[1~", "\t", "\u0001", "\u0005", "\u0002", "\u0006").forEach { edit ->
             val input = SlashCommandInput().type("/he", edit)
             assertFalse(edit, input.active)
             assertFalse(input.type("/another").active)
             assertTrue(input.type("\r", "/fresh").active)
         }
+    }
+    @Test fun upAndDownKeepTheSlashMenu() {
+        listOf("\u001b[A", "\u001b[B", "\u001bOA", "\u001bOB").forEach { key ->
+            val input = SlashCommandInput().type("/he")
+            val line = input.line
+            assertTrue(key, input.type(key, key).line == line)
+        }
+        // Up/Down on an ordinary line recall shell history, so the line is no longer known.
+        assertFalse(SlashCommandInput().type("ls", "\u001b[A", "/x").active)
     }
     @Test fun newLineEndsCommand() {
         assertFalse(SlashCommandInput().type("/help", "\r").active)
@@ -48,9 +57,10 @@ class SlashCommandInputTest {
         assertTrue(input.active)
         assertFalse(input.type("\u007f").active)
     }
-    @Test fun bareEscapeAndAltEditingDoNotPretendTheRemoteLineIsEmpty() {
+    @Test fun bareEscapeStartsANewLineButAltEditingDoesNot() {
         assertFalse(SlashCommandInput().type("/he", "\u001b").active)
         assertFalse(SlashCommandInput().type("/he", "\u001bb", "/again").active)
+        assertTrue(SlashCommandInput().type("/he", "\u001b", "/again").active)
     }
     @Test fun terminalRepliesAndPasteBracketsAreSkipped() {
         assertTrue(SlashCommandInput().type("/", "\u001b[12;3R", "\u001b]11;rgb:0/0/0\u0007", "\u001b[I").active)
