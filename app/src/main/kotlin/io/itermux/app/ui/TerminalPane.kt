@@ -583,7 +583,7 @@ internal object TerminalToolbox {
     /** Idle timeout of the open shortcut popup; 0 keeps it open until dismissed. */
     @Volatile var shortcutHideMillis = 5_000L
     /** Idle timeout of the cursor-row Enter key; 0 keeps it until the pane leaves. */
-    @Volatile var enterKeyHideMillis = 5_000L
+    @Volatile var enterKeyHideMillis = 3_000L
     /** How long typing must pause before the cursor-row Enter key appears. */
     @Volatile var enterKeyTypingPauseMillis = 700L
 }
