@@ -125,6 +125,7 @@ fun ItermuxScreen(
     /** A host-menu launch: the host, and whether it starts an AI agent rather than a plain terminal. */
     var launchRequest by remember { mutableStateOf<Pair<Host, Boolean>?>(null) }
     var connectRequest by remember { mutableStateOf<ConnectRequest?>(null) }
+    var terminatePrompt by remember { mutableStateOf<PendingPrompt?>(null) }
     var reverify by remember { mutableStateOf<TerminalConnection?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var pluginTarget by remember { mutableStateOf<PluginTarget?>(null) }
@@ -146,6 +147,16 @@ fun ItermuxScreen(
                         passphrase = passphrase.takeIf { it.isNotEmpty() }?.toByteArray()
                     )
                 }
+                request.terminateSessionId?.let { id ->
+                    toast(tr("正在终止远端 tmux 会话…"))
+                    val failure = bound.terminate(id, credentials) { prompt ->
+                        val pending = PendingPrompt(prompt)
+                        terminatePrompt = pending
+                        try { pending.answer.await() } finally { if (terminatePrompt === pending) terminatePrompt = null }
+                    }
+                    toast(failure?.let { trf("未能终止远端会话：%s", it) } ?: tr("远端 tmux 会话已终止，卡片已移除"))
+                    return@launch
+                }
                 val session = if (request.reuseSessionId != null) {
                     bound.reconnect(request.reuseSessionId, credentials)
                 } else {
@@ -164,11 +175,15 @@ fun ItermuxScreen(
             }
         }
     }
-    fun connect(host: Host, mode: SessionMode = host.newSessionMode, title: String = "", reuseSessionId: String? = null,
-        openFilesAfterConnect: Boolean = false, startupCommand: String? = null) {
-        val request = ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect, startupCommand = startupCommand)
+    /** Asks for an unsaved password or key passphrase first. */
+    fun begin(request: ConnectRequest) {
+        val host = request.host
         if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null)) connectRequest = request
         else start(request)
+    }
+    fun connect(host: Host, mode: SessionMode = host.newSessionMode, title: String = "", reuseSessionId: String? = null,
+        openFilesAfterConnect: Boolean = false, startupCommand: String? = null) {
+        begin(ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect, startupCommand = startupCommand))
     }
 
     /** A new session in [directory]; with [agent], that agent is started there and names the session. */
@@ -358,7 +373,10 @@ fun ItermuxScreen(
                             else EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.weight(1f))
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = sessionGridState, modifier = Modifier.weight(1f).testTag("session-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
                             items(filteredSessions, key = { it.id }) { session ->
-                                SessionCard(session, Modifier.animateItem(), onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) }, onForget = { service?.forget(session.id) })
+                                SessionCard(session, Modifier.animateItem(), onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) }, onForget = { terminateRemote ->
+                                    if (!terminateRemote) service?.forget(session.id)
+                                    else begin(ConnectRequest(session.host, SessionMode.SHELL, terminateSessionId = session.id))
+                                })
                             }
                         }
                     }
@@ -439,6 +457,7 @@ fun ItermuxScreen(
             connectRequest = null
             if (request.plugins) pluginTarget = PluginTarget(request.host, password, phrase) else start(request, password, phrase)
         } }
+        terminatePrompt?.let { PromptDialog(it) }
         pluginTarget?.let { target ->
             val controller = remember(target) { HostPluginsController(app, target, scope).also { it.start() } }
             DisposableEffect(controller) { onDispose { controller.close() } }

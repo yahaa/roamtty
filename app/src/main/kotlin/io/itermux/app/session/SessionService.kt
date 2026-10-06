@@ -153,6 +153,25 @@ class SessionService : Service() {
         mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
         saveSessions()
     }
+    /**
+     * Ends the remote tmux session of a closed entry over a separate login, then forgets the entry.
+     * Returns null on success, else why the session may still be running (the entry is kept).
+     */
+    suspend fun terminate(id: String, credentials: Credentials, interaction: suspend (Prompt) -> List<String>?): String? {
+        val existing = mutableSessions.value.find { it.id == id } ?: return null
+        check(!existing.state.value.active)
+        val ssh = JschSession(existing.host.target(SessionMode.SHELL), credentials, (application as ItermuxApp).pins,
+            interaction = interaction, connectTimeoutMs = 15_000)
+        var status: Int? = null
+        try {
+            ssh.administer { remote -> status = remote.run(Tmux.killSessionScript(existing.remoteSessionName), 15_000) {} }
+        } finally { ssh.disconnect() }
+        return when (status) {
+            0 -> { forget(id); null }
+            null -> ssh.state.value.message.takeIf { it.isNotBlank() }?.let(::tr) ?: tr("无法连接服务器")
+            else -> trf("tmux 退出码 %d", status!!)
+        }
+    }
     /** Sockets bound to a lost network or frozen by a long sleep can look connected for minutes. */
     fun verifyConnections() {
         android.util.Log.i("RoamttyConn", "verify ${mutableSessions.value.size} sessions")
