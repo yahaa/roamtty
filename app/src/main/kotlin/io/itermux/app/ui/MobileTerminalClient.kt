@@ -78,17 +78,22 @@ internal class MobileTerminalClient(
     override fun logStackTrace(tag: String?, e: Exception?) = Unit
 }
 
-/** Lines are often thinner than a fingertip: the cursor line's touch band grows to at least this height. */
-private const val CURSOR_LINE_MIN_TOUCH_DP = 32f
+/** Phone rows are thinner than a fingertip: the rows this close to the cursor line count as hitting it. */
+private const val CURSOR_LINE_SLACK_ROWS = 2
+
+/** The cursor line's touch band never gets shorter than this, however small the font. */
+private const val CURSOR_LINE_MIN_TOUCH_DP = 64f
 
 /**
- * Whether [y] falls on the cursor line [bounds] ({top, bottom}), widened around its centre to [minHeight].
+ * Whether [y] falls on the cursor line [bounds] ({top, bottom}) or within [CURSOR_LINE_SLACK_ROWS] rows of it,
+ * the band widened around its centre to [minHeight].
  * A band reaching above [touchableTop] slides down to start there, so a cursor under the status bar stays tappable.
  */
 internal fun tapHitsCursorLine(y: Float, bounds: IntArray?, minHeight: Float, touchableTop: Float = 0f): Boolean {
     if (bounds == null) return false
     val centre = (bounds[0] + bounds[1]) / 2f
-    val half = maxOf((bounds[1] - bounds[0]) / 2f, minHeight / 2f)
+    val rowHeight = bounds[1] - bounds[0]
+    val half = maxOf(rowHeight * (CURSOR_LINE_SLACK_ROWS + 0.5f), minHeight / 2f)
     val top = maxOf(centre - half, touchableTop)
     return y >= top && y < top + 2 * half
 }

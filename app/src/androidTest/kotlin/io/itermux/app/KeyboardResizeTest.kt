@@ -75,7 +75,10 @@ class KeyboardResizeTest {
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             delay(800)
-            // A fresh shell's cursor sits near the top, so the bottom of the terminal is another line.
+            // After clear the cursor is on the first row, so the bottom of the terminal is far from its line.
+            withContext(Dispatchers.Main) { session.write("clear\r") }
+            withTimeout(8000) { while (withContext(Dispatchers.Main) { session.getEmulator().cursorRow } != 0) delay(40) }
+            delay(500)
             compose.onNodeWithTag("terminal").performTouchInput { click(Offset(centerX, bottom - 4f)) }
             delay(1500)
             assertFalse("Tapping off the cursor line must not open the keyboard",

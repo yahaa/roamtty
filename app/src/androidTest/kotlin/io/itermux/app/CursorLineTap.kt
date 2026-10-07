@@ -7,17 +7,25 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.platform.app.InstrumentationRegistry
 import com.termux.view.TerminalView
 
 /** Taps the middle of the terminal's cursor line: the only single tap that opens the keyboard. */
 fun AndroidComposeTestRule<*, MainActivity>.tapCursorLine() {
     var bounds: IntArray? = null
+    var touchableTop = 0f
     InstrumentationRegistry.getInstrumentation().runOnMainSync {
-        bounds = findTerminalView(activity.window.decorView)?.cursorRowBounds
+        val view = findTerminalView(activity.window.decorView) ?: return@runOnMainSync
+        bounds = view.cursorRowBounds
+        // A row under the status bar can't take injected touches; aim just below the bar instead.
+        val statusBar = ViewCompat.getRootWindowInsets(view)?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
+        val location = IntArray(2).also { view.getLocationInWindow(it) }
+        touchableTop = (statusBar - location[1]).coerceAtLeast(0) + 8 * view.resources.displayMetrics.density
     }
     val row = requireNotNull(bounds) { "Cursor line is not on screen" }
-    onNodeWithTag("terminal").performTouchInput { click(Offset(centerX, (row[0] + row[1]) / 2f)) }
+    onNodeWithTag("terminal").performTouchInput { click(Offset(centerX, maxOf((row[0] + row[1]) / 2f, touchableTop))) }
 }
 
 private fun findTerminalView(view: View): TerminalView? {
