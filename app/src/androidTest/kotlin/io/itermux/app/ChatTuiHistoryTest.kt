@@ -68,8 +68,7 @@ class ChatTuiHistoryTest {
             withContext(Dispatchers.Main) { session.write("exec python3 '$fixture' $mode\r") }
             awaitScreen(session, "Done")
             capture("chat-tui-$mode-live")
-            compose.onNodeWithTag("restore-dock").performClick()
-            compose.onNodeWithTag("tmux-history").performClick()
+            withContext(Dispatchers.Main) { session.enterTmuxHistory() }
             withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
             compose.onNodeWithTag("output-history").assertIsDisplayed()
             val text = session.outputHistorySnapshot().map { it.text.trimEnd() }
@@ -81,7 +80,7 @@ class ChatTuiHistoryTest {
             compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0.3f) }
             delay(300)
             capture("chat-tui-$mode-history")
-            compose.onNodeWithTag("tmux-history").performClick()
+            withContext(Dispatchers.Main) { session.exitTmuxHistory() }
             withTimeout(8000) { while (session.tmuxHistory.value != null) delay(50) }
         } finally {
             prompts.cancel()

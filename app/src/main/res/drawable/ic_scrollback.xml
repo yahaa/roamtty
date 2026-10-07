@@ -1,8 +1,0 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <!-- Lines of output with chevrons up: scroll back through the terminal history. -->
-    <path android:fillColor="@android:color/transparent" android:strokeColor="#FF000000"
-        android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M3,5H13M3,10H13M3,15H10M3,20H10M15,13L18,10L21,13M15,19L18,16L21,19" />
-</vector>

@@ -317,11 +317,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 }
             }
         }, primaryControls = {
-            InputControlButton(if (tmuxHistory?.active == true) tr("实时") else tr("历史"),
-                if (tmuxHistory?.active == true) tr("返回实时画面") else tr("浏览历史记录"),
-                "tmux-history", enabled = state.phase == Phase.CONNECTED, selected = tmuxHistory?.active == true,
-                icon = if (tmuxHistory?.active == true) R.drawable.ic_scrollback_live else R.drawable.ic_scrollback,
-                onClick = { hideKeyboard(); if (tmuxHistory?.active == true) session.exitTmuxHistory() else session.enterTmuxHistory() })
             fileControls()
             IconButton(
                 onClick = { hideKeyboard(); commonCommandsOpen = true },

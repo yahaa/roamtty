@@ -76,8 +76,7 @@ class TmuxHistoryUiTest {
                     session.getEmulator().screen.transcriptText.contains("TMUX_UI_180")
                 }) delay(40)
             }
-            compose.onNodeWithTag("restore-dock").performClick()
-            compose.onNodeWithTag("tmux-history").assertIsDisplayed().performClick()
+            withContext(Dispatchers.Main) { session.enterTmuxHistory() }
             withTimeout(8000) { while (session.tmuxHistory.value?.active != true) delay(40) }
             val rows = requireNotNull(session.tmuxHistory.value).rows
             assertTrue("tmux must own older lines", rows > 80)
@@ -127,7 +126,7 @@ class TmuxHistoryUiTest {
                     emulator.getSelectedText(0, 0, emulator.mColumns, emulator.mRows).contains("TMUX_UI_180")
                 }) delay(40)
             }
-            compose.onNodeWithTag("tmux-history").performClick()
+            withContext(Dispatchers.Main) { session.exitTmuxHistory() }
             withTimeout(8000) { while (session.tmuxHistory.value != null) delay(40) }
             withContext(Dispatchers.Main) { session.draft = "unsent draft"; session.enterTmuxHistory() }
             withTimeout(8000) { while (session.tmuxHistory.value?.active != true) delay(40) }
