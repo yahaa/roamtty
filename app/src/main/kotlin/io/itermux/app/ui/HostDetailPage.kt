@@ -88,7 +88,7 @@ internal fun HostDetailPage(
         AppToolbar(title = host.name,
             navigation = { ToolbarIcon(R.drawable.ic_chevron_left, tr("返回主机列表"), Modifier.testTag("host-detail-back"), onClick = onBack) },
             actions = {
-                ToolbarIcon(R.drawable.ic_download, tr("安装插件"), Modifier.testTag("host-detail-plugins"), onClick = onManagePlugins)
+                ToolbarIcon(R.drawable.ic_plugin, tr("安装插件"), Modifier.testTag("host-detail-plugins"), onClick = onManagePlugins)
                 ToolbarIcon(R.drawable.ic_edit, tr("编辑主机"), Modifier.testTag("host-detail-edit"), onClick = onEdit)
                 var menu by remember { mutableStateOf(false) }
                 Box {
