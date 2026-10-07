@@ -432,7 +432,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
                             onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); arrowKeysDismissedLine = slashCommandLine; enterKeyTyping = false; enterKeyTouches++ }, onTripleTap = { pasteClipboard() },
                             onSwipeLeft = { shiftArrowLeft() },
-                            onSwipeHoldLeft = { lineEdge("\u0001") }, onSwipeHoldRight = { lineEdge("\u0005") }))
+                            onSwipeHoldLeft = { lineEdge("\u0001") }, onSwipeHoldRight = { lineEdge("\u0005") },
+                            // Enter usually runs or submits the line: put the keyboard away so the output shows.
+                            onSoftKeyboardEnter = { hideKeyboard() }))
                         setUserInputListener { enterKeyTyping = true; enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                         isFocusableInTouchMode = true

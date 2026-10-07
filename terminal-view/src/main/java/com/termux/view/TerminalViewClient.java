@@ -64,6 +64,9 @@ public interface TerminalViewClient {
     /** Remote input was cleared without key events; consume any one-shot modifiers. */
     default void onInputCleared() {}
 
+    /** The soft keyboard's Enter reached the terminal, as a key or as committed newline text. */
+    default void onSoftKeyboardEnter() {}
+
     boolean onLongPress(MotionEvent event);
 
 
