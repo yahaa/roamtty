@@ -58,6 +58,14 @@ with tempfile.TemporaryDirectory(prefix="roamtty-attach-") as root:
         # Swipes scroll tmux history only through mouse mode, set for the app's own session.
         wait_for(lambda: tmux("show-options", "-v", "-t", "roamtty-review", "mouse") == "on")
         assert tmux("show-options", "-gv", "mouse") == "off"
+        # The status line is off for the app's session only, so the pane fills the 24-row terminal.
+        wait_for(lambda: tmux("show-options", "-v", "-t", "roamtty-review", "status") == "off")
+        assert tmux("show-options", "-gv", "status") == "on"
+        assert tmux("show-options", "-v", "-t", "unrelated", "status") == ""
+        wait_for(lambda: tmux("display-message", "-p", "-t", "roamtty-review", "#{pane_height}") == "24")
+        if sys.argv[1] == "new":
+            # The first prompt sits on the pane's last row, next to the keyboard.
+            wait_for(lambda: tmux("display-message", "-p", "-t", "roamtty-review", "#{cursor_y}") == "23")
         if sys.argv[1] == "restore":
             old.wait(timeout=2)
             assert pane == tmux("display-message", "-p", "-t", "roamtty-review", "#{pane_pid}")

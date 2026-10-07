@@ -66,8 +66,8 @@ class MoshIntegrationTest {
             ssh.resize(91, 33)
             delay(500)
             assertTrue(ssh.write("stty size\r".toByteArray()))
-            // tmux keeps one row for its status line.
-            waitText(output, if (mode == SessionMode.TMUX) "32 91" else "33 91")
+            // The app's tmux session has no status line, so the pane gets every row.
+            waitText(output, "33 91")
             if (mode == SessionMode.TMUX) {
                 assertTrue(ssh.write("echo \$TMUX | cut -c1-5\r".toByteArray()))
                 waitText(output, "/tmp/")
