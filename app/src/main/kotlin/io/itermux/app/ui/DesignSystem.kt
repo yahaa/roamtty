@@ -147,6 +147,8 @@ internal fun GroupedSection(
     modifier: Modifier = Modifier,
     header: String? = null,
     footer: String? = null,
+    /** The content brings its own card surfaces, so the section adds only the header and footer. */
+    cards: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -154,7 +156,8 @@ internal fun GroupedSection(
             Text(it, style = MaterialTheme.typography.sectionHeader, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Tight).semantics { heading() })
         }
-        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.groupedContainer) {
+        if (cards) Column(Modifier.fillMaxWidth(), content = content)
+        else Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.groupedContainer) {
             Column(Modifier.fillMaxWidth(), content = content)
         }
         footer?.let {

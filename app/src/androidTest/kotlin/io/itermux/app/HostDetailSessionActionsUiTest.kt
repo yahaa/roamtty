@@ -27,7 +27,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** The host detail's session rows offer the session list's actions: rename and close. */
+/** The host detail lists its sessions with the session list's cards, so rename and close work the same. */
 @RunWith(AndroidJUnit4::class)
 class HostDetailSessionActionsUiTest {
     @get:Rule val compose = createComposeRule()
@@ -48,15 +48,13 @@ class HostDetailSessionActionsUiTest {
                         onLaunch = { _, _ -> }, onBrowseFiles = {}, onEdit = {}, onManagePlugins = {}, onDelete = {})
                 }
             }
-            compose.onNodeWithTag("host-session-more-${session.id}").performClick()
-            compose.onNodeWithTag("host-session-rename-${session.id}").performClick()
+            compose.onNodeWithTag("rename-session-${session.id}").performClick()
             compose.onNodeWithTag("session-title-input").performTextInput("部署脚本")
             compose.onNodeWithText("保存").performClick()
             assertEquals("部署脚本", session.title.value)
-            compose.onNodeWithTag("host-session-${session.id}").assertTextContains("部署脚本", substring = true)
+            compose.onNodeWithTag("session-${session.id}").assertTextContains("部署脚本", substring = true)
 
-            compose.onNodeWithTag("host-session-more-${session.id}").performClick()
-            compose.onNodeWithTag("host-session-close-${session.id}").performClick()
+            compose.onNodeWithText("关闭").performClick()
             compose.onNodeWithText("关闭连接").performClick()
             assertEquals(listOf(session), closed)
         } finally {
