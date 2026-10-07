@@ -576,7 +576,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         if (floatingDock) {
             TerminalDockPlacement { height ->
                 Surface(shape = terminalDockShape(terminalDockTwoColumns(landscape, imeVisible, height)),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f), shadowElevation = 4.dp
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f), shadowElevation = 4.dp
                 ) { dock(height) }
             }
         } else if (dockAvailable && !dockVisible) {
