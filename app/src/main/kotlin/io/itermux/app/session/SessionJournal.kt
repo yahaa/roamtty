@@ -30,7 +30,7 @@ internal class SessionJournal(context: Context) {
                     item.getString("id"),
                     item.getString("hostId"),
                     SessionMode.valueOf(item.getString("mode")),
-                    clipSessionTitle(item.optString("title")),
+                    clipSessionTitle(shortenLegacyAgentTitle(item.optString("title"))),
                     Tmux.sanitizeSessionName(remote),
                     item.optInt("sessionNumber", 0).coerceAtLeast(0)
                 )
@@ -59,3 +59,7 @@ internal class SessionJournal(context: Context) {
         preferences.edit { putString("sessions", array.toString()) }
     }
 }
+
+/** Agent sessions used to be titled "Claude Code · folder"; they now carry the short agent name. */
+internal fun shortenLegacyAgentTitle(title: String): String =
+    if (title.startsWith("Claude Code · ")) "Claude" + title.removePrefix("Claude Code") else title
