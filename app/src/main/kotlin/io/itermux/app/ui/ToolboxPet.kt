@@ -1,6 +1,7 @@
 package io.itermux.app.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -12,18 +13,24 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -36,22 +43,43 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * The collapsed toolbox: a little ghost floating at the edge with a wrench, drawn without a
+ * The collapsed toolbox: a little ghost floating at the edge with a wrench and a little keyboard, drawn without a
  * button frame. It pops in, bobs over its shadow, sways, ripples its hem, blinks and now and
  * then waves the wrench. Infinite animations are disabled under Compose tests, so it stays still there.
+ *
+ * A tap calls [onClick]. A long press calls [onHoldStart] with the pet centre, then the ghost follows the finger and
+ * [onHoldMove] gets the finger's offset from that centre; [onHoldEnd] reports a release (true) or a cancel (false)
+ * and the ghost springs home. Positions are in root coordinates.
  */
 @Composable
-internal fun ToolboxPet(description: String, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
+internal fun ToolboxPet(description: String, onHoldStart: (Offset) -> Unit = {}, onHoldMove: (Offset) -> Unit = {},
+    onHoldEnd: (Boolean) -> Unit = {}, onClick: () -> Unit) {
+    var pressed by remember { mutableStateOf(false) }
+    val follow = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val click by rememberUpdatedState(onClick)
+    val holdStart by rememberUpdatedState(onHoldStart)
+    val holdMove by rememberUpdatedState(onHoldMove)
+    val holdEnd by rememberUpdatedState(onHoldEnd)
     val press by animateFloatAsState(if (pressed) 0.86f else 1f, spring(dampingRatio = 0.4f, stiffness = 900f), label = "press")
     val hop = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -79,10 +107,45 @@ internal fun ToolboxPet(description: String, onClick: () -> Unit) {
     }), label = "wave")
     val wrench = MaterialTheme.colorScheme.primary
     Box(Modifier.size(48.dp)
-        .clickable(interaction, indication = null, onClick = onClick)
-        .semantics { contentDescription = description }.testTag("restore-dock"),
+        .onGloballyPositioned { coordinates = it }
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown()
+                down.consume()
+                pressed = true
+                // Lifting before the long-press timeout is a tap; sliding off first cancels.
+                var tapped = false
+                val quick = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                    tapped = waitForUpOrCancellation()?.also { it.consume() } != null
+                }
+                if (quick != null) {
+                    pressed = false
+                    if (tapped) click()
+                    return@awaitEachGesture
+                }
+                pressed = false
+                val center = coordinates?.localToRoot(Offset(size.width / 2f, size.height / 2f)) ?: return@awaitEachGesture
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                holdStart(center)
+                val released = drag(down.id) { change ->
+                    change.consume()
+                    val offset = change.position - Offset(size.width / 2f, size.height / 2f)
+                    scope.launch { follow.snapTo(offset) }
+                    holdMove(offset)
+                }
+                holdEnd(released)
+                scope.launch { follow.animateTo(Offset.Zero, spring(dampingRatio = 0.45f, stiffness = 380f)) }
+            }
+        }
+        .semantics {
+            contentDescription = description
+            onClick { click(); true }
+        }.testTag("restore-dock"),
         contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(44.dp)) {
+        Canvas(Modifier.size(44.dp).graphicsLayer {
+            translationX = follow.value.x
+            translationY = follow.value.y
+        }) {
             // A 26 x 26 grid keeps the drawing readable; everything below is in grid units.
             val unit = size.width / 26f
             scale(unit, unit, pivot = Offset.Zero) {
@@ -104,6 +167,7 @@ private val GhostBody = Color(0xFFF8F7FF)
 private val GhostInk = Color(0xFF3B3550)
 private val GhostBlush = Color(0xFFFF9EB5)
 private val WrenchMetal = Color(0xFFD9DEE8)
+private val KeyboardBody = Color(0xFFEDEBF5)
 
 private fun DrawScope.drawGhost(wrench: Color, hem: Float, eyes: Float, wave: Float) {
     val line = Stroke(width = 1.3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
@@ -132,7 +196,18 @@ private fun DrawScope.drawGhost(wrench: Color, hem: Float, eyes: Float, wave: Fl
     }
     drawPath(body, GhostBody)
     drawPath(body, GhostInk, style = line)
-    // Left arm waves a little with the wrench; the right paw grips it.
+    // The left paw holds a little keyboard in front of the body, tipping a bit as the wrench waves.
+    val paw = Offset(3.9f, 14.6f - wave / 40f)
+    rotate(-10f + wave / 8f, pivot = paw) {
+        val board = Rect(Offset(paw.x - 2.2f, paw.y + 0.2f), Size(7.2f, 4.4f))
+        drawRoundRect(KeyboardBody, board.topLeft, board.size, CornerRadius(0.9f))
+        drawRoundRect(GhostInk, board.topLeft, board.size, CornerRadius(0.9f), style = Stroke(1.1f))
+        for (row in 0..1) for (col in 0..3) {
+            drawRoundRect(wrench, Offset(board.left + 0.8f + col * 1.45f, board.top + 0.75f + row * 1.25f), Size(0.95f, 0.8f), CornerRadius(0.25f))
+        }
+        drawRoundRect(wrench, Offset(board.left + 1.9f, board.top + 3.25f), Size(3.2f, 0.6f), CornerRadius(0.3f))
+    }
+    // The left paw holds the keyboard; the right paw grips the wrench.
     drawCircle(GhostBody, 1.7f, Offset(3.9f, 14.6f - wave / 40f))
     drawCircle(GhostInk, 1.7f, Offset(3.9f, 14.6f - wave / 40f), style = line)
     drawCircle(GhostBody, 1.8f, Offset(19.6f, 14.2f))

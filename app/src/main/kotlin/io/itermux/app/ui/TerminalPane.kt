@@ -36,6 +36,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -99,7 +101,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var closeConfirm by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var sessionMenu by remember { mutableStateOf(false) }
-    var shortcutMenu by remember { mutableStateOf(false) }
     var fileAction by remember { mutableStateOf<FileAction?>(null) }
     var commonCommandsOpen by rememberSaveable { mutableStateOf(false) }
     var editSessionTitle by remember { mutableStateOf(false) }
@@ -122,7 +123,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     fun dismissDockMenus() {
         menu = false
         sessionMenu = false
-        shortcutMenu = false
         if (!dockPinned) dockExpanded = false
         ctrlArmed = false
         shiftArmed = false
@@ -137,6 +137,27 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             delay(hideAfter)
             toolboxAwake = false
         }
+    }
+    // Holding the pet opens a ring of agent shortcuts around it; dragging onto one and letting go sends it.
+    var petCenter by remember { mutableStateOf<Offset?>(null) }
+    var petArc by remember { mutableStateOf<PetArc?>(null) }
+    var petHovered by remember { mutableStateOf<Int?>(null) }
+    // The ring matches the program in front, read from the screen when the hold starts; Fn opens a sub-ring.
+    var petApp by remember { mutableStateOf(ScreenApp.SHELL) }
+    var petMenu by remember { mutableStateOf<List<PetShortcut>?>(null) }
+    val petShortcuts = petMenu ?: petShortcuts(petApp)
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(dockAvailable, dockVisible) {
+        if (!dockAvailable || dockVisible) { petCenter = null; petArc = null; petHovered = null; petMenu = null }
+    }
+    // Resting on a menu item unfolds its sub-ring.
+    LaunchedEffect(petHovered, petShortcuts) {
+        val menu = petHovered?.let(petShortcuts::getOrNull)?.action as? PetAction.Menu ?: return@LaunchedEffect
+        delay(350)
+        petHovered = null
+        petArc = null
+        petMenu = menu.items
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
     // The cursor-row Enter key stays out of the way while typing and appears once input pauses,
     // or at once on a double tap; it fades after a quiet spell.
@@ -160,16 +181,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             delay(hideAfter)
             enterKeyAwake = false
             arrowKeysDismissedLine = 0
-        }
-    }
-    // The shortcut popup stays open across key presses; it closes on an outside tap or after
-    // a quiet spell, restarted by every key.
-    var shortcutTouches by remember { mutableIntStateOf(0) }
-    LaunchedEffect(shortcutMenu, shortcutTouches) {
-        val hideAfter = TerminalToolbox.shortcutHideMillis
-        if (shortcutMenu && hideAfter > 0) {
-            delay(hideAfter)
-            shortcutMenu = false
         }
     }
     // Observe the first press without consuming it: the same tap still reaches the terminal,
@@ -207,6 +218,42 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         terminal?.sendInputControlKey(KeyEvent.KEYCODE_DPAD_LEFT, KeyHandler.KEYMOD_SHIFT)
         ctrlArmed = false
         shiftArmed = false
+    }
+    fun sendPetShortcut(shortcut: PetShortcut) {
+        when (val action = shortcut.action) {
+            is PetAction.Keys -> {
+                ctrlArmed = false
+                shiftArmed = false
+                terminal?.scrollToBottom()
+                session.write(action.keys)
+                if (action.repeat) inputScope.launch {
+                    delay(120)
+                    session.write(action.keys)
+                }
+            }
+            is PetAction.Key -> {
+                val modifiers = (if (ctrlArmed) KeyHandler.KEYMOD_CTRL else 0) or (if (shiftArmed) KeyHandler.KEYMOD_SHIFT else 0)
+                ctrlArmed = false
+                shiftArmed = false
+                terminal?.scrollToBottom()
+                terminal?.sendInputControlKey(action.keyCode, modifiers)
+            }
+            // Like the dock's Ctrl and Shift keys: armed for the next key, Ctrl with the keyboard up.
+            PetAction.Ctrl -> {
+                shiftArmed = false
+                ctrlArmed = !ctrlArmed
+                if (ctrlArmed) terminal?.let { view ->
+                    view.requestFocus()
+                    SoftwareKeyboardControllerCompat(view).show()
+                }
+            }
+            PetAction.Shift -> {
+                ctrlArmed = false
+                shiftArmed = !shiftArmed
+                if (shiftArmed) terminal?.requestFocus()
+            }
+            is PetAction.Menu -> Unit
+        }
     }
     /** Swipe-and-hold jumps to the line start (Ctrl+A) or end (Ctrl+E); armed modifiers are dropped, not applied. */
     fun lineEdge(control: String) {
@@ -256,7 +303,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     LaunchedEffect(state.phase) {
         if (state.phase != Phase.CONNECTED) {
             ctrlArmed = false; shiftArmed = false; confirmPaste = null
-            menu = false; sessionMenu = false; shortcutMenu = false
+            menu = false; sessionMenu = false
         }
         else session.inputWarning.value = null
     }
@@ -337,45 +384,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     DropdownMenuItem(text = { Text(trf("减小字号 · %d sp", fontSize)) }, onClick = { fontSize = (fontSize - 1).coerceAtLeast(8); menu = false })
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text(tr("关闭连接")) }, onClick = { menu = false; if (state.active) closeConfirm = true else onClose() })
-                }
-            }
-        }, keyControls = {
-            Box {
-                InputControlButton("⌘", tr("快捷键"), "terminal-shortcuts", selected = ctrlArmed || shiftArmed,
-                    icon = R.drawable.ic_keys, onClick = { shortcutMenu = true })
-                DropdownMenu(shortcutMenu, ::dismissDockMenus, shape = MaterialTheme.shapes.large) {
-                    FlowRow(Modifier.widthIn(max = 264.dp).padding(horizontal = 10.dp, vertical = 2.dp), maxItemsInEachRow = 4,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        InputControlButton("Esc", keycap = true, description = tr("发送 Esc"), tag = "terminal-escape", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_ESCAPE) })
-                        InputControlButton("Tab", keycap = true, description = tr("发送 Tab"), tag = "terminal-tab", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_TAB) })
-                        InputControlButton("Ctrl", keycap = true, description = tr("Ctrl，作用于下一次键盘字符"), tag = "terminal-control",
-                            enabled = state.phase == Phase.CONNECTED, selected = ctrlArmed, onClick = {
-                                shortcutMenu = false
-                                shiftArmed = false
-                                ctrlArmed = !ctrlArmed
-                                if (ctrlArmed) terminal?.let { view ->
-                                    view.requestFocus()
-                                    SoftwareKeyboardControllerCompat(view).show()
-                                }
-                            })
-                        InputControlButton("Shift", keycap = true, description = tr("Shift，与方向键组合发送；也可作用于下一次键盘字符"), tag = "terminal-shift",
-                            enabled = state.phase == Phase.CONNECTED, selected = shiftArmed, onClick = {
-                                shortcutTouches++
-                                ctrlArmed = false
-                                shiftArmed = !shiftArmed
-                                if (shiftArmed) terminal?.requestFocus()
-                            })
-                        InputControlButton("←", keycap = true, description = tr("光标左移"), tag = "terminal-left", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) })
-                        InputControlButton("→", keycap = true, description = tr("光标右移"), tag = "terminal-right", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) })
-                        InputControlButton("↑", keycap = true, description = tr("发送上方向键"), tag = "terminal-up", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_UP) })
-                        InputControlButton("↓", keycap = true, description = tr("发送下方向键"), tag = "terminal-down", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_DOWN) })
-                    }
                 }
             }
         })
@@ -527,6 +535,14 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     .width(if (terminalDockTwoColumns(landscape, imeVisible, safeDockHeight)) 96.dp else 48.dp),
                 endInset = 0.dp, content = dock)
         }
+        val ringCenter = petCenter
+        if (ringCenter != null && dockAvailable && !dockVisible) {
+            val topInset = WindowInsets.displayCutout.union(WindowInsets.statusBars).getTop(LocalDensity.current).toFloat()
+            val title = if (petMenu != null) "F1–F12" else petApp.label.ifEmpty { tr("终端") }
+            PetShortcutArc(petShortcuts, ringCenter, topInset, petHovered, title, armed = { action ->
+                action == PetAction.Ctrl && ctrlArmed || action == PetAction.Shift && shiftArmed
+            }) { petArc = it }
+        }
         if (floatingDock) {
             TerminalDockPlacement { height ->
                 Surface(shape = terminalDockShape(terminalDockTwoColumns(landscape, imeVisible, height)),
@@ -535,10 +551,35 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             }
         } else if (dockAvailable && !dockVisible) {
             // Leave the composition while hidden so taps on that edge reach the terminal.
-            AnimatedVisibility(toolboxAwake, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
+            AnimatedVisibility(toolboxAwake || petCenter != null, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
                 exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
                 TerminalDockPlacement {
-                    ToolboxPet(tr("显示操作栏")) { dockExpanded = true }
+                    ToolboxPet(tr("显示操作栏"), onHoldStart = { center ->
+                        petHovered = null
+                        petMenu = null
+                        petApp = session.screenApp()
+                        petCenter = center - workspaceOrigin
+                    }, onHoldMove = { drag ->
+                        val arc = petArc
+                        // Back over the pet leaves a sub-ring.
+                        if (petMenu != null && arc != null && drag.getDistance() < arc.radius * 0.25f) {
+                            petMenu = null
+                            petArc = null
+                        }
+                        val hovered = petArc?.hoveredItem(drag)
+                        if (hovered != petHovered) {
+                            petHovered = hovered
+                            if (hovered != null) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    }, onHoldEnd = { released ->
+                        val picked = petHovered?.let(petShortcuts::getOrNull)
+                        petCenter = null
+                        petArc = null
+                        petHovered = null
+                        petMenu = null
+                        touches++
+                        if (released && picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
+                    }) { dockExpanded = true }
                 }
             }
         }
@@ -562,8 +603,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
 /** Idle timeout of the collapsed toolbox button; 0 keeps it visible (instrumentation tests). */
 internal object TerminalToolbox {
     @Volatile var autoHideMillis = 5_000L
-    /** Idle timeout of the open shortcut popup; 0 keeps it open until dismissed. */
-    @Volatile var shortcutHideMillis = 5_000L
     /** Idle timeout of the cursor-row Enter key; 0 keeps it until the pane leaves. */
     @Volatile var enterKeyHideMillis = 3_000L
     /** How long typing must pause before the cursor-row Enter key appears. */

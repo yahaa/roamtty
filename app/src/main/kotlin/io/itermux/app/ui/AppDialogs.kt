@@ -89,11 +89,12 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• The notification can disconnect everything. To stay connected while the screen is locked, allow background running in Settings.",
     "Terminal gestures" to "• Tap the cursor's line (or within two lines of it) to show the keyboard; taps elsewhere leave it hidden. Double-tap sends Tab (completion), triple-tap pastes the clipboard, pinch changes the font size.\n" +
         "• Swipe left to send Shift+Left (answers Codex questions). Swipe left or right and keep your finger down to jump to the start or end of the line.\n" +
+        "• Hold the little ghost to open a ring of shortcuts for the program in front (Claude Code, Codex, Grok, Gemini, or keyboard keys in a plain shell); drag onto one and let go to send it. In a shell, rest on Fn to open F1–F12.\n" +
         "• Hold the command line to show a magnifier and drag the cursor, even across lines; hold other output to select and copy it.\n" +
         "• Holding the keyboard's delete key for about a second clears the line; quick taps delete one character each. Clearing needs Ctrl+U/Ctrl+K on the remote side.\n" +
         "• When you stop typing, an Enter key appears at the end of the cursor row; otherwise an Esc key sits there. On a line starting with / (slash commands), ↑/↓ keys appear there instead; double-tap to dismiss them.",
     "Toolbox" to "• The controls start hidden. Tap the ghost with the wrench on the right edge to open them; it fades after a few seconds and returns when you touch the screen.\n" +
-        "• Toolbox buttons: Upload file, Download file, Insert image (up to 9 photos, their remote paths are typed in), Common commands (from the remote shell history), ⌘ shortcuts (Esc, Tab, Ctrl, Shift and arrows; Ctrl and Shift apply to the next key) and the session switcher.\n" +
+        "• Toolbox buttons: Upload file, Download file, Insert image (up to 9 photos, their remote paths are typed in), Common commands (from the remote shell history) and the session switcher. Shortcut keys live on the little ghost (hold it).\n" +
         "• The settings button has Edit text, Pin/Hide toolbar, Paste, font size and Close connection. Edited text stays a draft until you send it; Send text and Enter are separate.\n" +
         "• Terminal pages are full screen; swipe from an edge to reveal the system bars for a moment. Swipe up and down on the terminal to read earlier output (tmux sessions scroll tmux's own history); back at the bottom it follows new output again.",
     "Files" to "• Browse files lists the remote folders over SFTP. Preview text, highlighted code, Markdown and images; double-tap a preview (single-tap an image) for full screen. Rename, delete, create folders, copy paths, and download one or many files.\n" +
@@ -109,11 +110,12 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• 通知栏可一键全部断开。锁屏后要保持连接，请在设置中允许后台运行。",
     "终端手势" to "• 点击光标所在行（上下各 2 行内都算）弹出键盘，点击其他位置不弹出；双击发送 Tab（补全），三击粘贴剪贴板，双指缩放调整字号。\n" +
         "• 向左滑动发送 Shift+←（用于回答 Codex 的提问）；左右滑动后按住不放，可跳到行首或行尾。\n" +
+        "• 长按小精灵，周围弹出当前程序的快捷键（Claude Code、Codex、Grok、Gemini；普通终端为 Ctrl、Shift、Fn 等按键），拖到某个键上松手即发送；在终端里停在 Fn 上会展开 F1–F12。\n" +
         "• 长按当前命令行显示放大镜，可左右或跨行拖动光标；长按其他输出可选择复制。\n" +
         "• 按住输入法删除键约 1 秒清空当前行，快速点按只逐字删除；清空需远端支持 Ctrl+U/Ctrl+K。\n" +
         "• 停止输入后，光标行末尾出现回车键，其余时间显示 Esc 键；输入以 / 开头的斜杠命令时，这里换成 ↑/↓ 键，双击终端可收起。",
     "操作栏" to "• 操作栏默认隐藏，点击右侧拿着扳手的小幽灵展开；小幽灵闲置几秒后淡出，触摸屏幕即重新出现。\n" +
-        "• 操作栏按钮：上传文件、下载文件、插入图片（最多 9 张，自动填入远端路径）、常用命令（来自远端 shell 历史）、⌘ 快捷键（Esc、Tab、Ctrl、Shift 与方向键，Ctrl/Shift 作用于下一次按键）以及会话切换。\n" +
+        "• 操作栏按钮：上传文件、下载文件、插入图片（最多 9 张，自动填入远端路径）、常用命令（来自远端 shell 历史）以及会话切换。快捷键在小精灵上（长按它）。\n" +
         "• 设置按钮中有编辑文本、固定/隐藏操作栏、粘贴、字号与关闭连接。编辑框中的文字先留作草稿，确认后才发送；发送文本与回车分开。\n" +
         "• 终端页全屏显示，边缘滑动可临时显示系统栏。上下滑动终端回看历史（tmux 会话滚动 tmux 自身的历史），回到底部继续跟随输出。",
     "文件" to "• “查看文件”通过 SFTP 浏览远端目录，可预览文本、代码高亮、Markdown 和图片；双击预览（图片为单击）切换全屏。支持重命名、删除、新建文件夹、复制路径以及单个或批量下载。\n" +

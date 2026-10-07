@@ -142,11 +142,9 @@ class TerminalUiTest {
                 while (!withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.contains(text) }) delay(40)
             }
         }
-        fun button(tag: String): androidx.compose.ui.test.SemanticsNodeInteraction {
-            // The shortcut popup stays open across key presses; open it only when it has closed.
-            if (compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty())
-                compose.onNodeWithTag("terminal-shortcuts").performClick()
-            return compose.onNodeWithTag(tag)
+        // Arrow keys as the cursor-row keys send them, after the composing text.
+        suspend fun arrow(keyCode: Int) = withContext(Dispatchers.Main) {
+            requireNotNull(terminal(compose.activity.window.decorView)).sendInputControlKey(keyCode)
         }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
@@ -160,15 +158,15 @@ class TerminalUiTest {
                 requireNotNull(terminal(compose.activity.window.decorView)).onCreateInputConnection(EditorInfo())!!.setComposingText("ABCD", 1)
             }
             delay(200)
-            button("terminal-left").performTouchInput { click() }
-            button("terminal-left").performTouchInput { click() }
+            arrow(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
+            arrow(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
             write("x")
-            button("terminal-right").performTouchInput { click() }
+            arrow(android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
             write("y")
             write("\r")
             outputContains("NAV_RESULT<ABxCyD>")
 
-            button("terminal-menu").performClick()
+            compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("编辑文本").performClick()
             compose.onNodeWithTag("prompt-editor").performClick().performTextInput("甲🙂乙")
             compose.onNodeWithTag("draft-left").performTouchInput { click() }

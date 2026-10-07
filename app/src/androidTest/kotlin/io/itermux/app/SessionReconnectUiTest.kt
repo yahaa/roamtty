@@ -58,7 +58,6 @@ class SessionReconnectUiTest {
         compose.onNodeWithTag("restore-dock").assertDoesNotExist()
         compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
         compose.onNodeWithTag("terminal-menu").assertDoesNotExist()
-        compose.onNodeWithTag("terminal-shortcuts").assertDoesNotExist()
     }
 
     @Test fun controlsWaitForConnectionAndPinnedDockReturnsAfterReconnect() = runBlocking {
