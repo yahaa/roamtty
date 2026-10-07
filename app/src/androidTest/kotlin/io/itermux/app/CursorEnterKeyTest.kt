@@ -4,6 +4,9 @@ import android.content.Intent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
@@ -23,6 +26,7 @@ import androidx.test.rule.ServiceTestRule
 import com.termux.view.TerminalView
 import io.itermux.app.data.Host
 import io.itermux.app.session.SessionService
+import io.itermux.app.ui.KeyboardHideAfterEnterMillis
 import io.itermux.app.ui.TerminalToolbox
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.Phase
@@ -124,8 +128,21 @@ class CursorEnterKeyTest {
                 }
             }
 
+            // With the keyboard open, the Enter key also puts it away after a short pause.
+            suspend fun imeShown() = withContext(Dispatchers.Main) {
+                ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            }
+            withContext(Dispatchers.Main) {
+                view.requestFocus()
+                view.context.getSystemService(InputMethodManager::class.java).showSoftInput(view, 0)
+            }
+            withTimeout(5_000) { while (!imeShown()) delay(50) }
+            compose.waitUntil(3_000) { enterKeyShown() }
             compose.onNodeWithTag("cursor-enter").performTouchInput { click() }
             outputContains("KEY_0D")
+            assertTrue("The keyboard stays open right after Enter", imeShown())
+            // The hide waits on the compose clock, which only waitUntil advances.
+            compose.waitUntil(KeyboardHideAfterEnterMillis + 3_000) { runBlocking { !imeShown() } }
 
             // After a quiet spell it hides; a double tap brings it back.
             compose.waitUntil(5_000) { !enterKeyShown() }

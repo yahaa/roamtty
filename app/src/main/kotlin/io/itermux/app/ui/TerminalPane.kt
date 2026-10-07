@@ -74,6 +74,7 @@ import io.itermux.app.session.*
 import io.itermux.app.R
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -276,6 +277,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         terminal?.clearFocus()
         keyboard.hide()
     }
+    // Enter puts the keyboard away after a short pause, so a quick follow-up line can still be typed.
+    var keyboardHide by remember { mutableStateOf<Job?>(null) }
+    fun hideKeyboardSoon() {
+        keyboardHide?.cancel()
+        keyboardHide = inputScope.launch { delay(KeyboardHideAfterEnterMillis); hideKeyboard() }
+    }
     fun sendPaste(text: String) {
         terminal?.scrollToBottom()
         session.paste(text)
@@ -315,7 +322,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         else session.inputWarning.value = null
     }
     // Opening the arrow menu can hide the IME. Keep Shift armed until the arrow is sent.
-    LaunchedEffect(imeVisible) { if (!imeVisible) ctrlArmed = false }
+    // A keyboard closed some other way drops a pending hide, so reopening it is not undone.
+    LaunchedEffect(imeVisible) { if (!imeVisible) { ctrlArmed = false; keyboardHide?.cancel() } }
     BackHandler(editor || imeVisible) { editor = false; hideKeyboard() }
     val fileControls: @Composable () -> Unit = {
         TerminalFileActions(enabled = state.phase == Phase.CONNECTED && !transferStatus.running) { action ->
@@ -428,9 +436,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             // Swipes send plain arrows; an armed Shift still makes Shift+Left for Codex questions.
                             onSwipeLeft = { terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) }, onSwipeRight = { terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) },
                             onSwipeHoldLeft = { lineEdge("\u0001") }, onSwipeHoldRight = { lineEdge("\u0005") },
-                            // Enter usually runs or submits the line: put the keyboard away so the output shows.
-                            onSoftKeyboardEnter = { hideKeyboard() }))
-                        setUserInputListener { enterKeyTyping = true; enterKeyTouches++ }
+                            // Enter usually runs or submits the line: put the keyboard away soon so the output shows.
+                            onSoftKeyboardEnter = { hideKeyboardSoon() }))
+                        // Typing again keeps the keyboard open; the Enter that follows restarts the wait.
+                        setUserInputListener { keyboardHide?.cancel(); enterKeyTyping = true; enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                         isFocusableInTouchMode = true
                     }
@@ -458,6 +467,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                                 shiftArmed = false
                                 view.scrollToBottom()
                                 session.write("\r")
+                                // Like the soft keyboard's Enter: put an open keyboard away so the output shows.
+                                if (imeVisible) hideKeyboardSoon()
                             }
                         }
                     }
@@ -653,6 +664,7 @@ private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewp
 }
 
 private val CursorKeyHeight = 32.dp
+internal const val KeyboardHideAfterEnterMillis = 3_000L
 
 /** A slim key drawn inside a larger touch area, tinted on press; shows [icon], or [label] when there is none. */
 @Composable
