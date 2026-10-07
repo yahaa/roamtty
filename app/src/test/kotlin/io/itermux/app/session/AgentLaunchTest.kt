@@ -33,6 +33,7 @@ class AgentLaunchTest {
     @Test fun titleNamesAgentAndFolder() {
         assertEquals("Grok · web", AgentLaunch(CodingAgent.GROK, "/srv/web/").title)
         assertEquals("Codex · /", AgentLaunch(CodingAgent.CODEX, "/").title)
+        assertEquals("Claude · roamtty", AgentLaunch(CodingAgent.CLAUDE, "/home/v/roamtty").title)
     }
     @Test fun unknownStoredAgentFallsBackToClaude() {
         assertEquals(CodingAgent.CODEX, CodingAgent.from("nope"))
@@ -44,5 +45,10 @@ class AgentLaunchTest {
                 AgentLaunch(agent, "/tmp/\u0015printf injected #", mode).commandLine
             }
         } }
+    }
+
+    @Test fun legacyClaudeCodeTitlesShorten() {
+        assertEquals("Claude · roamtty", shortenLegacyAgentTitle("Claude Code · roamtty"))
+        assertEquals("Claude Code notes", shortenLegacyAgentTitle("Claude Code notes"))
     }
 }

@@ -35,7 +35,7 @@ data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: 
     val commandLine: String get() = StartDirectory.command(directory)?.let { "$it && $agentCommand" } ?: agentCommand
 
     /** Session title: the agent and the folder it works in. */
-    val title: String get() = "${agent.label} · ${directory.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }}"
+    val title: String get() = "${agent.shortLabel} · ${directory.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }}"
 }
 
 internal fun shellQuote(value: String) = "'" + value.replace("'", "'\\''") + "'"
