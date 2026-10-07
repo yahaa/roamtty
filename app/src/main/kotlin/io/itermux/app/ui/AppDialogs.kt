@@ -87,7 +87,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• Install plugins detects and installs tmux and mosh. With tmux, each new session gets its own remote tmux session that keeps running after a disconnect or closing the app; reconnecting reattaches it. With mosh, sessions use UDP (allow ports 60000–61000) and fall back to SSH if it does not answer.\n" +
         "• The Sessions tab lists every session (up to 8 per host); filter by host and tap the pencil to rename. Closing a connection keeps a tmux session and its card for reconnecting; Remove then drops the card, optionally ending the remote tmux session and its tasks.\n" +
         "• The notification can disconnect everything. To stay connected while the screen is locked, allow background running in Settings.",
-    "Terminal gestures" to "• Tap the terminal to show the keyboard. Double-tap sends Tab (completion), triple-tap pastes the clipboard, pinch changes the font size.\n" +
+    "Terminal gestures" to "• Tap the cursor's line (or within two lines of it) to show the keyboard; taps elsewhere leave it hidden. Double-tap sends Tab (completion), triple-tap pastes the clipboard, pinch changes the font size.\n" +
         "• Swipe left to send Shift+Left (answers Codex questions). Swipe left or right and keep your finger down to jump to the start or end of the line.\n" +
         "• Hold the command line to show a magnifier and drag the cursor, even across lines; hold other output to select and copy it.\n" +
         "• Holding the keyboard's delete key for about a second clears the line; quick taps delete one character each. Clearing needs Ctrl+U/Ctrl+K on the remote side.\n" +
@@ -107,7 +107,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• “安装插件”检测并安装 tmux 与 mosh。装有 tmux 时每个新会话有独立的远端 tmux 会话，断网或关闭 App 后任务继续运行，重连即附着原会话；装有 mosh 时优先走 UDP（需放行 60000–61000），无回应自动回退 SSH。\n" +
         "• “会话”标签列出全部会话（每台主机最多 8 个），可按主机筛选，点铅笔修改标题。“关闭连接”后 tmux 远端会话与卡片仍保留，可稍后重连；不再需要时点“移除”删除卡片，可勾选同时终止远端 tmux 会话及任务。\n" +
         "• 通知栏可一键全部断开。锁屏后要保持连接，请在设置中允许后台运行。",
-    "终端手势" to "• 点击终端弹出键盘；双击发送 Tab（补全），三击粘贴剪贴板，双指缩放调整字号。\n" +
+    "终端手势" to "• 点击光标所在行（上下各 2 行内都算）弹出键盘，点击其他位置不弹出；双击发送 Tab（补全），三击粘贴剪贴板，双指缩放调整字号。\n" +
         "• 向左滑动发送 Shift+←（用于回答 Codex 的提问）；左右滑动后按住不放，可跳到行首或行尾。\n" +
         "• 长按当前命令行显示放大镜，可左右或跨行拖动光标；长按其他输出可选择复制。\n" +
         "• 按住输入法删除键约 1 秒清空当前行，快速点按只逐字删除；清空需远端支持 Ctrl+U/Ctrl+K。\n" +

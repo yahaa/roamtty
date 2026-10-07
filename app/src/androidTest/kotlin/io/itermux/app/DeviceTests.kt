@@ -276,7 +276,7 @@ class TerminalUiTest {
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             val view = withContext(Dispatchers.Main) { requireNotNull(terminal(compose.activity.window.decorView)) }
-            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            compose.tapCursorLine()
             compose.waitUntil(8000) { !keyboardHidden() }
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             write("printf 'HISTORY_%s\\n' 'KEPT'\r")
@@ -386,7 +386,7 @@ class TerminalUiTest {
             assertEquals("No blank band above the terminal: $measurements", caption.top.toFloat(), terminalBounds.top, 2f)
             assertEquals("No blank band beside the terminal: $measurements", caption.left.toFloat(), terminalBounds.left, 2f)
             assertEquals("Terminal uses the full available height: $measurements", root.height - caption.top - caption.bottom, terminalBounds.height, 2f)
-            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            compose.tapCursorLine()
             compose.waitUntil(8000) { keyboardVisible() }
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             shell("input keyevent 4")
@@ -394,7 +394,7 @@ class TerminalUiTest {
             showControls()
             repeat(3) {
                 compose.onNodeWithTag("keyboard-toggle").assertDoesNotExist()
-                compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+                compose.tapCursorLine()
                 compose.waitUntil(8000) { keyboardVisible() }
                 compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
                 shell("input keyevent 4")
@@ -520,7 +520,7 @@ class TerminalUiTest {
             assertFalse(withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }.contains(draftText))
             compose.onNodeWithText("收起", substring = false).performClick()
             compose.waitUntil(8000) { androidx.core.view.ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == false }
-            compose.onNodeWithTag("terminal").performTouchInput { click() }
+            compose.tapCursorLine()
             compose.waitUntil(8000) { !keyboardHidden() }
             shell("input keyevent 4")
             compose.waitUntil(8000) { keyboardHidden() }

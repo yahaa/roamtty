@@ -155,13 +155,13 @@ class TerminalLayoutTest {
         compose.onNodeWithTag("terminal-menu").performTouchInput { click() }
         compose.mainClock.advanceTimeBy(6_000)
         compose.onNodeWithText("固定操作栏").assertIsDisplayed().performClick()
-        compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+        compose.tapCursorLine()
         compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
         compose.onNodeWithTag("terminal-menu").performClick()
         compose.onNodeWithText("取消固定操作栏").performClick()
         compose.mainClock.advanceTimeBy(6_000)
         compose.onNodeWithTag("terminal-dock").assertIsDisplayed()
-        compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+        compose.tapCursorLine()
         checkCollapsedDock()
         // Close the keyboard opened by the same outside tap, proving the tap was not swallowed.
         compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
@@ -210,7 +210,7 @@ class TerminalLayoutTest {
     private suspend fun checkKeyboardLayout(name: String) {
         checkDock()
         val before = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
-        compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+        compose.tapCursorLine()
         compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
         restoreDockAfterOutsideTap()
         delay(500)
@@ -298,7 +298,7 @@ class TerminalLayoutTest {
             checkOutsideDismiss()
             compose.onNodeWithTag("restore-dock").performClick()
             checkFileActions()
-            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            compose.tapCursorLine()
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
             restoreDockAfterOutsideTap()
             checkFileActions()
@@ -319,7 +319,7 @@ class TerminalLayoutTest {
             checkViewport("layout-portrait-floating")
             val floating = compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot
             assertTrue("Floating controls must not span the screen", floating.width < compose.onRoot().fetchSemanticsNode().boundsInRoot.width * 0.7f)
-            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            compose.tapCursorLine()
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
             restoreDockAfterOutsideTap()
             checkDock()

@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Build
 import android.view.View
 import android.view.ViewGroup
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.core.view.ViewCompat
@@ -74,8 +75,16 @@ class KeyboardResizeTest {
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             delay(800)
+            // After clear the cursor is on the first row, so the bottom of the terminal is far from its line.
+            withContext(Dispatchers.Main) { session.write("clear\r") }
+            withTimeout(8000) { while (withContext(Dispatchers.Main) { session.getEmulator().cursorRow } != 0) delay(40) }
+            delay(500)
+            compose.onNodeWithTag("terminal").performTouchInput { click(Offset(centerX, bottom - 4f)) }
+            delay(1500)
+            assertFalse("Tapping off the cursor line must not open the keyboard",
+                ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true)
             repeat(2) {
-                compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+                compose.tapCursorLine()
                 val opening = sizesUntil(session) { it.isVisible(WindowInsetsCompat.Type.ime()) }
                 shell("input keyevent 4")
                 val closing = sizesUntil(session) { !it.isVisible(WindowInsetsCompat.Type.ime()) }
@@ -83,6 +92,20 @@ class KeyboardResizeTest {
                 assertTrue("Terminal sizes while opening: $opening", opening.size <= 2)
                 assertTrue("Terminal sizes while closing: $closing", closing.size <= 2)
             }
+            // After clear the cursor line is drawn under the status bar, which swallows real screen taps.
+            withContext(Dispatchers.Main) { session.write("clear\r") }
+            withTimeout(8000) { while (withContext(Dispatchers.Main) { session.getEmulator().cursorRow } != 0) delay(40) }
+            delay(500)
+            var tapX = 0; var tapY = 0
+            instrumentation.runOnMainSync {
+                val view = requireNotNull(compose.activity.window.decorView.findTerminalView())
+                val statusBar = ViewCompat.getRootWindowInsets(view)!!.getInsets(WindowInsetsCompat.Type.statusBars()).top
+                val location = IntArray(2).also { view.getLocationOnScreen(it) }
+                tapX = location[0] + view.width / 2
+                tapY = statusBar + (8 * view.resources.displayMetrics.density).toInt()
+            }
+            shell("input tap $tapX $tapY")
+            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
         } finally {
             prompts.cancel()
             withContext(Dispatchers.Main) { service.close(session.id) }
