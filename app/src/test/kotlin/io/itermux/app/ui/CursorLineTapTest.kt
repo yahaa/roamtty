@@ -21,6 +21,12 @@ class CursorLineTapTest {
         assertFalse(tapHitsCursorLine(65f, intArrayOf(100, 130), 90f))
     }
 
+    @Test fun lineUnderStatusBarSlidesBelowIt() {
+        // First row 0..40 sits under a 100px status bar: the 90px band becomes 100..190.
+        assertTrue(tapHitsCursorLine(150f, intArrayOf(0, 40), 90f, touchableTop = 100f))
+        assertFalse(tapHitsCursorLine(195f, intArrayOf(0, 40), 90f, touchableTop = 100f))
+    }
+
     @Test fun cursorScrolledOutOfViewNeverHits() {
         assertFalse(tapHitsCursorLine(110f, null, 90f))
     }
