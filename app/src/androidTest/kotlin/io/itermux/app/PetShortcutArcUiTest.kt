@@ -3,6 +3,7 @@ package io.itermux.app
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -13,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
@@ -26,6 +28,7 @@ import io.itermux.app.session.ScreenApp
 import io.itermux.app.ui.PetAction
 import io.itermux.app.ui.PetArc
 import io.itermux.app.ui.PetShortcutArc
+import io.itermux.app.ui.ToolboxPet
 import io.itermux.app.ui.petShortcuts
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -48,6 +51,9 @@ class PetShortcutArcUiTest {
                 Box(Modifier.size(360.dp, 640.dp).background(Color(0xFF101014))) {
                     val center = with(LocalDensity.current) { Offset(332.dp.toPx(), 244.dp.toPx()) }
                     PetShortcutArc(shown, center, 0f, hovered = hovered, title = title) { arc = it }
+                    // The pet itself, at the ring's centre and blown up in a corner to check the drawing.
+                    Box(Modifier.offset(308.dp, 220.dp)) { ToolboxPet("pet") {} }
+                    Box(Modifier.offset(150.dp, 520.dp).graphicsLayer { scaleX = 4f; scaleY = 4f }) { ToolboxPet("big") {} }
                 }
             }
         }

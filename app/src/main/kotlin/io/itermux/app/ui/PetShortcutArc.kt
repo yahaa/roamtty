@@ -33,7 +33,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,7 +69,7 @@ private fun keys(label: String, hint: String, description: String, tag: String, 
     PetShortcut(label, tr(hint), tr(description), tag, PetAction.Keys(keys, repeat))
 
 /**
- * The ring for the program in front, top to bottom; the two most used sit in the middle. Key tables come from each
+ * The ring for the program in front, top to bottom, most used in the middle. Plain Esc stays on the cursor row. Key tables come from each
  * CLI's built-in defaults: Claude Code 2.1, Codex 0.160, Grok Build 1.0, Gemini CLI. A plain shell gets the keys a
  * phone keyboard lacks.
  */
@@ -80,7 +79,6 @@ internal fun petShortcuts(app: ScreenApp): List<PetShortcut> = when (app) {
         keys("^O", "详情", "Ctrl+O：展开完整对话记录", "pet-ctrl-o", "\u000f"),
         keys("Esc²", "回退", "Esc Esc：回退到之前的消息", "pet-escape-twice", "\u001b", repeat = true),
         keys("⇧Tab", "模式", "Shift+Tab：切换模式（默认 / 接受编辑 / 计划）", "pet-shift-tab", "\u001b[Z"),
-        keys("Esc", "中断", "Esc：中断当前回复", "pet-escape", "\u001b"),
         keys("^C", "取消", "Ctrl+C：清空输入或取消", "pet-ctrl-c", "\u0003"),
         keys("^B", "后台", "Ctrl+B：把运行中的任务转到后台", "pet-ctrl-b", "\u0002"),
         keys("⌥P", "模型", "Alt+P：切换模型", "pet-alt-p", "\u001bp"),
@@ -90,7 +88,6 @@ internal fun petShortcuts(app: ScreenApp): List<PetShortcut> = when (app) {
         keys("^O", "复制", "Ctrl+O：复制最后一条回复", "pet-ctrl-o", "\u000f"),
         keys("Esc²", "编辑", "Esc Esc：编辑上一条消息", "pet-escape-twice", "\u001b", repeat = true),
         keys("⇧Tab", "计划", "Shift+Tab：切换 Plan 模式", "pet-shift-tab", "\u001b[Z"),
-        keys("Esc", "中断", "Esc：中断当前回复", "pet-escape", "\u001b"),
         keys("⇧←", "回答", "Shift+←：回答提问", "pet-shift-left", "\u001b[1;2D"),
         keys("⇧→", "返回", "Shift+→：回到输入框", "pet-shift-right", "\u001b[1;2C"),
         keys("^C", "取消", "Ctrl+C：清空输入或退出", "pet-ctrl-c", "\u0003"),
@@ -101,7 +98,6 @@ internal fun petShortcuts(app: ScreenApp): List<PetShortcut> = when (app) {
         keys("^P", "命令", "Ctrl+P：打开命令面板", "pet-ctrl-p", "\u0010"),
         keys("⇧Tab", "模式", "Shift+Tab：切换模式（普通 / 计划 / 自动批准）", "pet-shift-tab", "\u001b[Z"),
         keys("^C", "中断", "Ctrl+C：中断当前回复", "pet-ctrl-c", "\u0003"),
-        keys("Esc", "清除", "Esc：清空输入或回退", "pet-escape", "\u001b"),
         keys("^X", "快捷", "Ctrl+X：查看全部快捷键", "pet-ctrl-x", "\u0018"),
     )
     ScreenApp.GEMINI -> listOf(
@@ -109,7 +105,6 @@ internal fun petShortcuts(app: ScreenApp): List<PetShortcut> = when (app) {
         keys("^O", "展开", "Ctrl+O：显示更多内容", "pet-ctrl-o", "\u000f"),
         keys("^Y", "YOLO", "Ctrl+Y：开关 YOLO 模式", "pet-ctrl-y", "\u0019"),
         keys("⇧Tab", "模式", "Shift+Tab：切换批准模式", "pet-shift-tab", "\u001b[Z"),
-        keys("Esc", "中断", "Esc：中断当前回复", "pet-escape", "\u001b"),
         keys("Esc²", "回退", "Esc Esc：清空输入或回退", "pet-escape-twice", "\u001b", repeat = true),
         keys("^L", "清屏", "Ctrl+L：清屏", "pet-ctrl-l", "\u000c"),
         keys("^C", "取消", "Ctrl+C：取消或退出", "pet-ctrl-c", "\u0003"),
@@ -120,7 +115,6 @@ internal fun petShortcuts(app: ScreenApp): List<PetShortcut> = when (app) {
         PetShortcut("Shift", tr("下一键"), tr("Shift，作用于下一次按键"), "pet-shift", PetAction.Shift),
         keys("Tab", "补全", "Tab：补全命令或路径", "pet-tab", "\t"),
         keys("^C", "中断", "Ctrl+C：中断当前命令", "pet-ctrl-c", "\u0003"),
-        keys("Esc", "Esc", "发送 Esc", "pet-escape", "\u001b"),
         keys("^R", "历史", "Ctrl+R：搜索历史命令", "pet-ctrl-r", "\u0012"),
         keys("^D", "退出", "Ctrl+D：结束输入或退出", "pet-ctrl-d", "\u0004"),
         keys("^Z", "挂起", "Ctrl+Z：挂起前台程序", "pet-ctrl-z", "\u001a"),
@@ -180,10 +174,11 @@ internal fun PetArc.hoveredItem(drag: Offset): Int? {
     return nearest.takeIf { abs(angles[it] - angle) <= maxOf(step * 0.6f, 15f) }
 }
 
-internal val PetArcItemSize = 46.dp
-internal val PetArcMaxRadius = 132.dp
-internal val PetArcMinRadius = 84.dp
-internal val PetArcSpacing = 50.dp
+internal val PetArcItemSize = 40.dp
+internal val PetArcMaxRadius = 100.dp
+internal val PetArcMinRadius = 72.dp
+internal val PetArcSpacing = 43.dp
+private val PetArcCaptionWidth = 132.dp
 
 /**
  * The shortcut ring drawn over the workspace while the pet is held; [center] is the pet centre in this box. The
@@ -214,20 +209,24 @@ internal fun PetShortcutArc(shortcuts: List<PetShortcut>, center: Offset, topIns
         Canvas(Modifier.fillMaxSize()) {
             val r = arc.radius * open.value
             if (r <= 0f || arc.angles.isEmpty()) return@Canvas
-            drawArc(colors.primary.copy(alpha = 0.22f), arc.angles.last(), arc.angles.first() - arc.angles.last(), false,
-                Offset(center.x - r, center.y - r), Size(2 * r, 2 * r), style = Stroke(width = 18.dp.toPx()))
+            drawArc(colors.primary.copy(alpha = 0.12f), arc.angles.last(), arc.angles.first() - arc.angles.last(), false,
+                Offset(center.x - r, center.y - r), Size(2 * r, 2 * r), style = Stroke(width = 14.dp.toPx()))
         }
+        // The caption sits just outside the ring, level with the pet, so it covers neither the keys nor the pet.
         val caption = hovered?.let(shortcuts::getOrNull)?.description ?: title
         if (caption.isNotEmpty()) {
-            val width = with(density) { (arc.radius * 0.62f).toDp() }
-            Box(Modifier.offset {
-                IntOffset((center.x - arc.radius * 0.79f).roundToInt(), center.y.roundToInt())
-            }.graphicsLayer { alpha = open.value.coerceIn(0f, 1f); translationY = -size.height / 2 }
-                .size(width = width, height = 72.dp), contentAlignment = Alignment.Center) {
-                Surface(shape = MaterialTheme.shapes.small, color = colors.inverseSurface.copy(alpha = 0.88f),
+            val (left, width) = with(density) {
+                val right = center.x - arc.radius - PetArcItemSize.toPx() / 2 - 8.dp.toPx()
+                val width = minOf(PetArcCaptionWidth.toPx(), right - 8.dp.toPx()).coerceAtLeast(0f)
+                (right - width) to width.toDp()
+            }
+            Box(Modifier.offset { IntOffset(left.roundToInt(), center.y.roundToInt()) }
+                .graphicsLayer { alpha = open.value.coerceIn(0f, 1f); translationY = -size.height / 2 }
+                .size(width = width, height = 84.dp), contentAlignment = Alignment.CenterEnd) {
+                Surface(shape = MaterialTheme.shapes.small, color = colors.inverseSurface.copy(alpha = 0.75f),
                     contentColor = colors.inverseOnSurface, modifier = Modifier.testTag("pet-arc-caption")) {
-                    Text(caption, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 4, textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp))
+                    Text(caption, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 5,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
                 }
             }
         }
@@ -249,16 +248,16 @@ private fun PetShortcutItem(shortcut: PetShortcut, hovered: Boolean, armed: Bool
         val scale = grow * open.coerceIn(0f, 1.2f)
         scaleX = scale; scaleY = scale
     }.semantics { contentDescription = shortcut.description }.testTag(shortcut.tag),
-        shape = CircleShape, shadowElevation = if (hovered) 6.dp else 2.dp,
+        shape = CircleShape, shadowElevation = if (hovered) 4.dp else 0.dp,
         color = when {
-            hovered -> colors.primary
-            armed -> colors.primaryContainer
-            else -> colors.surfaceVariant.copy(alpha = 0.96f)
+            hovered -> colors.primary.copy(alpha = 0.9f)
+            armed -> colors.primaryContainer.copy(alpha = 0.8f)
+            else -> colors.surfaceVariant.copy(alpha = 0.7f)
         },
         contentColor = if (hovered) colors.onPrimary else colors.onSurfaceVariant,
-        border = BorderStroke(1.dp, if (hovered) colors.primary else colors.outlineVariant.copy(alpha = 0.6f))) {
+        border = BorderStroke(1.dp, if (hovered) colors.primary else colors.outlineVariant.copy(alpha = 0.4f))) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(shortcut.label, fontSize = 12.sp, lineHeight = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
+            Text(shortcut.label, fontSize = 11.sp, lineHeight = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
                 color = if (hovered) colors.onPrimary else colors.primary, maxLines = 1)
             if (shortcut.hint.isNotEmpty()) Text(shortcut.hint, fontSize = 9.sp, lineHeight = 10.sp, maxLines = 1)
         }

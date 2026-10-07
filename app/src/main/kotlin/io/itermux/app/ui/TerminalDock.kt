@@ -55,8 +55,7 @@ internal fun terminalDockShape(twoColumns: Boolean): Shape =
     modifier: Modifier = Modifier,
     collapseControl: @Composable () -> Unit,
     sessionControl: @Composable (Modifier) -> Unit,
-    primaryControls: @Composable () -> Unit,
-    keyControls: @Composable () -> Unit
+    primaryControls: @Composable () -> Unit
 ) {
     val twoColumns = terminalDockTwoColumns(landscape, imeVisible, availableHeight)
     val dockModifier = modifier.width(if (twoColumns) 96.dp else 48.dp)
@@ -70,7 +69,6 @@ internal fun terminalDockShape(twoColumns: Boolean): Shape =
             }
             FlowRow(maxItemsInEachRow = 2) {
                 primaryControls()
-                keyControls()
             }
         }
     } else {
@@ -80,7 +78,6 @@ internal fun terminalDockShape(twoColumns: Boolean): Shape =
             collapseControl()
             sessionControl(Modifier.size(48.dp))
             primaryControls()
-            keyControls()
         }
     }
 }

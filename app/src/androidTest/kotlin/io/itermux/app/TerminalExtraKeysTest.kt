@@ -133,12 +133,8 @@ class TerminalExtraKeysTest {
                 error("Missing $marker; transcript=$transcript; focus=$focus")
             }
         }
-        fun shortcut(tag: String) {
-            // The popup stays open across key presses, so only open it when it has closed.
-            if (compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty())
-                compose.onNodeWithTag("terminal-shortcuts").performScrollTo().assertIsDisplayed().performTouchInput { click() }
-            compose.onNodeWithTag(tag).assertIsDisplayed().performTouchInput { click() }
-        }
+        // Keys come from the pet's shortcut ring (a plain shell ring: Tab, Ctrl, Shift, ...).
+        fun shortcut(tag: String) = compose.dropOnPetShortcut(tag)
         try {
             assertEquals(Phase.CONNECTED,
                 withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
@@ -146,32 +142,8 @@ class TerminalExtraKeysTest {
             compose.waitUntil(8_000) { compose.onAllNodesWithText("会话  1").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("会话  1").performClick()
             compose.onNodeWithTag("session-${session.id}").performClick()
-            compose.onNodeWithTag("restore-dock").performClick()
-            shortcut("terminal-escape")
-            outputContains("KEY_1B")
-            shortcut("terminal-tab")
+            shortcut("pet-tab")
             outputContains("KEY_09")
-            // A key press leaves the popup open for the next one.
-            compose.onNodeWithTag("terminal-escape").assertIsDisplayed()
-            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-shift",
-                "terminal-left", "terminal-right", "terminal-up", "terminal-down").forEach { tag ->
-                val bounds = compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-                val minimum = 48 * context.resources.displayMetrics.density - 1
-                assertTrue("$tag retains a 48dp target", bounds.width >= minimum && bounds.height >= minimum)
-            }
-            compose.onNodeWithTag("terminal-shift").performTouchInput { click() }
-            compose.onNodeWithTag("terminal-shift").performTouchInput { click() }
-            compose.onNodeWithTag("terminal-shift").assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
-            compose.onNodeWithTag("terminal-shift").performTouchInput { click() }
-            compose.onNodeWithTag("terminal-shift").assert(
-                SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "已启用"))
-            compose.onNodeWithTag("terminal-left").assertIsDisplayed().performTouchInput { click() }
-            outputContains("KEY_32") // Shift+Left includes the modifier 2 in ESC [ 1 ; 2 D.
-            outputContains("KEY_44")
-            shortcut("terminal-up")
-            outputContains("KEY_41") // Up arrow is ESC [ A.
-            shortcut("terminal-down")
-            outputContains("KEY_42")
             compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
                 File(context.getExternalFilesDir(null), "extra-keys-compose.png").outputStream().use {
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
@@ -183,9 +155,7 @@ class TerminalExtraKeysTest {
                 }
             }
 
-            shortcut("terminal-control")
-            compose.onNodeWithTag("terminal-shortcuts").assert(
-                SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "已启用"))
+            shortcut("pet-ctrl")
             compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
                 File(context.getExternalFilesDir(null), "extra-keys-ctrl-armed.png").outputStream().use {
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
@@ -196,7 +166,7 @@ class TerminalExtraKeysTest {
             if (emulator) shell("input text d") else commitText("d")
             outputContains("KEY_64")
 
-            shortcut("terminal-control")
+            shortcut("pet-ctrl")
             commitText("e")
             commitText("f")
             outputContains("KEY_05")
@@ -235,13 +205,7 @@ class TerminalExtraKeysTest {
                 compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             }
             compose.waitUntil(10_000) { compose.onAllNodes(isRoot()).fetchSemanticsNodes().size == 1 }
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("terminal-shortcuts").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("terminal-shortcuts").assertIsDisplayed().performTouchInput { click() }
-            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-shift",
-                "terminal-left", "terminal-right", "terminal-up", "terminal-down").forEach { tag ->
-                compose.onNodeWithTag(tag).assertIsDisplayed()
-            }
-            compose.onNodeWithTag("terminal-escape").performTouchInput { click() }
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("session-switcher").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("session-switcher").assertIsDisplayed()
             compose.onNodeWithContentDescription(tr("终端设置")).assertIsDisplayed()
             compose.onNodeWithTag("download-file").assertIsDisplayed()
@@ -271,7 +235,7 @@ class TerminalExtraKeysTest {
             compose.waitForIdle()
             delay(500)
             val landscapeTags = listOf("terminal-workspace", "terminal-dock", "session-switcher",
-                "upload-file", "download-file", "terminal-menu", "terminal-shortcuts")
+                "upload-file", "download-file", "terminal-menu")
             File(context.getExternalFilesDir(null), "extra-keys-landscape-bounds.txt").writeText(
                 landscapeTags.joinToString("\n") { tag ->
                     "$tag: ${compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot}"
@@ -303,14 +267,7 @@ class TerminalExtraKeysTest {
                 compose.onNodeWithTag("terminal-dock").fetchSemanticsNode().boundsInRoot.width <=
                     52 * compose.activity.resources.displayMetrics.density
             }
-            listOf("session-switcher", "terminal-shortcuts").forEach { tag ->
-                compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
-            }
-            compose.onNodeWithTag("terminal-shortcuts").performTouchInput { click() }
-            listOf("terminal-escape", "terminal-tab", "terminal-control", "terminal-up").forEach { tag ->
-                compose.onNodeWithTag(tag).assertIsDisplayed()
-            }
-            compose.onNodeWithTag("terminal-escape").performClick()
+            compose.onNodeWithTag("session-switcher").performScrollTo().assertIsDisplayed()
             val commandsButton = compose.onNodeWithTag("common-commands")
             if (!commandsButton.isDisplayed()) commandsButton.performScrollTo()
             commandsButton.performClick()

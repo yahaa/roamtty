@@ -217,7 +217,6 @@ class TerminalLayoutTest {
         checkDock()
         val opened = compose.onNodeWithTag("terminal-dock-viewport").fetchSemanticsNode().boundsInRoot
         assertTrue("Keyboard reduces the available dock viewport", opened.height < before.height)
-        compose.onNodeWithTag("terminal-shortcuts").performScrollTo().assertIsDisplayed()
         capture("$name-keyboard")
         shell("input keyevent 4")
         compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }

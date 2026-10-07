@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -59,7 +60,7 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * The collapsed toolbox: a little ghost floating at the edge with a wrench, drawn without a
+ * The collapsed toolbox: a little ghost floating at the edge with a wrench and a little keyboard, drawn without a
  * button frame. It pops in, bobs over its shadow, sways, ripples its hem, blinks and now and
  * then waves the wrench. Infinite animations are disabled under Compose tests, so it stays still there.
  *
@@ -166,6 +167,7 @@ private val GhostBody = Color(0xFFF8F7FF)
 private val GhostInk = Color(0xFF3B3550)
 private val GhostBlush = Color(0xFFFF9EB5)
 private val WrenchMetal = Color(0xFFD9DEE8)
+private val KeyboardBody = Color(0xFFEDEBF5)
 
 private fun DrawScope.drawGhost(wrench: Color, hem: Float, eyes: Float, wave: Float) {
     val line = Stroke(width = 1.3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
@@ -194,7 +196,18 @@ private fun DrawScope.drawGhost(wrench: Color, hem: Float, eyes: Float, wave: Fl
     }
     drawPath(body, GhostBody)
     drawPath(body, GhostInk, style = line)
-    // Left arm waves a little with the wrench; the right paw grips it.
+    // The left paw holds a little keyboard in front of the body, tipping a bit as the wrench waves.
+    val paw = Offset(3.9f, 14.6f - wave / 40f)
+    rotate(-10f + wave / 8f, pivot = paw) {
+        val board = Rect(Offset(paw.x - 2.2f, paw.y + 0.2f), Size(7.2f, 4.4f))
+        drawRoundRect(KeyboardBody, board.topLeft, board.size, CornerRadius(0.9f))
+        drawRoundRect(GhostInk, board.topLeft, board.size, CornerRadius(0.9f), style = Stroke(1.1f))
+        for (row in 0..1) for (col in 0..3) {
+            drawRoundRect(wrench, Offset(board.left + 0.8f + col * 1.45f, board.top + 0.75f + row * 1.25f), Size(0.95f, 0.8f), CornerRadius(0.25f))
+        }
+        drawRoundRect(wrench, Offset(board.left + 1.9f, board.top + 3.25f), Size(3.2f, 0.6f), CornerRadius(0.3f))
+    }
+    // The left paw holds the keyboard; the right paw grips the wrench.
     drawCircle(GhostBody, 1.7f, Offset(3.9f, 14.6f - wave / 40f))
     drawCircle(GhostInk, 1.7f, Offset(3.9f, 14.6f - wave / 40f), style = line)
     drawCircle(GhostBody, 1.8f, Offset(19.6f, 14.2f))

@@ -101,7 +101,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var closeConfirm by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var sessionMenu by remember { mutableStateOf(false) }
-    var shortcutMenu by remember { mutableStateOf(false) }
     var fileAction by remember { mutableStateOf<FileAction?>(null) }
     var commonCommandsOpen by rememberSaveable { mutableStateOf(false) }
     var editSessionTitle by remember { mutableStateOf(false) }
@@ -124,7 +123,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     fun dismissDockMenus() {
         menu = false
         sessionMenu = false
-        shortcutMenu = false
         if (!dockPinned) dockExpanded = false
         ctrlArmed = false
         shiftArmed = false
@@ -183,16 +181,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             delay(hideAfter)
             enterKeyAwake = false
             arrowKeysDismissedLine = 0
-        }
-    }
-    // The shortcut popup stays open across key presses; it closes on an outside tap or after
-    // a quiet spell, restarted by every key.
-    var shortcutTouches by remember { mutableIntStateOf(0) }
-    LaunchedEffect(shortcutMenu, shortcutTouches) {
-        val hideAfter = TerminalToolbox.shortcutHideMillis
-        if (shortcutMenu && hideAfter > 0) {
-            delay(hideAfter)
-            shortcutMenu = false
         }
     }
     // Observe the first press without consuming it: the same tap still reaches the terminal,
@@ -315,7 +303,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     LaunchedEffect(state.phase) {
         if (state.phase != Phase.CONNECTED) {
             ctrlArmed = false; shiftArmed = false; confirmPaste = null
-            menu = false; sessionMenu = false; shortcutMenu = false
+            menu = false; sessionMenu = false
         }
         else session.inputWarning.value = null
     }
@@ -396,45 +384,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     DropdownMenuItem(text = { Text(trf("减小字号 · %d sp", fontSize)) }, onClick = { fontSize = (fontSize - 1).coerceAtLeast(8); menu = false })
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text(tr("关闭连接")) }, onClick = { menu = false; if (state.active) closeConfirm = true else onClose() })
-                }
-            }
-        }, keyControls = {
-            Box {
-                InputControlButton("⌘", tr("快捷键"), "terminal-shortcuts", selected = ctrlArmed || shiftArmed,
-                    icon = R.drawable.ic_keys, onClick = { shortcutMenu = true })
-                DropdownMenu(shortcutMenu, ::dismissDockMenus, shape = MaterialTheme.shapes.large) {
-                    FlowRow(Modifier.widthIn(max = 264.dp).padding(horizontal = 10.dp, vertical = 2.dp), maxItemsInEachRow = 4,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        InputControlButton("Esc", keycap = true, description = tr("发送 Esc"), tag = "terminal-escape", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_ESCAPE) })
-                        InputControlButton("Tab", keycap = true, description = tr("发送 Tab"), tag = "terminal-tab", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_TAB) })
-                        InputControlButton("Ctrl", keycap = true, description = tr("Ctrl，作用于下一次键盘字符"), tag = "terminal-control",
-                            enabled = state.phase == Phase.CONNECTED, selected = ctrlArmed, onClick = {
-                                shortcutMenu = false
-                                shiftArmed = false
-                                ctrlArmed = !ctrlArmed
-                                if (ctrlArmed) terminal?.let { view ->
-                                    view.requestFocus()
-                                    SoftwareKeyboardControllerCompat(view).show()
-                                }
-                            })
-                        InputControlButton("Shift", keycap = true, description = tr("Shift，与方向键组合发送；也可作用于下一次键盘字符"), tag = "terminal-shift",
-                            enabled = state.phase == Phase.CONNECTED, selected = shiftArmed, onClick = {
-                                shortcutTouches++
-                                ctrlArmed = false
-                                shiftArmed = !shiftArmed
-                                if (shiftArmed) terminal?.requestFocus()
-                            })
-                        InputControlButton("←", keycap = true, description = tr("光标左移"), tag = "terminal-left", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) })
-                        InputControlButton("→", keycap = true, description = tr("光标右移"), tag = "terminal-right", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) })
-                        InputControlButton("↑", keycap = true, description = tr("发送上方向键"), tag = "terminal-up", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_UP) })
-                        InputControlButton("↓", keycap = true, description = tr("发送下方向键"), tag = "terminal-down", enabled = state.phase == Phase.CONNECTED,
-                            onClick = { shortcutTouches++; terminalKey(KeyEvent.KEYCODE_DPAD_DOWN) })
-                    }
                 }
             }
         })
@@ -654,8 +603,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
 /** Idle timeout of the collapsed toolbox button; 0 keeps it visible (instrumentation tests). */
 internal object TerminalToolbox {
     @Volatile var autoHideMillis = 5_000L
-    /** Idle timeout of the open shortcut popup; 0 keeps it open until dismissed. */
-    @Volatile var shortcutHideMillis = 5_000L
     /** Idle timeout of the cursor-row Enter key; 0 keeps it until the pane leaves. */
     @Volatile var enterKeyHideMillis = 3_000L
     /** How long typing must pause before the cursor-row Enter key appears. */
