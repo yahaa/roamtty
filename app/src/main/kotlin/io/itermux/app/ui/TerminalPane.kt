@@ -153,12 +153,14 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     LaunchedEffect(dockAvailable, dockVisible) {
         if (!dockAvailable || dockVisible) closePetRing()
     }
-    // An open ring leaves a little before the pet does, so the ghost is never seen without its ring cut short.
+    // An open ring keeps itself and the pet up until a tap, or until it has been left alone for a long spell; then
+    // both go together.
+    fun dismissPetRing() { closePetRing(); if (TerminalToolbox.autoHideMillis > 0) toolboxAwake = false }
     LaunchedEffect(petPinned, touches) {
-        val hideAfter = TerminalToolbox.autoHideMillis
+        val hideAfter = TerminalToolbox.petRingHideMillis
         if (petPinned && hideAfter > 0) {
-            delay((hideAfter - TerminalToolbox.petRingLeadMillis).coerceAtLeast(0))
-            closePetRing()
+            delay(hideAfter)
+            dismissPetRing()
         }
     }
     // Resting on a menu item unfolds its sub-ring.
@@ -559,7 +561,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     petArc = null
                     petMenu = menu.items
                 } else {
-                    closePetRing()
+                    dismissPetRing()
                     if (picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
                 }
             } else null) { petArc = it }
@@ -630,8 +632,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
 /** Idle timeout of the collapsed toolbox button; 0 keeps it visible (instrumentation tests). */
 internal object TerminalToolbox {
     @Volatile var autoHideMillis = 5_000L
-    /** How much sooner than the pet an open shortcut ring goes away. */
-    @Volatile var petRingLeadMillis = 1_000L
+    /** Idle timeout of a shortcut ring left open after the pet is let go; the pet leaves with it. 0 keeps it. */
+    @Volatile var petRingHideMillis = 15_000L
     /** Idle timeout of the cursor-row Enter key; 0 keeps it until the pane leaves. */
     @Volatile var enterKeyHideMillis = 3_000L
     /** How long typing must pause before the cursor-row Enter key appears. */

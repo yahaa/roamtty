@@ -105,15 +105,19 @@ class PetShortcutRingUiTest {
             waitForScreen(session, "^[[Z")
             session.write("\u0003")
 
-            // Left alone, the ring goes a second before the pet does.
-            TerminalToolbox.autoHideMillis = 2_500
+            // An open ring keeps itself and the pet up past the pet's own timeout; left alone longer, both go together.
+            TerminalToolbox.autoHideMillis = 1_000
+            TerminalToolbox.petRingHideMillis = 4_000
             compose.openPetRing()
-            compose.waitUntil(3_000) { compose.onAllNodesWithTag("pet-shortcut-arc").fetchSemanticsNodes().isEmpty() }
+            compose.mainClock.advanceTimeBy(2_500)
+            compose.onNodeWithTag("pet-shortcut-arc").assertExists()
             compose.onNodeWithTag("restore-dock").assertExists()
-            compose.waitUntil(3_000) { compose.onAllNodesWithTag("restore-dock").fetchSemanticsNodes().isEmpty() }
+            compose.waitUntil(3_000) { compose.onAllNodesWithTag("pet-shortcut-arc").fetchSemanticsNodes().isEmpty() }
+            compose.waitUntil(1_000) { compose.onAllNodesWithTag("restore-dock").fetchSemanticsNodes().isEmpty() }
             TerminalToolbox.autoHideMillis = 0
         } finally {
             TerminalToolbox.autoHideMillis = 0
+            TerminalToolbox.petRingHideMillis = 15_000
             prompts.cancel()
             withContext(Dispatchers.Main) { service.close(session.id) }
             prefs.edit().remove("dockPinned").commit()
