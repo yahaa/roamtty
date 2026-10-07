@@ -31,7 +31,7 @@ class FileBrowserLifecycleTest {
         val host = Host(name = "Design Studio", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "SHELL", os = "LINUX")
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
         app.database.hosts().save(host)
-        val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials("test-only".toByteArray())) }
+        val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials((InstrumentationRegistry.getArguments().getString("fixturePassword") ?: "test-only").toByteArray())) }
         val prompts = launch { session.pending.collect { it?.answer?.complete(listOf("trust")) } }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
@@ -72,10 +72,11 @@ class FileBrowserLifecycleTest {
             compose.waitForIdle()
             val bitmap = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
             File(context.getExternalFilesDir(null), "design-files-dark.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-            compose.onNodeWithTag("files-back").performClick()
+            // System back walks up the folder history; the toolbar arrow leaves for the host's detail page.
+            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("files-entry-phone-a").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("files-back").performClick()
-            compose.onNodeWithTag("host-grid").assertIsDisplayed()
+            compose.onNodeWithTag("host-detail-back").assertIsDisplayed()
         } finally {
             prompts.cancel()
             withContext(Dispatchers.Main) { service.close(session.id) }

@@ -99,9 +99,9 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
     val currentPath = listing?.path ?: browser.directory
     Column(modifier.fillMaxSize().testTag("remote-file-browser")) {
         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = ::navigateBack, modifier = Modifier.testTag("files-back")) {
-                Icon(painterResource(R.drawable.ic_chevron_left),
-                    contentDescription = tr(if (browser.canGoBack) "返回上一目录" else "返回主机列表"))
+            // The toolbar arrow leaves the browser; system back still walks the folder history first.
+            IconButton(onClick = onBack, modifier = Modifier.testTag("files-back")) {
+                Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = tr("返回主机详情"))
             }
             FileBrowserPathBar(currentPath, session.host.name, enabled = connected, onNavigate = browser::navigate,
                 modifier = Modifier.weight(1f))
@@ -146,7 +146,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                     leadingIcon = { Icon(painterResource(R.drawable.ic_copy), contentDescription = null) },
                     onClick = { clipboard.setText(AnnotatedString(currentPath)); dismissMenu() },
                     enabled = currentPath.isNotEmpty(), modifier = Modifier.testTag("files-copy-path"))
-                DropdownMenuItem(text = { Text(tr("返回主机列表")) },
+                DropdownMenuItem(text = { Text(tr("返回主机详情")) },
                     leadingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = null) },
                     onClick = { dismissMenu(); onBack() }, modifier = Modifier.testTag("files-close"))
                 HorizontalDivider()

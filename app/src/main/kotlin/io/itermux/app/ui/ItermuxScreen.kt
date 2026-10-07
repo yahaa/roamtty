@@ -100,7 +100,7 @@ fun ItermuxScreen(
     BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
-    /** Leaves the terminal for its host's detail page; the host list when that host is gone. */
+    /** Leaves the terminal or file browser for its host's detail page; the host list when that host is gone. */
     fun leaveTerminal() {
         val hostId = sessions.find { it.id == selected }?.host?.id
         if (hostId != null && hosts.any { it.id == hostId }) {
@@ -381,7 +381,7 @@ fun ItermuxScreen(
                     val filesSession = sessions.find { it.id == selected }
                     if (filesSession != null) {
                         key(filesSession) {
-                            RemoteFileBrowserPage(filesSession, onBack = { page = "hosts" }, Modifier.weight(1f),
+                            RemoteFileBrowserPage(filesSession, onBack = ::leaveTerminal, Modifier.weight(1f),
                                 // A new terminal session (tmux when the host has it) so the agent outlives the browser.
                                 onLaunchAgent = { launch ->
                                     connect(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host,
