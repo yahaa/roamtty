@@ -47,9 +47,7 @@ class TerminalToolboxAutoHideTest {
         val prompts = CoroutineScope(Dispatchers.Main).launch { session.pending.collect { it?.answer?.complete(listOf("trust")) } }
         try {
             withTimeout(15_000) { session.state.first { it.phase == Phase.CONNECTED } }
-            compose.waitUntil(8_000) { compose.onAllNodesWithTag("sessions-tab").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             compose.onNodeWithTag("restore-dock").assertIsDisplayed()
 
             compose.mainClock.autoAdvance = false

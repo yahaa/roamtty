@@ -139,9 +139,7 @@ class TerminalExtraKeysTest {
             assertEquals(Phase.CONNECTED,
                 withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             outputContains("KEY_ECHO_READY")
-            compose.waitUntil(8_000) { compose.onAllNodesWithText("会话  1").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("会话  1").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             shortcut("pet-tab")
             outputContains("KEY_09")
             compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->

@@ -58,21 +58,6 @@ class ExploratoryQaTest {
             compose.onAllNodes(isRoot()).onFirst().printToString())
     }
 
-    @Test fun collapsingSearchOnSessionsMustNotLeaveHiddenHostFilter() = runBlocking {
-        addHost("QA Alpha")
-        addHost("QA Beta")
-        compose.onNodeWithTag("search-toggle").performClick()
-        compose.onNodeWithTag("host-search").performTextInput("Alpha")
-        compose.onNodeWithText("QA Beta").assertDoesNotExist()
-        compose.onNodeWithTag("sessions-tab").performClick()
-        compose.onNodeWithTag("search-toggle").performClick()
-        compose.onNodeWithTag("hosts-tab").performClick()
-        compose.onNodeWithTag("host-search").assertDoesNotExist()
-        capture("hidden-host-filter")
-        compose.onNodeWithText("QA Beta").assertIsDisplayed()
-        Unit
-    }
-
     @Test fun existingHostDraftSurvivesActivityRecreation() = runBlocking {
         val host = addHost("QA Edit")
         compose.onNodeWithTag("host-menu-${host.id}").performClick()
@@ -99,8 +84,7 @@ class ExploratoryQaTest {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) {
                 session.state.first { it.phase == Phase.CONNECTED || !it.active }
             }.phase)
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             compose.onNodeWithTag("restore-dock").performClick()
             compose.onNodeWithTag("download-file").performClick()
             compose.onNodeWithTag("download-remote-path").performTextReplacement("/phone-a/important.bin")

@@ -71,8 +71,7 @@ class KeyboardResizeTest {
         val prompts = launch { session.pending.collect { it?.answer?.complete(if (it.prompt is Prompt.VerifyHost) listOf("trust") else listOf(password)) } }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             delay(800)
             // After clear the cursor is on the first row, so the bottom of the terminal is far from its line.

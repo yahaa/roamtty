@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -42,9 +43,9 @@ class TerminalDraftTest {
         }
         val previousClip = clipboard.primaryClip
         try {
-            compose.waitUntil(8_000) { compose.onAllNodesWithText("会话  1").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("会话  1").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
+            // Controls appear once the connection attempt settles.
+            compose.waitUntil(15_000) { compose.onAllNodesWithTag("restore-dock").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("restore-dock").performClick()
             compose.onNodeWithTag("terminal-menu").performClick()
             compose.onNodeWithText("编辑文本").performClick()

@@ -116,8 +116,6 @@ class HostSystemUiTest {
             compose.onNodeWithTag("drawer-session-${session.id}").assert(hasContentDescription("Ubuntu"))
             compose.onNodeWithTag("drawer-hosts").performClick()
             compose.onNodeWithTag("host-card-${host.id}").assert(hasContentDescription("Ubuntu"))
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${session.id}").assert(hasContentDescription("Ubuntu"))
             withTimeout(10_000) { session.state.first { it.phase == Phase.CONNECTED } }
             withContext(Dispatchers.Main) {
                 service.pendingSharedImages.value = listOf(Uri.parse("content://io.itermux.test/shared-image"))
