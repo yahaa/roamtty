@@ -89,6 +89,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• The notification can disconnect everything. To stay connected while the screen is locked, allow background running in Settings.",
     "Terminal gestures" to "• Tap the cursor's line (or within two lines of it) to show the keyboard; taps elsewhere leave it hidden. Double-tap sends Tab (completion), triple-tap pastes the clipboard, pinch changes the font size.\n" +
         "• Swipe left to send Shift+Left (answers Codex questions). Swipe left or right and keep your finger down to jump to the start or end of the line.\n" +
+        "• Hold the little ghost to open a ring of shortcuts for the program in front (Claude Code, Codex, Grok, Gemini, or keyboard keys in a plain shell); drag onto one and let go to send it. In a shell, rest on Fn to open F1–F12.\n" +
         "• Hold the command line to show a magnifier and drag the cursor, even across lines; hold other output to select and copy it.\n" +
         "• Holding the keyboard's delete key for about a second clears the line; quick taps delete one character each. Clearing needs Ctrl+U/Ctrl+K on the remote side.\n" +
         "• When you stop typing, an Enter key appears at the end of the cursor row; otherwise an Esc key sits there. On a line starting with / (slash commands), ↑/↓ keys appear there instead; double-tap to dismiss them.",
@@ -109,6 +110,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• 通知栏可一键全部断开。锁屏后要保持连接，请在设置中允许后台运行。",
     "终端手势" to "• 点击光标所在行（上下各 2 行内都算）弹出键盘，点击其他位置不弹出；双击发送 Tab（补全），三击粘贴剪贴板，双指缩放调整字号。\n" +
         "• 向左滑动发送 Shift+←（用于回答 Codex 的提问）；左右滑动后按住不放，可跳到行首或行尾。\n" +
+        "• 长按小精灵，周围弹出当前程序的快捷键（Claude Code、Codex、Grok、Gemini；普通终端为 Ctrl、Shift、Fn 等按键），拖到某个键上松手即发送；在终端里停在 Fn 上会展开 F1–F12。\n" +
         "• 长按当前命令行显示放大镜，可左右或跨行拖动光标；长按其他输出可选择复制。\n" +
         "• 按住输入法删除键约 1 秒清空当前行，快速点按只逐字删除；清空需远端支持 Ctrl+U/Ctrl+K。\n" +
         "• 停止输入后，光标行末尾出现回车键，其余时间显示 Esc 键；输入以 / 开头的斜杠命令时，这里换成 ↑/↓ 键，双击终端可收起。",

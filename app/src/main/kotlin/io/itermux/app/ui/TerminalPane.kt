@@ -36,6 +36,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -138,6 +140,27 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             toolboxAwake = false
         }
     }
+    // Holding the pet opens a ring of agent shortcuts around it; dragging onto one and letting go sends it.
+    var petCenter by remember { mutableStateOf<Offset?>(null) }
+    var petArc by remember { mutableStateOf<PetArc?>(null) }
+    var petHovered by remember { mutableStateOf<Int?>(null) }
+    // The ring matches the program in front, read from the screen when the hold starts; Fn opens a sub-ring.
+    var petApp by remember { mutableStateOf(ScreenApp.SHELL) }
+    var petMenu by remember { mutableStateOf<List<PetShortcut>?>(null) }
+    val petShortcuts = petMenu ?: petShortcuts(petApp)
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(dockAvailable, dockVisible) {
+        if (!dockAvailable || dockVisible) { petCenter = null; petArc = null; petHovered = null; petMenu = null }
+    }
+    // Resting on a menu item unfolds its sub-ring.
+    LaunchedEffect(petHovered, petShortcuts) {
+        val menu = petHovered?.let(petShortcuts::getOrNull)?.action as? PetAction.Menu ?: return@LaunchedEffect
+        delay(350)
+        petHovered = null
+        petArc = null
+        petMenu = menu.items
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
     // The cursor-row Enter key stays out of the way while typing and appears once input pauses,
     // or at once on a double tap; it fades after a quiet spell.
     var enterKeyAwake by remember { mutableStateOf(false) }
@@ -207,6 +230,42 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         terminal?.sendInputControlKey(KeyEvent.KEYCODE_DPAD_LEFT, KeyHandler.KEYMOD_SHIFT)
         ctrlArmed = false
         shiftArmed = false
+    }
+    fun sendPetShortcut(shortcut: PetShortcut) {
+        when (val action = shortcut.action) {
+            is PetAction.Keys -> {
+                ctrlArmed = false
+                shiftArmed = false
+                terminal?.scrollToBottom()
+                session.write(action.keys)
+                if (action.repeat) inputScope.launch {
+                    delay(120)
+                    session.write(action.keys)
+                }
+            }
+            is PetAction.Key -> {
+                val modifiers = (if (ctrlArmed) KeyHandler.KEYMOD_CTRL else 0) or (if (shiftArmed) KeyHandler.KEYMOD_SHIFT else 0)
+                ctrlArmed = false
+                shiftArmed = false
+                terminal?.scrollToBottom()
+                terminal?.sendInputControlKey(action.keyCode, modifiers)
+            }
+            // Like the dock's Ctrl and Shift keys: armed for the next key, Ctrl with the keyboard up.
+            PetAction.Ctrl -> {
+                shiftArmed = false
+                ctrlArmed = !ctrlArmed
+                if (ctrlArmed) terminal?.let { view ->
+                    view.requestFocus()
+                    SoftwareKeyboardControllerCompat(view).show()
+                }
+            }
+            PetAction.Shift -> {
+                ctrlArmed = false
+                shiftArmed = !shiftArmed
+                if (shiftArmed) terminal?.requestFocus()
+            }
+            is PetAction.Menu -> Unit
+        }
     }
     /** Swipe-and-hold jumps to the line start (Ctrl+A) or end (Ctrl+E); armed modifiers are dropped, not applied. */
     fun lineEdge(control: String) {
@@ -527,6 +586,14 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     .width(if (terminalDockTwoColumns(landscape, imeVisible, safeDockHeight)) 96.dp else 48.dp),
                 endInset = 0.dp, content = dock)
         }
+        val ringCenter = petCenter
+        if (ringCenter != null && dockAvailable && !dockVisible) {
+            val topInset = WindowInsets.displayCutout.union(WindowInsets.statusBars).getTop(LocalDensity.current).toFloat()
+            val title = if (petMenu != null) "F1–F12" else petApp.label.ifEmpty { tr("终端") }
+            PetShortcutArc(petShortcuts, ringCenter, topInset, petHovered, title, armed = { action ->
+                action == PetAction.Ctrl && ctrlArmed || action == PetAction.Shift && shiftArmed
+            }) { petArc = it }
+        }
         if (floatingDock) {
             TerminalDockPlacement { height ->
                 Surface(shape = terminalDockShape(terminalDockTwoColumns(landscape, imeVisible, height)),
@@ -535,10 +602,35 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             }
         } else if (dockAvailable && !dockVisible) {
             // Leave the composition while hidden so taps on that edge reach the terminal.
-            AnimatedVisibility(toolboxAwake, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
+            AnimatedVisibility(toolboxAwake || petCenter != null, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
                 exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
                 TerminalDockPlacement {
-                    ToolboxPet(tr("显示操作栏")) { dockExpanded = true }
+                    ToolboxPet(tr("显示操作栏"), onHoldStart = { center ->
+                        petHovered = null
+                        petMenu = null
+                        petApp = session.screenApp()
+                        petCenter = center - workspaceOrigin
+                    }, onHoldMove = { drag ->
+                        val arc = petArc
+                        // Back over the pet leaves a sub-ring.
+                        if (petMenu != null && arc != null && drag.getDistance() < arc.radius * 0.25f) {
+                            petMenu = null
+                            petArc = null
+                        }
+                        val hovered = petArc?.hoveredItem(drag)
+                        if (hovered != petHovered) {
+                            petHovered = hovered
+                            if (hovered != null) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    }, onHoldEnd = { released ->
+                        val picked = petHovered?.let(petShortcuts::getOrNull)
+                        petCenter = null
+                        petArc = null
+                        petHovered = null
+                        petMenu = null
+                        touches++
+                        if (released && picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
+                    }) { dockExpanded = true }
                 }
             }
         }

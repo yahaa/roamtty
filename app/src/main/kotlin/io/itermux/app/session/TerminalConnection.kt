@@ -136,6 +136,11 @@ class TerminalConnection(
             else -> ++slashLines
         }
     }
+    /** Which agent, if any, is in front: read from the visible screen when asked. */
+    fun screenApp(): ScreenApp {
+        val rows = List(parser.mRows) { row -> parser.screen.getSelectedText(0, row, parser.mColumns, row, false, false) }
+        return ScreenApp.detect(rows, parser.cursorRow)
+    }
     override fun write(data: ByteArray, offset: Int, count: Int) {
         if (!ssh.write(data.copyOfRange(offset, offset + count))) inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
     }
