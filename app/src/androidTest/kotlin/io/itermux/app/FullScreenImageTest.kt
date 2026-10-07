@@ -53,9 +53,7 @@ class FullScreenImageTest {
         val prompts = launch { session.pending.collect { it?.answer?.complete(listOf("trust")) } }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            compose.waitUntil(8_000) { compose.onAllNodesWithText("会话  1").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("会话  1").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             // exec keeps this fixture in the foreground process group, as a real CLI would be.
             withContext(Dispatchers.Main) { session.write("exec python3 '${requireNotNull(fixture).replace("'", "'\\''")}' $name\r") }
             awaitScreen(session, "CLI_LIVE")

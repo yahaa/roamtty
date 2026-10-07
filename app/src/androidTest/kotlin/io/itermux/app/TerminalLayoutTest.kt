@@ -283,8 +283,7 @@ class TerminalLayoutTest {
         val prompts = launch { session.pending.collect { it?.answer?.complete(if (it.prompt is Prompt.VerifyHost) listOf("trust") else listOf(password)) } }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             withContext(Dispatchers.Main) {
                 session.write("printf '\\033[2J\\033[H'; for i in $(seq 1 50); do printf '\\033[32m[%02d]\\033[0m iTermux / workspace / build completed\\n' \"${'$'}i\"; done\r")
@@ -387,9 +386,8 @@ class TerminalLayoutTest {
             checkDock()
             assertEquals(Phase.CONNECTED, session.state.value.phase)
             compose.onNodeWithTag("session-switcher").performClick()
-            // The host is never saved, so leaving for its detail page falls back to the session list.
+            // The host is never saved, so leaving for its detail page falls back to the host list.
             compose.onNodeWithText("返回主机详情").performClick()
-            compose.onNodeWithTag("hosts-tab").performClick()
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.statusBars()) == true }
             previewHosts.forEach { app.database.hosts().save(it) }
             rotate(true)

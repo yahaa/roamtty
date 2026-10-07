@@ -22,6 +22,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
@@ -87,45 +92,38 @@ fun ItermuxScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val lightTheme = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
     val terminalVisible = page == "terminal" && sessions.isNotEmpty()
-    val navigationVisible = page == "hosts" || page == "sessions"
+    val navigationVisible = page == "hosts"
     // The file browser wears the terminal's chrome: a transparent status bar and no navigation bar.
     val terminalChrome = terminalVisible || page == "files"
     // Older IMEs reveal system bars without changing window focus. Restore immersive mode on close.
     LaunchedEffect(terminalChrome, imeVisible, lightTheme, landscape) { onChromeChange(terminalChrome, lightTheme) }
-    BackHandler(page == "sessions") { page = "hosts" }
     BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
-    /** Leaves the terminal for its host's detail page; the session list when that host is gone. */
+    /** Leaves the terminal for its host's detail page; the host list when that host is gone. */
     fun leaveTerminal() {
         val hostId = sessions.find { it.id == selected }?.host?.id
         if (hostId != null && hosts.any { it.id == hostId }) {
             detailHostId = hostId
             page = "host"
-        } else page = "sessions"
+        } else page = "hosts"
     }
     BackHandler(page == "terminal") { leaveTerminal() }
     LaunchedEffect(service, sessions, selected, page) {
         service?.awaitRestoration()
-        if (service != null && page == "terminal" && service.sessions.value.none { it.id == selected }) page = "sessions"
+        if (service != null && page == "terminal" && service.sessions.value.none { it.id == selected }) page = "hosts"
         if (service != null && page == "files" && service.sessions.value.none { it.id == selected }) page = "hosts"
     }
     var search by rememberSaveable { mutableStateOf("") }
-    var sessionSearch by rememberSaveable { mutableStateOf("") }
-    var sessionHostFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val hostGridState = rememberLazyGridState()
-    val sessionGridState = rememberLazyGridState()
     LaunchedEffect(landscape) {
         hostGridState.scrollToItem(hostGridState.firstVisibleItemIndex)
-        sessionGridState.scrollToItem(sessionGridState.firstVisibleItemIndex)
     }
     val searchFocus = remember { FocusRequester() }
     BackHandler(navigationVisible && searchExpanded && !imeVisible && !drawerState.isOpen) {
         searchExpanded = false
         search = ""
-        sessionSearch = ""
-        sessionHostFilter = null
     }
     var editorOpen by rememberSaveable { mutableStateOf(false) }
     var editHostId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -248,7 +246,7 @@ fun ItermuxScreen(
         when {
             connected.isEmpty() -> {
                 toast(tr("请先连接一台主机后再分享图片"))
-                page = if (available.isNotEmpty()) "sessions" else "hosts"
+                page = "hosts"
             }
             connected.size == 1 -> uploadSharedImages(connected.first(), uris)
             else -> {
@@ -274,7 +272,6 @@ fun ItermuxScreen(
             drawerContent = {
                 ItermuxDrawer(page, hosts.size, sessionsByActivity,
                     onHosts = { page = "hosts"; scope.launch { drawerState.close() } },
-                    onSessions = { page = "sessions"; scope.launch { drawerState.close() } },
                     onOpenSession = { selected = it; page = "terminal"; scope.launch { drawerState.close() } },
                     onSettings = {
                         if (page != "settings") settingsReturnPage = page
@@ -304,11 +301,9 @@ fun ItermuxScreen(
                         if (navigationVisible) {
                             // Portrait shows "Add host" beside the host list title; landscape has no large title.
                             val showAddHost = page == "hosts" && (landscape || imeVisible)
-                            // Mirror the trailing icons' width on the leading side so the tabs sit at the toolbar's
-                            // center, and keep search as the outermost trailing icon.
-                            if (showAddHost) Spacer(Modifier.width(48.dp))
-                            Box(Modifier.weight(1f).padding(horizontal = Spacing.Tight), contentAlignment = Alignment.Center) {
-                                NavigationTabs(page, hosts.size, sessions.size, Modifier.widthIn(max = 280.dp).fillMaxWidth()) { page = it }
+                            // Landscape has no large title, so the toolbar carries it; search stays the outermost icon.
+                            Box(Modifier.weight(1f).padding(horizontal = Spacing.Tight)) {
+                                if (landscape || imeVisible) HostsTitle(MaterialTheme.typography.titleLarge)
                             }
                             if (showAddHost) ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
                                 editHostId = null; editorOpen = true
@@ -316,13 +311,11 @@ fun ItermuxScreen(
                             AppSearchToggle(searchExpanded, onToggle = {
                                 if (searchExpanded) {
                                     search = ""
-                                    sessionSearch = ""
-                                    sessionHostFilter = null
                                     focusManager.clearFocus(force = true)
                                     keyboardController?.hide()
                                 }
                                 searchExpanded = !searchExpanded
-                            }, searchDescription = if (page == "hosts") tr("搜索主机") else tr("搜索会话"),
+                            }, searchDescription = tr("搜索主机"),
                                 modifier = Modifier.testTag("search-toggle"))
                         } else {
                             // Settings is a drawer destination: closing returns to the page it was opened from.
@@ -330,11 +323,13 @@ fun ItermuxScreen(
                             ToolbarIcon(R.drawable.ic_close, tr("关闭设置"), Modifier.testTag("close-settings")) { page = settingsReturnPage }
                         }
                     })
-                // Landscape phones have little height: the toolbar segment already names the page.
+                // Landscape phones have little height: the toolbar names the page instead.
                 val largeTitle = !landscape && !imeVisible
                 if (page == "hosts") {
                     Column(Modifier.fillMaxSize()) {
-                        if (largeTitle) LargeTitle(if (search.isBlank()) tr("主机列表") else tr("搜索结果"), action = {
+                        if (largeTitle) LargeTitle(tr("搜索结果"), titleContent = if (search.isBlank()) {
+                            { HostsTitle(MaterialTheme.typography.headlineMedium) }
+                        } else null, action = {
                             ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
                                 editHostId = null; editorOpen = true
                             }
@@ -362,33 +357,6 @@ fun ItermuxScreen(
                                 hostReachability.statusOf(host).let { probed ->
                                     if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
                                 }, openTerminal = { launchRequest = host to false }, launchAgent = { launchRequest = host to true }) }
-                        }
-                    }
-                } else if (page == "sessions") {
-                    Column(Modifier.fillMaxSize()) {
-                        if (largeTitle) LargeTitle(if (sessionSearch.isBlank() && sessionHostFilter == null) tr("会话列表") else tr("搜索结果"))
-                        // Hosts that currently have sessions, in session order, for the host filter.
-                        val sessionHosts = sessionsByActivity.map { it.host }.distinctBy { it.id }
-                        val hostFilter = sessionHostFilter?.takeIf { id -> sessionHosts.any { it.id == id } }
-                        if (searchExpanded) {
-                            AppSearchField(sessionSearch, { sessionSearch = it }, tr("标题、主机、地址或用户名"),
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(bottom = Spacing.Tight)
-                                    .focusRequester(searchFocus).testTag("session-search"))
-                            if (sessionHosts.size > 1) SessionHostFilter(sessionHosts, sessions, hostFilter) { sessionHostFilter = it }
-                        }
-                        val filteredSessions = sessionsByActivity.filter {
-                            (hostFilter == null || it.host.id == hostFilter) &&
-                                "${it.displayTitle} ${it.host.name} ${it.host.address} ${it.host.username}".contains(sessionSearch, true)
-                        }
-                        if (filteredSessions.isEmpty()) {
-                            if (sessions.isEmpty()) EmptyState(tr("暂无会话"), tr("连接一台主机后，会话会显示在这里。"), Modifier.weight(1f),
-                                action = { FilledTonalButton(onClick = { page = "hosts" }) { Text(tr("选择主机")) } })
-                            else EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.weight(1f))
-                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = sessionGridState, modifier = Modifier.weight(1f).testTag("session-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
-                            items(filteredSessions, key = { it.id }) { session ->
-                                SessionCard(session, Modifier.animateItem(), onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) },
-                                    onForget = { terminateRemote -> forgetSession(session, terminateRemote) })
-                            }
                         }
                     }
                 } else if (page == "host") {
@@ -433,14 +401,14 @@ fun ItermuxScreen(
                     }, AppLocale.language, { option -> AppLocale.set(context, option); service?.refreshLanguage() })
                 } else if (sessions.isEmpty()) {
                     EmptyState(tr("终端已就绪"), tr("连接一台主机，开始远端工作。"), Modifier.fillMaxSize(),
-                        action = { FilledTonalButton(onClick = { page = "sessions" }) { Text(tr("返回会话列表")) } })
+                        action = { FilledTonalButton(onClick = { page = "hosts" }) { Text(tr("返回主机列表")) } })
                 } else {
                     val active = sessions.find { it.id == selected }
                     // Manual reconnect preserves the journal id but replaces the transport and emulator.
                     if (active != null) key(active) {
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
-                            onSessions = { page = "sessions" }, onHostDetail = ::leaveTerminal,
+                            onHosts = { page = "hosts" }, onHostDetail = ::leaveTerminal,
                             onReconnect = { connect(active.host, active.mode, active.title.value, reuseSessionId = active.id) },
                             // A new session follows the host's current plugins (mosh first, tmux when installed).
                             onNewSession = { connect(hosts.firstOrNull { it.id == active.host.id } ?: active.host) },
@@ -514,28 +482,13 @@ fun ItermuxScreen(
     }
 }
 
-/** Host chips under the session search field: narrows the list to one host's sessions. */
+/** The host list's title: the host icon beside "主机". */
 @Composable
-private fun SessionHostFilter(hosts: List<Host>, sessions: List<TerminalConnection>, selected: String?, onSelect: (String?) -> Unit) {
-    androidx.compose.foundation.lazy.LazyRow(Modifier.fillMaxWidth().testTag("session-host-filter"),
-        contentPadding = PaddingValues(horizontal = Spacing.Page), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-        item(key = "all") {
-            FilterChip(selected == null, onClick = { onSelect(null) }, label = { Text(tr("全部主机")) },
-                modifier = Modifier.testTag("session-host-filter-all"))
-        }
-        items(hosts.size, key = { hosts[it].id }) { index ->
-            val host = hosts[index]
-            FilterChip(selected == host.id, onClick = { onSelect(if (selected == host.id) null else host.id) },
-                label = { Text(trf("%s  %d", host.name, sessions.count { it.host.id == host.id }), maxLines = 1) },
-                modifier = Modifier.testTag("session-host-filter-${host.id}"))
-        }
+private fun HostsTitle(style: TextStyle) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.Tight),
+        modifier = Modifier.testTag("hosts-title")) {
+        Icon(painterResource(R.drawable.ic_hosts), contentDescription = null,
+            modifier = Modifier.size(with(LocalDensity.current) { style.fontSize.toDp() }))
+        Text(tr("主机"), style = style, maxLines = 1, modifier = Modifier.semantics { heading() })
     }
-}
-
-@Composable
-private fun NavigationTabs(page: String, hostCount: Int, sessionCount: Int, modifier: Modifier = Modifier, onPageChange: (String) -> Unit) {
-    SegmentedControl(listOf(
-        Segment(trf("主机  %d", hostCount), page == "hosts", "hosts-tab") { onPageChange("hosts") },
-        Segment(trf("会话  %d", sessionCount), page == "sessions", "sessions-tab") { onPageChange("sessions") },
-    ), modifier)
 }

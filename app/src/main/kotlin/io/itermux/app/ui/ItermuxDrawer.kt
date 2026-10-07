@@ -26,7 +26,6 @@ internal fun ItermuxDrawer(
     hostCount: Int,
     sessions: List<TerminalConnection>,
     onHosts: () -> Unit,
-    onSessions: () -> Unit,
     onOpenSession: (String) -> Unit,
     onSettings: () -> Unit,
     onGuide: () -> Unit,
@@ -51,10 +50,6 @@ internal fun ItermuxDrawer(
                     icon = { Icon(painterResource(R.drawable.ic_hosts), contentDescription = null) },
                     badge = { Text("$hostCount", style = MaterialTheme.typography.labelLarge) },
                     modifier = Modifier.padding(horizontal = 12.dp).testTag("drawer-hosts"))
-                NavigationDrawerItem(label = { Text(tr("会话")) }, selected = page == "sessions", onClick = onSessions,
-                    icon = { Icon(painterResource(R.drawable.ic_sessions), contentDescription = null) },
-                    badge = { Text("${sessions.size}", style = MaterialTheme.typography.labelLarge) },
-                    modifier = Modifier.padding(horizontal = 12.dp).testTag("drawer-sessions"))
                 HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
                 Text(tr("当前会话"), style = MaterialTheme.typography.sectionHeader,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

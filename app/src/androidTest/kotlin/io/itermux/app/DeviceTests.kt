@@ -148,8 +148,7 @@ class TerminalUiTest {
         }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             showControls()
             write("IFS= read -er value; printf '\\nNAV_RESULT<%s>\\n' \"${'$'}value\"\r")
@@ -262,8 +261,7 @@ class TerminalUiTest {
         }
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             val view = withContext(Dispatchers.Main) { requireNotNull(terminal(compose.activity.window.decorView)) }
             compose.tapCursorLine()
@@ -359,8 +357,7 @@ class TerminalUiTest {
             ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithTag("restore-dock").assertIsDisplayed()
@@ -419,9 +416,7 @@ class TerminalUiTest {
             // Bring the stopped task forward through the shell, like a launcher tap.
             // Some OEMs block ActivityScenario's background app launch on resume.
             foreground()
-            compose.waitUntil(10_000) { runCatching { compose.onAllNodesWithText("会话", substring = true).fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             compose.waitForIdle()
             if (android.os.Build.HARDWARE in listOf("ranchu", "goldfish")) {
                 // AndroidView measurement follows Compose idle on the next frame.

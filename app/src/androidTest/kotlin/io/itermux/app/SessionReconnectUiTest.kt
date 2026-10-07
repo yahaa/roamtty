@@ -75,9 +75,7 @@ class SessionReconnectUiTest {
         try {
             // Hold real host verification to inspect the page before it can connect.
             val firstPrompt = withTimeout(15_000) { original.pending.first { it != null } }!!
-            compose.waitUntil(8_000) { compose.onAllNodesWithTag("sessions-tab").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${original.id}").performClick()
+            compose.openSession(original.id)
             assertControlsHidden()
             firstPrompt.answer.complete(listOf("trust"))
             withTimeout(15_000) { original.state.first { it.phase == Phase.CONNECTED } }
@@ -140,9 +138,7 @@ class SessionReconnectUiTest {
             compose.onNodeWithText(tr("手动重连")).assertIsDisplayed()
         }
         try {
-            compose.waitUntil(8_000) { compose.onAllNodesWithTag("sessions-tab").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${session.id}").performClick()
+            compose.openSession(session.id)
             for (landscape in listOf(false, true)) {
                 compose.activityRule.scenario.onActivity {
                     it.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -202,9 +198,7 @@ class SessionReconnectUiTest {
                     SessionMode.SHELL, Credentials("fixture-only".toByteArray())).also { it.disconnect() }
             }
             try {
-                compose.waitUntil(8_000) { compose.onAllNodesWithTag("sessions-tab").fetchSemanticsNodes().isNotEmpty() }
-                compose.onNodeWithTag("sessions-tab").performClick()
-                compose.onNodeWithTag("session-${original.id}").performClick()
+                compose.openSession(original.id)
                 compose.onNodeWithText(tr("手动重连")).assertIsDisplayed()
                 // Keep the test harness from cancelling infinite animations when they start.
                 compose.mainClock.autoAdvance = false
@@ -260,9 +254,7 @@ class SessionReconnectUiTest {
             val restored = SessionJournal(context).read().associateBy { it.id }
             assertEquals(original.sessionNumber, restored.getValue(original.id).sessionNumber)
             assertEquals(sibling.sessionNumber, restored.getValue(sibling.id).sessionNumber)
-            compose.waitUntil(8_000) { compose.onAllNodesWithTag("sessions-tab").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("sessions-tab").performClick()
-            compose.onNodeWithTag("session-${original.id}").performClick()
+            compose.openSession(original.id)
             compose.waitForIdle()
             compose.runOnIdle { assertSame(original, terminal(compose.activity.window.decorView)?.currentSession) }
 

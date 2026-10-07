@@ -108,51 +108,6 @@ import io.itermux.ssh.TerminalTransport
 
 internal fun latencyLabel(ms: Long): String = if (ms < 1) "<1 ms" else "$ms ms"
 
-@Composable internal fun SessionCard(session: TerminalConnection, modifier: Modifier = Modifier, onOpen: () -> Unit, onClose: () -> Unit, onForget: (terminateRemote: Boolean) -> Unit = {}) {
-    val state by session.state.collectAsStateWithLifecycle()
-    val title by session.title.collectAsStateWithLifecycle()
-    val transport by session.transport.collectAsStateWithLifecycle()
-    val colors = MaterialTheme.colorScheme
-    var confirmClose by remember { mutableStateOf(false) }
-    var confirmForget by remember { mutableStateOf(false) }
-    var editTitle by remember { mutableStateOf(false) }
-    ListCard(onClick = onOpen, onClickLabel = tr("打开终端"), modifier = modifier.testTag("session-${session.id}"),
-        bottomPadding = 4.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SessionSystemIcon(session)
-            Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
-                Text(session.titleForDisplay(title), style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${session.host.username}@${session.host.address}:${session.host.port}",
-                    style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            IconButton(onClick = { editTitle = true }, modifier = Modifier.testTag("rename-session-${session.id}")) {
-                Icon(painterResource(R.drawable.ic_edit), contentDescription = tr("修改会话标题"),
-                    tint = colors.onSurfaceVariant, modifier = Modifier.size(20.dp))
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(top = Spacing.Tight), verticalAlignment = Alignment.CenterVertically) {
-            // Status and tags give way (tags ellipsize) so the action button always stays on one line.
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight),
-                verticalAlignment = Alignment.CenterVertically) {
-                StatusLabel(state.phase)
-                MetaTag(if (session.mode == SessionMode.TMUX) "tmux" else "SSH", Modifier.weight(1f, fill = false))
-                if (transport == TerminalTransport.MOSH)
-                    MetaTag("mosh", Modifier.testTag("session-mosh-${session.id}"))
-            }
-            val forget = session.closeForgets(state.active)
-            TextButton(onClick = { if (forget) confirmForget = true else confirmClose = true },
-                contentPadding = PaddingValues(horizontal = Spacing.Row)) {
-                Text(if (forget) tr("移除") else tr("关闭"), maxLines = 1, softWrap = false)
-            }
-        }
-    }
-    if (confirmClose) SessionCloseDialog(session, { confirmClose = false }, onClose)
-    if (editTitle) SessionTitleDialog(session) { editTitle = false }
-    if (confirmForget) SessionForgetDialog(session, { confirmForget = false }, onForget)
-}
-
 /** Whether closing [session] would only drop its record: a disconnected tmux session, still running remotely. */
 internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active && mode == SessionMode.TMUX
 
@@ -188,7 +143,7 @@ internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active
         dismissButton = { TextButton(onClick = onDismiss) { Text(tr("取消")) } })
 }
 
-/** The card used by host and session lists: one shape, one surface, whole-card tap target. */
+/** The card used by the host list: one shape, one surface, whole-card tap target. */
 @Composable private fun ListCard(onClick: () -> Unit, onClickLabel: String, modifier: Modifier = Modifier,
     bottomPadding: Dp = Spacing.Page, content: @Composable ColumnScope.() -> Unit) {
     // The tag and click live on the same node so the card reads as one merged, labelled button.

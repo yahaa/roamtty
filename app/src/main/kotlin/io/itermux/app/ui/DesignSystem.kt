@@ -76,14 +76,15 @@ internal fun AppToolbar(
     }
 }
 
-/** Large page title with an optional one-line summary and a trailing page action, aligned to the page gutter. */
+/** Large page title (or custom [titleContent]) with an optional one-line summary and a trailing page action, aligned to the page gutter. */
 @Composable
 internal fun LargeTitle(title: String, modifier: Modifier = Modifier, subtitle: String? = null,
-    action: (@Composable () -> Unit)? = null) {
+    titleContent: (@Composable () -> Unit)? = null, action: (@Composable () -> Unit)? = null) {
     Row(modifier.fillMaxWidth().padding(start = Spacing.Page, end = if (action == null) Spacing.Page else Spacing.Tight,
         bottom = Spacing.Row), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            if (titleContent != null) titleContent()
+            else Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.semantics { heading() })
             subtitle?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
