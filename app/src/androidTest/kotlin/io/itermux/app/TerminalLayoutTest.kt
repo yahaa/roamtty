@@ -388,7 +388,9 @@ class TerminalLayoutTest {
             checkDock()
             assertEquals(Phase.CONNECTED, session.state.value.phase)
             compose.onNodeWithTag("session-switcher").performClick()
-            compose.onNodeWithText("返回主机列表").performClick()
+            // The host is never saved, so leaving for its detail page falls back to the session list.
+            compose.onNodeWithText("返回主机详情").performClick()
+            compose.onNodeWithTag("hosts-tab").performClick()
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.statusBars()) == true }
             previewHosts.forEach { app.database.hosts().save(it) }
             rotate(true)

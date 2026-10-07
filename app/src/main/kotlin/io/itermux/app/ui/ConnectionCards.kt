@@ -68,7 +68,7 @@ import io.itermux.ssh.TerminalTransport
                         leadingIcon = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null) },
                         modifier = Modifier.testTag("host-browse-files-${host.id}"))
                     DropdownMenuItem(text = { Text(tr("安装插件")) }, onClick = { menu = false; managePlugins() },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_download), contentDescription = null) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_plugin), contentDescription = null) },
                         modifier = Modifier.testTag("host-plugins-${host.id}"))
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text(tr("删除主机")) }, onClick = { menu = false; delete() },

@@ -82,12 +82,10 @@ class HostDetailDeviceTest {
             screenshot("launch-sheet-agent")
             compose.onNodeWithTag("launch-open").performClick()
             compose.waitUntil(20_000) { trustIfAsked(); compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
-            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } // terminal → sessions
+            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } // terminal → host detail
             compose.waitUntil(5000) { compose.onAllNodesWithText("Codex · projects", substring = true).fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("hosts-tab").performClick()
-
-            compose.onNodeWithTag("host-card-$id").performClick()
             compose.onNodeWithTag("host-detail").assertExists()
+            compose.onNodeWithTag("host-detail-plugins").assertExists()
             compose.waitUntil(20_000) {
                 compose.onAllNodesWithText("信任并连接").fetchSemanticsNodes().isNotEmpty() ||
                     compose.onAllNodes(hasAnyAncestor(hasTestTag("host-gauge-cpu")) and hasText("%", substring = true), useUnmergedTree = true)
