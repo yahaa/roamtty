@@ -36,8 +36,7 @@ class JschSession(
     private val elapsedMillis: () -> Long = { System.nanoTime() / 1_000_000 },
     /** Connection diagnostics only: phases, timings and outcomes, never credentials or terminal content. */
     private val log: (String) -> Unit = {},
-) : SshSession, TmuxHistoryAccess {
-    override val historyConnected: Boolean get() = state.value.phase == Phase.CONNECTED
+) : SshSession {
     private val mutableState = MutableStateFlow(ConnectionState(Phase.CONNECTING))
     override val state = mutableState.asStateFlow()
     private val mutableDetectedSystem = MutableStateFlow<HostSystem?>(null)
@@ -75,7 +74,6 @@ class JschSession(
     @Volatile private var dimensions = intArrayOf(80, 24, 0, 0)
     @Volatile private var trustFailure: Exception? = null
     private val tmuxName = Tmux.sanitizeSessionName(remoteSessionName)
-    private val tmuxHistoryController = TmuxHistoryController(tmuxName, ::runCommand)
 
     private fun update(phase: Phase, message: String = "", detail: String? = null) {
         if (stopped.get()) return
@@ -101,7 +99,6 @@ class JschSession(
             while (!stopped.get()) {
                 // Discard stale input before each attempt; never replay it after reattachment.
                 queueGeneration = queues.reopen()
-                tmuxHistoryController.reset()
                 val outcome = runAttempt(onOutput, reattaching = attempt > 0)
                 log("attempt ended: $outcome (attempt $attempt, reached connected $reachedConnected)")
                 when (outcome) {
@@ -214,7 +211,7 @@ class JschSession(
             if (stopped.get()) return AttemptOutcome.STOPPED
             ssh.connect(connectTimeoutMs)
             // Drop secrets for plain shell once authenticated; tmux may need them to reattach,
-            // and mosh to log the file/history connection back in after it drops.
+            // and mosh to log the file connection back in after it drops.
             if (target.mode != SessionMode.TMUX && !preferMosh) {
                 credentials.clear()
                 jsch.removeAllIdentity()
@@ -362,7 +359,7 @@ class JschSession(
         val end = try {
             coroutineScope {
                 val systemProbe = launchProbe(ssh)
-                // Keep files and tmux history usable: quietly log back in after the SSH side drops.
+                // Keep files usable: quietly log back in after the SSH side drops.
                 // Detached: a login stuck on a dead network must not hold the terminal on a frozen
                 // screen after mosh gives up; JSch's connect ignores cancellation.
                 val keeper = CoroutineScope(Dispatchers.IO).launch {
@@ -463,7 +460,7 @@ class JschSession(
 
     /**
      * Builds an unconnected session. The terminal login reports progress; an auxiliary login
-     * (files and history beside a live mosh terminal) must not touch the terminal's state.
+     * (files beside a live mosh terminal) must not touch the terminal's state.
      */
     private fun newSession(jsch: JSch, auxiliary: Boolean = false): Session {
         configureCrypto()
@@ -509,7 +506,7 @@ class JschSession(
     private val auxiliaryLock = Mutex()
 
     /**
-     * The SSH connection for files, cwd and tmux history. Beside a live mosh terminal it may have
+     * The SSH connection for files and cwd. Beside a live mosh terminal it may have
      * dropped (sleep, network change) while mosh recovered, so it is logged in again on demand.
      * [interactive] allows keyboard-interactive prompts; background refreshes never prompt.
      */
@@ -581,14 +578,13 @@ class JschSession(
         queues.trySendSize(dimensions)
     }
 
-    /** Query the active pane of this connection's tmux session over a separate SSH channel. */
-    override suspend fun tmuxHistory(): TmuxHistory? = tmuxHistoryController.history()
-
-    override suspend fun enterTmuxHistory(): TmuxHistory? = tmuxHistoryController.enter()
-
-    override suspend fun moveTmuxHistoryTo(position: Int): TmuxHistory? = tmuxHistoryController.moveTo(position)
-
-    override suspend fun exitTmuxHistory(): TmuxHistory? = tmuxHistoryController.exit()
+    /** Whether the active tmux pane runs a full-screen program; null when tmux cannot be asked. */
+    suspend fun tmuxAlternateScreen(): Boolean? =
+        when (runCommand(Tmux.command("display-message -p -t $tmuxName \"#{alternate_on}\""))?.trim()) {
+            "1" -> true
+            "0" -> false
+            else -> null
+        }
 
     private fun connectedSession(): Session? =
         session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }

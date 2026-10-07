@@ -83,12 +83,12 @@ class MoshIntegrationTest {
     }
 
     /**
-     * Files and tmux history use SSH beside the mosh terminal. After that SSH connection dies
+     * Files use SSH beside the mosh terminal. After that SSH connection dies
      * (here: its sshd process is killed, as after a phone sleep), mosh keeps the terminal and
-     * the next history or file request logs SSH back in. Needs ITERMUX_MOSH_KILL_SSH, a shell
+     * the next file request logs SSH back in. Needs ITERMUX_MOSH_KILL_SSH, a shell
      * command that kills the test user's sshd sessions on the host.
      */
-    @Test fun d_historyAndFilesSurviveSshDrop() = runBlocking {
+    @Test fun d_filesSurviveSshDrop() = runBlocking {
         val kill = System.getenv("ITERMUX_MOSH_KILL_SSH")
         assumeTrue("ITERMUX_MOSH_KILL_SSH not set", kill != null)
         val ssh = JschSession(target(SessionMode.TMUX), credentials(), pins, trust, remoteSessionName = Tmux.newSessionName(), preferMosh = true)
@@ -97,22 +97,13 @@ class MoshIntegrationTest {
         try {
             withTimeout(30_000) { ssh.state.first { it.phase == Phase.CONNECTED } }
             assertEquals(TerminalTransport.MOSH, ssh.transport.value)
-            delay(500)
-            // mosh sends screen diffs and skips frames, so check tmux's scrollback, not the stream.
-            assertTrue(ssh.write("seq 1 200\r".toByteArray()))
-            delay(2000)
-            assertNotNull(ssh.enterTmuxHistory()); assertNotNull(ssh.exitTmuxHistory())
             assertEquals(0, ProcessBuilder("sh", "-c", kill!!).inheritIO().start().waitFor())
             delay(1500)
             // The terminal itself never depended on SSH.
             assertTrue(ssh.write("echo qz-after-drop-\$((40+2))\r".toByteArray()))
             waitText(output, "qz-after-drop-42")
             assertEquals(Phase.CONNECTED, ssh.state.value.phase)
-            val history = withTimeout(30_000) { ssh.enterTmuxHistory() }
-            assertNotNull("tmux history after SSH drop", history)
-            assertTrue(history!!.rows >= 50)
-            assertNotNull(ssh.exitTmuxHistory())
-            assertNotNull(ssh.currentWorkingDirectory())
+            assertNotNull("cwd after SSH drop", withTimeout(30_000) { ssh.currentWorkingDirectory() })
             assertTrue(ssh.listRemoteDirectory().path.isNotBlank())
         } finally { ssh.disconnect(); withTimeout(5000) { job.join() } }
     }

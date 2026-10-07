@@ -87,8 +87,6 @@ public final class TerminalView extends View {
     private Runnable mFlingRunnable;
     private MotionEvent mFlingEvent;
     private final TerminalCursorDrag mCursorDrag = new TerminalCursorDrag(this);
-    public interface RemoteHistoryListener { void onPositionRequested(int position); }
-    private final RemoteHistoryState mRemoteHistory = new RemoteHistoryState();
     private BaseInputConnection mInputConnection;
     private final ImeBackspaceTracker mImeBackspace = new ImeBackspaceTracker();
     private Integer mExtractedTextToken;
@@ -265,18 +263,9 @@ public final class TerminalView extends View {
 
                 final boolean mouseTrackingAtStartOfFling = mEmulator.isMouseTrackingActive();
                 final boolean alternateBufferAtStartOfFling = mEmulator.isAlternateBufferActive();
-                final boolean remoteHistoryAtStartOfFling = mRemoteHistory.isActive();
-                // Captured output is local: use Android's pixel velocity and the entire history
-                // range. The half-screen limit below only protects remote applications from
-                // a burst of mouse/key events; applying it here makes every fling stop abruptly.
-                final boolean capturedHistory = remoteHistoryAtStartOfFling && mTermSession.isReadOnly();
-                final int lineHeight = mRenderer.mFontLineSpacing;
-                final boolean remoteScrollingAtStartOfFling = remoteHistoryAtStartOfFling || mouseTrackingAtStartOfFling || alternateBufferAtStartOfFling;
+                final boolean remoteScrollingAtStartOfFling = mouseTrackingAtStartOfFling || alternateBufferAtStartOfFling;
                 float SCALE = 0.25f;
-                if (capturedHistory) {
-                    mScroller.fling(0, -mRemoteHistory.position() * lineHeight, 0, -(int) velocityY,
-                        0, 0, -mRemoteHistory.rows() * lineHeight, 0);
-                } else if (remoteScrollingAtStartOfFling) {
+                if (remoteScrollingAtStartOfFling) {
                     mScroller.fling(0, 0, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.mRows / 2, mEmulator.mRows / 2);
                 } else {
                     mScroller.fling(0, mTopRow, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.getScreen().getActiveTranscriptRows(), 0);
@@ -290,8 +279,7 @@ public final class TerminalView extends View {
 
                     @Override
                     public void run() {
-                        if (remoteHistoryAtStartOfFling != mRemoteHistory.isActive() ||
-                            mouseTrackingAtStartOfFling != mEmulator.isMouseTrackingActive() ||
+                        if (mouseTrackingAtStartOfFling != mEmulator.isMouseTrackingActive() ||
                             alternateBufferAtStartOfFling != mEmulator.isAlternateBufferActive()) {
                             stopScrolling();
                             return;
@@ -299,12 +287,8 @@ public final class TerminalView extends View {
                         if (mScroller.isFinished()) { stopScrolling(); return; }
                         boolean more = mScroller.computeScrollOffset();
                         int newY = mScroller.getCurrY();
-                        if (capturedHistory) {
-                            requestRemoteHistoryPosition(Math.round(-newY / (float) lineHeight));
-                        } else {
-                            int diff = remoteScrollingAtStartOfFling ? (newY - mLastY) : (newY - mTopRow);
-                            doScroll(flingEvent, diff);
-                        }
+                        int diff = remoteScrollingAtStartOfFling ? (newY - mLastY) : (newY - mTopRow);
+                        doScroll(flingEvent, diff);
                         mLastY = newY;
                         if (more && !mScroller.isFinished()) postOnAnimation(this);
                         else stopScrolling();
@@ -357,8 +341,7 @@ public final class TerminalView extends View {
             }
 
             private boolean isWritableLiveViewport() {
-                return mEmulator != null && mTermSession != null && !mTermSession.isReadOnly()
-                    && mTopRow == 0 && !mRemoteHistory.isActive();
+                return mEmulator != null && mTermSession != null && mTopRow == 0;
             }
 
             /** Restarts the hold timer whenever the finger moves past the touch slop, so it fires only once the finger rests. */
@@ -376,8 +359,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onDoubleTap(MotionEvent event) {
-                if (mEmulator == null || mTermSession == null || mTermSession.isReadOnly()
-                    || mGestureRecognizer.isInProgress()) return false;
+                if (mEmulator == null || mTermSession == null || mGestureRecognizer.isInProgress()) return false;
                 if (isSelectingText()) stopTextSelectionMode();
                 requestFocus();
                 mClient.onDoubleTap(event);
@@ -386,8 +368,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onTripleTap(MotionEvent event) {
-                if (mEmulator == null || mTermSession == null || mTermSession.isReadOnly()
-                    || mGestureRecognizer.isInProgress()) return false;
+                if (mEmulator == null || mTermSession == null || mGestureRecognizer.isInProgress()) return false;
                 if (isSelectingText()) stopTextSelectionMode();
                 requestFocus();
                 mClient.onTripleTap(event);
@@ -472,7 +453,6 @@ public final class TerminalView extends View {
 
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
-        if (mTermSession != null && mTermSession.isReadOnly()) return null;
         // Ensure that inputType is only set if TerminalView is selected view with the keyboard and
         // an alternate view is not selected, like an EditText. This is necessary if an activity is
         // initially started with the alternate view or if activity is returned to from another app
@@ -891,7 +871,7 @@ public final class TerminalView extends View {
 
     @Override
     public boolean onCheckIsTextEditor() {
-        return mTermSession == null || !mTermSession.isReadOnly();
+        return true;
     }
 
     @Override
@@ -939,10 +919,6 @@ public final class TerminalView extends View {
 
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */
     void doScroll(MotionEvent event, int rowsDown) {
-        if (mRemoteHistory.isActive()) {
-            requestRemoteHistoryPosition(mRemoteHistory.position() - rowsDown);
-            return;
-        }
         boolean up = rowsDown < 0;
         int amount = Math.abs(rowsDown);
         for (int i = 0; i < amount; i++) {
@@ -1490,14 +1466,6 @@ public final class TerminalView extends View {
         return mRenderer == null ? 0 : mRenderer.mFontLineSpacing;
     }
 
-    public void setRemoteHistory(int rows, int position, @Nullable RemoteHistoryListener listener) {
-        // A local resize or accessible seek supersedes inertia. Scroll callbacks already have
-        // their requested position in mRemoteHistory, so normal animation frames keep running.
-        if (mTermSession != null && mTermSession.isReadOnly() &&
-            (rows != mRemoteHistory.rows() || position != mRemoteHistory.position())) stopScrolling();
-        mRemoteHistory.update(rows, position, listener == null ? null : listener::onPositionRequested);
-    }
-
     /** A fresh touch, session switch, or detached view must not compete with a queued fling. */
     /** Drops a pending swipe-and-hold: the finger lifted, moved off sideways, or the gesture was cancelled. */
     private void cancelSwipeHold() {
@@ -1512,9 +1480,6 @@ public final class TerminalView extends View {
         mFlingEvent = null;
     }
 
-    boolean hasRemoteHistory() { return mRemoteHistory.isActive(); }
-
-    void requestRemoteHistoryPosition(int position) { mRemoteHistory.requestPosition(position); }
 
     public void scrollToBottom() {
         if (mTopRow != 0) {

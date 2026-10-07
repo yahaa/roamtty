@@ -10,8 +10,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import java.io.InputStream
 import java.io.OutputStream
@@ -37,7 +35,7 @@ class TerminalConnection(
     val remoteSessionName: String = if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION,
     private val onRename: () -> Unit = {},
     private val onHostSystemDetected: suspend (HostSystem) -> Unit = {},
-    /** Carry the terminal over mosh when the host has it; SSH remains for files and history. */
+    /** Carry the terminal over mosh when the host has it; SSH remains for files. */
     preferMosh: Boolean = false,
     private val onPluginsDetected: suspend (Set<HostPlugin>) -> Unit = {}
 ) : TerminalOutput(), TerminalSession {
@@ -56,30 +54,6 @@ class TerminalConnection(
     var pasteFromClipboard: (() -> Unit)? = null
     // Every row kept costs ~0.5 KB of heap at phone widths, for each open session.
     private val parser = TerminalEmulator(this, 80, 24, 8, 16, 10000, SilentTerminalClient())
-    private val outputHistory = OutputHistory()
-    internal fun outputHistorySnapshot(): List<OutputHistoryLine> {
-        if (recordsOutput) captureIdleOutput.run()
-        return outputHistory.snapshot()
-    }
-    override fun onBeforeScreenChange() { if (recordsOutput) outputHistory.captureBeforeChange(parser) }
-    // Browsing remote copy-mode redraws old text; it is not new application output.
-    private val recordsOutput get() = mode != SessionMode.TMUX || tmuxHistory.value?.source != HistorySource.TMUX
-    // Full-screen programs repaint a frame over several reads; record the screen once output pauses.
-    private val captureHandler = Handler(Looper.getMainLooper())
-    private var outputPendingSince = 0L
-    private val captureIdleOutput = Runnable {
-        captureHandler.removeCallbacksAndMessages(null)
-        outputPendingSince = 0L
-        if (recordsOutput) outputHistory.captureWhenIdle(parser)
-    }
-    private fun scheduleOutputCapture() {
-        val now = SystemClock.uptimeMillis()
-        if (outputPendingSince == 0L) outputPendingSince = now
-        // Continuous output still records regularly, so a scrolling transcript never skips a screen.
-        if (now - outputPendingSince >= OUTPUT_CAPTURE_MAX_DELAY_MS) { captureIdleOutput.run(); return }
-        captureHandler.removeCallbacksAndMessages(null)
-        captureHandler.postDelayed(captureIdleOutput, OUTPUT_QUIET_MS)
-    }
     private val ssh = JschSession(
         host.target(mode),
         credentials ?: Credentials(),
@@ -114,36 +88,30 @@ class TerminalConnection(
             catch (_: Exception) { /* Metadata persistence must never tear down a terminal. */ }
         }
     }
-    private val tmux = TmuxHistoryCoordinator(credentials != null && mode == SessionMode.TMUX, ssh, scope) { inputWarning.value = it }
-    val tmuxHistory = tmux.history
     private val mutableCommonCommands = MutableStateFlow<CommonCommandsState>(CommonCommandsState.Idle)
     val commonCommands = mutableCommonCommands.asStateFlow()
     private var commonCommandsJob: Job? = null
     private var recentCommands = emptyList<String>()
     private var savedCommands: CommonCommandsState = CommonCommandsState.Idle
     private val job = if (credentials == null) null else scope.launch {
-        try {
-            var lastOutput = 0L
-            ssh.connect { bytes ->
-                val now = SystemClock.elapsedRealtime()
-                if (lastOutput != 0L && now - lastOutput > 10_000)
-                    android.util.Log.i("RoamttyConn", "${host.name}#$sessionNumber output resumed after ${now - lastOutput} ms, view bound=${onScreenChanged != null}")
-                lastOutput = now
-                withContext(Dispatchers.Main.immediate) {
-                    parser.append(bytes, bytes.size)
-                    updateSlashCommand()
-                    if (recordsOutput) scheduleOutputCapture()
-                    revision.value++
-                    onScreenChanged?.invoke()
-                }
+        var lastOutput = 0L
+        ssh.connect { bytes ->
+            val now = SystemClock.elapsedRealtime()
+            if (lastOutput != 0L && now - lastOutput > 10_000)
+                android.util.Log.i("RoamttyConn", "${host.name}#$sessionNumber output resumed after ${now - lastOutput} ms, view bound=${onScreenChanged != null}")
+            lastOutput = now
+            withContext(Dispatchers.Main.immediate) {
+                parser.append(bytes, bytes.size)
+                updateSlashCommand()
+                revision.value++
+                onScreenChanged?.invoke()
             }
-        } finally { tmux.onConnectionEnded() }
+        }
     }
     private val commonCommandsWatcher = if (credentials == null) null else scope.launch {
         var wasConnected = false
         ssh.state.collect { connection ->
             val connected = connection.phase == Phase.CONNECTED
-            if (!connected && wasConnected) tmux.onConnectionEnded()
             if (connected && !wasConnected) refreshCommonCommands()
             wasConnected = connected
         }
@@ -182,26 +150,8 @@ class TerminalConnection(
         }
         parser.paste(text)
     }
-    /** Explicit paste exits remote history before writing, without sending application shortcuts. */
-    suspend fun pasteIntoLiveTerminal(text: String) {
-        if (tmuxHistory.value?.active == true && !exitHistoryAndAwait()) return
-        paste(text)
-    }
-    /** tmux browses copy-mode or recorded output; a plain shell browses recorded output (full-screen programs). */
-    fun enterTmuxHistory() {
-        if (mode == SessionMode.TMUX) tmux.enter()
-        else tmux.history.value = TmuxHistory(0, 0, true, parser.mRows, parser.isAlternateBufferActive, HistorySource.OUTPUT)
-    }
-    fun moveTmuxHistoryTo(position: Int) = tmux.moveTo(position)
-    fun exitTmuxHistory() { if (mode == SessionMode.TMUX) tmux.exit() else tmux.history.value = null }
-    private suspend fun exitHistoryAndAwait(): Boolean {
-        if (mode == SessionMode.TMUX) return tmux.exitAndAwait()
-        tmux.history.value = null
-        return true
-    }
-    /** Explicit image insertion must not be lost to copy-mode or a disappearing CLI banner. */
-    suspend fun insertImagePath(path: String) {
-        if (!exitHistoryAndAwait()) throw java.io.IOException(tr("无法返回 tmux 实时画面，请检查远端会话。"))
+    /** Explicit image insertion must not be lost to a disappearing CLI banner. */
+    fun insertImagePath(path: String) {
         val text = CodexImageAttach.pathForPaste(path)
         val input = if (parser.isBracketedPasteEnabled) "\u001b[200~$text\u001b[201~" else text
         if (!ssh.write(input.toByteArray(Charsets.UTF_8))) {
@@ -243,12 +193,8 @@ class TerminalConnection(
     }
 
     fun executeHistoryCommand(command: String) = scope.launch {
-        val fullScreen = (mode == SessionMode.TMUX && ssh.tmuxHistory()?.alternateScreen != false) ||
+        val fullScreen = (mode == SessionMode.TMUX && ssh.tmuxAlternateScreen() != false) ||
             (mode == SessionMode.SHELL && parser.isAlternateBufferActive)
-        // Complete all suspending probes before the exit barrier. Nothing may reopen
-        // copy-mode between a successful exit and the immediate, Main-thread write.
-        if (!exitHistoryAndAwait()) return@launch
-        // Exiting a transcript never turns an interactive program into a shell prompt.
         if (fullScreen) {
             inputWarning.value = tr("请先退出全屏程序，再执行 shell 历史命令。")
             return@launch
@@ -294,7 +240,6 @@ class TerminalConnection(
     val transfers = FileTransferController(scope)
     val fileBrowser = RemoteBrowserState(scope)
     fun disconnect() {
-        captureHandler.removeCallbacksAndMessages(null)
         startupJob?.cancel()
         fileBrowser.cancel()
         transfers.cancel()
@@ -302,11 +247,7 @@ class TerminalConnection(
         commonCommandsWatcher?.cancel()
         systemWatcher?.cancel()
         pending.value?.answer?.complete(null)
-        tmux.disconnect()
         ssh.disconnect()
         job?.cancel()
     }
 }
-
-private const val OUTPUT_QUIET_MS = 15L
-private const val OUTPUT_CAPTURE_MAX_DELAY_MS = 120L

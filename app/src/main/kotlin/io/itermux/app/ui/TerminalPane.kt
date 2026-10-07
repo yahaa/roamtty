@@ -70,7 +70,6 @@ import com.termux.view.TerminalView
 import io.itermux.app.TerminalFonts
 import io.itermux.app.session.*
 import io.itermux.app.R
-import io.itermux.ssh.HistorySource
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.delay
@@ -83,10 +82,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val transferStatus by session.transfers.status.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
     val warning by session.inputWarning.collectAsStateWithLifecycle()
-    val tmuxHistory by session.tmuxHistory.collectAsStateWithLifecycle()
-    val showingOutput = tmuxHistory?.let { it.active && it.source == HistorySource.OUTPUT } == true
-    val recordedOutput = remember(session, showingOutput) { if (showingOutput) session.outputHistorySnapshot() else emptyList() }
-    BackHandler(showingOutput) { session.exitTmuxHistory() }
     val sessionTitle by session.title.collectAsStateWithLifecycle()
     // Read only while drawing: output redraws the background without recomposing the pane.
     val outputRevision = session.revision.collectAsStateWithLifecycle()
@@ -228,10 +223,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         keyboard.hide()
     }
     fun sendPaste(text: String) {
-        inputScope.launch {
-            terminal?.scrollToBottom()
-            session.pasteIntoLiveTerminal(text)
-        }
+        terminal?.scrollToBottom()
+        session.paste(text)
     }
     fun paste(text: String) {
         if ((text.contains('\n') || text.contains('\r')) && !session.getEmulator().isBracketedPasteEnabled) confirmPaste = text
@@ -260,7 +253,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }
     LaunchedEffect(fontSize) { prefs.edit { putInt("fontSize", fontSize) } }
     LaunchedEffect(session.id) { hideKeyboard() }
-    LaunchedEffect(showingOutput) { if (showingOutput) { editor = false; hideKeyboard() } }
     LaunchedEffect(state.phase) {
         if (state.phase != Phase.CONNECTED) {
             ctrlArmed = false; shiftArmed = false; confirmPaste = null
@@ -433,13 +425,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     view.setTextSize((fontSize * view.resources.displayMetrics.scaledDensity).toInt())
                     view.setTypeface(TerminalFonts.resolveTypeface(view.context))
                     checkNotNull(terminalFontKey)
-                    val activeHistory = tmuxHistory?.takeIf { it.active }
-                    val history = activeHistory?.takeIf { it.source == HistorySource.TMUX }
-                    view.setRemoteHistory(history?.rows ?: 0, history?.position ?: 0,
-                        if (history == null) null else TerminalView.RemoteHistoryListener(session::moveTmuxHistoryTo))
                 })
-                if (showingOutput) OutputHistoryView(recordedOutput, fontSize, lightTheme)
-                val cursorKeysAllowed = state.phase == Phase.CONNECTED && !editor && tmuxHistory?.active != true
+                val cursorKeysAllowed = state.phase == Phase.CONNECTED && !editor
                 // The arrows take the Enter key's place on the cursor row while they show.
                 val arrowKeysShown = slashCommandLine != 0 && slashCommandLine != arrowKeysDismissedLine && cursorKeysAllowed
                 androidx.compose.animation.AnimatedVisibility(enterKeyAwake && cursorKeysAllowed && !arrowKeysShown,

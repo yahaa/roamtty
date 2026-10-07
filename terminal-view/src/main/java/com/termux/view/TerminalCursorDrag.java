@@ -24,8 +24,7 @@ final class TerminalCursorDrag {
     void setEnabled(boolean enabled) { this.enabled = enabled; if (!enabled) finish(); }
 
     boolean start(MotionEvent event) {
-        if (!enabled || view.mTermSession == null || view.mTermSession.isReadOnly() ||
-            view.getTopRow() != 0 || view.hasRemoteHistory() ||
+        if (!enabled || view.mTermSession == null || view.getTopRow() != 0 ||
             !view.mEmulator.isCursorEnabled() || event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) return false;
         int row = view.textRowAt(event.getY());
         TerminalTextLine current = TerminalTextLine.at(view.mEmulator, view.mEmulator.getCursorRow());
@@ -108,7 +107,7 @@ final class TerminalCursorDrag {
     }
 
     void onScreenUpdated() {
-        if (line != null && (view.hasRemoteHistory() || alternateBuffer != view.mEmulator.isAlternateBufferActive() ||
+        if (line != null && (alternateBuffer != view.mEmulator.isAlternateBufferActive() ||
             view.mEmulator.getScrollCounter() > 0 || !view.mEmulator.isCursorEnabled() ||
             view.mEmulator.mRows != rows || view.mEmulator.mColumns != line.columns)) finish();
     }

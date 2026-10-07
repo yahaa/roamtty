@@ -6,7 +6,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.provider.MediaStore
 import androidx.compose.ui.test.*
-import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -26,7 +25,7 @@ import java.io.File
 
 /** Real SSH/SFTP + full-screen fixture; run only with the isolated loopback server. */
 @RunWith(AndroidJUnit4::class)
-class NativeHistoryImageTest {
+class FullScreenImageTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     @get:Rule val serviceRule = ServiceTestRule()
 
@@ -48,7 +47,7 @@ class NativeHistoryImageTest {
         val app = context.applicationContext as ItermuxApp
         app.database.hosts().forgetPin("[127.0.0.1]:22230")
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
-        val host = Host(name = "Native history QA", address = "127.0.0.1", port = 22230,
+        val host = Host(name = "Full-screen image QA", address = "127.0.0.1", port = 22230,
             username = requireNotNull(user), auth = AuthMethod.KEY.name, mode = SessionMode.TMUX.name)
         val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.TMUX, Credentials(privateKey = key.readBytes())) }
         val prompts = launch { session.pending.collect { it?.answer?.complete(listOf("trust")) } }
@@ -68,17 +67,8 @@ class NativeHistoryImageTest {
         }
     }
 
-    @Test fun fullScreenHistoryAndSuccessiveSingleImageSelections() = runBlocking {
+    @Test fun successiveSingleImageSelections() = runBlocking {
         withFixture("codex") { session ->
-            withContext(Dispatchers.Main) { session.enterTmuxHistory() }
-            withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
-            compose.onNodeWithTag("output-history-scrollbar").performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
-            compose.onNodeWithTag("output-history-top").assertDoesNotExist()
-            compose.onNodeWithTag("output-history-live").assertDoesNotExist()
-            compose.onNodeWithTag("output-history-lines").performScrollToIndex(session.outputHistorySnapshot().indexOfFirst { it.text.trim() == "OUTPUT_000" })
-            compose.onNodeWithTag("output-history-lines").assertTextContains("OUTPUT_000", substring = true)
-            awaitScreen(session, "CLI_LIVE")
-            withContext(Dispatchers.Main) { session.exitTmuxHistory() }
             awaitScreen(session, "SUBMITTED=0 NAVKEYS=0")
 
             val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -99,13 +89,6 @@ class NativeHistoryImageTest {
                         assertFalse(withContext(Dispatchers.Main) { screen(session).contains("Codex") })
                         compose.activityRule.scenario.recreate()
                         compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
-                        withContext(Dispatchers.Main) { session.enterTmuxHistory() }
-                        withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
-                    }
-                    if (number == 3) {
-                        // Also leave copy-mode entered outside the app (e.g. before upgrading).
-                        withContext(Dispatchers.Main) { session.write("\u0002[") }
-                        awaitScreen(session, "[0/0]")
                     }
                     withContext(Dispatchers.Main) { session.transfers.uploadSharedImages(context, session, listOf(uri)) }
                     val complete = withTimeout(15_000) { session.transfers.status.first { !it.running } }
@@ -121,7 +104,7 @@ class NativeHistoryImageTest {
                     val root = it.window.decorView
                     val screenshot = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
                     root.draw(Canvas(screenshot))
-                    File(context.getExternalFilesDir(null), "native-history-images.png").outputStream().use { out ->
+                    File(context.getExternalFilesDir(null), "full-screen-images.png").outputStream().use { out ->
                         screenshot.compress(Bitmap.CompressFormat.PNG, 100, out)
                     }
                     screenshot.recycle()
@@ -133,25 +116,12 @@ class NativeHistoryImageTest {
         }
     }
 
-    @Test fun grokWithoutNativeHistoryUsesTheSameCapturedOutput() = runBlocking {
+    @Test fun fullScreenProgramsRejectShellHistoryCommands() = runBlocking {
         withFixture("grok") { session ->
-            withContext(Dispatchers.Main) { session.enterTmuxHistory() }
-            withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
-            compose.onNodeWithTag("output-history-lines").performScrollToIndex(session.outputHistorySnapshot().indexOfFirst { it.text.trim() == "OUTPUT_000" })
-            compose.onNodeWithTag("output-history-lines").assertTextContains("OUTPUT_000", substring = true)
-            compose.activityRule.scenario.recreate()
-            compose.onNodeWithTag("output-history").assertIsDisplayed()
-            compose.onNodeWithTag("output-history-lines").assertTextContains("OUTPUT_000", substring = true)
-            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-            withTimeout(8000) { while (session.tmuxHistory.value != null) delay(50) }
-            compose.onNodeWithTag("output-history").assertDoesNotExist()
             awaitScreen(session, "SUBMITTED=0 NAVKEYS=0")
-            withContext(Dispatchers.Main) { session.enterTmuxHistory() }
-            withTimeout(8000) { while (session.tmuxHistory.value?.source != HistorySource.OUTPUT) delay(50) }
             withContext(Dispatchers.Main) { session.executeHistoryCommand("SHOULD_NOT_SUBMIT") }.join()
             awaitScreen(session, "SUBMITTED=0 NAVKEYS=0")
             assertNotNull(session.inputWarning.value)
-            assertNull(session.tmuxHistory.value)
         }
     }
 
