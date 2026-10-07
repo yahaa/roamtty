@@ -141,42 +141,51 @@ internal fun latencyLabel(ms: Long): String = if (ms < 1) "<1 ms" else "$ms ms"
                 if (transport == TerminalTransport.MOSH)
                     MetaTag("mosh", Modifier.testTag("session-mosh-${session.id}"))
             }
-            val forget = !state.active && session.mode == SessionMode.TMUX
+            val forget = session.closeForgets(state.active)
             TextButton(onClick = { if (forget) confirmForget = true else confirmClose = true },
                 contentPadding = PaddingValues(horizontal = Spacing.Row)) {
                 Text(if (forget) tr("移除") else tr("关闭"), maxLines = 1, softWrap = false)
             }
         }
     }
-    if (confirmClose) AlertDialog(onDismissRequest = { confirmClose = false }, title = { Text(trf("关闭 %s？", session.host.name)) },
-        text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束。")) },
-        confirmButton = { TextButton(onClick = { confirmClose = false; onClose() }) { Text(tr("关闭连接")) } },
-        dismissButton = { TextButton(onClick = { confirmClose = false }) { Text(tr("取消")) } })
+    if (confirmClose) SessionCloseDialog(session, { confirmClose = false }, onClose)
     if (editTitle) SessionTitleDialog(session) { editTitle = false }
-    if (confirmForget) {
-        var terminateRemote by remember { mutableStateOf(false) }
-        AlertDialog(onDismissRequest = { confirmForget = false },
-            title = { Text(tr("移除记录")) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-                    Text(if (terminateRemote) tr("将登录服务器结束远端 tmux 会话，其中运行的任务会一并终止，然后移除卡片。")
-                        else trf("移除后无法从此卡片重连。远端会话不会被终止，可通过 tmux attach -t %s 手动连接。", session.remoteSessionName))
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .toggleable(value = terminateRemote, role = Role.Checkbox, onValueChange = { terminateRemote = it })
-                        .testTag("terminate-remote-${session.id}"),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = terminateRemote, onCheckedChange = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(tr("同时终止远端 tmux 会话及任务"), style = MaterialTheme.typography.bodyMedium)
-                    }
+    if (confirmForget) SessionForgetDialog(session, { confirmForget = false }, onForget)
+}
+
+/** Whether closing [session] would only drop its record: a disconnected tmux session, still running remotely. */
+internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active && mode == SessionMode.TMUX
+
+@Composable internal fun SessionCloseDialog(session: TerminalConnection, onDismiss: () -> Unit, onClose: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(trf("关闭 %s？", session.host.name)) },
+        text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束。")) },
+        confirmButton = { TextButton(onClick = { onDismiss(); onClose() }) { Text(tr("关闭连接")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("取消")) } })
+}
+
+@Composable internal fun SessionForgetDialog(session: TerminalConnection, onDismiss: () -> Unit, onForget: (terminateRemote: Boolean) -> Unit) {
+    var terminateRemote by remember { mutableStateOf(false) }
+    AlertDialog(onDismissRequest = onDismiss,
+        title = { Text(tr("移除记录")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
+                Text(if (terminateRemote) tr("将登录服务器结束远端 tmux 会话，其中运行的任务会一并终止，然后移除卡片。")
+                    else trf("移除后无法从此卡片重连。远端会话不会被终止，可通过 tmux attach -t %s 手动连接。", session.remoteSessionName))
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .toggleable(value = terminateRemote, role = Role.Checkbox, onValueChange = { terminateRemote = it })
+                    .testTag("terminate-remote-${session.id}"),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = terminateRemote, onCheckedChange = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(tr("同时终止远端 tmux 会话及任务"), style = MaterialTheme.typography.bodyMedium)
                 }
-            },
-            confirmButton = { TextButton(onClick = { confirmForget = false; onForget(terminateRemote) },
-                colors = ButtonDefaults.textButtonColors(contentColor = colors.error)) {
-                Text(if (terminateRemote) tr("终止并移除") else tr("移除记录"))
-            } },
-            dismissButton = { TextButton(onClick = { confirmForget = false }) { Text(tr("取消")) } })
-    }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onDismiss(); onForget(terminateRemote) },
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+            Text(if (terminateRemote) tr("终止并移除") else tr("移除记录"))
+        } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("取消")) } })
 }
 
 /** The card used by host and session lists: one shape, one surface, whole-card tap target. */

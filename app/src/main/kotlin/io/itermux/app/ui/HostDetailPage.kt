@@ -58,6 +58,8 @@ internal fun HostDetailPage(
     sessions: List<TerminalConnection>,
     onBack: () -> Unit,
     onOpenSession: (TerminalConnection) -> Unit,
+    onCloseSession: (TerminalConnection) -> Unit,
+    onForgetSession: (TerminalConnection, terminateRemote: Boolean) -> Unit,
     /** Opens a session in the folder picked on the launch sheet, starting [AgentLaunch] there when given. */
     onLaunch: (directory: String, agent: AgentLaunch?) -> Unit,
     onBrowseFiles: () -> Unit,
@@ -115,7 +117,7 @@ internal fun HostDetailPage(
                     HostAction(tr("文件"), R.drawable.ic_folder, tag = "host-detail-files", modifier = Modifier.weight(1f),
                         onClick = onBrowseFiles)
                 }
-                HostSessionsSection(sessions, onOpenSession)
+                HostSessionsSection(sessions, onOpenSession, onCloseSession, onForgetSession)
                 if (monitor == null) MonitorLoginCard { askPassword = true }
                 else MonitorSection(monitor, onLogin = { if (host.needsTypedPassword || host.auth == "KEY") askPassword = true else monitor.start() })
                 HostInfoSection(host, metrics)
@@ -184,26 +186,33 @@ private fun HostAction(label: String, icon: Int, tag: String, modifier: Modifier
     else FilledTonalButton(onClick, sized, shape = shape, contentPadding = padding, content = content)
 }
 
-/** Every session the app holds for this host; a tap opens its terminal. */
+/** Every session the app holds for this host; a tap opens its terminal, the menu renames, closes or removes it. */
 @Composable
-private fun HostSessionsSection(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit) {
+private fun HostSessionsSection(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
+    onClose: (TerminalConnection) -> Unit, onForget: (TerminalConnection, Boolean) -> Unit) {
     GroupedSection(header = trf("会话  %d", sessions.size), modifier = Modifier.testTag("host-sessions")) {
         if (sessions.isEmpty()) GroupedRow(tr("暂无会话"), subtitle = tr("点上方“AI 助手”或“终端”开启新会话"))
         else sessions.forEachIndexed { index, session ->
             if (index > 0) GroupedDivider()
-            HostSessionRow(session) { onOpen(session) }
+            key(session.id) {
+                HostSessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
+                    onForget = { onForget(session, it) })
+            }
         }
     }
 }
 
 @Composable
-private fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit) {
+private fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: (terminateRemote: Boolean) -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val transport by session.transport.collectAsStateWithLifecycle()
-    val colors = MaterialTheme.colorScheme
+    var menu by remember { mutableStateOf(false) }
+    var editTitle by remember { mutableStateOf(false) }
+    var confirmClose by remember { mutableStateOf(false) }
+    var confirmForget by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().clickable(onClickLabel = tr("打开终端"), role = Role.Button, onClick = onClick)
-        .heightIn(min = 56.dp).padding(horizontal = Spacing.Page, vertical = 10.dp).testTag("host-session-${session.id}"),
+        .heightIn(min = 56.dp).padding(start = Spacing.Page, end = 4.dp, top = 10.dp, bottom = 10.dp).testTag("host-session-${session.id}"),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title.ifBlank { session.defaultTitle }, style = MaterialTheme.typography.bodyLarge,
@@ -215,9 +224,31 @@ private fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit) {
                 if (transport == TerminalTransport.MOSH) MetaTag("mosh")
             }
         }
-        Spacer(Modifier.width(Spacing.Tight))
-        Chevron()
+        Box {
+            IconButton(onClick = { menu = true }, modifier = Modifier.testTag("host-session-more-${session.id}")) {
+                Icon(painterResource(R.drawable.ic_more), contentDescription = tr("会话操作"),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            }
+            val forget = session.closeForgets(state.active)
+            DropdownMenu(menu, { menu = false }) {
+                DropdownMenuItem(text = { Text(tr("打开终端")) }, onClick = { menu = false; onClick() },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_sessions), contentDescription = null) })
+                DropdownMenuItem(text = { Text(tr("修改会话标题")) }, onClick = { menu = false; editTitle = true },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_edit), contentDescription = null) },
+                    modifier = Modifier.testTag("host-session-rename-${session.id}"))
+                HorizontalDivider()
+                DropdownMenuItem(text = { Text(if (forget) tr("移除") else tr("关闭")) },
+                    onClick = { menu = false; if (forget) confirmForget = true else confirmClose = true },
+                    leadingIcon = { Icon(painterResource(if (forget) R.drawable.ic_delete else R.drawable.ic_close), contentDescription = null) },
+                    colors = MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.error,
+                        leadingIconColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("host-session-close-${session.id}"))
+            }
+        }
     }
+    if (editTitle) SessionTitleDialog(session) { editTitle = false }
+    if (confirmClose) SessionCloseDialog(session, { confirmClose = false }, onClose)
+    if (confirmForget) SessionForgetDialog(session, { confirmForget = false }, onForget)
 }
 
 @Composable
