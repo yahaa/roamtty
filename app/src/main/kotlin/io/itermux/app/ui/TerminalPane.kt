@@ -198,7 +198,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             }
         }
     }
+    // Each key, IME edit or dictated word (voice input arrives as composing text) restarts the keyboard's idle timer.
+    var keyboardInputs by remember { mutableIntStateOf(0) }
     fun updateDraft(value: TextFieldValue) {
+        keyboardInputs++
         draft = if (value.text.length <= 128 * 1024) value else TextFieldValue(value.text.take(128 * 1024))
         session.draft = draft.text
     }
@@ -309,6 +312,13 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }
     // Opening the arrow menu can hide the IME. Keep Shift armed until the arrow is sent.
     LaunchedEffect(imeVisible) { if (!imeVisible) ctrlArmed = false }
+    // A keyboard left without input folds away, unless a dialog's field holds the focus.
+    LaunchedEffect(imeVisible, keyboardInputs) {
+        val idle = TerminalToolbox.keyboardIdleHideMillis
+        if (!imeVisible || idle <= 0) return@LaunchedEffect
+        delay(idle)
+        if (editor || terminal?.hasFocus() == true) hideKeyboard()
+    }
     BackHandler(editor || imeVisible) { editor = false; hideKeyboard() }
     val fileControls: @Composable () -> Unit = {
         TerminalFileActions(enabled = state.phase == Phase.CONNECTED && !transferStatus.running) { action ->
@@ -420,7 +430,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); arrowKeysDismissedLine = slashCommandLine; enterKeyTyping = false; enterKeyTouches++ }, onTripleTap = { pasteClipboard() },
                             onSwipeLeft = { shiftArrowLeft() },
                             onSwipeHoldLeft = { lineEdge("\u0001") }, onSwipeHoldRight = { lineEdge("\u0005") }))
-                        setUserInputListener { enterKeyTyping = true; enterKeyTouches++ }
+                        setUserInputListener { enterKeyTyping = true; enterKeyTouches++; keyboardInputs++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                         isFocusableInTouchMode = true
                     }
@@ -603,6 +613,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
 /** Idle timeout of the collapsed toolbox button; 0 keeps it visible (instrumentation tests). */
 internal object TerminalToolbox {
     @Volatile var autoHideMillis = 5_000L
+    /** How long the keyboard stays up without input before folding away; 0 keeps it. */
+    @Volatile var keyboardIdleHideMillis = 10_000L
     /** Idle timeout of the cursor-row Enter key; 0 keeps it until the pane leaves. */
     @Volatile var enterKeyHideMillis = 3_000L
     /** How long typing must pause before the cursor-row Enter key appears. */
