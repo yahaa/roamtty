@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Build
 import android.view.View
 import android.view.ViewGroup
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.core.view.ViewCompat
@@ -74,8 +75,13 @@ class KeyboardResizeTest {
             compose.onNodeWithTag("session-${session.id}").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
             delay(800)
+            // A fresh shell's cursor sits near the top, so the bottom of the terminal is another line.
+            compose.onNodeWithTag("terminal").performTouchInput { click(Offset(centerX, bottom - 4f)) }
+            delay(1500)
+            assertFalse("Tapping off the cursor line must not open the keyboard",
+                ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true)
             repeat(2) {
-                compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+                compose.tapCursorLine()
                 val opening = sizesUntil(session) { it.isVisible(WindowInsetsCompat.Type.ime()) }
                 shell("input keyevent 4")
                 val closing = sizesUntil(session) { !it.isVisible(WindowInsetsCompat.Type.ime()) }

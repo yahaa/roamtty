@@ -313,7 +313,7 @@ class TerminalExtraKeysTest {
                 }
             }
 
-            compose.onNodeWithTag("terminal").performTouchInput { click(center) }
+            compose.tapCursorLine()
             if (compose.onAllNodesWithTag("restore-dock").fetchSemanticsNodes().isNotEmpty())
                 compose.onNodeWithTag("restore-dock").performClick()
             compose.waitUntil(8_000) { imeVisible() }

@@ -1486,6 +1486,15 @@ public final class TerminalView extends View {
         return mTopRow;
     }
 
+    /** Pixel band {top, bottom} of the cursor's row as drawn, or null when it is scrolled out of view. */
+    public int[] getCursorRowBounds() {
+        if (mEmulator == null || mRenderer == null) return null;
+        int row = mEmulator.getCursorRow() - mTopRow;
+        if (row < 0 || row >= mEmulator.mRows) return null;
+        int top = mRenderer.mFontLineSpacingAndAscent + row * mRenderer.mFontLineSpacing;
+        return new int[] { top, top + mRenderer.mFontLineSpacing };
+    }
+
     /** Roamtty: the cursor row's top edge in view pixels, or -1 while it is scrolled out of view. */
     public int getCursorRowTop() {
         if (mEmulator == null || mRenderer == null) return -1;
