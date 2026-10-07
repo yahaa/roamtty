@@ -34,6 +34,7 @@ class TerminalGesturesTest {
     private var doubleTaps = 0
     private var tripleTaps = 0
     private var swipeLefts = 0
+    private var swipeRights = 0
     private val emulator = TerminalEmulator(object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) { input.append(String(data, offset, count)) }
         override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
@@ -76,7 +77,8 @@ class TerminalGesturesTest {
                         it.setTypeface(android.graphics.Typeface.MONOSPACE)
                         it.setTerminalViewClient(MobileTerminalClient(it, {}, { false }, {},
                             onDoubleTap = { doubleTaps++ }, onTripleTap = { tripleTaps++ },
-                            onSwipeLeft = { swipeLefts++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT, KeyHandler.KEYMOD_SHIFT) },
+                            onSwipeLeft = { swipeLefts++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT) },
+                            onSwipeRight = { swipeRights++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT) },
                             onSwipeHoldLeft = { it.sendInputText("\u0001") }, onSwipeHoldRight = { it.sendInputText("\u0005") }))
                         it.isFocusableInTouchMode = true
                         it.attachSession(session)
@@ -89,17 +91,18 @@ class TerminalGesturesTest {
     }
     private fun rowY(row: Int) = (row + 0.8f) * terminal.mRenderer.fontLineSpacing
 
-    @Test fun leftSwipeSendsShiftLeftButOtherSwipesDoNot() {
+    @Test fun sidewaysSwipesSendArrowsButOtherSwipesDoNot() {
         terminalContent()
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeLeft(startX = centerRight.x - 20, endX = centerLeft.x + 20, durationMillis = 150) }
-        compose.runOnIdle { assertEquals(1, swipeLefts); assertEquals("\u001b[1;2D", input.toString()); input.clear() }
+        compose.runOnIdle { assertEquals(1, swipeLefts); assertEquals("\u001b[D", input.toString()); input.clear() }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 120, y = center.y + 60), 900) }
-        compose.runOnIdle { assertEquals("A slow, slightly slanted swipe still counts", 2, swipeLefts); assertEquals("\u001b[1;2D", input.toString()); input.clear() }
+        compose.runOnIdle { assertEquals("A slow, slightly slanted swipe still counts", 2, swipeLefts); assertEquals("\u001b[D", input.toString()); input.clear() }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeRight(startX = centerLeft.x + 20, endX = centerRight.x - 20, durationMillis = 150) }
+        compose.runOnIdle { assertEquals(1, swipeRights); assertEquals("\u001b[C", input.toString()); input.clear() }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeUp(durationMillis = 150) }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 300, y = center.y + 300), 150) }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 20), 150) }
-        compose.runOnIdle { assertEquals("Right, vertical, diagonal and short swipes send nothing", 2, swipeLefts) }
+        compose.runOnIdle { assertEquals("Vertical, diagonal and short swipes send nothing", 2 to 1, swipeLefts to swipeRights) }
     }
 
     @Test fun anyEventMouseSwipesSendWheelsOnMainScreen() = assertAnyEventMouseSwipes(alternateScreen = false)
@@ -165,7 +168,7 @@ class TerminalGesturesTest {
             assertTrue("Upward touch must send only WheelDown, not arrows or a click: $input",
                 Regex("(?:\u001b\\[<65;\\d+;\\d+M)+").matches(input))
             assertEquals(0, terminal.topRow)
-            assertEquals(0, swipeLefts)
+            assertEquals(0 to 0, swipeLefts to swipeRights)
         }
     }
 
@@ -179,7 +182,7 @@ class TerminalGesturesTest {
         compose.waitForIdle()
     }
 
-    @Test fun swipeAndHoldJumpsToLineStartOrEndInsteadOfShiftLeft() {
+    @Test fun swipeAndHoldJumpsToLineStartOrEndInsteadOfArrows() {
         terminalContent()
         val hold = ViewConfiguration.getLongPressTimeout() + 200L
         dragAndHold(-200f, 10f, hold)
@@ -187,10 +190,11 @@ class TerminalGesturesTest {
         dragAndHold(200f, -10f, hold)
         compose.runOnIdle { assertEquals("Right swipe-and-hold sends Ctrl+E", "\u0005", input.toString()); input.clear() }
         dragAndHold(-200f, 10f, 0)
-        compose.runOnIdle { assertEquals("Lifting without resting still sends Shift+Left", "\u001b[1;2D", input.toString()); input.clear() }
+        compose.runOnIdle { assertEquals("Lifting without resting still sends Left", "\u001b[D", input.toString()); input.clear() }
         dragAndHold(200f, 0f, 0)
+        compose.runOnIdle { assertEquals("Lifting without resting still sends Right", "\u001b[C", input.toString()); input.clear() }
         dragAndHold(-30f, 0f, hold)
-        compose.runOnIdle { assertEquals("A quick right swipe or a short hold sends nothing", "", input.toString()) }
+        compose.runOnIdle { assertEquals("A short hold sends nothing", "", input.toString()) }
         dragAndHold(-20f, 200f, hold)
         compose.runOnIdle {
             assertFalse("A vertical drag-and-hold never jumps", input.contains('\u0001') || input.contains('\u0005'))

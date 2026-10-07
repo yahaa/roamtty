@@ -189,10 +189,12 @@ public final class TerminalView extends View {
                     scrolledWithFinger = false;
                     return true;
                 }
-                if (swipeDirection(event.getX(), event.getY()) < 0) {
+                int direction = swipeDirection(event.getX(), event.getY());
+                if (direction != 0) {
                     scrolledWithFinger = false;
                     requestFocus();
-                    mClient.onSwipeLeft(event);
+                    if (direction < 0) mClient.onSwipeLeft(event);
+                    else mClient.onSwipeRight(event);
                     return true;
                 }
                 scrolledWithFinger = false;

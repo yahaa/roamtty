@@ -88,7 +88,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• The Sessions tab lists every session (up to 8 per host); filter by host and tap the pencil to rename. Closing a connection keeps a tmux session and its card for reconnecting; Remove then drops the card, optionally ending the remote tmux session and its tasks.\n" +
         "• The notification can disconnect everything. To stay connected while the screen is locked, allow background running in Settings.",
     "Terminal gestures" to "• Tap the cursor's line (or within two lines of it) to show the keyboard; taps elsewhere leave it hidden. Double-tap sends Tab (completion), triple-tap pastes the clipboard, pinch changes the font size.\n" +
-        "• Swipe left to send Shift+Left (answers Codex questions). Swipe left or right and keep your finger down to jump to the start or end of the line.\n" +
+        "• Swipe left or right to send Left or Right (arm Shift first for Shift+Left, which answers Codex questions). Swipe left or right and keep your finger down to jump to the start or end of the line.\n" +
         "• Hold the little ghost to open a ring of shortcuts for the program in front (Claude Code, Codex, Grok, Gemini, or keyboard keys in a plain shell); drag onto one and let go to send it. In a shell, rest on Fn to open F1–F12.\n" +
         "• Hold the command line to show a magnifier and drag the cursor, even across lines; hold other output to select and copy it.\n" +
         "• Holding the keyboard's delete key for about a second clears the line; quick taps delete one character each. Clearing needs Ctrl+U/Ctrl+K on the remote side.\n" +

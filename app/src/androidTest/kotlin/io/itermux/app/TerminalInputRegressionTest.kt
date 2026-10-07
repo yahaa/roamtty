@@ -19,7 +19,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.viewinterop.AndroidView
-import com.termux.terminal.KeyHandler
 import com.termux.terminal.SilentTerminalClient
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalOutput
@@ -78,7 +77,7 @@ class TerminalInputRegressionTest {
                         view.isFocusableInTouchMode = true
                         view.setTerminalViewClient(MobileTerminalClient(view, {}, { ctrlArmed }, { ctrlArmed = false },
                             { shiftArmed }, { shiftArmed = false },
-                            onSwipeLeft = { view.sendInputControlKey(KeyEvent.KEYCODE_DPAD_LEFT, KeyHandler.KEYMOD_SHIFT) },
+                            onSwipeLeft = { view.sendInputControlKey(KeyEvent.KEYCODE_DPAD_LEFT) },
                             onSwipeHoldLeft = { view.sendInputText("\u0001") },
                             onSwipeHoldRight = { view.sendInputText("\u0005") }))
                         view.attachSession(session)
@@ -132,7 +131,7 @@ class TerminalInputRegressionTest {
             terminal.setTopRow(0)
         }
         swipeLeft()
-        compose.runOnIdle { assertEquals("\u001b[1;2D", session.input.toString()) }
+        compose.runOnIdle { assertEquals("\u001b[D", session.input.toString()) }
     }
 
     @Test fun swipeMustStartAndEndInTheSameLiveViewport() {
