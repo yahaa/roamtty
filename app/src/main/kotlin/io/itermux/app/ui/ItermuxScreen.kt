@@ -185,6 +185,11 @@ fun ItermuxScreen(
         openFilesAfterConnect: Boolean = false, startupCommand: String? = null) {
         begin(ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect, startupCommand = startupCommand))
     }
+    /** Drops a disconnected tmux session's record; with [terminateRemote], logs in to kill it on the server first. */
+    fun forgetSession(session: TerminalConnection, terminateRemote: Boolean) {
+        if (!terminateRemote) service?.forget(session.id)
+        else begin(ConnectRequest(session.host, SessionMode.SHELL, terminateSessionId = session.id))
+    }
 
     /** A new session in [directory]; with [agent], that agent is started there and names the session. */
     fun launchOn(host: Host, directory: String, agent: AgentLaunch?) {
@@ -373,10 +378,8 @@ fun ItermuxScreen(
                             else EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.weight(1f))
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = sessionGridState, modifier = Modifier.weight(1f).testTag("session-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
                             items(filteredSessions, key = { it.id }) { session ->
-                                SessionCard(session, Modifier.animateItem(), onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) }, onForget = { terminateRemote ->
-                                    if (!terminateRemote) service?.forget(session.id)
-                                    else begin(ConnectRequest(session.host, SessionMode.SHELL, terminateSessionId = session.id))
-                                })
+                                SessionCard(session, Modifier.animateItem(), onOpen = { selected = session.id; page = "terminal" }, onClose = { service?.close(session.id) },
+                                    onForget = { terminateRemote -> forgetSession(session, terminateRemote) })
                             }
                         }
                     }
@@ -389,6 +392,8 @@ fun ItermuxScreen(
                             sessions = sessionsByActivity.filter { it.host.id == detailHost.id },
                             onBack = { page = "hosts" },
                             onOpenSession = { selected = it.id; page = "terminal" },
+                            onCloseSession = { service?.close(it.id) },
+                            onForgetSession = ::forgetSession,
                             onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
                             onBrowseFiles = { browseFiles(detailHost) },
                             onEdit = { editHostId = detailHost.id; editorOpen = true },

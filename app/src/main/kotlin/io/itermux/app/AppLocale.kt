@@ -153,6 +153,7 @@ private object EnglishText {
         "新会话" to "New session",
         "移除记录" to "Remove record",
         "移除" to "Remove",
+        "会话操作" to "Session actions",
         "点上方“AI 助手”或“终端”开启新会话" to "Tap AI agent or Terminal above to start one",
         "移除后无法从此卡片重连。远端会话不会被终止，可通过 tmux attach -t %s 手动连接。" to "Removing this card prevents reconnecting from it. The remote session keeps running; reconnect manually with tmux attach -t %s.",
         "将登录服务器结束远端 tmux 会话，其中运行的任务会一并终止，然后移除卡片。" to "Signs in to the server to end the remote tmux session, stopping the tasks running in it, then removes the card.",
