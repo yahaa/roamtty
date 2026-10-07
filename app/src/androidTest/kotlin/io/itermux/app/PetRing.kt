@@ -30,3 +30,15 @@ internal fun ComposeTestRule.dropOnPetShortcut(tag: String, whileOpen: () -> Uni
     waitForIdle()
     onNodeWithTag("pet-shortcut-arc").assertDoesNotExist()
 }
+
+/** Holds the pet until its ring opens and lets go on the pet itself, leaving the ring up for taps. */
+internal fun ComposeTestRule.openPetRing() {
+    onNodeWithTag("restore-dock").performTouchInput {
+        down(center)
+        advanceEventTime(viewConfiguration.longPressTimeoutMillis + 150)
+        moveBy(Offset(-2f, 0f))
+        up()
+    }
+    waitUntil(3_000) { onAllNodesWithTag("pet-shortcut-arc").fetchSemanticsNodes().isNotEmpty() }
+    waitForIdle()
+}

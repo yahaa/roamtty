@@ -5,6 +5,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,11 +24,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -181,13 +187,13 @@ internal val PetArcSpacing = 43.dp
 private val PetArcCaptionWidth = 132.dp
 
 /**
- * The shortcut ring drawn over the workspace while the pet is held; [center] is the pet centre in this box. The
- * inside of the ring names [title] (the program in front), or what the hovered item does. [armed] marks a sticky
- * modifier that is already on.
+ * The shortcut ring drawn over the workspace while the pet is held; [center] is the pet centre in this box. A
+ * caption says what the hovered item does. [armed] marks a sticky modifier that is already on. With [onTap] the ring stays up after the pet is let go: a tap on an item reports its
+ * index, a tap anywhere else reports null and is kept from the terminal.
  */
 @Composable
-internal fun PetShortcutArc(shortcuts: List<PetShortcut>, center: Offset, topInset: Float, hovered: Int?, title: String,
-    armed: (PetAction) -> Boolean = { false }, arcFor: (PetArc) -> Unit) {
+internal fun PetShortcutArc(shortcuts: List<PetShortcut>, center: Offset, topInset: Float, hovered: Int?,
+    armed: (PetAction) -> Boolean = { false }, onTap: ((Int?) -> Unit)? = null, arcFor: (PetArc) -> Unit) {
     val density = LocalDensity.current
     val open = remember { Animatable(0f) }
     // A sub-ring (Fn) unfolds again from the pet.
@@ -195,7 +201,14 @@ internal fun PetShortcutArc(shortcuts: List<PetShortcut>, center: Offset, topIns
         open.snapTo(0f)
         open.animateTo(1f, spring(dampingRatio = 0.62f, stiffness = 520f))
     }
-    BoxWithConstraints(Modifier.fillMaxSize().testTag("pet-shortcut-arc")) {
+    val tap by rememberUpdatedState(onTap)
+    val outside = if (onTap == null) Modifier else Modifier.pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown().consume()
+            tap?.invoke(null)
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().then(outside).testTag("pet-shortcut-arc")) {
         val arc = with(density) {
             val half = PetArcItemSize.toPx() / 2 + 4.dp.toPx()
             // Long rings (F1–F12) get a wider circle so their items keep their spacing.
@@ -213,7 +226,7 @@ internal fun PetShortcutArc(shortcuts: List<PetShortcut>, center: Offset, topIns
                 Offset(center.x - r, center.y - r), Size(2 * r, 2 * r), style = Stroke(width = 14.dp.toPx()))
         }
         // The caption sits just outside the ring, level with the pet, so it covers neither the keys nor the pet.
-        val caption = hovered?.let(shortcuts::getOrNull)?.description ?: title
+        val caption = hovered?.let(shortcuts::getOrNull)?.description.orEmpty()
         if (caption.isNotEmpty()) {
             val (left, width) = with(density) {
                 val right = center.x - arc.radius - PetArcItemSize.toPx() / 2 - 8.dp.toPx()
@@ -235,19 +248,20 @@ internal fun PetShortcutArc(shortcuts: List<PetShortcut>, center: Offset, topIns
             Box(Modifier.offset {
                 val at = center + arc.itemOffset(index) * open.value
                 IntOffset((at.x - itemHalf).roundToInt(), (at.y - itemHalf).roundToInt())
-            }) { PetShortcutItem(shortcut, hovered == index, armed(shortcut.action), open.value) }
+            }) { PetShortcutItem(shortcut, hovered == index, armed(shortcut.action), open.value, onTap?.let { { it(index) } }) }
         }
     }
 }
 
 @Composable
-private fun PetShortcutItem(shortcut: PetShortcut, hovered: Boolean, armed: Boolean, open: Float) {
+private fun PetShortcutItem(shortcut: PetShortcut, hovered: Boolean, armed: Boolean, open: Float, onClick: (() -> Unit)?) {
     val grow by animateFloatAsState(if (hovered) 1.2f else 1f, spring(dampingRatio = 0.5f, stiffness = 700f), label = "grow")
     val colors = MaterialTheme.colorScheme
     Surface(Modifier.size(PetArcItemSize).graphicsLayer {
         val scale = grow * open.coerceIn(0f, 1.2f)
         scaleX = scale; scaleY = scale
-    }.semantics { contentDescription = shortcut.description }.testTag(shortcut.tag),
+    }.clip(CircleShape).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+        .semantics { contentDescription = shortcut.description }.testTag(shortcut.tag),
         shape = CircleShape, shadowElevation = if (hovered) 4.dp else 0.dp,
         color = when {
             hovered -> colors.primary.copy(alpha = 0.9f)
