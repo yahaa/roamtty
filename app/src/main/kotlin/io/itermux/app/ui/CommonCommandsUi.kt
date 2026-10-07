@@ -4,7 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -14,11 +15,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.tr
+import io.itermux.app.trf
 import io.itermux.app.session.CommonCommandsState
 import io.itermux.app.session.ShellHistoryCommands
 import io.itermux.app.session.TerminalConnection
@@ -39,51 +43,77 @@ internal fun CommonCommandsContent(history: CommonCommandsState, connected: Bool
     val filtered = remember(history, query) {
         (history as? CommonCommandsState.Ready)?.let { ShellHistoryCommands.fuzzyFilter(it.commands, query) }.orEmpty()
     }
+    val ready = history as? CommonCommandsState.Ready
+    val terminalFont = rememberTerminalFontFamily()
     AppSheet(onDismiss) {
-        LazyColumn(Modifier.fillMaxSize().testTag("common-commands-list"),
-            contentPadding = PaddingValues(bottom = 24.dp)) {
-            item(key = "header") { SheetHeader(tr("常用命令"), tr("最近使用在前，点选后立即执行。"), onDismiss) }
-            item(key = "search") {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AppSearchField(query, { query = it }, tr("搜索命令"),
-                        modifier = Modifier.weight(1f).testTag("common-commands-search"))
-                    IconButton(onClick = onRefresh, enabled = connected && history !is CommonCommandsState.Loading,
-                        modifier = Modifier.padding(start = 8.dp).testTag("common-commands-refresh")) {
-                        Icon(painterResource(R.drawable.ic_refresh), contentDescription = tr("刷新"))
-                    }
-                }
+        Row(Modifier.fillMaxWidth().padding(start = Spacing.Page + Spacing.Hairline, end = Spacing.Tight, bottom = Spacing.Row),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(tr("常用命令"), style = MaterialTheme.typography.titleLarge)
+                Text(tr("点按即执行"), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            item(key = "spacing") { Spacer(Modifier.height(12.dp)) }
+            ToolbarIcon(R.drawable.ic_refresh, tr("刷新"), Modifier.testTag("common-commands-refresh"),
+                enabled = connected && history !is CommonCommandsState.Loading,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant, onClick = onRefresh)
+            ToolbarIcon(R.drawable.ic_close, tr("关闭"), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                onClick = onDismiss)
+        }
+        AppSearchField(query, { query = it }, tr("搜索命令"),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).testTag("common-commands-search"))
+        LazyColumn(Modifier.fillMaxSize().testTag("common-commands-list"),
+            contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = Spacing.Page, bottom = Spacing.Section)) {
             when (history) {
                 CommonCommandsState.Idle, CommonCommandsState.Loading -> item {
-                    Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                        Text(tr("正在读取 shell 历史…"), style = MaterialTheme.typography.bodyMedium)
+                    Row(Modifier.fillMaxWidth().padding(vertical = Spacing.Section), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.Row, Alignment.CenterHorizontally)) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(tr("正在读取 shell 历史…"), style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                is CommonCommandsState.Unavailable -> item {
-                    Text(tr(history.reason), modifier = Modifier.padding(24.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                is CommonCommandsState.Unavailable -> item { EmptyNote(tr(history.reason)) }
                 is CommonCommandsState.Ready -> {
-                    if (filtered.isEmpty()) item {
-                        Text(tr(if (query.isBlank()) "未找到可用命令" else "无匹配命令"), Modifier.padding(24.dp))
+                    if (filtered.isEmpty()) item { EmptyNote(tr(if (query.isBlank()) "未找到可用命令" else "无匹配命令")) }
+                    else item(key = "caption") {
+                        Text(trf("%d 条 · %s", filtered.size, history.source), style = MaterialTheme.typography.sectionHeader,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Tight))
                     }
-                    items(filtered, key = { "command:$it" }) { command ->
-                        // A prompt-styled row reads as "run this", without a chevron on every line.
-                        Row(Modifier.padding(horizontal = 20.dp, vertical = 3.dp).fillMaxWidth().clip(MaterialTheme.shapes.small)
-                            .background(MaterialTheme.colorScheme.groupedContainer)
-                            .clickable(enabled = connected) { onSelect(command) }
-                            .padding(horizontal = 14.dp, vertical = 12.dp).testTag("common-command-$command")) {
-                            Text("$", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 10.dp))
-                            Text(command, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        }
+                    itemsIndexed(filtered, key = { _, command -> "command:$command" }) { index, command ->
+                        CommandRow(command, terminalFont, first = index == 0, last = index == filtered.lastIndex,
+                            enabled = connected) { onSelect(command) }
                     }
                 }
             }
         }
     }
+}
+
+/** One row of a single inset panel: the rows share a surface and hairlines instead of each being a card. */
+@Composable
+private fun CommandRow(command: String, font: FontFamily, first: Boolean, last: Boolean, enabled: Boolean,
+    onClick: () -> Unit) {
+    val radius = 12.dp
+    val shape = RoundedCornerShape(topStart = if (first) radius else 0.dp, topEnd = if (first) radius else 0.dp,
+        bottomStart = if (last) radius else 0.dp, bottomEnd = if (last) radius else 0.dp)
+    Column(Modifier.fillMaxWidth().clip(shape).background(MaterialTheme.colorScheme.groupedContainer)) {
+        Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
+            .heightIn(min = 48.dp).padding(horizontal = Spacing.Page, vertical = 11.dp).testTag("common-command-$command"),
+            verticalAlignment = Alignment.Top) {
+            // A dim prompt reads as "run this" without a chevron on every line.
+            Text("\u276F", fontFamily = font, fontSize = 13.sp, lineHeight = 20.sp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), modifier = Modifier.padding(end = 10.dp))
+            Text(command, fontFamily = font, fontSize = 13.sp, lineHeight = 20.sp,
+                color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f))
+        }
+        if (!last) GroupedDivider(start = Spacing.Page + 18.dp)
+    }
+}
+
+@Composable
+private fun EmptyNote(text: String) {
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.Section))
 }

@@ -56,7 +56,7 @@ class DesignUiTest {
                 CommonCommandsContent(CommonCommandsState.Ready(commands, "~/.bash_history"), true, {}, { selected = it }, {})
             }
         }
-        compose.onNodeWithTag("common-commands-list").performScrollToNode(hasTestTag("common-commands-search"))
+        screenshot("design-commands-dark-all")
         compose.onNodeWithTag("common-commands-search").performTextInput("git")
         restoration.emulateSavedInstanceStateRestore()
         compose.onNodeWithTag("common-commands-search").assertTextContains("git")
