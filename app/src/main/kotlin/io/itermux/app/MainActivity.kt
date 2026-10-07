@@ -17,6 +17,10 @@ import io.itermux.app.ui.DarkColors
 import io.itermux.app.ui.ItermuxScreen
 import io.itermux.app.ui.LightColors
 import androidx.compose.ui.graphics.toArgb
+import java.time.Duration
+import java.time.Instant
+
+private const val SPLASH_MIN_MS = 1600L
 
 class MainActivity : ComponentActivity() {
     private var service by mutableStateOf<SessionService?>(null)
@@ -36,9 +40,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 31) {
-            // Dismiss as soon as the first frame is ready; never wait for the icon loop.
+            // Let the ghost bob, blink and wave once before fading out, even when the first frame is ready sooner.
             splashScreen.setOnExitAnimationListener { splash ->
-                splash.animate().alpha(0f).setDuration(140L)
+                val shown = splash.iconAnimationStart?.let { Duration.between(it, Instant.now()).toMillis() } ?: SPLASH_MIN_MS
+                splash.animate().alpha(0f).setStartDelay((SPLASH_MIN_MS - shown).coerceAtLeast(0L)).setDuration(200L)
                     .withEndAction { splash.remove() }.start()
             }
         }
