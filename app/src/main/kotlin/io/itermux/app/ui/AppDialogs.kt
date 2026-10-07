@@ -95,7 +95,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
     "Toolbox" to "• The controls start hidden. Tap the ghost with the wrench on the right edge to open them; it fades after a few seconds and returns when you touch the screen.\n" +
         "• Toolbox buttons: Upload file, Download file, Insert image (up to 9 photos, their remote paths are typed in), Common commands (from the remote shell history), ⌘ shortcuts (Esc, Tab, Ctrl, Shift and arrows; Ctrl and Shift apply to the next key) and the session switcher.\n" +
         "• The settings button has Edit text, Pin/Hide toolbar, Paste, font size and Close connection. Edited text stays a draft until you send it; Send text and Enter are separate.\n" +
-        "• Terminal pages are full screen; swipe from an edge to reveal the system bars for a moment. Swipe up and down on the terminal to read earlier output; back at the bottom it follows new output again.",
+        "• Terminal pages are full screen; swipe from an edge to reveal the system bars for a moment. Swipe up and down on the terminal to read earlier output (tmux sessions scroll tmux's own history); back at the bottom it follows new output again.",
     "Files" to "• Browse files lists the remote folders over SFTP. Preview text, highlighted code, Markdown and images; double-tap a preview (single-tap an image) for full screen. Rename, delete, create folders, copy paths, and download one or many files.\n" +
         "• Its menus can open a terminal or start an AI agent in the current folder.\n" +
         "• Share images from other apps to Roamtty to upload them to a session.",
@@ -115,7 +115,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
     "操作栏" to "• 操作栏默认隐藏，点击右侧拿着扳手的小幽灵展开；小幽灵闲置几秒后淡出，触摸屏幕即重新出现。\n" +
         "• 操作栏按钮：上传文件、下载文件、插入图片（最多 9 张，自动填入远端路径）、常用命令（来自远端 shell 历史）、⌘ 快捷键（Esc、Tab、Ctrl、Shift 与方向键，Ctrl/Shift 作用于下一次按键）以及会话切换。\n" +
         "• 设置按钮中有编辑文本、固定/隐藏操作栏、粘贴、字号与关闭连接。编辑框中的文字先留作草稿，确认后才发送；发送文本与回车分开。\n" +
-        "• 终端页全屏显示，边缘滑动可临时显示系统栏。上下滑动终端回看历史，回到底部继续跟随输出。",
+        "• 终端页全屏显示，边缘滑动可临时显示系统栏。上下滑动终端回看历史（tmux 会话滚动 tmux 自身的历史），回到底部继续跟随输出。",
     "文件" to "• “查看文件”通过 SFTP 浏览远端目录，可预览文本、代码高亮、Markdown 和图片；双击预览（图片为单击）切换全屏。支持重命名、删除、新建文件夹、复制路径以及单个或批量下载。\n" +
         "• 文件浏览菜单可在当前文件夹打开终端或启动 AI 助手。\n" +
         "• 在其他 App 中把图片分享给 Roamtty，即可上传到某个会话。",
