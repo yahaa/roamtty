@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,6 +43,7 @@ import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.HostSystem
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
+import io.itermux.ssh.TerminalTransport
 import java.util.Locale
 
 /**
@@ -184,23 +186,56 @@ private fun HostAction(label: String, icon: Int, tag: String, modifier: Modifier
     else FilledTonalButton(onClick, sized, shape = shape, contentPadding = padding, content = content)
 }
 
-/** Every session the app holds for this host, as the same cards and actions as the session list. */
+/** Every session the app holds for this host; a tap opens its terminal, and the row renames or closes it like a session card. */
 @Composable
 private fun HostSessionsSection(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
     onClose: (TerminalConnection) -> Unit, onForget: (TerminalConnection, Boolean) -> Unit) {
-    val header = trf("会话  %d", sessions.size)
-    if (sessions.isEmpty()) GroupedSection(header = header, modifier = Modifier.testTag("host-sessions")) {
-        GroupedRow(tr("暂无会话"), subtitle = tr("点上方“AI 助手”或“终端”开启新会话"))
-    } else GroupedSection(header = header, modifier = Modifier.testTag("host-sessions"), cards = true) {
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.Row)) {
-            sessions.forEach { session ->
-                key(session.id) {
-                    SessionCard(session, onOpen = { onOpen(session) }, onClose = { onClose(session) },
-                        onForget = { onForget(session, it) })
-                }
+    GroupedSection(header = trf("会话  %d", sessions.size), modifier = Modifier.testTag("host-sessions")) {
+        if (sessions.isEmpty()) GroupedRow(tr("暂无会话"), subtitle = tr("点上方“AI 助手”或“终端”开启新会话"))
+        else sessions.forEachIndexed { index, session ->
+            if (index > 0) GroupedDivider()
+            key(session.id) {
+                HostSessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
+                    onForget = { onForget(session, it) })
             }
         }
     }
+}
+
+@Composable
+private fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: (terminateRemote: Boolean) -> Unit) {
+    val state by session.state.collectAsStateWithLifecycle()
+    val title by session.title.collectAsStateWithLifecycle()
+    val transport by session.transport.collectAsStateWithLifecycle()
+    var editTitle by remember { mutableStateOf(false) }
+    var confirmClose by remember { mutableStateOf(false) }
+    var confirmForget by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().clickable(onClickLabel = tr("打开终端"), role = Role.Button, onClick = onClick)
+        .heightIn(min = 56.dp).padding(start = Spacing.Page, end = 4.dp, top = 10.dp, bottom = 10.dp).testTag("host-session-${session.id}"),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title.ifBlank { session.defaultTitle }, style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Tight), verticalAlignment = Alignment.CenterVertically) {
+                StatusLabel(state.phase)
+                MetaTag(if (session.mode == SessionMode.TMUX) "tmux" else "SSH")
+                if (transport == TerminalTransport.MOSH) MetaTag("mosh")
+            }
+        }
+        IconButton(onClick = { editTitle = true }, modifier = Modifier.testTag("host-session-rename-${session.id}")) {
+            Icon(painterResource(R.drawable.ic_edit), contentDescription = tr("修改会话标题"),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        }
+        val forget = session.closeForgets(state.active)
+        TextButton(onClick = { if (forget) confirmForget = true else confirmClose = true },
+            contentPadding = PaddingValues(horizontal = Spacing.Row), modifier = Modifier.testTag("host-session-close-${session.id}")) {
+            Text(if (forget) tr("移除") else tr("关闭"), maxLines = 1, softWrap = false)
+        }
+    }
+    if (editTitle) SessionTitleDialog(session) { editTitle = false }
+    if (confirmClose) SessionCloseDialog(session, { confirmClose = false }, onClose)
+    if (confirmForget) SessionForgetDialog(session, { confirmForget = false }, onForget)
 }
 
 @Composable
