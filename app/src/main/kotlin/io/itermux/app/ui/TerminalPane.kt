@@ -145,10 +145,21 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     // The ring matches the program in front, read from the screen when the hold starts; Fn opens a sub-ring.
     var petApp by remember { mutableStateOf(ScreenApp.SHELL) }
     var petMenu by remember { mutableStateOf<List<PetShortcut>?>(null) }
+    // Letting go away from every item leaves the ring open for taps until it times out.
+    var petPinned by remember { mutableStateOf(false) }
     val petShortcuts = petMenu ?: petShortcuts(petApp)
     val haptics = LocalHapticFeedback.current
+    fun closePetRing() { petCenter = null; petArc = null; petHovered = null; petMenu = null; petPinned = false }
     LaunchedEffect(dockAvailable, dockVisible) {
-        if (!dockAvailable || dockVisible) { petCenter = null; petArc = null; petHovered = null; petMenu = null }
+        if (!dockAvailable || dockVisible) closePetRing()
+    }
+    // An open ring leaves a little before the pet does, so the ghost is never seen without its ring cut short.
+    LaunchedEffect(petPinned, touches) {
+        val hideAfter = TerminalToolbox.autoHideMillis
+        if (petPinned && hideAfter > 0) {
+            delay((hideAfter - TerminalToolbox.petRingLeadMillis).coerceAtLeast(0))
+            closePetRing()
+        }
     }
     // Resting on a menu item unfolds its sub-ring.
     LaunchedEffect(petHovered, petShortcuts) {
@@ -541,7 +552,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             val title = if (petMenu != null) "F1–F12" else petApp.label.ifEmpty { tr("终端") }
             PetShortcutArc(petShortcuts, ringCenter, topInset, petHovered, title, armed = { action ->
                 action == PetAction.Ctrl && ctrlArmed || action == PetAction.Shift && shiftArmed
-            }) { petArc = it }
+            }, onTap = if (petPinned) { index ->
+                val picked = index?.let(petShortcuts::getOrNull)
+                val menu = picked?.action as? PetAction.Menu
+                if (menu != null) {
+                    petArc = null
+                    petMenu = menu.items
+                } else {
+                    closePetRing()
+                    if (picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
+                }
+            } else null) { petArc = it }
         }
         if (floatingDock) {
             TerminalDockPlacement { height ->
@@ -557,6 +578,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     ToolboxPet(tr("显示操作栏"), onHoldStart = { center ->
                         petHovered = null
                         petMenu = null
+                        petPinned = false
                         petApp = session.screenApp()
                         petCenter = center - workspaceOrigin
                     }, onHoldMove = { drag ->
@@ -573,12 +595,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                         }
                     }, onHoldEnd = { released ->
                         val picked = petHovered?.let(petShortcuts::getOrNull)
-                        petCenter = null
-                        petArc = null
-                        petHovered = null
-                        petMenu = null
+                        val menu = picked?.action as? PetAction.Menu
                         touches++
-                        if (released && picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
+                        if (released && (picked == null || menu != null)) {
+                            // Let go between items: keep the ring up for a tap. A menu not yet unfolded opens now.
+                            petHovered = null
+                            if (menu != null) { petArc = null; petMenu = menu.items }
+                            petPinned = true
+                        } else {
+                            closePetRing()
+                            if (released && picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
+                        }
                     }) { dockExpanded = true }
                 }
             }
@@ -603,6 +630,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
 /** Idle timeout of the collapsed toolbox button; 0 keeps it visible (instrumentation tests). */
 internal object TerminalToolbox {
     @Volatile var autoHideMillis = 5_000L
+    /** How much sooner than the pet an open shortcut ring goes away. */
+    @Volatile var petRingLeadMillis = 1_000L
     /** Idle timeout of the cursor-row Enter key; 0 keeps it until the pane leaves. */
     @Volatile var enterKeyHideMillis = 3_000L
     /** How long typing must pause before the cursor-row Enter key appears. */
