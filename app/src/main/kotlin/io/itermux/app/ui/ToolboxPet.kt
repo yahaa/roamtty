@@ -169,7 +169,7 @@ private val GhostBlush = Color(0xFFFF9EB5)
 private val WrenchMetal = Color(0xFFD9DEE8)
 private val KeyboardBody = Color(0xFFEDEBF5)
 
-private fun DrawScope.drawGhost(wrench: Color, hem: Float, eyes: Float, wave: Float) {
+internal fun DrawScope.drawGhost(wrench: Color, hem: Float, eyes: Float, wave: Float) {
     val line = Stroke(width = 1.3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
     // Wrench behind the paw, swinging around the grip.
     rotate(wave, pivot = Offset(19.6f, 14.2f)) {

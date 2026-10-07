@@ -38,7 +38,7 @@ internal fun ItermuxDrawer(
         Column(Modifier.fillMaxHeight()) {
             Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 24.dp, bottom = 20.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                RoamttyAppIcon(Modifier.size(48.dp))
+                ItermuxLogo(Modifier.size(48.dp))
                 Column(Modifier.weight(1f).padding(start = 14.dp)) {
                     Text("Roamtty", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Text(tr("远程终端"), style = MaterialTheme.typography.bodySmall,

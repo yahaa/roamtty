@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Draw the launcher icon: the toolbox ghost (ToolboxPet.kt, at rest) on the terminal background.
 
-Writes the adaptive icon layers as vector drawables and an SVG preview of the composed icon:
-  python3 scripts/render-launcher-icon.py [preview.svg]
+Writes the adaptive icon layers and the splash icon as vector drawables, and optionally an HTML preview:
+  python3 scripts/render-launcher-icon.py [docs/previews/logo-redesign.html]
 """
 import math
 import pathlib
@@ -64,8 +64,9 @@ def ghost_body():
 
 
 class Path:
-    def __init__(self, d, fill=None, stroke=None, width=0, alpha=1.0, cap="round", even_odd=False):
+    def __init__(self, d, fill=None, stroke=None, width=0, alpha=1.0, cap="round", even_odd=False, name=None):
         self.d, self.fill, self.stroke, self.width, self.alpha, self.cap, self.even_odd = d, fill, stroke, width, alpha, cap, even_odd
+        self.name = name
 
     def svg(self):
         a = f'<path d="{self.d}"'
@@ -81,7 +82,7 @@ class Path:
         return a + "/>"
 
     def vector(self, indent):
-        a = f'{indent}<path android:pathData="{self.d}"'
+        a = f'{indent}<path' + (f' android:name="{self.name}"' if self.name else "") + f' android:pathData="{self.d}"'
         if self.fill:
             a += f'\n{indent}    android:fillColor="{self.fill}"'
             if self.alpha != 1:
@@ -97,8 +98,9 @@ class Path:
 
 
 class Group:
-    def __init__(self, children, scale=1.0, translate=(0.0, 0.0), rotate=0.0, pivot=(0.0, 0.0)):
+    def __init__(self, children, scale=1.0, translate=(0.0, 0.0), rotate=0.0, pivot=(0.0, 0.0), name=None):
         self.children, self.scale, self.translate, self.rotate, self.pivot = children, scale, translate, rotate, pivot
+        self.name = name
 
     def svg(self):
         t = []
@@ -111,21 +113,22 @@ class Group:
         return f'<g transform="{" ".join(t)}">' + "".join(c.svg() for c in self.children) + "</g>"
 
     def vector(self, indent):
-        a = f"{indent}<group"
+        a = f"{indent}<group" + (f' android:name="{self.name}"' if self.name else "")
         if self.translate != (0.0, 0.0):
             a += f' android:translateX="{f(self.translate[0])}" android:translateY="{f(self.translate[1])}"'
         if self.scale != 1:
             a += f' android:scaleX="{f(self.scale)}" android:scaleY="{f(self.scale)}"'
         if self.rotate:
-            a += (f' android:rotation="{f(self.rotate)}"'
-                  f' android:pivotX="{f(self.pivot[0])}" android:pivotY="{f(self.pivot[1])}"')
+            a += f' android:rotation="{f(self.rotate)}"'
+        if self.rotate or self.name and self.pivot != (0.0, 0.0):
+            a += f' android:pivotX="{f(self.pivot[0])}" android:pivotY="{f(self.pivot[1])}"'
         return a + ">\n" + "\n".join(c.vector(indent + "    ") for c in self.children) + f"\n{indent}</group>"
 
 
-def on_grid(children):
+def on_grid(children, offset=0.0):
     # Android applies a group's scale before its translation, as SVG's "translate scale" does.
-    return Group(children, scale=GRID_SCALE, translate=(ICON_CENTER[0] - GRID_CENTER[0] * GRID_SCALE,
-                                                        ICON_CENTER[1] - GRID_CENTER[1] * GRID_SCALE))
+    return Group(children, scale=GRID_SCALE, translate=(ICON_CENTER[0] - GRID_CENTER[0] * GRID_SCALE + offset,
+                                                        ICON_CENTER[1] - GRID_CENTER[1] * GRID_SCALE + offset))
 
 
 def ghost():
@@ -141,10 +144,12 @@ def ghost():
         # The shadow sits on the ground under the hem.
         Path(ellipse(12, 24.4, 5, 0.8), fill="#000000", alpha=0.35),
         Group([
-            Path(line(*paw_right, 22.4, 7.6), stroke=GHOST_INK, width=2.8),
-            Path(line(*paw_right, 22.4, 7.6), stroke=ACCENT, width=1.4),
-            Path(arc(23.2, 5.4, 2.1, -22, 270), stroke=GHOST_INK, width=3),
-            Path(arc(23.2, 5.4, 2.1, -22, 270), stroke=WRENCH_METAL, width=1.5),
+            Group([
+                Path(line(*paw_right, 22.4, 7.6), stroke=GHOST_INK, width=2.8),
+                Path(line(*paw_right, 22.4, 7.6), stroke=ACCENT, width=1.4),
+                Path(arc(23.2, 5.4, 2.1, -22, 270), stroke=GHOST_INK, width=3),
+                Path(arc(23.2, 5.4, 2.1, -22, 270), stroke=WRENCH_METAL, width=1.5),
+            ], pivot=paw_right, name="wrench"),
             Path(ghost_body(), fill=GHOST_BODY),
             Path(ghost_body(), stroke=GHOST_INK, width=1.3),
             Group([
@@ -156,23 +161,24 @@ def ghost():
             Path(circle(*paw_left, 1.7), stroke=GHOST_INK, width=1.3),
             Path(circle(*paw_right, 1.8), fill=GHOST_BODY),
             Path(circle(*paw_right, 1.8), stroke=GHOST_INK, width=1.3),
-            *eyes,
+            Group(eyes, pivot=(12.0, 11.2), name="eyes"),
             Path(ellipse(7.6, 13.65, 1.2, 0.65), fill=GHOST_BLUSH, alpha=0.6),
             Path(ellipse(16.4, 13.65, 1.2, 0.65), fill=GHOST_BLUSH, alpha=0.6),
             Path(ellipse(12, 14.5, 0.8, 0.9), fill=GHOST_INK),
-        ], translate=(0.0, 0.4)),
+        ], translate=(0.0, 0.4), name="ghost"),
     ]
 
 
-def terminal():
+def terminal(background="M0,0H108V108H0Z", offset=0.0):
     # Dim scrollback above, and the live prompt with its block cursor under the ghost.
-    dim = [Path(line(x1, y, x2, y), stroke=TERMINAL_FG, width=2.4, alpha=0.1)
+    dim = [Path(line(x1 + offset, y + offset, x2 + offset, y + offset), stroke=TERMINAL_FG, width=2.4, alpha=0.1)
            for x1, x2, y in [(30, 44, 27), (25, 37, 34), (70, 80, 34), (24, 32, 41)]]
     return [
-        Path("M0,0H108V108H0Z", fill=TERMINAL_BG),
+        Path(background, fill=TERMINAL_BG),
         *dim,
-        Path("M46,76L51,80.5 46,85", stroke=ACCENT, width=2.6),
-        Path(round_rect(55, 75.5, 6, 10, 1), fill=ACCENT, alpha=0.85),
+        Path(f"M{f(46 + offset)},{f(76 + offset)}L{f(51 + offset)},{f(80.5 + offset)} {f(46 + offset)},{f(85 + offset)}",
+             stroke=ACCENT, width=2.6),
+        Path(round_rect(55 + offset, 75.5 + offset, 6, 10, 1), fill=ACCENT, alpha=0.85, name="cursor"),
     ]
 
 
@@ -189,13 +195,19 @@ def monochrome():
     ]
 
 
-def vector(children, comment):
+def splash():
+    # The launcher icon's visible 72 units as a rounded tile, about 80dp once the system fits 432dp into 288dp.
+    tile = round_rect(0, 0, 72, 72, 19)
+    return [Group(terminal(tile, -18) + [on_grid(ghost(), -18)], scale=5 / 3, translate=(156.0, 156.0))]
+
+
+def vector(children, comment, side=108):
     body = "\n".join(c.vector("    ") for c in children)
     return ('<?xml version="1.0" encoding="utf-8"?>\n'
             f"<!-- {comment} Generated by scripts/render-launcher-icon.py; edit that instead. -->\n"
             '<vector xmlns:android="http://schemas.android.com/apk/res/android"\n'
-            '    android:width="108dp" android:height="108dp"\n'
-            '    android:viewportWidth="108" android:viewportHeight="108">\n'
+            f'    android:width="{side}dp" android:height="{side}dp"\n'
+            f'    android:viewportWidth="{side}" android:viewportHeight="{side}">\n'
             f"{body}\n</vector>\n")
 
 
@@ -204,6 +216,7 @@ def main():
     (RES / "ic_launcher_terminal.xml").write_text(vector(terminal(), "Launcher background: the terminal the ghost lives in."))
     (RES / "ic_launcher_ghost.xml").write_text(vector(fg, "Launcher foreground: the toolbox ghost at rest."))
     (RES / "ic_launcher_monochrome.xml").write_text(vector(monochrome(), "Themed launcher icon."))
+    (RES / "ic_startup.xml").write_text(vector(splash(), "Splash icon; startup_animated.xml animates its named parts.", 432))
     if len(sys.argv) > 1:
         layers = "".join(c.svg() for c in terminal() + fg)
         mono = "".join(c.svg() for c in monochrome()).replace("#FFFFFF", "#442315")
@@ -217,7 +230,13 @@ def main():
         rows = "".join(f"<div>{icon(square, layers, n)}{icon(round_, layers, n)}{icon(round_, themed, n)}</div>"
                        for n in (240, 96, 48))
         pathlib.Path(sys.argv[1]).write_text(
-            f'<!doctype html><body style="margin:16px;background:#ddd">{rows}</body>'
-            '<style>div{display:flex;gap:24px;margin-bottom:16px;align-items:center}</style>')
+            '<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1"><title>Roamtty · Logo</title>'
+            '<style>body{margin:0;padding:32px 16px;background:#1b1d1e;color:#f3f0ea;font:14px/1.6 system-ui,sans-serif}'
+            'main{max-width:840px;margin:auto}p{color:#aaa9a3}'
+            'div{display:flex;flex-wrap:wrap;gap:24px;margin-bottom:24px;align-items:center}</style>'
+            '<main><h1>Roamtty Logo</h1><p>终端里的小精灵站在终端提示符上。每行依次为方形、圆形和系统主题色图标，'
+            '由 scripts/render-launcher-icon.py 生成。</p>'
+            f'{rows}</main></html>')
 
 main()

@@ -20,6 +20,6 @@
     <path android:pathData="M46,76L51,80.5 46,85"
         android:strokeColor="#EFA783" android:strokeWidth="2.6"
         android:strokeLineCap="round" android:strokeLineJoin="round" />
-    <path android:pathData="M56,75.5H60a1,1 0,0 1,1,1V84.5a1,1 0,0 1,-1,1H56a1,1 0,0 1,-1,-1V76.5a1,1 0,0 1,1,-1Z"
+    <path android:name="cursor" android:pathData="M56,75.5H60a1,1 0,0 1,1,1V84.5a1,1 0,0 1,-1,1H56a1,1 0,0 1,-1,-1V76.5a1,1 0,0 1,1,-1Z"
         android:fillColor="#EFA783" android:fillAlpha="0.85" />
 </vector>
