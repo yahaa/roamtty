@@ -26,6 +26,7 @@ import androidx.test.rule.ServiceTestRule
 import com.termux.view.TerminalView
 import io.itermux.app.data.Host
 import io.itermux.app.session.SessionService
+import io.itermux.app.ui.KeyboardHideAfterEnterMillis
 import io.itermux.app.ui.TerminalToolbox
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.Phase
@@ -127,7 +128,7 @@ class CursorEnterKeyTest {
                 }
             }
 
-            // With the keyboard open, the Enter key also puts it away.
+            // With the keyboard open, the Enter key also puts it away after a short pause.
             suspend fun imeShown() = withContext(Dispatchers.Main) {
                 ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true
             }
@@ -139,7 +140,9 @@ class CursorEnterKeyTest {
             compose.waitUntil(3_000) { enterKeyShown() }
             compose.onNodeWithTag("cursor-enter").performTouchInput { click() }
             outputContains("KEY_0D")
-            withTimeout(5_000) { while (imeShown()) delay(50) }
+            assertTrue("The keyboard stays open right after Enter", imeShown())
+            // The hide waits on the compose clock, which only waitUntil advances.
+            compose.waitUntil(KeyboardHideAfterEnterMillis + 3_000) { runBlocking { !imeShown() } }
 
             // After a quiet spell it hides; a double tap brings it back.
             compose.waitUntil(5_000) { !enterKeyShown() }
