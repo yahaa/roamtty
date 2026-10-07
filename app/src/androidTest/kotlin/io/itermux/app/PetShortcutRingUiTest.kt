@@ -117,7 +117,7 @@ class PetShortcutRingUiTest {
             TerminalToolbox.autoHideMillis = 0
         } finally {
             TerminalToolbox.autoHideMillis = 0
-            TerminalToolbox.petRingHideMillis = 15_000
+            TerminalToolbox.petRingHideMillis = 4_000
             prompts.cancel()
             withContext(Dispatchers.Main) { service.close(session.id) }
             prefs.edit().remove("dockPinned").commit()

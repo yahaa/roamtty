@@ -633,7 +633,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
 internal object TerminalToolbox {
     @Volatile var autoHideMillis = 5_000L
     /** Idle timeout of a shortcut ring left open after the pet is let go; the pet leaves with it. 0 keeps it. */
-    @Volatile var petRingHideMillis = 15_000L
+    @Volatile var petRingHideMillis = 4_000L
     /** Idle timeout of the cursor-row Enter key; 0 keeps it until the pane leaves. */
     @Volatile var enterKeyHideMillis = 3_000L
     /** How long typing must pause before the cursor-row Enter key appears. */
