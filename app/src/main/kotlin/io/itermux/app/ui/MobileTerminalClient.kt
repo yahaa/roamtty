@@ -19,6 +19,7 @@ internal class MobileTerminalClient(
     private val onDoubleTap: () -> Unit = {},
     private val onTripleTap: () -> Unit = {},
     private val onSwipeLeft: () -> Unit = {},
+    private val onSwipeRight: () -> Unit = {},
     private val onSwipeHoldLeft: () -> Unit = {},
     private val onSwipeHoldRight: () -> Unit = {}
 ) : TerminalViewClient {
@@ -39,6 +40,7 @@ internal class MobileTerminalClient(
     override fun onDoubleTap(e: MotionEvent?) = onDoubleTap()
     override fun onTripleTap(e: MotionEvent?) = onTripleTap()
     override fun onSwipeLeft(e: MotionEvent?) = onSwipeLeft()
+    override fun onSwipeRight(e: MotionEvent?) = onSwipeRight()
     override fun onSwipeHoldLeft() { onSwipeHoldLeft.invoke() }
     override fun onSwipeHoldRight() { onSwipeHoldRight.invoke() }
     override fun shouldBackButtonBeMappedToEscape() = false
