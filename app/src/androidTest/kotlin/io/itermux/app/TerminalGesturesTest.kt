@@ -106,6 +106,73 @@ class TerminalGesturesTest {
         compose.runOnIdle { assertEquals("Read-only history never swipes", 2, swipeLefts) }
     }
 
+    @Test fun anyEventMouseSwipesSendWheelsOnMainScreen() = assertAnyEventMouseSwipes(alternateScreen = false)
+
+    @Test fun anyEventMouseSwipesSendWheelsOnAlternateScreen() = assertAnyEventMouseSwipes(alternateScreen = true)
+
+    @Test fun reversingAnyEventMouseFlingStopsThePreviousDirection() {
+        terminalContent()
+        compose.runOnIdle { feed("\u001b[?1003h\u001b[?1006h"); input.clear() }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput {
+            swipe(center.copy(y = height * 0.25f), center.copy(y = height * 0.65f), 120)
+        }
+        compose.runOnIdle {
+            assertTrue(Regex("(?:\u001b\\[<64;\\d+;\\d+M)+").matches(input))
+        }
+        // Dispatch directly so an Espresso idle wait cannot turn the reversing finger-down into a long press.
+        val (x, height) = compose.runOnIdle { terminal.width / 2f to terminal.height.toFloat() }
+        touch(MotionEvent.ACTION_DOWN, x, height * 0.65f)
+        compose.runOnIdle { input.clear() }
+        for (step in 1..12) {
+            SystemClock.sleep(10)
+            touch(MotionEvent.ACTION_MOVE, x, height * (0.65f - step / 30f))
+        }
+        touch(MotionEvent.ACTION_UP, x, height * 0.25f)
+        val afterDrag = compose.runOnIdle {
+            assertTrue("Reversing must send only WheelDown: $input", Regex("(?:\u001b\\[<65;\\d+;\\d+M)+").matches(input))
+            input.length
+        }
+        compose.waitUntil(timeoutMillis = 2_000) { input.length > afterDrag }
+        compose.runOnIdle {
+            assertTrue("Inertia must keep the new direction: $input", Regex("(?:\u001b\\[<65;\\d+;\\d+M)+").matches(input))
+            assertEquals(0, terminal.topRow)
+        }
+    }
+
+    private fun assertAnyEventMouseSwipes(alternateScreen: Boolean) {
+        terminalContent()
+        compose.runOnIdle {
+            feed((1..150).joinToString("\r\n") { "history $it" })
+            if (alternateScreen) feed("\u001b[?1049h")
+            feed("\u001b[?1000l\u001b[?1002l\u001b[?1003h\u001b[?1006h")
+            input.clear()
+        }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput {
+            down(center.copy(y = height * 0.25f))
+            for (step in 1..12) moveTo(center.copy(y = height * (0.25f + step / 30f)), delayMillis = 50)
+            advanceEventTime(150)
+            up()
+        }
+        compose.runOnIdle {
+            assertTrue("Downward touch must send only WheelUp, not arrows or a click: $input",
+                Regex("(?:\u001b\\[<64;\\d+;\\d+M)+").matches(input))
+            assertEquals("Remote scrolling must leave the local viewport at the bottom", 0, terminal.topRow)
+            input.clear()
+        }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput {
+            down(center.copy(y = height * 0.65f))
+            for (step in 1..12) moveTo(center.copy(y = height * (0.65f - step / 30f)), delayMillis = 50)
+            advanceEventTime(150)
+            up()
+        }
+        compose.runOnIdle {
+            assertTrue("Upward touch must send only WheelDown, not arrows or a click: $input",
+                Regex("(?:\u001b\\[<65;\\d+;\\d+M)+").matches(input))
+            assertEquals(0, terminal.topRow)
+            assertEquals(0, swipeLefts)
+        }
+    }
+
     /** Drags from the centre by (dx, dy) in small steps, rests the finger for [holdMs] of real time, then lifts. */
     private fun dragAndHold(dx: Float, dy: Float, holdMs: Long) {
         val (cx, cy) = compose.runOnIdle { terminal.width / 2f to terminal.height / 2f }
