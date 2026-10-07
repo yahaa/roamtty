@@ -34,7 +34,6 @@ class TerminalGesturesTest {
     private var doubleTaps = 0
     private var tripleTaps = 0
     private var swipeLefts = 0
-    private var readOnly = false
     private val emulator = TerminalEmulator(object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) { input.append(String(data, offset, count)) }
         override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
@@ -44,7 +43,6 @@ class TerminalGesturesTest {
         override fun onColorsChanged() = Unit
     }, 80, 24, 8, 16, 400, SilentTerminalClient())
     private val session = object : TerminalSession {
-        override fun isReadOnly() = readOnly
         override fun getEmulator(): TerminalEmulator = this@TerminalGesturesTest.emulator
         override fun updateSize(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {
             this@TerminalGesturesTest.emulator.resize(columns, rows, cellWidthPixels, cellHeightPixels)
@@ -101,9 +99,7 @@ class TerminalGesturesTest {
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeUp(durationMillis = 150) }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 300, y = center.y + 300), 150) }
         compose.onNodeWithTag("gesture-terminal").performTouchInput { swipe(center, center.copy(x = center.x - 20), 150) }
-        compose.runOnIdle { assertEquals("Right, vertical, diagonal and short swipes send nothing", 2, swipeLefts); readOnly = true }
-        compose.onNodeWithTag("gesture-terminal").performTouchInput { swipeLeft(startX = centerRight.x - 20, endX = centerLeft.x + 20, durationMillis = 150) }
-        compose.runOnIdle { assertEquals("Read-only history never swipes", 2, swipeLefts) }
+        compose.runOnIdle { assertEquals("Right, vertical, diagonal and short swipes send nothing", 2, swipeLefts) }
     }
 
     @Test fun anyEventMouseSwipesSendWheelsOnMainScreen() = assertAnyEventMouseSwipes(alternateScreen = false)
@@ -198,13 +194,10 @@ class TerminalGesturesTest {
         dragAndHold(-20f, 200f, hold)
         compose.runOnIdle {
             assertFalse("A vertical drag-and-hold never jumps", input.contains('\u0001') || input.contains('\u0005'))
-            input.clear(); readOnly = true
         }
-        dragAndHold(-200f, 0f, hold)
-        compose.runOnIdle { assertEquals("Read-only history never jumps", "", input.toString()) }
     }
 
-    @Test fun completedTripleTapFiresOnceAndReadOnlyHistoryNeverFires() {
+    @Test fun completedTripleTapFiresOnce() {
         terminalContent()
         compose.onNodeWithTag("gesture-terminal").performTouchInput { doubleClick() }
         SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
@@ -214,13 +207,7 @@ class TerminalGesturesTest {
         compose.runOnIdle {
             assertEquals(1, tripleTaps)
             assertEquals("A triple tap must not also send the double-tap Tab", 1, doubleTaps)
-            readOnly = true
         }
-        compose.onNodeWithTag("gesture-terminal").performTouchInput { tripleClick() }
-        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
-        compose.onNodeWithTag("gesture-terminal").performTouchInput { doubleClick() }
-        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 50)
-        compose.runOnIdle { assertEquals(1, tripleTaps); assertEquals(1, doubleTaps) }
     }
 
     @Test fun completedDoubleTapFiresOnceAfterTheTripleTapWindow() {

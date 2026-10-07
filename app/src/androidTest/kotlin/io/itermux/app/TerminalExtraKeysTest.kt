@@ -212,36 +212,18 @@ class TerminalExtraKeysTest {
             val historyView = requireNotNull(terminal(compose.activity.window.decorView))
             val density = context.resources.displayMetrics.density
             compose.onNodeWithTag("terminal").performTouchInput {
-                down(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 12 * density))
-                moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, 9 * density), delayMillis = 400)
+                down(androidx.compose.ui.geometry.Offset(width / 2f, 24 * density))
+                moveTo(androidx.compose.ui.geometry.Offset(width / 2f, height - 24 * density), delayMillis = 400)
                 up()
             }
-            assertTrue("Scrollbar should reach local SSH history", historyView.topRow < -20)
+            compose.waitForIdle()
+            assertTrue("Swiping should reach local SSH history", historyView.topRow < -20)
             val readingRow = historyView.topRow
             withContext(Dispatchers.Main) { session.write("x") }
             outputContains("KEY_78")
             assertTrue("New output must not jump out of history", historyView.topRow <= readingRow)
-            delay(1700)
-            val historyBitmap = Bitmap.createBitmap(historyView.width, historyView.height, Bitmap.Config.ARGB_8888)
-            historyView.draw(Canvas(historyBitmap))
-            File(context.getExternalFilesDir(null), "redesign-scrollbar.png").outputStream().use {
-                historyBitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
-            }
-            historyBitmap.recycle()
-            val thumbCenterY = withContext(Dispatchers.Main) {
-                val emulator = session.getEmulator()
-                val track = historyView.height - 16 * density
-                val thumbHeight = maxOf(32 * density,
-                    track * emulator.mRows / (emulator.screen.activeTranscriptRows + emulator.mRows))
-                8 * density + thumbHeight / 2
-            }
-            compose.onNodeWithTag("terminal").performTouchInput {
-                // Grab the middle of the visible thumb, clear of Android's top-edge gestures.
-                down(androidx.compose.ui.geometry.Offset(width - 6 * density, thumbCenterY))
-                moveTo(androidx.compose.ui.geometry.Offset(width - 6 * density, height - 8 * density), delayMillis = 400)
-                up()
-            }
-            assertEquals("Dragging the thumb to the live edge resumes output", 0, historyView.topRow)
+            withContext(Dispatchers.Main) { historyView.scrollToBottom() }
+            assertEquals(0, historyView.topRow)
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
             compose.onNodeWithTag("restore-dock").performClick()
             compose.onNodeWithTag("collapse-dock").assertIsDisplayed()

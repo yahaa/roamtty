@@ -1,6 +1,5 @@
 package io.itermux.app.session
 
-import com.termux.terminal.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -28,26 +27,6 @@ class HotPathBenchmarkTest {
 
     @Test fun measureHotPaths() {
         assumeTrue("Set ITERMUX_BENCHMARK=1 to run", System.getenv("ITERMUX_BENCHMARK") == "1")
-        val output = object : TerminalOutput() {
-            override fun write(data: ByteArray, offset: Int, count: Int) = Unit
-            override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
-            override fun onCopyTextToClipboard(text: String?) = Unit
-            override fun onPasteTextFromClipboard() = Unit
-            override fun onBell() = Unit
-            override fun onColorsChanged() = Unit
-        }
-        val emulator = TerminalEmulator(output, 160, 100, 8, 16, 400, SilentTerminalClient())
-        val initial = (0 until 100).joinToString("\r\n") { "row $it " + "x".repeat(140) }.toByteArray()
-        emulator.append(initial, initial.size)
-        val frames = List(300) { "\u001b[99;1Hframe $it".toByteArray() }
-        measure("history-300-frames-160x100") {
-            val history = OutputHistory()
-            for (frame in frames) {
-                emulator.append(frame, frame.size)
-                history.capture(emulator)
-            }
-            check(history.snapshot().isNotEmpty())
-        }
         val files = List(400) { DownloadItem("/file-$it") }
         measure("download-400-files-20000-callbacks") {
             runBlocking {

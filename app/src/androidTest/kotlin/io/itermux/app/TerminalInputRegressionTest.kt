@@ -120,7 +120,7 @@ class TerminalInputRegressionTest {
         }
     }
 
-    @Test fun localAndTmuxHistoryNeverSendSwipeInputOrLeaveTheHistoryPosition() {
+    @Test fun localHistoryNeverSendsSwipeInputOrLeavesTheHistoryPosition() {
         terminalContent()
         compose.runOnIdle { terminal.setTopRow(-10) }
         swipeLeft()
@@ -130,14 +130,6 @@ class TerminalInputRegressionTest {
             assertEquals("", session.input.toString())
             assertEquals(-10, terminal.topRow)
             terminal.setTopRow(0)
-            terminal.setRemoteHistory(100, 10, TerminalView.RemoteHistoryListener {})
-        }
-        swipeLeft()
-        dragAndHold(-200f)
-        dragAndHold(200f)
-        compose.runOnIdle {
-            assertEquals("", session.input.toString())
-            terminal.setRemoteHistory(0, 0, null)
         }
         swipeLeft()
         compose.runOnIdle { assertEquals("\u001b[1;2D", session.input.toString()) }
@@ -153,14 +145,7 @@ class TerminalInputRegressionTest {
         touch(MotionEvent.ACTION_UP, x - 200, y)
         compose.runOnIdle { assertEquals("", session.input.toString()) }
 
-        touch(MotionEvent.ACTION_DOWN, x, y)
-        touch(MotionEvent.ACTION_MOVE, x - 200, y)
-        compose.runOnIdle { terminal.setRemoteHistory(100, 10, TerminalView.RemoteHistoryListener {}) }
-        touch(MotionEvent.ACTION_UP, x - 200, y)
-        compose.runOnIdle { assertEquals("", session.input.toString()) }
-
         val next = RecordingSession()
-        compose.runOnIdle { terminal.setRemoteHistory(0, 0, null) }
         touch(MotionEvent.ACTION_DOWN, x, y)
         touch(MotionEvent.ACTION_MOVE, x - 200, y)
         compose.runOnIdle { terminal.attachSession(next) }

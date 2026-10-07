@@ -3,7 +3,6 @@ package com.termux.terminal;
 
 /** Transport-neutral contract replacing the upstream JNI/local-process TerminalSession. */
 public interface TerminalSession {
-    default boolean isReadOnly() { return false; }
     TerminalEmulator getEmulator();
     void updateSize(int columns, int rows, int cellWidthPixels, int cellHeightPixels);
     void write(String data);

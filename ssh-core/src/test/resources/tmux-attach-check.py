@@ -55,6 +55,9 @@ with tempfile.TemporaryDirectory(prefix="roamtty-attach-") as root:
         wait_for(lambda: len(tmux("list-clients", "-t", "roamtty-review", "-F", "#{client_pid}").splitlines()) == 1)
         wait_for(lambda: tmux("display-message", "-p", "-t", "roamtty-review", "#{pane_in_mode}") == "0")
         assert restored.poll() is None
+        # Swipes scroll tmux history only through mouse mode, set for the app's own session.
+        wait_for(lambda: tmux("show-options", "-v", "-t", "roamtty-review", "mouse") == "on")
+        assert tmux("show-options", "-gv", "mouse") == "off"
         if sys.argv[1] == "restore":
             old.wait(timeout=2)
             assert pane == tmux("display-message", "-p", "-t", "roamtty-review", "#{pane_pid}")
