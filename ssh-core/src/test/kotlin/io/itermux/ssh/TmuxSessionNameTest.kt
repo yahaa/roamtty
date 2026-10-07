@@ -19,8 +19,9 @@ class TmuxSessionNameTest {
     @Test fun attachCommandQuotesSanitizedName() {
         val legacy = Tmux.attachCommand(Tmux.LEGACY_SESSION)
         assertTrue(legacy.startsWith("exec /bin/sh -c '${Tmux.PATH_SETUP}; "))
-        assertTrue(legacy.contains(") exec tmux new-session -A -D -s roamtty \\; set-option -t roamtty mouse on;; esac; "))
-        assertTrue(legacy.endsWith(" \\; set-option -t roamtty mouse on'"))
+        val options = "\\; set-option -t roamtty mouse on \\; set-option -t roamtty status off"
+        assertTrue(legacy.contains(") exec tmux new-session -A -D -s roamtty $options;; esac; "))
+        assertTrue(legacy.endsWith(" $options'"))
         assertTrue(legacy.contains("exec tmux new-session -A -D -s roamtty /bin/sh -c "))
         assertTrue(legacy.contains("#{pane_mode}"))
         assertTrue(legacy.indexOf("send-keys -t roamtty -X cancel") < legacy.indexOf("new-session -A -D"))

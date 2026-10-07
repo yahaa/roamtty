@@ -97,8 +97,10 @@ object Tmux {
     /**
      * First command of a new pane: blank lines push the first prompt onto the pane's last row,
      * next to the keyboard, then the shell starts as tmux would (default-command, else a login shell).
+     * tmux reports the height after the attach turned the status line off; the pty size may lag.
      */
-    internal const val BOTTOM_PROMPT_PANE = "set -- \$(stty size 2>/dev/null); n=\${1:-0}; " +
+    internal const val BOTTOM_PROMPT_PANE = "n=\$(tmux display-message -p \"#{pane_height}\" 2>/dev/null); " +
+        "[ -n \"\$n\" ] || { set -- \$(stty size 2>/dev/null); n=\${1:-0}; }; " +
         "while [ \"\$n\" -gt 1 ]; do echo; n=\$((n - 1)); done; s=\${SHELL:-/bin/sh}; " +
         "c=\$(tmux show-options -gv default-command 2>/dev/null); [ -n \"\$c\" ] && exec \"\$s\" -c \"\$c\"; exec \"\$s\" -l"
 
@@ -112,13 +114,14 @@ object Tmux {
         // A lost client leaves pane copy-mode and, with mosh, its old tmux attachment behind.
         // Reconcile the app's own session before accepting keys; -D detaches clients, not the task.
         // A failed cancel must not block the attach itself. Mouse mode turns swipes into wheel
-        // scrolling of tmux's own history; it is set for this session only.
-        val mouse = "\\; set-option -t $name mouse on"
+        // scrolling of tmux's own history; the status line only takes a row from the terminal.
+        // Both are set for this session only.
+        val options = "\\; set-option -t $name mouse on \\; set-option -t $name status off"
         return "/bin/sh -c '$PATH_SETUP; " +
             "if [ \"\$(tmux display-message -p -t $name \"#{pane_mode}\" 2>/dev/null)\" = copy-mode ]; then " +
             "tmux send-keys -t $name -X cancel || true; fi; " +
-            "case \"\$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux new-session -A -D -s $name $mouse;; esac; " +
-            "exec tmux new-session -A -D -s $name /bin/sh -c \"$pane\" $mouse'"
+            "case \"\$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux new-session -A -D -s $name $options;; esac; " +
+            "exec tmux new-session -A -D -s $name /bin/sh -c \"$pane\" $options'"
     }
 
     fun attachCommand(sessionName: String): String = "exec " + attachShellCommand(sessionName)
