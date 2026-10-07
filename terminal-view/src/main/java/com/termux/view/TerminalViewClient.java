@@ -34,8 +34,11 @@ public interface TerminalViewClient {
     /** Explicit triple-tap action on a writable terminal. Read-only history never calls this. */
     default void onTripleTap(MotionEvent e) {}
 
-    /** A mostly horizontal fling to the left on a writable terminal. Read-only history never calls this. */
+    /** A mostly horizontal swipe to the left on a writable terminal. Read-only history never calls this. */
     default void onSwipeLeft(MotionEvent e) {}
+
+    /** A mostly horizontal swipe to the right on a writable terminal. Read-only history never calls this. */
+    default void onSwipeRight(MotionEvent e) {}
 
     /** A left swipe whose finger rests before lifting, on a writable terminal; lifting then sends nothing more. */
     default void onSwipeHoldLeft() {}

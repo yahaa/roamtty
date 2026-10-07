@@ -226,12 +226,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         ctrlArmed = false
         shiftArmed = false
     }
-    /** Left swipe on the terminal sends Shift+Left (CSI ESC[1;2D); any armed Ctrl still applies. */
-    fun shiftArrowLeft() {
-        terminal?.sendInputControlKey(KeyEvent.KEYCODE_DPAD_LEFT, KeyHandler.KEYMOD_SHIFT)
-        ctrlArmed = false
-        shiftArmed = false
-    }
     fun sendPetShortcut(shortcut: PetShortcut) {
         when (val action = shortcut.action) {
             is PetAction.Keys -> {
@@ -431,7 +425,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
                             shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
                             onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); arrowKeysDismissedLine = slashCommandLine; enterKeyTyping = false; enterKeyTouches++ }, onTripleTap = { pasteClipboard() },
-                            onSwipeLeft = { shiftArrowLeft() },
+                            // Swipes send plain arrows; an armed Shift still makes Shift+Left for Codex questions.
+                            onSwipeLeft = { terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) }, onSwipeRight = { terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) },
                             onSwipeHoldLeft = { lineEdge("\u0001") }, onSwipeHoldRight = { lineEdge("\u0005") },
                             // Enter usually runs or submits the line: put the keyboard away so the output shows.
                             onSoftKeyboardEnter = { hideKeyboard() }))
