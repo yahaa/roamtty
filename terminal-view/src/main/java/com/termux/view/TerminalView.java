@@ -735,6 +735,11 @@ public final class TerminalView extends View {
 
                     inputCodePoint(KEY_EVENT_SOURCE_SOFT_KEYBOARD, codePoint, ctrlHeld, false);
                 }
+                // AOSP-style keyboards commit Enter as a trailing newline rather than a key event.
+                if (textLengthInChars > 0 && isCurrentConnection()) {
+                    char last = text.charAt(textLengthInChars - 1);
+                    if (last == '\n' || last == '\r') post(mClient::onSoftKeyboardEnter);
+                }
             }
 
         };
@@ -1317,6 +1322,9 @@ public final class TerminalView extends View {
         // to exit the activity.
         if (mEmulator == null && keyCode != KeyEvent.KEYCODE_BACK) return true;
 
+        // Hide only after the release, so the Enter's key-up is not delivered to whatever takes focus next.
+        if (isSoftKeyboardEnter(keyCode, event)) post(mClient::onSoftKeyboardEnter);
+
         if (mClient.onKeyUp(keyCode, event)) {
             invalidate();
             return true;
@@ -1326,6 +1334,13 @@ public final class TerminalView extends View {
         }
 
         return true;
+    }
+
+    /** An Enter key event sent by an on-screen keyboard rather than a hardware one. */
+    static boolean isSoftKeyboardEnter(int keyCode, KeyEvent event) {
+        if (keyCode != KeyEvent.KEYCODE_ENTER && keyCode != KeyEvent.KEYCODE_NUMPAD_ENTER) return false;
+        return event.getDeviceId() == KeyCharacterMap.VIRTUAL_KEYBOARD
+            || (event.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) != 0;
     }
 
     /**

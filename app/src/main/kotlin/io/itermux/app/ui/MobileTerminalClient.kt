@@ -21,7 +21,8 @@ internal class MobileTerminalClient(
     private val onSwipeLeft: () -> Unit = {},
     private val onSwipeRight: () -> Unit = {},
     private val onSwipeHoldLeft: () -> Unit = {},
-    private val onSwipeHoldRight: () -> Unit = {}
+    private val onSwipeHoldRight: () -> Unit = {},
+    private val onSoftKeyboardEnter: () -> Unit = {}
 ) : TerminalViewClient {
     override fun onScale(scale: Float): Float { if (scale < 0.9f || scale > 1.1f) onScale(scale); return 1f }
     /** Only a tap on the cursor's line opens the keyboard, so reading taps elsewhere keep the screen clear. */
@@ -61,6 +62,7 @@ internal class MobileTerminalClient(
         return false
     }
     override fun onInputCleared() = consumeModifiers()
+    override fun onSoftKeyboardEnter() = onSoftKeyboardEnter.invoke()
     override fun onLongPress(event: MotionEvent?) = false
     override fun readControlKey() = controlArmed()
     override fun readAltKey() = false

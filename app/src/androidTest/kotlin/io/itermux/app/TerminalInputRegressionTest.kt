@@ -37,6 +37,7 @@ class TerminalInputRegressionTest {
     private lateinit var terminal: TerminalView
     private var ctrlArmed = false
     private var shiftArmed = false
+    private var softEnters = 0
     private val session = RecordingSession()
     private var downTime = 0L
 
@@ -79,7 +80,8 @@ class TerminalInputRegressionTest {
                             { shiftArmed }, { shiftArmed = false },
                             onSwipeLeft = { view.sendInputControlKey(KeyEvent.KEYCODE_DPAD_LEFT) },
                             onSwipeHoldLeft = { view.sendInputText("\u0001") },
-                            onSwipeHoldRight = { view.sendInputText("\u0005") }))
+                            onSwipeHoldRight = { view.sendInputText("\u0005") },
+                            onSoftKeyboardEnter = { softEnters++ }))
                         view.attachSession(session)
                     }
                 })
@@ -334,6 +336,34 @@ class TerminalInputRegressionTest {
             assertFalse(old.deleteSurroundingText(Int.MAX_VALUE, 0))
             current.commitText("valid", 1)
             assertEquals("valid", session.input.toString())
+        }
+    }
+
+    @Test fun softKeyboardEnterIsReportedButHardwareEnterAndPlainTextAreNot() {
+        terminalContent()
+        val ime = connection()
+        compose.runOnIdle { ime.commitText("ls", 1) }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(0, softEnters) }
+        compose.runOnIdle { ime.commitText("\n", 1) }
+        compose.waitUntil(2_000) { softEnters == 1 }
+        compose.runOnIdle {
+            assertEquals("ls\r", session.input.toString())
+            ime.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+            ime.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+        }
+        compose.waitUntil(2_000) { softEnters == 2 }
+        compose.runOnIdle {
+            assertEquals("ls\r\r", session.input.toString())
+            val now = SystemClock.uptimeMillis()
+            for (action in listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP)) {
+                terminal.dispatchKeyEvent(KeyEvent(now, now, action, KeyEvent.KEYCODE_ENTER, 0, 0, 3, 0, 0, InputDevice.SOURCE_KEYBOARD))
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals("ls\r\r\r", session.input.toString())
+            assertEquals("A hardware keyboard's Enter keeps the keyboard state", 2, softEnters)
         }
     }
 }
