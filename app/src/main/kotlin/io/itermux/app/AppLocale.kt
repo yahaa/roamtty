@@ -149,6 +149,7 @@ private object EnglishText {
         "收起操作栏" to "Hide controls",
         "返回会话列表" to "Back to sessions",
         "返回主机列表" to "Back to hosts",
+        "返回主机详情" to "Back to host",
         "修改会话标题" to "Edit session title",
         "新会话" to "New session",
         "移除记录" to "Remove record",

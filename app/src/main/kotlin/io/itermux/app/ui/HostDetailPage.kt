@@ -93,9 +93,6 @@ internal fun HostDetailPage(
                 Box {
                     ToolbarIcon(R.drawable.ic_more, tr("更多"), Modifier.testTag("host-detail-more")) { menu = true }
                     DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem(text = { Text(tr("安装插件")) }, onClick = { menu = false; onManagePlugins() },
-                            leadingIcon = { Icon(painterResource(R.drawable.ic_download), contentDescription = null) })
-                        HorizontalDivider()
                         DropdownMenuItem(text = { Text(tr("删除主机")) }, onClick = { menu = false; onDelete() },
                             leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null) },
                             colors = MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.error,
@@ -118,6 +115,7 @@ internal fun HostDetailPage(
                         onClick = onBrowseFiles)
                 }
                 HostSessionsSection(sessions, onOpenSession, onCloseSession, onForgetSession)
+                HostPluginsSection(host, onManagePlugins)
                 if (monitor == null) MonitorLoginCard { askPassword = true }
                 else MonitorSection(monitor, onLogin = { if (host.needsTypedPassword || host.auth == "KEY") askPassword = true else monitor.start() })
                 HostInfoSection(host, metrics)
@@ -236,6 +234,20 @@ private fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, onC
     if (editTitle) SessionTitleDialog(session) { editTitle = false }
     if (confirmClose) SessionCloseDialog(session, { confirmClose = false }, onClose)
     if (confirmForget) SessionForgetDialog(session, { confirmForget = false }, onForget)
+}
+
+/** The host's tmux / mosh state, and the way into the plugin sheet that installs them. */
+@Composable
+private fun HostPluginsSection(host: Host, onManagePlugins: () -> Unit) {
+    val installed = host.installedPlugins?.let { found ->
+        HostPlugin.entries.filter { it in found }.joinToString(" · ") { it.id }.ifEmpty { tr("未安装") }
+    } ?: tr("未检测")
+    GroupedSection(header = tr("插件")) {
+        GroupedRow(tr("安装插件"), Modifier.testTag("host-detail-plugins"), subtitle = installed,
+            leading = { Icon(painterResource(R.drawable.ic_download), contentDescription = null, Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.primary) },
+            trailing = { Chevron() }, onClick = onManagePlugins)
+    }
 }
 
 @Composable
@@ -500,9 +512,6 @@ private fun HostInfoSection(host: Host, metrics: HostMetrics?) {
         add(tr("用户名") to host.username)
         add(tr("认证方式") to (authLabel(host.auth) + (host.keyLabel?.takeIf { host.auth == "KEY" }?.let { " · $it" } ?: "")))
         add(tr("新会话") to modeLabel(host.mode == SessionMode.TMUX.name))
-        add(tr("插件") to (host.installedPlugins?.let { found ->
-            HostPlugin.entries.filter { it in found }.joinToString(" · ") { it.id }.ifEmpty { tr("未安装") }
-        } ?: tr("未检测")))
         metrics?.hostname?.let { add(tr("主机名") to it) }
         metrics?.kernel?.let { add(tr("内核") to it) }
         metrics?.arch?.let { add(tr("架构") to it) }

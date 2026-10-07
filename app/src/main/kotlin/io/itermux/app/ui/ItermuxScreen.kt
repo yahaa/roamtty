@@ -92,11 +92,19 @@ fun ItermuxScreen(
     val terminalChrome = terminalVisible || page == "files"
     // Older IMEs reveal system bars without changing window focus. Restore immersive mode on close.
     LaunchedEffect(terminalChrome, imeVisible, lightTheme, landscape) { onChromeChange(terminalChrome, lightTheme) }
-    BackHandler(page == "terminal") { page = "sessions" }
     BackHandler(page == "sessions") { page = "hosts" }
     BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    /** Leaves the terminal for its host's detail page; the session list when that host is gone. */
+    fun leaveTerminal() {
+        val hostId = sessions.find { it.id == selected }?.host?.id
+        if (hostId != null && hosts.any { it.id == hostId }) {
+            detailHostId = hostId
+            page = "host"
+        } else page = "sessions"
+    }
+    BackHandler(page == "terminal") { leaveTerminal() }
     LaunchedEffect(service, sessions, selected, page) {
         service?.awaitRestoration()
         if (service != null && page == "terminal" && service.sessions.value.none { it.id == selected }) page = "sessions"
@@ -432,7 +440,7 @@ fun ItermuxScreen(
                     if (active != null) key(active) {
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
-                            onSessions = { page = "sessions" }, onHosts = { page = "hosts" },
+                            onSessions = { page = "sessions" }, onHostDetail = ::leaveTerminal,
                             onReconnect = { connect(active.host, active.mode, active.title.value, reuseSessionId = active.id) },
                             // A new session follows the host's current plugins (mosh first, tmux when installed).
                             onNewSession = { connect(hosts.firstOrNull { it.id == active.host.id } ?: active.host) },
