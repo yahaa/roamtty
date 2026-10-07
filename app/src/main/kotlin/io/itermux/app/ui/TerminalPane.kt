@@ -551,8 +551,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         val ringCenter = petCenter
         if (ringCenter != null && dockAvailable && !dockVisible) {
             val topInset = WindowInsets.displayCutout.union(WindowInsets.statusBars).getTop(LocalDensity.current).toFloat()
-            val title = if (petMenu != null) "F1–F12" else petApp.label.ifEmpty { tr("终端") }
-            PetShortcutArc(petShortcuts, ringCenter, topInset, petHovered, title, armed = { action ->
+            PetShortcutArc(petShortcuts, ringCenter, topInset, petHovered, armed = { action ->
                 action == PetAction.Ctrl && ctrlArmed || action == PetAction.Shift && shiftArmed
             }, onTap = if (petPinned) { index ->
                 val picked = index?.let(petShortcuts::getOrNull)

@@ -187,13 +187,12 @@ internal val PetArcSpacing = 43.dp
 private val PetArcCaptionWidth = 132.dp
 
 /**
- * The shortcut ring drawn over the workspace while the pet is held; [center] is the pet centre in this box. The
- * inside of the ring names [title] (the program in front), or what the hovered item does. [armed] marks a sticky
- * modifier that is already on. With [onTap] the ring stays up after the pet is let go: a tap on an item reports its
+ * The shortcut ring drawn over the workspace while the pet is held; [center] is the pet centre in this box. A
+ * caption says what the hovered item does. [armed] marks a sticky modifier that is already on. With [onTap] the ring stays up after the pet is let go: a tap on an item reports its
  * index, a tap anywhere else reports null and is kept from the terminal.
  */
 @Composable
-internal fun PetShortcutArc(shortcuts: List<PetShortcut>, center: Offset, topInset: Float, hovered: Int?, title: String,
+internal fun PetShortcutArc(shortcuts: List<PetShortcut>, center: Offset, topInset: Float, hovered: Int?,
     armed: (PetAction) -> Boolean = { false }, onTap: ((Int?) -> Unit)? = null, arcFor: (PetArc) -> Unit) {
     val density = LocalDensity.current
     val open = remember { Animatable(0f) }
@@ -227,7 +226,7 @@ internal fun PetShortcutArc(shortcuts: List<PetShortcut>, center: Offset, topIns
                 Offset(center.x - r, center.y - r), Size(2 * r, 2 * r), style = Stroke(width = 14.dp.toPx()))
         }
         // The caption sits just outside the ring, level with the pet, so it covers neither the keys nor the pet.
-        val caption = hovered?.let(shortcuts::getOrNull)?.description ?: title
+        val caption = hovered?.let(shortcuts::getOrNull)?.description.orEmpty()
         if (caption.isNotEmpty()) {
             val (left, width) = with(density) {
                 val right = center.x - arc.radius - PetArcItemSize.toPx() / 2 - 8.dp.toPx()

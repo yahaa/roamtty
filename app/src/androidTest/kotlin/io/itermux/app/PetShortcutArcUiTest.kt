@@ -46,14 +46,13 @@ class PetShortcutArcUiTest {
     // Every program's ring shows all its items and reports its layout back for hover tracking; F1–F12 fit as well.
     @Test fun ringShowsEveryShortcut() {
         var shown by mutableStateOf(petShortcuts(ScreenApp.SHELL))
-        var title by mutableStateOf("")
         var hovered by mutableStateOf<Int?>(null)
         var arc: PetArc? = null
         compose.setContent {
             MaterialTheme(darkColorScheme()) {
                 Box(Modifier.size(360.dp, 640.dp).background(Color(0xFF101014))) {
                     val center = with(LocalDensity.current) { Offset(332.dp.toPx(), 244.dp.toPx()) }
-                    PetShortcutArc(shown, center, 0f, hovered = hovered, title = title) { arc = it }
+                    PetShortcutArc(shown, center, 0f, hovered = hovered) { arc = it }
                     // The pet itself, at the ring's centre and blown up in a corner to check the drawing.
                     Box(Modifier.offset(308.dp, 220.dp)) { ToolboxPet("pet") {} }
                     Box(Modifier.offset(150.dp, 520.dp).graphicsLayer { scaleX = 4f; scaleY = 4f }) { ToolboxPet("big") {} }
@@ -65,7 +64,6 @@ class PetShortcutArcUiTest {
             ("fn" to (petShortcuts(ScreenApp.SHELL).first().action as PetAction.Menu).items)
         rings.forEachIndexed { i, (name, items) ->
             shown = items
-            title = name
             hovered = if (i == 1) 3 else null
             compose.waitForIdle()
             items.forEach { compose.onNodeWithTag(it.tag).assertIsDisplayed() }
@@ -84,7 +82,7 @@ class PetShortcutArcUiTest {
             MaterialTheme(darkColorScheme()) {
                 Box(Modifier.size(360.dp, 640.dp)) {
                     val center = with(LocalDensity.current) { Offset(332.dp.toPx(), 244.dp.toPx()) }
-                    PetShortcutArc(shortcuts, center, 0f, hovered = null, title = "", onTap = { taps += it }) {}
+                    PetShortcutArc(shortcuts, center, 0f, hovered = null, onTap = { taps += it }) {}
                 }
             }
         }
