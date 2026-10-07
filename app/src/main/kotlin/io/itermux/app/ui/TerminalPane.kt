@@ -458,6 +458,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                                 shiftArmed = false
                                 view.scrollToBottom()
                                 session.write("\r")
+                                // Like the soft keyboard's Enter: put an open keyboard away so the output shows.
+                                if (imeVisible) hideKeyboard()
                             }
                         }
                     }

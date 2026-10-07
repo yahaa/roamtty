@@ -4,6 +4,9 @@ import android.content.Intent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
@@ -124,8 +127,19 @@ class CursorEnterKeyTest {
                 }
             }
 
+            // With the keyboard open, the Enter key also puts it away.
+            suspend fun imeShown() = withContext(Dispatchers.Main) {
+                ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            }
+            withContext(Dispatchers.Main) {
+                view.requestFocus()
+                view.context.getSystemService(InputMethodManager::class.java).showSoftInput(view, 0)
+            }
+            withTimeout(5_000) { while (!imeShown()) delay(50) }
+            compose.waitUntil(3_000) { enterKeyShown() }
             compose.onNodeWithTag("cursor-enter").performTouchInput { click() }
             outputContains("KEY_0D")
+            withTimeout(5_000) { while (imeShown()) delay(50) }
 
             // After a quiet spell it hides; a double tap brings it back.
             compose.waitUntil(5_000) { !enterKeyShown() }
