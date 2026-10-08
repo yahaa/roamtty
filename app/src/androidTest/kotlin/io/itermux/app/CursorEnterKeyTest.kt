@@ -152,7 +152,7 @@ class CursorEnterKeyTest {
             val escRow = withContext(Dispatchers.Main) { viewTop + view.cursorRowTop + view.lineHeight / 2f }
             assertTrue("esc on the cursor row", abs(escape.center.y - escRow) <= 2f)
             assertTrue("esc in the enter key's place", abs(escape.center.x - key.center.x) <= 1f)
-            // A double tap sends Tab and brings Up/Down keys stacked beside the pet; the cursor row keeps its key.
+            // A double tap sends Tab and brings Up above the pet and Down below it; the cursor row keeps its key.
             compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
             compose.waitUntil(3_000) { enterKeyShown() }
             outputContains("KEY_09")
@@ -160,8 +160,8 @@ class CursorEnterKeyTest {
             val pet = compose.onNodeWithTag("restore-dock").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
             val up = compose.onNodeWithTag("pet-arrow-up").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
             val down = compose.onNodeWithTag("pet-arrow-down").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
-            assertTrue("arrows just left of the pet", up.right <= pet.left + 1f && pet.left - up.right <= 8f)
-            assertTrue("stacked around the pet's middle", abs(up.bottom - pet.center.y) <= 2f && abs(down.top - pet.center.y) <= 2f)
+            assertTrue("up just above the pet", abs(up.bottom - pet.top) <= 2f && abs(up.center.x - pet.center.x) <= 1f)
+            assertTrue("down just below the pet", abs(down.top - pet.bottom) <= 2f && abs(down.center.x - pet.center.x) <= 1f)
             compose.onNodeWithTag("pet-arrow-up").performTouchInput { click() }
             outputContains("KEY_41")
             compose.onNodeWithTag("pet-arrow-down").performTouchInput { click() }

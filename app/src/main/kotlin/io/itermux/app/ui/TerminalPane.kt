@@ -178,7 +178,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var enterKeyAwake by remember { mutableStateOf(false) }
     var enterKeyTouches by remember { mutableIntStateOf(0) }
     var enterKeyTyping by remember { mutableStateOf(false) }
-    // A double tap (Tab) brings stacked Up/Down keys beside the pet, to move through the completions or
+    // A double tap (Tab) brings Up/Down keys above and below the pet, to move through the completions or
     // menu it opens; they fade after a quiet spell, and each press restarts it.
     var petArrowsAwake by remember { mutableStateOf(false) }
     var petArrowTouches by remember { mutableIntStateOf(0) }
@@ -576,19 +576,13 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             val petArrowsShown = petArrowsAwake && petCenter == null
             AnimatedVisibility(toolboxAwake || petCenter != null || petArrowsShown, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
                 exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
-                TerminalDockPlacement { Row(verticalAlignment = Alignment.CenterVertically) {
+                // Up above the pet and Down below it; the pet stays put between them.
+                TerminalDockPlacement { Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     androidx.compose.animation.AnimatedVisibility(petArrowsShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
-                        Column {
-                            CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "pet-arrow-up") {
-                                petArrowTouches++
-                                terminal?.scrollToBottom()
-                                terminalKey(KeyEvent.KEYCODE_DPAD_UP)
-                            }
-                            CursorKey(R.drawable.ic_expand_down, tr("发送下方向键"), "pet-arrow-down") {
-                                petArrowTouches++
-                                terminal?.scrollToBottom()
-                                terminalKey(KeyEvent.KEYCODE_DPAD_DOWN)
-                            }
+                        CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "pet-arrow-up") {
+                            petArrowTouches++
+                            terminal?.scrollToBottom()
+                            terminalKey(KeyEvent.KEYCODE_DPAD_UP)
                         }
                     }
                     ToolboxPet(tr("显示操作栏"), onHoldStart = { center ->
@@ -623,6 +617,13 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             if (released && picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
                         }
                     }) { dockExpanded = true }
+                    androidx.compose.animation.AnimatedVisibility(petArrowsShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
+                        CursorKey(R.drawable.ic_expand_down, tr("发送下方向键"), "pet-arrow-down") {
+                            petArrowTouches++
+                            terminal?.scrollToBottom()
+                            terminalKey(KeyEvent.KEYCODE_DPAD_DOWN)
+                        }
+                    }
                 } }
             }
         }
@@ -652,7 +653,7 @@ internal object TerminalToolbox {
     @Volatile var enterKeyHideMillis = 3_000L
     /** How long typing must pause before the cursor-row Enter key appears. */
     @Volatile var enterKeyTypingPauseMillis = 700L
-    /** Idle timeout of the Up/Down keys a double tap brings beside the pet; 0 keeps them. */
+    /** Idle timeout of the Up/Down keys a double tap brings above and below the pet; 0 keeps them. */
     @Volatile var petArrowsHideMillis = 4_000L
 }
 
