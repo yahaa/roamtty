@@ -179,9 +179,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var enterKeyAwake by remember { mutableStateOf(false) }
     var enterKeyTouches by remember { mutableIntStateOf(0) }
     var enterKeyTyping by remember { mutableStateOf(false) }
-    // A double tap (Tab) brings Up/Down keys above and below the pet, to move through the completions or
-    // menu it opens; they fade after a quiet spell, and each press restarts it. A line starting with `/`
-    // brings them too, for its command menu, and keeps them up for as long as it does.
+    // A double tap (Tab) brings Up/Down keys above and below the pet and Left to its left, to move through
+    // the completions or menu it opens; they fade after a quiet spell, and each press restarts it. A line
+    // starting with `/` brings them too, for its command menu, and keeps them up for as long as it does.
     val slashCommandLine by session.slashCommandLine.collectAsStateWithLifecycle()
     var petArrowsAwake by remember { mutableStateOf(false) }
     var petArrowTouches by remember { mutableIntStateOf(0) }
@@ -577,8 +577,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             // Leave the composition while hidden so taps on that edge reach the terminal.
             // The ring opens around the pet, so the arrows step aside while it is up.
             val petArrowsShown = (petArrowsAwake || slashCommandLine != 0) && petCenter == null
-            // Left only comes with a double tap.
-            val petLeftShown = petArrowsAwake && petCenter == null
             AnimatedVisibility(toolboxAwake || petCenter != null || petArrowsShown, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
                 exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
                 // Up above the pet, Down below it and Left to its left; the pet stays put between them.
@@ -628,7 +626,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             val key = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
                             layout(0, 0) { key.placeRelative(-key.width, -key.height / 2) }
                         }) {
-                            androidx.compose.animation.AnimatedVisibility(petLeftShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
+                            androidx.compose.animation.AnimatedVisibility(petArrowsShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
                                 CursorKey(R.drawable.ic_expand_left, tr("发送左方向键"), "pet-arrow-left") {
                                     petArrowTouches++
                                     terminal?.scrollToBottom()

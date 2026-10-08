@@ -181,7 +181,7 @@ class CursorEnterKeyTest {
             type("/")
             outputContains("KEY_2F")
             compose.waitUntil(3_000) { arrowKeysShown() }
-            assertTrue("no left key on a slash line", compose.onAllNodesWithTag("pet-arrow-left").fetchSemanticsNodes().isEmpty())
+            compose.onNodeWithTag("pet-arrow-left").assertIsDisplayed()
             delay(TerminalToolbox.petArrowsHideMillis + 500L)
             assertTrue("arrows stay on a slash line", arrowKeysShown())
             suspend fun downs() = withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.split("KEY_42").size - 1 }
