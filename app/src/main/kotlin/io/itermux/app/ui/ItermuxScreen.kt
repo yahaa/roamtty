@@ -413,7 +413,9 @@ fun ItermuxScreen(
                             // A new session follows the host's current plugins (mosh first, tmux when installed).
                             onNewSession = { connect(hosts.firstOrNull { it.id == active.host.id } ?: active.host) },
                             onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
-                            onReverify = { reverify = active }, onClose = { service?.close(active.id) })
+                            onReverify = { reverify = active },
+                            // Closing ends the terminal page too: back to the host the session belonged to.
+                            onClose = { leaveTerminal(); service?.close(active.id) })
                     }
                 }
             }

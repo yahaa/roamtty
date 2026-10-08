@@ -356,6 +356,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     DropdownMenuItem(text = { Text(tr("返回主机列表")) }, onClick = { sessionMenu = false; onHosts() })
                     DropdownMenuItem(text = { Text(tr("返回主机详情")) }, onClick = { sessionMenu = false; onHostDetail() })
                     DropdownMenuItem(text = { Text(tr("修改会话标题")) }, onClick = { sessionMenu = false; editSessionTitle = true })
+                    DropdownMenuItem(text = { Text(tr("关闭当前会话")) }, onClick = { sessionMenu = false; if (state.active) closeConfirm = true else onClose() },
+                        modifier = Modifier.testTag("close-session"))
                     if (session.mode == SessionMode.TMUX) DropdownMenuItem(
                         text = { Text(tr("新会话")) },
                         onClick = { sessionMenu = false; onNewSession() },
@@ -397,8 +399,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text(trf("增大字号 · %d sp", fontSize)) }, onClick = { fontSize = (fontSize + 1).coerceAtMost(28); menu = false })
                     DropdownMenuItem(text = { Text(trf("减小字号 · %d sp", fontSize)) }, onClick = { fontSize = (fontSize - 1).coerceAtLeast(8); menu = false })
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text(tr("关闭连接")) }, onClick = { menu = false; if (state.active) closeConfirm = true else onClose() })
                 }
             }
         })
@@ -633,7 +633,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         session.executeHistoryCommand(command)
     }, onDismiss = { commonCommandsOpen = false })
     confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text(tr("发送多行文本？")) }, text = { Text(tr("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。")) }, confirmButton = { TextButton(onClick = { sendPaste(text); confirmPaste = null }, enabled = state.phase == Phase.CONNECTED) { Text(tr("发送")) } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text(tr("取消")) } }) }
-    if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text(tr("关闭此连接？")) }, text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")) }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text(tr("关闭连接")) } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text(tr("取消")) } })
+    if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text(tr("关闭当前会话？")) }, text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")) }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text(tr("关闭")) } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text(tr("取消")) } })
 }
 
 /** Idle timeout of the collapsed toolbox button; 0 keeps it visible (instrumentation tests). */
