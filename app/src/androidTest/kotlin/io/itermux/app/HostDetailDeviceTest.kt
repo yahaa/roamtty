@@ -85,7 +85,13 @@ class HostDetailDeviceTest {
             compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } // terminal → host detail
             compose.waitUntil(5000) { compose.onAllNodesWithText("Codex · projects", substring = true).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("host-detail").assertExists()
+            compose.onNodeWithTag("host-detail-more").performClick()
             compose.onNodeWithTag("host-detail-plugins").assertExists()
+            compose.onNodeWithTag("host-detail-edit").assertExists()
+            screenshot("host-detail-menu")
+            androidx.test.espresso.Espresso.pressBack() // the key goes to the focused menu popup, closing only it
+            compose.waitUntil(5000) { compose.onAllNodesWithTag("host-detail-plugins").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("host-detail").assertExists()
             compose.waitUntil(20_000) {
                 compose.onAllNodesWithText("信任并连接").fetchSemanticsNodes().isNotEmpty() ||
                     compose.onAllNodes(hasAnyAncestor(hasTestTag("host-gauge-cpu")) and hasText("%", substring = true), useUnmergedTree = true)

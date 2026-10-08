@@ -88,12 +88,18 @@ internal fun HostDetailPage(
         AppToolbar(title = host.name,
             navigation = { ToolbarIcon(R.drawable.ic_chevron_left, tr("返回主机列表"), Modifier.testTag("host-detail-back"), onClick = onBack) },
             actions = {
-                ToolbarIcon(R.drawable.ic_plugin, tr("安装插件"), Modifier.testTag("host-detail-plugins"), onClick = onManagePlugins)
-                ToolbarIcon(R.drawable.ic_edit, tr("编辑主机"), Modifier.testTag("host-detail-edit"), onClick = onEdit)
+                // Plugins, edit and delete all live behind the one overflow button, keeping the bar to a single icon.
                 var menu by remember { mutableStateOf(false) }
                 Box {
                     ToolbarIcon(R.drawable.ic_more, tr("更多"), Modifier.testTag("host-detail-more")) { menu = true }
                     DropdownMenu(menu, { menu = false }) {
+                        DropdownMenuItem(text = { Text(tr("安装插件")) }, onClick = { menu = false; onManagePlugins() },
+                            modifier = Modifier.testTag("host-detail-plugins"),
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_plugin), contentDescription = null) })
+                        DropdownMenuItem(text = { Text(tr("编辑主机")) }, onClick = { menu = false; onEdit() },
+                            modifier = Modifier.testTag("host-detail-edit"),
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_edit), contentDescription = null) })
+                        HorizontalDivider()
                         DropdownMenuItem(text = { Text(tr("删除主机")) }, onClick = { menu = false; onDelete() },
                             leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null) },
                             colors = MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.error,
