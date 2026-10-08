@@ -39,6 +39,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
@@ -576,9 +577,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             // Leave the composition while hidden so taps on that edge reach the terminal.
             // The ring opens around the pet, so the arrows step aside while it is up.
             val petArrowsShown = (petArrowsAwake || slashCommandLine != 0) && petCenter == null
+            // Left only comes with a double tap.
+            val petLeftShown = petArrowsAwake && petCenter == null
             AnimatedVisibility(toolboxAwake || petCenter != null || petArrowsShown, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
                 exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
-                // Up above the pet and Down below it; the pet stays put between them.
+                // Up above the pet, Down below it and Left to its left; the pet stays put between them.
                 TerminalDockPlacement { Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     androidx.compose.animation.AnimatedVisibility(petArrowsShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
                         CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "pet-arrow-up") {
@@ -587,38 +590,53 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             terminalKey(KeyEvent.KEYCODE_DPAD_UP)
                         }
                     }
-                    ToolboxPet(tr("显示操作栏"), onHoldStart = { center ->
-                        petHovered = null
-                        petMenu = null
-                        petPinned = false
-                        petApp = session.screenApp()
-                        petCenter = center - workspaceOrigin
-                    }, onHoldMove = { drag ->
-                        val arc = petArc
-                        // Back over the pet leaves a sub-ring.
-                        if (petMenu != null && arc != null && drag.getDistance() < arc.radius * 0.25f) {
-                            petMenu = null
-                            petArc = null
-                        }
-                        val hovered = petArc?.hoveredItem(drag)
-                        if (hovered != petHovered) {
-                            petHovered = hovered
-                            if (hovered != null) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
-                    }, onHoldEnd = { released ->
-                        val picked = petHovered?.let(petShortcuts::getOrNull)
-                        val menu = picked?.action as? PetAction.Menu
-                        touches++
-                        if (released && (picked == null || menu != null)) {
-                            // Let go between items: keep the ring up for a tap. A menu not yet unfolded opens now.
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        ToolboxPet(tr("显示操作栏"), onHoldStart = { center ->
                             petHovered = null
-                            if (menu != null) { petArc = null; petMenu = menu.items }
-                            petPinned = true
-                        } else {
-                            closePetRing()
-                            if (released && picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
+                            petMenu = null
+                            petPinned = false
+                            petApp = session.screenApp()
+                            petCenter = center - workspaceOrigin
+                        }, onHoldMove = { drag ->
+                            val arc = petArc
+                            // Back over the pet leaves a sub-ring.
+                            if (petMenu != null && arc != null && drag.getDistance() < arc.radius * 0.25f) {
+                                petMenu = null
+                                petArc = null
+                            }
+                            val hovered = petArc?.hoveredItem(drag)
+                            if (hovered != petHovered) {
+                                petHovered = hovered
+                                if (hovered != null) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        }, onHoldEnd = { released ->
+                            val picked = petHovered?.let(petShortcuts::getOrNull)
+                            val menu = picked?.action as? PetAction.Menu
+                            touches++
+                            if (released && (picked == null || menu != null)) {
+                                // Let go between items: keep the ring up for a tap. A menu not yet unfolded opens now.
+                                petHovered = null
+                                if (menu != null) { petArc = null; petMenu = menu.items }
+                                petPinned = true
+                            } else {
+                                closePetRing()
+                                if (released && picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
+                            }
+                        }) { dockExpanded = true }
+                        // Takes no width, so the column stays centred on the pet; the key hangs off its left side.
+                        Box(Modifier.layout { measurable, constraints ->
+                            val key = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                            layout(0, 0) { key.placeRelative(-key.width, -key.height / 2) }
+                        }) {
+                            androidx.compose.animation.AnimatedVisibility(petLeftShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
+                                CursorKey(R.drawable.ic_expand_left, tr("发送左方向键"), "pet-arrow-left") {
+                                    petArrowTouches++
+                                    terminal?.scrollToBottom()
+                                    terminalKey(KeyEvent.KEYCODE_DPAD_LEFT)
+                                }
+                            }
                         }
-                    }) { dockExpanded = true }
+                    }
                     androidx.compose.animation.AnimatedVisibility(petArrowsShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
                         CursorKey(R.drawable.ic_expand_down, tr("发送下方向键"), "pet-arrow-down") {
                             petArrowTouches++

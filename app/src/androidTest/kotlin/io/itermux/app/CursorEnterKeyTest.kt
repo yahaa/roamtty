@@ -162,6 +162,10 @@ class CursorEnterKeyTest {
             val down = compose.onNodeWithTag("pet-arrow-down").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
             assertTrue("up just above the pet", abs(up.bottom - pet.top) <= 2f && abs(up.center.x - pet.center.x) <= 1f)
             assertTrue("down just below the pet", abs(down.top - pet.bottom) <= 2f && abs(down.center.x - pet.center.x) <= 1f)
+            val left = compose.onNodeWithTag("pet-arrow-left").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            assertTrue("left just left of the pet", abs(left.right - pet.left) <= 2f && abs(left.center.y - pet.center.y) <= 2f)
+            compose.onNodeWithTag("pet-arrow-left").performTouchInput { click() }
+            outputContains("KEY_44")
             compose.onNodeWithTag("pet-arrow-up").performTouchInput { click() }
             outputContains("KEY_41")
             compose.onNodeWithTag("pet-arrow-down").performTouchInput { click() }
@@ -177,6 +181,7 @@ class CursorEnterKeyTest {
             type("/")
             outputContains("KEY_2F")
             compose.waitUntil(3_000) { arrowKeysShown() }
+            assertTrue("no left key on a slash line", compose.onAllNodesWithTag("pet-arrow-left").fetchSemanticsNodes().isEmpty())
             delay(TerminalToolbox.petArrowsHideMillis + 500L)
             assertTrue("arrows stay on a slash line", arrowKeysShown())
             suspend fun downs() = withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.split("KEY_42").size - 1 }

@@ -215,6 +215,7 @@ private object EnglishText {
         "Shift，与方向键组合发送；也可作用于下一次键盘字符" to "Shift combines with arrow keys; also applies to the next keyboard character",
         "发送上方向键" to "Send Up arrow",
         "发送下方向键" to "Send Down arrow",
+        "发送左方向键" to "Send Left arrow",
         "光标左移" to "Move cursor left",
         "光标右移" to "Move cursor right",
         "删除字符，长按清空当前输入" to "Delete character; hold to clear input",
