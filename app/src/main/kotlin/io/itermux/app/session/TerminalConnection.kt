@@ -102,7 +102,6 @@ class TerminalConnection(
             lastOutput = now
             withContext(Dispatchers.Main.immediate) {
                 parser.append(bytes, bytes.size)
-                updateSlashCommand()
                 revision.value++
                 onScreenChanged?.invoke()
             }
@@ -122,19 +121,6 @@ class TerminalConnection(
         val lines = rows.coerceIn(2, 300)
         parser.resize(cols, lines, cellWidthPixels, cellHeightPixels)
         ssh.resize(cols, lines, cols * cellWidthPixels, lines * cellHeightPixels)
-    }
-    private val slashCommand = MutableStateFlow(0)
-    private var slashLines = 0
-    /** Non-zero while the input on the cursor row starts with `/`, numbering each such line. */
-    val slashCommandLine = slashCommand.asStateFlow()
-    private fun updateSlashCommand() {
-        val row = parser.cursorRow
-        val slash = SlashCommandLine.startsWithSlash(parser.screen.getSelectedText(0, row, parser.mColumns, row, false, false))
-        slashCommand.value = when {
-            !slash -> 0
-            slashCommand.value != 0 -> slashCommand.value
-            else -> ++slashLines
-        }
     }
     /** Which agent, if any, is in front: read from the visible screen when asked. */
     fun screenApp(): ScreenApp {

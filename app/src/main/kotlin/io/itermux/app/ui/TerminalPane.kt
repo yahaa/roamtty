@@ -178,11 +178,19 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var enterKeyAwake by remember { mutableStateOf(false) }
     var enterKeyTouches by remember { mutableIntStateOf(0) }
     var enterKeyTyping by remember { mutableStateOf(false) }
-    // A line starting with `/` brings stacked Up/Down keys to the cursor row, in the Enter key's place, to
-    // move through the command menu. A double tap (Tab) swaps them for the Enter key; once that hides
-    // again they come back for as long as the line still starts with `/`.
-    val slashCommandLine by session.slashCommandLine.collectAsStateWithLifecycle()
-    var arrowKeysDismissedLine by remember { mutableIntStateOf(0) }
+    // A double tap (Tab) brings stacked Up/Down keys beside the pet, to move through the completions or
+    // menu it opens; they fade after a quiet spell, and each press restarts it.
+    var petArrowsAwake by remember { mutableStateOf(false) }
+    var petArrowTouches by remember { mutableIntStateOf(0) }
+    LaunchedEffect(petArrowTouches) {
+        if (petArrowTouches == 0) return@LaunchedEffect
+        petArrowsAwake = true
+        val hideAfter = TerminalToolbox.petArrowsHideMillis
+        if (hideAfter > 0) {
+            delay(hideAfter)
+            petArrowsAwake = false
+        }
+    }
     LaunchedEffect(enterKeyTouches) {
         if (enterKeyTouches == 0) return@LaunchedEffect
         if (enterKeyTyping) {
@@ -194,7 +202,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         if (hideAfter > 0) {
             delay(hideAfter)
             enterKeyAwake = false
-            arrowKeysDismissedLine = 0
         }
     }
     // Observe the first press without consuming it: the same tap still reaches the terminal,
@@ -432,7 +439,13 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
                             controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
                             shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
-                            onDoubleTap = { terminalKey(KeyEvent.KEYCODE_TAB); arrowKeysDismissedLine = slashCommandLine; enterKeyTyping = false; enterKeyTouches++ }, onTripleTap = { pasteClipboard() },
+                            onDoubleTap = {
+                                terminalKey(KeyEvent.KEYCODE_TAB)
+                                enterKeyTyping = false
+                                enterKeyTouches++
+                                touches++
+                                petArrowTouches++
+                            }, onTripleTap = { pasteClipboard() },
                             // Swipes send plain arrows; an armed Shift still makes Shift+Left for Codex questions.
                             onSwipeLeft = { terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) }, onSwipeRight = { terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) },
                             onSwipeHoldLeft = { lineEdge("\u0001") }, onSwipeHoldRight = { lineEdge("\u0005") },
@@ -454,9 +467,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     checkNotNull(terminalFontKey)
                 })
                 val cursorKeysAllowed = state.phase == Phase.CONNECTED && !editor
-                // The arrows take the Enter key's place on the cursor row while they show.
-                val arrowKeysShown = slashCommandLine != 0 && slashCommandLine != arrowKeysDismissedLine && cursorKeysAllowed
-                androidx.compose.animation.AnimatedVisibility(enterKeyAwake && cursorKeysAllowed && !arrowKeysShown,
+                androidx.compose.animation.AnimatedVisibility(enterKeyAwake && cursorKeysAllowed,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
                     terminal?.let { view ->
                         CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight) {
@@ -474,7 +485,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     }
                 }
                 // Esc holds the Enter key's place whenever Enter is hidden.
-                androidx.compose.animation.AnimatedVisibility(!enterKeyAwake && cursorKeysAllowed && !arrowKeysShown,
+                androidx.compose.animation.AnimatedVisibility(!enterKeyAwake && cursorKeysAllowed,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(120))) {
                     terminal?.let { view ->
                         CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight) {
@@ -483,26 +494,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                                 shiftArmed = false
                                 view.scrollToBottom()
                                 session.write("\u001b")
-                            }
-                        }
-                    }
-                }
-                androidx.compose.animation.AnimatedVisibility(arrowKeysShown,
-                    modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
-                    terminal?.let { view ->
-                        // Up and Down stacked at the right end, meeting at the middle of the cursor row.
-                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight * 2) {
-                            Column {
-                                CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "cursor-up") {
-                                    enterKeyTyping = false
-                                    enterKeyTouches++
-                                    terminalKey(KeyEvent.KEYCODE_DPAD_UP)
-                                }
-                                CursorKey(R.drawable.ic_expand_down, tr("发送下方向键"), "cursor-down") {
-                                    enterKeyTyping = false
-                                    enterKeyTouches++
-                                    terminalKey(KeyEvent.KEYCODE_DPAD_DOWN)
-                                }
                             }
                         }
                     }
@@ -581,9 +572,25 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             }
         } else if (dockAvailable && !dockVisible) {
             // Leave the composition while hidden so taps on that edge reach the terminal.
-            AnimatedVisibility(toolboxAwake || petCenter != null, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
+            // The ring opens around the pet, so the arrows step aside while it is up.
+            val petArrowsShown = petArrowsAwake && petCenter == null
+            AnimatedVisibility(toolboxAwake || petCenter != null || petArrowsShown, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
                 exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
-                TerminalDockPlacement {
+                TerminalDockPlacement { Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.animation.AnimatedVisibility(petArrowsShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
+                        Column {
+                            CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "pet-arrow-up") {
+                                petArrowTouches++
+                                terminal?.scrollToBottom()
+                                terminalKey(KeyEvent.KEYCODE_DPAD_UP)
+                            }
+                            CursorKey(R.drawable.ic_expand_down, tr("发送下方向键"), "pet-arrow-down") {
+                                petArrowTouches++
+                                terminal?.scrollToBottom()
+                                terminalKey(KeyEvent.KEYCODE_DPAD_DOWN)
+                            }
+                        }
+                    }
                     ToolboxPet(tr("显示操作栏"), onHoldStart = { center ->
                         petHovered = null
                         petMenu = null
@@ -616,7 +623,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             if (released && picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
                         }
                     }) { dockExpanded = true }
-                }
+                } }
             }
         }
     }
@@ -645,6 +652,8 @@ internal object TerminalToolbox {
     @Volatile var enterKeyHideMillis = 3_000L
     /** How long typing must pause before the cursor-row Enter key appears. */
     @Volatile var enterKeyTypingPauseMillis = 700L
+    /** Idle timeout of the Up/Down keys a double tap brings beside the pet; 0 keeps them. */
+    @Volatile var petArrowsHideMillis = 4_000L
 }
 
 /** Keys at the right end of the cursor row, [height] tall and centred on it; hidden while the cursor is scrolled away. */
