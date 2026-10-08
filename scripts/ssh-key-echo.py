@@ -128,6 +128,9 @@ def serve(client):
                         channel.sendall(f"HISTORY_{row:03d} ".encode("ascii") + "终端字体测试".encode("utf-8") + b"\r\n")
                 else:
                     channel.sendall(f"\r\nKEY_{byte:02X}\r\n".encode("ascii"))
+                    # Leave a typed `/` at the cursor, like a prompt starting a slash command.
+                    if byte == 0x2F:
+                        channel.sendall(b"/")
     except (EOFError, OSError, paramiko.SSHException):
         pass
     finally:

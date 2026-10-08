@@ -58,6 +58,7 @@ class CursorEnterKeyTest {
     @After fun restoreTimeout() {
         TerminalToolbox.enterKeyHideMillis = 5_000L
         TerminalToolbox.enterKeyTypingPauseMillis = 700L
+        TerminalToolbox.petArrowsHideMillis = 4_000L
     }
 
     private fun terminal(view: View): TerminalView? {
@@ -71,6 +72,7 @@ class CursorEnterKeyTest {
     @Test fun enterKeyFollowsCursorRowAndHidesWhenQuiet() = runBlocking {
         TerminalToolbox.enterKeyHideMillis = 1_500L
         TerminalToolbox.enterKeyTypingPauseMillis = 1_000L
+        TerminalToolbox.petArrowsHideMillis = 2_000L
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         (context.applicationContext as ItermuxApp).database.hosts().forgetPin("[127.0.0.1]:22228")
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
@@ -90,7 +92,7 @@ class CursorEnterKeyTest {
         }
         fun enterKeyShown() = compose.onAllNodesWithTag("cursor-enter").fetchSemanticsNodes().isNotEmpty()
         fun escapeKeyShown() = compose.onAllNodesWithTag("cursor-escape").fetchSemanticsNodes().isNotEmpty()
-        fun arrowKeysShown() = compose.onAllNodesWithTag("cursor-up").fetchSemanticsNodes().isNotEmpty()
+        fun arrowKeysShown() = compose.onAllNodesWithTag("pet-arrow-up").fetchSemanticsNodes().isNotEmpty()
         fun type(text: String) = compose.activityRule.scenario.onActivity { activity ->
             requireNotNull(terminal(activity.window.decorView)).onCreateInputConnection(EditorInfo()).commitText(text, 1)
         }
@@ -110,7 +112,7 @@ class CursorEnterKeyTest {
             compose.waitForIdle()
             assertTrue("hidden while typing", !enterKeyShown())
             assertTrue("esc stays while typing", escapeKeyShown())
-            assertTrue("no arrows for plain text", !arrowKeysShown())
+            assertTrue("no arrows before a double tap", !arrowKeysShown())
             outputContains("KEY_61")
             compose.waitUntil(3_000) { enterKeyShown() }
             val view = requireNotNull(terminal(compose.activity.window.decorView))
@@ -150,45 +152,40 @@ class CursorEnterKeyTest {
             val escRow = withContext(Dispatchers.Main) { viewTop + view.cursorRowTop + view.lineHeight / 2f }
             assertTrue("esc on the cursor row", abs(escape.center.y - escRow) <= 2f)
             assertTrue("esc in the enter key's place", abs(escape.center.x - key.center.x) <= 1f)
+            // A double tap sends Tab and brings Up above the pet and Down below it; the cursor row keeps its key.
             compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
             compose.waitUntil(3_000) { enterKeyShown() }
-
-            // A leading slash brings Up/Down keys stacked on the cursor row, in the Enter key's place.
-            type("/")
-            outputContains("KEY_2F")
+            outputContains("KEY_09")
             compose.waitUntil(3_000) { arrowKeysShown() }
-            assertTrue("no enter or esc key beside the arrows", !enterKeyShown() && !escapeKeyShown())
-            val rowMid = withContext(Dispatchers.Main) { viewTop + view.cursorRowTop + view.lineHeight / 2f }
-            val up = compose.onNodeWithTag("cursor-up").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
-            val down = compose.onNodeWithTag("cursor-down").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
-            assertTrue("up above the cursor row's middle", abs(up.bottom - rowMid) <= 2f)
-            assertTrue("down below it", abs(down.top - rowMid) <= 2f)
-            assertTrue("stacked at the right end", abs(up.center.x - down.center.x) <= 1f && down.right >= view.width * 0.9f)
-            compose.onNodeWithTag("cursor-up").performTouchInput { click() }
+            val pet = compose.onNodeWithTag("restore-dock").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            val up = compose.onNodeWithTag("pet-arrow-up").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            val down = compose.onNodeWithTag("pet-arrow-down").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            assertTrue("up just above the pet", abs(up.bottom - pet.top) <= 2f && abs(up.center.x - pet.center.x) <= 1f)
+            assertTrue("down just below the pet", abs(down.top - pet.bottom) <= 2f && abs(down.center.x - pet.center.x) <= 1f)
+            compose.onNodeWithTag("pet-arrow-up").performTouchInput { click() }
             outputContains("KEY_41")
-            compose.onNodeWithTag("cursor-down").performTouchInput { click() }
+            compose.onNodeWithTag("pet-arrow-down").performTouchInput { click() }
             outputContains("KEY_42")
             compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
-                File(context.getExternalFilesDir(null), "cursor-arrows.png").outputStream().use {
+                File(context.getExternalFilesDir(null), "pet-arrows.png").outputStream().use {
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
                 }
             }
-            // The arrows outlast the Enter key's quiet spell.
-            delay(TerminalToolbox.enterKeyHideMillis + TerminalToolbox.enterKeyTypingPauseMillis + 500)
-            assertTrue("arrows stay", arrowKeysShown() && !enterKeyShown())
-            // A double tap dismisses them.
-            compose.onNodeWithTag("terminal").performTouchInput { doubleClick() }
-            compose.waitUntil(3_000) { !arrowKeysShown() }
-            outputContains("KEY_09")
-
-            // The Enter key returns in their place; Enter ends the line and the next `/` brings them back.
-            compose.waitUntil(3_000) { enterKeyShown() }
-            compose.onNodeWithTag("cursor-enter").performTouchInput { click() }
+            // The double-tap arrows fade after a quiet spell.
+            compose.waitUntil(5_000) { !arrowKeysShown() }
+            // A leading slash brings the same arrows around the pet, and they outlast that spell.
             type("/")
+            outputContains("KEY_2F")
             compose.waitUntil(3_000) { arrowKeysShown() }
-            // The IME Enter (AOSP keyboards commit "\n") ends the line too.
+            delay(TerminalToolbox.petArrowsHideMillis + 500L)
+            assertTrue("arrows stay on a slash line", arrowKeysShown())
+            suspend fun downs() = withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.split("KEY_42").size - 1 }
+            val before = downs()
+            compose.onNodeWithTag("pet-arrow-down").performTouchInput { click() }
+            assertEquals("down sent again", true, withTimeoutOrNull(10_000) { while (downs() <= before) delay(40); true })
+            // Ending the line (the IME Enter commits "\n") lets them go.
             type("\n")
-            compose.waitUntil(3_000) { !arrowKeysShown() }
+            compose.waitUntil(5_000) { !arrowKeysShown() }
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id) }
             prompts.cancel()
