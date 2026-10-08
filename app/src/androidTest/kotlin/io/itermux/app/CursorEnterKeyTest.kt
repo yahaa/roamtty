@@ -171,12 +171,21 @@ class CursorEnterKeyTest {
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
                 }
             }
-            // A leading slash no longer brings arrows of its own; the double-tap ones fade after a quiet spell.
+            // The double-tap arrows fade after a quiet spell.
             compose.waitUntil(5_000) { !arrowKeysShown() }
+            // A leading slash brings the same arrows around the pet, and they outlast that spell.
             type("/")
             outputContains("KEY_2F")
-            compose.waitUntil(3_000) { enterKeyShown() }
-            assertTrue("no arrows for a slash command", !arrowKeysShown())
+            compose.waitUntil(3_000) { arrowKeysShown() }
+            delay(TerminalToolbox.petArrowsHideMillis + 500L)
+            assertTrue("arrows stay on a slash line", arrowKeysShown())
+            suspend fun downs() = withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText.split("KEY_42").size - 1 }
+            val before = downs()
+            compose.onNodeWithTag("pet-arrow-down").performTouchInput { click() }
+            assertEquals("down sent again", true, withTimeoutOrNull(10_000) { while (downs() <= before) delay(40); true })
+            // Ending the line (the IME Enter commits "\n") lets them go.
+            type("\n")
+            compose.waitUntil(5_000) { !arrowKeysShown() }
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id) }
             prompts.cancel()

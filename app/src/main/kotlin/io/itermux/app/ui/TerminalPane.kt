@@ -179,7 +179,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var enterKeyTouches by remember { mutableIntStateOf(0) }
     var enterKeyTyping by remember { mutableStateOf(false) }
     // A double tap (Tab) brings Up/Down keys above and below the pet, to move through the completions or
-    // menu it opens; they fade after a quiet spell, and each press restarts it.
+    // menu it opens; they fade after a quiet spell, and each press restarts it. A line starting with `/`
+    // brings them too, for its command menu, and keeps them up for as long as it does.
+    val slashCommandLine by session.slashCommandLine.collectAsStateWithLifecycle()
     var petArrowsAwake by remember { mutableStateOf(false) }
     var petArrowTouches by remember { mutableIntStateOf(0) }
     LaunchedEffect(petArrowTouches) {
@@ -573,7 +575,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         } else if (dockAvailable && !dockVisible) {
             // Leave the composition while hidden so taps on that edge reach the terminal.
             // The ring opens around the pet, so the arrows step aside while it is up.
-            val petArrowsShown = petArrowsAwake && petCenter == null
+            val petArrowsShown = (petArrowsAwake || slashCommandLine != 0) && petCenter == null
             AnimatedVisibility(toolboxAwake || petCenter != null || petArrowsShown, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
                 exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
                 // Up above the pet and Down below it; the pet stays put between them.
