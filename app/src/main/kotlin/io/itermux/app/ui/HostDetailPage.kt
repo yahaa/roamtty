@@ -256,6 +256,7 @@ private fun MonitorLoginCard(onLogin: () -> Unit) {
 private fun MonitorSection(monitor: HostMonitor, onLogin: () -> Unit) {
     val connection by monitor.connection.collectAsStateWithLifecycle()
     val metrics by monitor.metrics.collectAsStateWithLifecycle()
+    val samplingFailed by monitor.samplingFailed.collectAsStateWithLifecycle()
     val rate by monitor.netRate.collectAsStateWithLifecycle()
     val cpuHistory by monitor.cpuHistory.collectAsStateWithLifecycle()
     val memHistory by monitor.memHistory.collectAsStateWithLifecycle()
@@ -285,13 +286,15 @@ private fun MonitorSection(monitor: HostMonitor, onLogin: () -> Unit) {
                 }
             }
         }
-        if (!connection.active) {
+        if (!connection.active || samplingFailed) {
             GroupedSection {
                 Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row),
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
-                            style = MaterialTheme.typography.bodyMedium, color = colors.error)
+                        Text(if (samplingFailed) tr("无法读取监控数据，请检查远端系统查询权限后重试。")
+                            else connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
+                            style = MaterialTheme.typography.bodyMedium, color = colors.error,
+                            modifier = Modifier.testTag("host-monitor-error"))
                         connection.detail?.let {
                             SelectionContainer {
                                 Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,

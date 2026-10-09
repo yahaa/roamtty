@@ -1,4 +1,4 @@
-"""Loopback SSH fixture for WindowsLaunchSheetTest (requires paramiko and ROAMTTY_PWSH).
+"""Loopback SSH fixture for WindowsLaunchSheetTest and WindowsHostMonitorTest (requires paramiko and ROAMTTY_PWSH).
 
 Rejects POSIX execs like native Windows OpenSSH, executes real PowerShell against
 an isolated PSDrive, and returns native Windows paths. It is not a Windows OS test.
@@ -11,7 +11,6 @@ import socket
 import subprocess
 import tempfile
 import threading
-import time
 
 import paramiko
 
@@ -21,6 +20,8 @@ home = Path(root.name) / "Users" / "测试"
 (home / "My projects" / "中文 [work]").mkdir(parents=True)
 (home / "Documents").mkdir()
 pwsh = os.environ["ROAMTTY_PWSH"]
+metrics_provider = (Path(__file__).resolve().parent.parent /
+                    "app/src/test/resources/windows-metrics-provider.ps1").read_text()
 
 
 def ps_literal(value):
@@ -61,12 +62,17 @@ class Server(paramiko.ServerInterface):
                 script = base64.b64decode(text.split("-EncodedCommand ", 1)[1]).decode("utf-16le")
                 setup = f"New-PSDrive -Name C -PSProvider FileSystem -Root {ps_literal(root.name)} | Out-Null; "
                 setup += "Set-Variable -Name HOME -Value 'C:/Users/测试' -Force; "
+                is_metrics = self.username.startswith("metrics")
+                if is_metrics:
+                    setup = metrics_provider + "\n"
+                    if self.username == "metrics-failed":
+                        setup += "$env:ROAMTTY_METRICS_FAILURE='1'; "
                 encoded = base64.b64encode((setup + script).encode("utf-16le")).decode()
                 result = subprocess.run([pwsh, "-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand", encoded],
                                         capture_output=True, timeout=15)
                 lines = result.stdout.decode("utf-8-sig").splitlines()
                 # PSDrive provider paths use the host OS: translate the protocol's path headers only.
-                for index in range(min(2, len(lines))):
+                for index in range(0 if is_metrics else min(2, len(lines))):
                     if lines[index].startswith(root.name):
                         lines[index] = "C:" + lines[index][len(root.name):]
                     lines[index] = lines[index].replace("/", "\\")

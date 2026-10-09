@@ -4,6 +4,7 @@ import android.os.SystemClock
 import io.itermux.app.ItermuxApp
 import io.itermux.app.data.Host
 import io.itermux.app.session.HostMetrics
+import io.itermux.app.session.HostMetricsReader
 import io.itermux.app.session.PendingPrompt
 import io.itermux.app.session.RemoteFolders
 import io.itermux.ssh.*
@@ -25,6 +26,7 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     val pending = MutableStateFlow<PendingPrompt?>(null)
     val connection = MutableStateFlow(ConnectionState(Phase.CONNECTING))
     val metrics = MutableStateFlow<HostMetrics?>(null)
+    val samplingFailed = MutableStateFlow(false)
     /** Network throughput between the last two samples, bytes per second. */
     val netRate = MutableStateFlow<Pair<Double, Double>?>(null)
     val cpuHistory = MutableStateFlow<List<Double>>(emptyList())
@@ -45,6 +47,8 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
         job?.cancel()
         session?.disconnect()
         connection.value = ConnectionState(Phase.CONNECTING)
+        samplingFailed.value = false
+        netRate.value = null
         job = scope.launch {
             var retry = 0
             while (true) {
@@ -96,20 +100,20 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     }
 
     private suspend fun sample(remote: RemoteHost) {
+        val reader = HostMetricsReader(remote, preferWindows = host.os == HostSystem.WINDOWS.name)
         var previous: Pair<HostMetrics, Long>? = null
         while (currentCoroutineContext().isActive) {
             visible.first { it }
-            val lines = mutableListOf<String>()
-            remote.run(HostMetrics.script, SAMPLE_TIMEOUT_MS) { lines += it } ?: return
-            val now = SystemClock.elapsedRealtime()
-            val current = HostMetrics.parse(lines)
-            previous?.let { (last, at) ->
-                val seconds = (now - at) / 1000.0
-                val rx = current.netRxBytes; val tx = current.netTxBytes
-                val lastRx = last.netRxBytes; val lastTx = last.netTxBytes
-                if (seconds > 0 && rx != null && tx != null && lastRx != null && lastTx != null && rx >= lastRx && tx >= lastTx)
-                    netRate.value = (rx - lastRx) / seconds to (tx - lastTx) / seconds
+            val current = reader.read()
+            if (current == null) {
+                samplingFailed.value = true
+                metrics.value = null
+                netRate.value = null
+                return
             }
+            samplingFailed.value = false
+            val now = SystemClock.elapsedRealtime()
+            netRate.value = previous?.let { (last, at) -> current.networkRateSince(last, (now - at) / 1000.0) }
             current.cpuPercent?.let { cpuHistory.value = (cpuHistory.value + it).takeLast(MONITOR_HISTORY) }
             current.memPercent?.let { memHistory.value = (memHistory.value + it).takeLast(MONITOR_HISTORY) }
             if (current.gpus.isNotEmpty() || gpuHistory.value.isNotEmpty()) gpuHistory.value = current.gpus.associate { gpu ->
@@ -150,5 +154,4 @@ internal fun monitorRetryDelayMs(ended: ConnectionState, retry: Int, interactive
 private const val MONITOR_RETRIES = 5
 internal const val MONITOR_RECONNECTING = "连接中断，正在自动重连…"
 internal const val SAMPLE_INTERVAL_MS = 3_000L
-private const val SAMPLE_TIMEOUT_MS = 10_000L
 internal const val MONITOR_HISTORY = 40

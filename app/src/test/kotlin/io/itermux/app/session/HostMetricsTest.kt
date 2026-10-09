@@ -5,6 +5,16 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class HostMetricsTest {
+    @Test fun windowsCpuAndProcessNamesAreParsed() {
+        val m = HostMetrics.parse(listOf("platform=windows", "os=Microsoft Windows 11 专业版", "cpu=25.5", "cpus=8",
+            "kb_MemTotal=16777216", "kb_MemAvailable=12582912", "disk=104857600 41943040 62914560 C:/",
+            "gpuproc=42, C:\\Program Files\\Python\\python.exe, 512"))
+        assertEquals(25.5, m.cpuPercent!!, 0.001)
+        assertEquals(25.0, m.memPercent!!, 0.001)
+        assertEquals(40.0, m.disks.single().percent, 0.001)
+        assertEquals("python.exe", m.gpuProcesses.single().name)
+    }
+
     private val linux = """
         hostname=build-box
         kernel=Linux 6.8.0-45-generic
