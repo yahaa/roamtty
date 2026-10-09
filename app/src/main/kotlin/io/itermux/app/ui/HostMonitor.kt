@@ -128,10 +128,7 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     }
 
     /** Subfolders of [directory] (`~`, `~/x` or absolute), or null when it cannot be read or the login is not up. */
-    suspend fun listFolders(directory: String): RemoteFolders? {
-        val host = remote ?: return null
-        return RemoteFolders.load(host, directory)
-    }
+    suspend fun listFolders(directory: String): RemoteFolders? = remote?.let { RemoteFolders.load(it, directory) }
 
     fun close() {
         pending.value?.answer?.complete(null)

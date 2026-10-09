@@ -158,8 +158,9 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
             if (forAgent) AgentChooser(agent, mode, { agent = it }, { mode = it })
             val buttonColor by animateColorAsState(if (yolo) colors.error else colors.primary, label = "launch-button")
             val name = folderName(current)
+            // Home always opens; other folders wait for their listing (native Windows resolves `~/x` from it), unless there is no login to list with.
             Button(onClick = ::launch, enabled = !unsupported &&
-                (StartDirectory.isHome(current) || (ready && !failed && !loading && !stale)),
+                (StartDirectory.isHome(current) || browser == null || (ready && !failed && !loading && !stale)),
                 colors = ButtonDefaults.buttonColors(containerColor = buttonColor,
                     contentColor = if (yolo) colors.onError else colors.onPrimary),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row)

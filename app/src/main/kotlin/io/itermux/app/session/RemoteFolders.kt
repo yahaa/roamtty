@@ -14,27 +14,31 @@ data class RemoteFolders(val home: String, val path: String, val folders: List<S
     }
 
     /** The folder above, or null at `/`. */
-    val parent: String? get() = if (path == "/" || (WindowsShell.isPath(path) && path == WindowsShell.root(path))) null else
-        displayPath(path.trimEnd('/').substringBeforeLast('/').ifEmpty { "/" }, home)
-            .let { if (it.length == 2 && it[1] == ':') "$it/" else it }
+    val parent: String? get() = when {
+        WindowsShell.isPath(path) -> if (path == WindowsShell.root(path)) null else WindowsShell.normalize(path.substringBeforeLast('/') + "/")
+        path == "/" -> null
+        else -> path.trimEnd('/').substringBeforeLast('/').ifEmpty { "/" }
+    }?.let { displayPath(it, home) }
 
     /** Native Windows home-relative paths must be resolved before becoming terminal input. */
     fun startDirectory(requested: String): String = if (WindowsShell.isPath(path) && !StartDirectory.isHome(requested)) path else requested
 
     companion object {
         const val LIMIT = 500
+        private const val TIMEOUT_MS = 10_000L
 
         /** Prefer the existing POSIX shell (including MSYS/Cygwin), then try native Windows. */
         suspend fun load(remote: RemoteHost, directory: String): RemoteFolders? {
-            val lines = mutableListOf<String>()
             if (!WindowsShell.isPath(directory)) {
-                val status = remote.run(script(directory), 10_000) { lines += it }
-                if (status == 0) parse(lines)?.let { return it }
-                if (status == null) return null
-                lines.clear()
+                val lines = mutableListOf<String>()
+                // A timeout means the login is gone: don't start another request on it.
+                when (remote.run(script(directory), TIMEOUT_MS) { lines += it }) {
+                    null -> return null
+                    0 -> parse(lines)?.let { return it }
+                }
             }
-            val status = remote.runCommand(WindowsShell.command(windowsScript(directory)), 10_000) { lines += it }
-            return if (status == 0) parse(lines) else null
+            val lines = mutableListOf<String>()
+            return if (remote.runCommand(WindowsShell.command(windowsScript(directory)), TIMEOUT_MS) { lines += it } == 0) parse(lines) else null
         }
 
         internal fun windowsScript(directory: String): String {
