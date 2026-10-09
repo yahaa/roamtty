@@ -37,7 +37,7 @@ internal class MobileTerminalClient(
 
     override fun onOpenUrl(url: String): Boolean {
         try {
-            openInBrowser(view.context, url)
+            openTerminalUrl(view.context, url)
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(view.context, trf("无法打开链接：%s", url), Toast.LENGTH_SHORT).show()
         } catch (_: SecurityException) {

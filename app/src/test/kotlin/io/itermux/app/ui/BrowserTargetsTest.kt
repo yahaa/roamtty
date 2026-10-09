@@ -21,13 +21,13 @@ class BrowserTargetsTest {
     }
 
     @Test fun suspendedSystemBrowserDoesNotHideChrome() {
-        assertEquals(listOf("com.android.chrome"), usableBrowserPackages(listOf(
+        assertEquals(listOf("com.android.chrome"), usableWebPackages(listOf(
             browser("system.browser", suspended = true), browser("com.android.chrome")
         )))
     }
 
     @Test fun disabledAndPrivateActivitiesAreExcluded() {
-        assertEquals(listOf("active.browser"), usableBrowserPackages(listOf(
+        assertEquals(listOf("active.browser"), usableWebPackages(listOf(
             browser("disabled.app", enabled = false),
             browser("disabled.activity").apply { activityInfo.enabled = false },
             browser("private.activity").apply { activityInfo.exported = false },
@@ -36,12 +36,12 @@ class BrowserTargetsTest {
     }
 
     @Test fun duplicateAndIncompleteActivitiesDoNotBecomeBrowserChoices() {
-        assertEquals(listOf("chrome", "firefox"), usableBrowserPackages(listOf(
+        assertEquals(listOf("chrome", "firefox"), usableWebPackages(listOf(
             browser("chrome"), browser("chrome"), browser("firefox"), ResolveInfo()
         )))
     }
 
     @Test fun noUsableBrowserReturnsNoTargets() {
-        assertTrue(usableBrowserPackages(listOf(browser("frozen", suspended = true))).isEmpty())
+        assertTrue(usableWebPackages(listOf(browser("frozen", suspended = true))).isEmpty())
     }
 }

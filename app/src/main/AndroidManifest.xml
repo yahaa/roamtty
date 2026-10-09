@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Android 11+ must expose web handlers so unavailable browsers can be filtered before launch. -->
     <queries>
+        <package android:name="com.github.android" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.BROWSABLE" />
