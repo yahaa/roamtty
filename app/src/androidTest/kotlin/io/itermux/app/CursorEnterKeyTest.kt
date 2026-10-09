@@ -128,7 +128,7 @@ class CursorEnterKeyTest {
                 }
             }
 
-            // With the keyboard open, the Enter key also puts it away after a short pause.
+            // With the keyboard open, the Enter key also puts it away after a quiet pause.
             suspend fun imeShown() = withContext(Dispatchers.Main) {
                 ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true
             }
