@@ -38,6 +38,101 @@ public class TerminalUrlTest {
         }
     }
 
+    @Test public void tuiWrappedPrUrlIsWholeFromEitherDisplayedRow() {
+        TerminalEmulator t = terminal(40, 5,
+            "  PR: \033[4m#127\033[0m (\033[4mhttps://github.com/yahaa/\033[0m\r\n" +
+            "  \033[4mroamtty/pull/127\033[0m)\r\n  APK: ready");
+        assertFalse(t.getScreen().getLineWrap(0));
+        for (int col = 12; col < 37; col++)
+            assertEquals("https://github.com/yahaa/roamtty/pull/127", TerminalUrl.at(t, col, 0));
+        for (int col = 2; col < 18; col++)
+            assertEquals("https://github.com/yahaa/roamtty/pull/127", TerminalUrl.at(t, col, 1));
+        assertNull(TerminalUrl.at(t, 11, 0));
+        assertNull(TerminalUrl.at(t, 37, 0));
+        assertNull(TerminalUrl.at(t, 0, 1));
+        assertNull(TerminalUrl.at(t, 18, 1));
+    }
+
+    @Test public void tuiCursorPositionedUrlKeepsItsQueryAndFragment() {
+        TerminalEmulator t = terminal(40, 5,
+            "\033[1;3HPR: (\033[4mhttps://github.com/yahaa/\033[0m" +
+            "\033[2;3H\033[4mroamtty/pull/127?x=1&y=2#discussion\033[0m)");
+        assertEquals("https://github.com/yahaa/roamtty/pull/127?x=1&y=2#discussion", TerminalUrl.at(t, 10, 1));
+    }
+
+    @Test public void tuiWrappedUrlAllowsColorChangesAndWideCharacters() {
+        TerminalEmulator t = terminal(40, 5,
+            "中文 (\033[4;31mhttps://example.test/\033[0m\r\n" +
+            "  \033[4;32m中文/path\033[0m)");
+        assertEquals("https://example.test/中文/path", TerminalUrl.at(t, 8, 0));
+        assertEquals("https://example.test/中文/path", TerminalUrl.at(t, 2, 1));
+        assertEquals("https://example.test/中文/path", TerminalUrl.at(t, 3, 1));
+    }
+
+    @Test public void tuiWrappedUrlKeepsCombiningMarksAtTheLastColumn() {
+        TerminalEmulator t = terminal(17, 5,
+            "(\033[4mhttps://t.test/e\u0301\033[0m\r\n  \033[4m/tail\033[0m)");
+        assertEquals("https://t.test/e\u0301/tail", TerminalUrl.at(t, 16, 0));
+        assertEquals("https://t.test/e\u0301/tail", TerminalUrl.at(t, 3, 1));
+    }
+
+    @Test public void tuiWrappedUrlNeverConsumesAnotherUrl() {
+        TerminalEmulator t = terminal(40, 5,
+            "(\033[4mhttps://one.test/\033[0m\r\n  \033[4mhttps://two.test/path\033[0m)");
+        assertNull(TerminalUrl.at(t, 5, 0));
+        assertEquals("https://two.test/path", TerminalUrl.at(t, 8, 1));
+        t = terminal(40, 5,
+            "(\033[4mhttps://one.test/\033[0m\r\n  \033[4mhttps://\033[0m\r\n" +
+            "  \033[4mtwo.test/path\033[0m)");
+        assertNull(TerminalUrl.at(t, 5, 0));
+        assertNull(TerminalUrl.at(t, 5, 1));
+    }
+
+    @Test public void incompleteOrBrokenStyledLinkNeverOpensItsPrefix() {
+        for (String tail : new String[] {
+            "  \033[4mpath\033[0m", "  plain prose)", "  \033[4mpath has spaces\033[0m)",
+            "\r\n  \033[4mpath\033[0m)"
+        }) {
+            TerminalEmulator t = terminal(40, 6, "(\033[4mhttps://one.test/\033[0m\r\n" + tail);
+            assertNull(tail, TerminalUrl.at(t, 5, 0));
+        }
+    }
+
+    @Test public void styledProseDoesNotHideAnIndependentUrl() {
+        TerminalEmulator t = terminal(60, 4, "(\033[4msee https://one.test\033[0m)");
+        assertEquals("https://one.test", TerminalUrl.at(t, 9, 0));
+    }
+
+    @Test public void tuiWrappedLinkSurvivesInScrollback() {
+        TerminalEmulator t = terminal(40, 3,
+            "(\033[4mhttps://github.com/\033[0m\r\n  \033[4myahaa/roamtty/\033[0m\r\n" +
+            "  \033[4mpull/127\033[0m)\r\none\r\ntwo\r\nthree");
+        assertEquals("https://github.com/yahaa/roamtty/pull/127", TerminalUrl.at(t, 5, -3));
+        assertEquals("https://github.com/yahaa/roamtty/pull/127", TerminalUrl.at(t, 5, -1));
+    }
+
+    @Test public void styledSoftWrapDoesNotDiscardRealOrAmbiguousSpaces() {
+        TerminalEmulator t = terminal(21, 5, "(\033[4mhttps://example.co/中文\033[0m)");
+        assertNull(TerminalUrl.at(t, 5, 0));
+        t = terminal(20, 5, "(\033[4mhttps://one.test/a   b\033[0m)");
+        assertNull(TerminalUrl.at(t, 5, 0));
+    }
+
+    @Test public void closedStyledLinkDoesNotConsumeTheFollowingRow() {
+        TerminalEmulator t = terminal(40, 5,
+            "(\033[4mhttps://one.test/\033[0m)\r\n  \033[4mnext\033[0m)");
+        assertEquals("https://one.test/", TerminalUrl.at(t, 5, 0));
+        assertNull(TerminalUrl.at(t, 3, 1));
+    }
+
+    @Test public void tuiWrappedLinkLimitsNeverOpenItsPrefix() {
+        TerminalEmulator t = terminal(80, 200,
+            "(\033[4mhttps://one.test/" + "\033[0m\r\n  \033[4ma".repeat(130) + "\033[0m)");
+        assertNull(TerminalUrl.at(t, 5, 0));
+        t = terminal(100, 200, "(\033[4mhttps://one.test/" + "a".repeat(8200) + "\033[0m)");
+        assertNull(TerminalUrl.at(t, 5, 0));
+    }
+
     @Test public void hardLineBreakDoesNotJoinUrls() {
         TerminalEmulator t = terminal(40, 4, "https://one.test\r\nhttps://two.test");
         assertEquals("https://one.test", TerminalUrl.at(t, 3, 0));

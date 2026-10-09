@@ -127,6 +127,26 @@ class TerminalGesturesTest {
         }
     }
 
+    @Test fun eitherRowOfATuiWrappedPrLinkOpensTheCompleteAddress() {
+        terminalContent()
+        monitorBrowser()
+        compose.runOnIdle {
+            feed("  PR: \u001b[4m#127\u001b[0m (\u001b[4mhttps://github.com/yahaa/\u001b[0m\r\n" +
+                "  \u001b[4mroamtty/pull/127\u001b[0m)\r\n$ ")
+            assertFalse("The TUI inserts a hard line break", emulator.screen.getLineWrap(0))
+        }
+        for ((column, row) in listOf(18 to 0, 5 to 1)) {
+            val point = androidx.compose.ui.geometry.Offset((column + 0.5f) * terminal.mRenderer.fontWidth, rowY(row))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        compose.runOnIdle {
+            assertEquals(listOf("https://github.com/yahaa/roamtty/pull/127", "https://github.com/yahaa/roamtty/pull/127"),
+                browserIntents.map { it.dataString })
+            assertEquals("", input.toString())
+        }
+    }
+
     @Test fun urlDoubleTripleAndLongPressKeepTheirTerminalGestures() {
         terminalContent()
         monitorBrowser()
