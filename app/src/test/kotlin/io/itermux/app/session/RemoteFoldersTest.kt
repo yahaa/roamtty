@@ -10,6 +10,38 @@ import java.io.File
 import java.nio.file.Files
 
 class RemoteFoldersTest {
+    @Test fun windowsPathsSupportHomeChildrenAndDriveRoot() {
+        val home = RemoteFolders.parse(listOf("C:\\Users\\测试", "C:\\Users\\测试", "My projects", "工作"))
+        org.junit.Assert.assertNotNull("Native Windows paths must be accepted", home)
+        assertEquals("~", home!!.display)
+        assertEquals("~/My projects", home.child("My projects"))
+        assertEquals("C:/Users", home.parent)
+        val root = RemoteFolders.parse(listOf("C:\\Users\\测试", "D:\\", "Projects"))!!
+        assertEquals("D:/", root.path)
+        assertNull(root.parent)
+        assertEquals("D:/Projects", root.child("Projects"))
+    }
+
+    @Test fun windowsHomeRelativeSelectionResolvesBeforeLaunch() {
+        val folder = RemoteFolders.parse(listOf("C:/Users/dev", "C:/Users/dev/My projects"))!!
+        assertEquals("C:/Users/dev/My projects", folder.startDirectory("~/My projects"))
+        assertEquals("~", folder.startDirectory("~"))
+        assertEquals("~", RemoteFolders.parse(listOf("C:/Users/Dev", "c:/users/dev"))!!.display)
+    }
+
+    @Test fun uncShareStopsAtItsRoot() {
+        val folder = RemoteFolders.parse(listOf("C:/Users/dev", "\\\\server\\share\\projects"))!!
+        assertEquals("//server/share/projects", folder.path)
+        assertEquals("//server/share", folder.parent)
+        assertNull(RemoteFolders.parse(listOf("C:/Users/dev", "\\\\server\\share"))!!.parent)
+    }
+
+    @Test fun windowsFolderNamesCannotContainBackslashSeparators() {
+        val folder = RemoteFolders.parse(listOf("C:/Users/dev", "C:/Users/dev", "..\\escape", "safe"))!!
+        assertEquals(listOf("safe"), folder.folders)
+        assertThrows(IllegalArgumentException::class.java) { folder.child("..\\escape") }
+    }
+
     @Test fun parsesAndSortsFolders() {
         val f = RemoteFolders.parse(listOf("/home/v", "/home/v/work", "roamtty", "Api", "*"))!!
         assertEquals(listOf("Api", "roamtty"), f.folders)

@@ -12,6 +12,7 @@ object StartDirectory {
     fun normalize(input: String): String {
         require(isSupported(input)) { UNSUPPORTED_MESSAGE }
         val trimmed = input.trim()
+        if (WindowsShell.isPath(trimmed)) return WindowsShell.normalize(trimmed)
         return if (trimmed.isEmpty() || trimmed == "~/") HOME else if (trimmed.length > 1) trimmed.trimEnd('/') else trimmed
     }
 
@@ -22,6 +23,7 @@ object StartDirectory {
         val dir = normalize(directory)
         return when {
             dir == HOME -> null
+            WindowsShell.isPath(dir) -> WindowsShell.launch(dir)
             dir.startsWith("~/") -> "cd -- ~/${shellQuote(dir.removePrefix("~/"))}"
             else -> "cd -- ${shellQuote(dir)}"
         }
@@ -33,11 +35,12 @@ object StartDirectory {
         val dir = normalize(directory)
         val (root, rest) = when {
             dir == HOME || dir.startsWith("~/") -> HOME to dir.removePrefix(HOME)
+            WindowsShell.isPath(dir) -> WindowsShell.root(dir).let { it to dir.removePrefix(it) }
             dir.startsWith("/") -> "/" to dir
             else -> return listOf(dir to dir)
         }
         var path = root
-        return listOf(root to root) + rest.split('/').filter { it.isNotEmpty() }.map { name ->
+        return listOf(root.removeSuffix("/").ifEmpty { "/" } to root) + rest.split('/').filter { it.isNotEmpty() }.map { name ->
             path = if (path.endsWith('/')) "$path$name" else "$path/$name"
             name to path
         }

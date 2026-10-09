@@ -13,6 +13,8 @@
 
 本应用不自带模型，也不在手机上运行 Linux；AI 工具由远端环境提供。不包含端口转发、跳板机、云同步与本地 shell。
 
+Windows 原生 OpenSSH 主机的起始文件夹通过 PowerShell 读取；选择子目录会在该目录打开 Windows PowerShell，退出后回到外层登录 shell。直接打开主目录保留服务器默认 shell，目录读取失败也可打开主目录或重试。通过 `.cmd` 启动的 AI 助手需使用盘符路径；网络共享目录请先映射为盘符，避免 CMD 在错误目录运行。
+
 ## 隐私
 
 无账号、无广告、无遥测。Room 保存主机元数据、凭据密文及服务器信任记录（算法和公钥）；Android Keystore 保存不可导出的 AES 密钥，凭据以 AES-256-GCM 加密，AAD 绑定主机 ID 与用途。密码仅在选择保存时写入，导入的私钥在保存主机时加密写入，私钥口令不落盘。终端内容、编辑草稿和常用命令只存在于内存中；断开后仍可查看该会话已加载的常用命令，进程结束后不保留。会话日志每台主机最多保留 8 条，记录会话 ID、主机 ID、模式、标题、远端 tmux 会话名和会话序号。删除主机会移除其配置、凭据和会话记录；服务器信任记录独立保留，可通过重新核验移除。系统备份已排除，远端 OSC 52 不能改写剪贴板。活动连接期间持有前台服务和唤醒锁，最后一个连接断开即释放。
@@ -43,6 +45,8 @@ Windows 上可用 `scripts/bootstrap.ps1`、`scripts/install-sdk.ps1` 在项目�
 ./gradlew :app:testDebugUnitTest :ssh-core:test :terminal-emulator:testDebugUnitTest :terminal-view:testDebugUnitTest
 ./gradlew :app:connectedDebugAndroidTest   # 需要模拟器或设备
 ```
+
+Windows 目录命令测试使用 `ROAMTTY_PWSH=/path/to/pwsh ./gradlew :app:testDebugUnitTest --tests '*WindowsShellTest'`。页面回归可启动 `scripts/windows-launch-fixture.py`（需 Paramiko 和 `ROAMTTY_PWSH`），执行 `adb reverse tcp:22248 tcp:22248` 后，以 `windowsLaunchFixture=true` 运行 `WindowsLaunchSheetTest`。该夹具运行真实 PowerShell 并模拟 Windows SSH 路径协议，不替代 Windows 真机验证。
 
 真实 OpenSSH 测试为可选项：`scripts/prepare-openssh-test.sh`（需 root）在回环端口 22228（正常）和 22229（tmux 检查失败）启动隔离 sshd，`scripts/cleanup-openssh-test.sh` 清理；`ssh-core` 仅在存在 `.private/test-password` 时运行这些测试。设备测试通过 `adb reverse tcp:22228 tcp:22228` 访问。`scripts/ssh-key-echo.py` 提供按键回显与 SFTP 夹具，`scripts/process-death-test.sh` 验证进程被杀后的会话恢复。测试私钥是公开材料，不能用于真实服务器。
 

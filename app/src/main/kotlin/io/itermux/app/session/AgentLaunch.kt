@@ -31,8 +31,17 @@ data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: 
         AgentMode.YOLO -> "${agent.command} ${agent.yoloFlag}"
     }
 
-    /** Typed into the new session's shell; single quotes work in sh, bash, zsh and fish alike. Home needs no cd. */
-    val commandLine: String get() = StartDirectory.command(directory)?.let { "$it && $agentCommand" } ?: agentCommand
+    /** Windows folders open PowerShell; keep npm's .ps1 execution policy from blocking its native .cmd shim. */
+    val commandLine: String get() {
+        val dir = StartDirectory.normalize(directory)
+        val cmd = "${agent.command}.cmd"
+        return if (WindowsShell.isPath(dir)) WindowsShell.launch(dir,
+            "if (Get-Command $cmd -CommandType Application -ErrorAction SilentlyContinue) { " +
+                // cmd.exe silently falls back to another cwd for UNC paths. Never run an agent there.
+                "if ((Get-Location).ProviderPath.StartsWith('\\\\')) { throw 'Please map this network folder to a drive letter before starting the agent.' }; " +
+                agentCommand.replaceFirst(agent.command, cmd) + " } else { $agentCommand }")
+        else StartDirectory.command(dir)?.let { "$it && $agentCommand" } ?: agentCommand
+    }
 
     /** Session title: the agent and the folder it works in. */
     val title: String get() = "${agent.shortLabel} · ${directory.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }}"

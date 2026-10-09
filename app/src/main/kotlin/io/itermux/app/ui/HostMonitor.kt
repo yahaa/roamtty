@@ -126,9 +126,7 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     /** Subfolders of [directory] (`~`, `~/x` or absolute), or null when it cannot be read or the login is not up. */
     suspend fun listFolders(directory: String): RemoteFolders? {
         val host = remote ?: return null
-        val lines = mutableListOf<String>()
-        val status = host.run(RemoteFolders.script(directory), LIST_TIMEOUT_MS) { lines += it }
-        return if (status == 0) RemoteFolders.parse(lines) else null
+        return RemoteFolders.load(host, directory)
     }
 
     fun close() {
@@ -153,5 +151,4 @@ private const val MONITOR_RETRIES = 5
 internal const val MONITOR_RECONNECTING = "连接中断，正在自动重连…"
 internal const val SAMPLE_INTERVAL_MS = 3_000L
 private const val SAMPLE_TIMEOUT_MS = 10_000L
-private const val LIST_TIMEOUT_MS = 10_000L
 internal const val MONITOR_HISTORY = 40
