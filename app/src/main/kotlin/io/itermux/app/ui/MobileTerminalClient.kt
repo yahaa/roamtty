@@ -1,13 +1,16 @@
 package io.itermux.app.ui
 
+import android.content.ActivityNotFoundException
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.widget.Toast
 import androidx.core.view.SoftwareKeyboardControllerCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
+import io.itermux.app.trf
 
 internal class MobileTerminalClient(
     private val view: TerminalView,
@@ -30,6 +33,17 @@ internal class MobileTerminalClient(
         view.requestFocus()
         val minHeight = CURSOR_LINE_MIN_TOUCH_DP * view.resources.displayMetrics.density
         if (e != null && tapHitsCursorLine(e.y, view.cursorRowBounds, minHeight, touchableTop())) SoftwareKeyboardControllerCompat(view).show()
+    }
+
+    override fun onOpenUrl(url: String): Boolean {
+        try {
+            openTerminalUrl(view.context, url)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(view.context, trf("无法打开链接：%s", url), Toast.LENGTH_SHORT).show()
+        } catch (_: SecurityException) {
+            Toast.makeText(view.context, trf("无法打开链接：%s", url), Toast.LENGTH_SHORT).show()
+        }
+        return true
     }
     /** The terminal draws under the status bar, which swallows taps: the first view y a finger can reach. */
     private fun touchableTop(): Float {

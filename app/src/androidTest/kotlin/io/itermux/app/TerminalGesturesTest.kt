@@ -1,6 +1,8 @@
 package io.itermux.app
 
 import android.graphics.Bitmap
+import android.app.Instrumentation
+import android.content.Intent
 import android.graphics.Canvas
 import android.os.SystemClock
 import android.view.InputDevice
@@ -23,6 +25,7 @@ import com.termux.view.TerminalView
 import io.itermux.app.ui.*
 import io.itermux.ssh.RemoteEntry
 import org.junit.Assert.*
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
@@ -35,6 +38,22 @@ class TerminalGesturesTest {
     private var tripleTaps = 0
     private var swipeLefts = 0
     private var swipeRights = 0
+    private val browserIntents = mutableListOf<Intent>()
+    private var browserMonitor: Instrumentation.ActivityMonitor? = null
+
+    private fun monitorBrowser() {
+        browserMonitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                if (intent.action != Intent.ACTION_VIEW) return null
+                browserIntents.add(Intent(intent))
+                return Instrumentation.ActivityResult(0, null)
+            }
+        }.also { InstrumentationRegistry.getInstrumentation().addMonitor(it) }
+    }
+
+    @After fun removeBrowserMonitor() {
+        browserMonitor?.let { InstrumentationRegistry.getInstrumentation().removeMonitor(it) }
+    }
     private val emulator = TerminalEmulator(object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) { input.append(String(data, offset, count)) }
         override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
@@ -90,6 +109,121 @@ class TerminalGesturesTest {
         compose.waitForIdle()
     }
     private fun rowY(row: Int) = (row + 0.8f) * terminal.mRenderer.fontLineSpacing
+
+    @Test fun singleTapOpensTheWholeWrappedUrlInThePhoneBrowser() {
+        terminalContent()
+        monitorBrowser()
+        val url = "https://example.test/" + "a".repeat(emulator.mColumns) + "?x=1&y=2#part"
+        compose.runOnIdle { feed("中文 $url\r\n$ ") }
+        val point = androidx.compose.ui.geometry.Offset(3.5f * terminal.mRenderer.fontWidth, rowY(1))
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle {
+            assertEquals(1, browserIntents.size)
+            assertEquals(url, browserIntents.single().dataString)
+            assertNull(browserIntents.single().selector)
+            assertNotNull("The URL is directed to an available browser", browserIntents.single().`package`)
+            assertEquals("Opening a link must not send terminal input", "", input.toString())
+        }
+    }
+
+    @Test fun eitherRowOfATuiWrappedPrLinkOpensTheCompleteAddress() {
+        terminalContent()
+        monitorBrowser()
+        compose.runOnIdle {
+            feed("  PR: \u001b[4m#127\u001b[0m (\u001b[4mhttps://github.com/yahaa/\u001b[0m\r\n" +
+                "  \u001b[4mroamtty/pull/127\u001b[0m)\r\n$ ")
+            assertFalse("The TUI inserts a hard line break", emulator.screen.getLineWrap(0))
+        }
+        for ((column, row) in listOf(18 to 0, 5 to 1)) {
+            val point = androidx.compose.ui.geometry.Offset((column + 0.5f) * terminal.mRenderer.fontWidth, rowY(row))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        compose.runOnIdle {
+            assertEquals(listOf("https://github.com/yahaa/roamtty/pull/127", "https://github.com/yahaa/roamtty/pull/127"),
+                browserIntents.map { it.dataString })
+            assertEquals("", input.toString())
+        }
+    }
+
+    @Test fun urlApostropheOpensTheWholeAddressButItsEnclosingQuoteDoesNot() {
+        terminalContent()
+        monitorBrowser()
+        val url = "https://example.test/Guns_N'_Roses"
+        compose.runOnIdle { feed("  '$url'\r\n$ ") }
+        for (column in listOf(3 + url.indexOf('\''), 3 + url.length)) {
+            val point = androidx.compose.ui.geometry.Offset((column + 0.5f) * terminal.mRenderer.fontWidth, rowY(0))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        compose.runOnIdle {
+            assertEquals(listOf(url), browserIntents.map { it.dataString })
+            assertEquals("", input.toString())
+        }
+    }
+
+    @Test fun urlDoubleTripleAndLongPressKeepTheirTerminalGestures() {
+        terminalContent()
+        monitorBrowser()
+        compose.runOnIdle { feed("https://example.test\r\n$ ") }
+        val point = androidx.compose.ui.geometry.Offset(5.5f * terminal.mRenderer.fontWidth, rowY(0))
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { doubleClick(point) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertEquals(1, doubleTaps); assertTrue(browserIntents.isEmpty()) }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput {
+            click(point); advanceEventTime(80); click(point); advanceEventTime(80); click(point)
+        }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertEquals(1, tripleTaps); assertTrue(browserIntents.isEmpty()) }
+        touch(MotionEvent.ACTION_DOWN, point.x, point.y)
+        SystemClock.sleep(ViewConfiguration.getLongPressTimeout().toLong() + 150)
+        touch(MotionEvent.ACTION_UP, point.x, point.y)
+        compose.runOnIdle { assertTrue("Long-press still selects the URL", terminal.isSelectingText); assertTrue(browserIntents.isEmpty()) }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertFalse(terminal.isSelectingText); assertTrue(browserIntents.isEmpty()) }
+    }
+
+    @Test fun outputDuringSingleTapConfirmationCannotChangeTheOpenedUrl() {
+        terminalContent()
+        monitorBrowser()
+        compose.runOnIdle { feed("https://original.test\r\n$ ") }
+        val x = 5.5f * terminal.mRenderer.fontWidth
+        // Feed synchronously after touch-up, before GestureDetector's confirmation timer runs.
+        compose.runOnIdle {
+            val now = SystemClock.uptimeMillis()
+            for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                val event = MotionEvent.obtain(now, now, action, x, rowY(0), 0)
+                terminal.onTouchEvent(event)
+                event.recycle()
+            }
+            feed("\u001b[H\u001b[2Jhttps://replacement.test\r\n$ ")
+        }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertEquals("https://original.test", browserIntents.single().dataString) }
+    }
+
+    @Test fun heldThirdTapDoesNotOpenUrlBeforePasting() {
+        terminalContent()
+        monitorBrowser()
+        compose.runOnIdle { feed("https://example.test\r\n$ ") }
+        val x = 5.5f * terminal.mRenderer.fontWidth
+        repeat(2) {
+            touch(MotionEvent.ACTION_DOWN, x, rowY(0))
+            touch(MotionEvent.ACTION_UP, x, rowY(0))
+            SystemClock.sleep(80)
+        }
+        touch(MotionEvent.ACTION_DOWN, x, rowY(0))
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 30)
+        touch(MotionEvent.ACTION_UP, x, rowY(0))
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle {
+            assertEquals(1, tripleTaps)
+            assertEquals(0, doubleTaps)
+            assertTrue("A third tap held past single-tap confirmation must only paste", browserIntents.isEmpty())
+        }
+    }
 
     @Test fun sidewaysSwipesSendArrowsButOtherSwipesDoNot() {
         terminalContent()
