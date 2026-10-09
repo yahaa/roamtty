@@ -343,6 +343,25 @@ class TerminalInputRegressionTest {
         }
     }
 
+    @Test fun aDetachedKeyboardCannotFinishCommitOrDeleteAfterANewBatchOfConnections() {
+        terminalContent()
+        compose.runOnIdle {
+            val old = terminal.onCreateInputConnection(EditorInfo())
+            old.setComposingText("old", 1)
+            // Switch or restart: a new batch is created before the new keyboard calls in.
+            val first = terminal.onCreateInputConnection(EditorInfo())
+            val second = terminal.onCreateInputConnection(EditorInfo())
+            assertFalse(old.finishComposingText())
+            assertFalse(old.commitText("wrong", 1))
+            assertFalse(old.deleteSurroundingText(1, 0))
+            assertTrue(second.commitText("valid", 1))
+            // Once the new keyboard is in, the rest of its batch is not reopened by a later batch either.
+            terminal.onCreateInputConnection(EditorInfo())
+            assertFalse(first.commitText("wrong", 1))
+            assertEquals("valid", session.input.toString())
+        }
+    }
+
     @Test fun deleteWorksForImesThatCheckTheTextBeforeTheCursorFirst() {
         terminalContent()
         compose.runOnIdle {

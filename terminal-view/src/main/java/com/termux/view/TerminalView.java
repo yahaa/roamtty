@@ -88,6 +88,10 @@ public final class TerminalView extends View {
     private MotionEvent mFlingEvent;
     private final TerminalCursorDrag mCursorDrag = new TerminalCursorDrag(this);
     private BaseInputConnection mInputConnection;
+    /** Numbers input connections; the latest batch starts at the first one created after an IME last used one. */
+    private int mInputGeneration;
+    private int mInputBatchStart;
+    private boolean mInputBatchUsed = true;
     private final ImeBackspaceTracker mImeBackspace = new ImeBackspaceTracker();
     private Integer mExtractedTextToken;
     /** Roamtty: told about every key or IME edit the user makes, before it reaches the terminal. */
@@ -490,16 +494,22 @@ public final class TerminalView extends View {
         if (Build.VERSION.SDK_INT >= 30) outAttrs.setInitialSurroundingText(initial.text);
 
         final TerminalSession inputOwner = mTermSession;
+        final int generation = ++mInputGeneration;
+        if (mInputBatchUsed) {
+            mInputBatchStart = generation;
+            mInputBatchUsed = false;
+        }
         return mInputConnection = new BaseInputConnection(this, true) {
 
             /**
-             * A detached IME may finish or edit its old connection after a session change.
-             * Switching keyboards makes Android create several connections and keep any one of them,
-             * so within the session the connection the IME actually calls becomes the current one.
+             * A detached IME may finish or edit its old connection after a keyboard switch, restart or session change.
+             * Switching keyboards makes Android create several connections in a row and hand the IME any one of them,
+             * so the latest batch is accepted and the one the IME actually calls becomes current.
              */
             private boolean isCurrentConnection() {
-                if (mTermSession != inputOwner) return false;
+                if (mTermSession != inputOwner || generation < mInputBatchStart) return false;
                 mInputConnection = this;
+                mInputBatchUsed = true;
                 return true;
             }
 
