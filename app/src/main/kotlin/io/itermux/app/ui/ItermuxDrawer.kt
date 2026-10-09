@@ -62,6 +62,9 @@ internal fun ItermuxDrawer(
                 sessions.forEach { session ->
                     val title by session.title.collectAsStateWithLifecycle()
                     val state by session.state.collectAsStateWithLifecycle()
+                    // Compose keeps the last tapped node (and its click lambda) until the next touch: capture only the id,
+                    // or a session closed right after being opened from here keeps its scrollback alive.
+                    val id = session.id
                     NavigationDrawerItem(icon = { SessionSystemIcon(session, 32.dp) },
                         label = { Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(session.titleForDisplay(title), maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -70,7 +73,7 @@ internal fun ItermuxDrawer(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    } }, selected = false, onClick = { onOpenSession(session.id) },
+                    } }, selected = false, onClick = { onOpenSession(id) },
                         badge = { StatusLabel(state.phase) },
                         modifier = Modifier.padding(horizontal = 12.dp).testTag("drawer-session-${session.id}"))
                 }
