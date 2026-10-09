@@ -1,11 +1,9 @@
 package io.itermux.app.ui
 
 import android.content.ActivityNotFoundException
-import android.content.Intent
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.widget.Toast
-import androidx.core.net.toUri
 import androidx.core.view.SoftwareKeyboardControllerCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -38,14 +36,8 @@ internal class MobileTerminalClient(
     }
 
     override fun onOpenUrl(url: String): Boolean {
-        val intent = Intent(Intent.ACTION_VIEW, url.toUri().normalizeScheme()).apply {
-            addCategory(Intent.CATEGORY_BROWSABLE)
-            // Resolve a browser even when another app has registered this particular web domain.
-            selector = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
         try {
-            view.context.startActivity(intent)
+            openInBrowser(view.context, url)
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(view.context, trf("无法打开链接：%s", url), Toast.LENGTH_SHORT).show()
         } catch (_: SecurityException) {

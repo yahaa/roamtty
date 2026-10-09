@@ -121,7 +121,8 @@ class TerminalGesturesTest {
         compose.runOnIdle {
             assertEquals(1, browserIntents.size)
             assertEquals(url, browserIntents.single().dataString)
-            assertTrue(browserIntents.single().selector?.hasCategory(Intent.CATEGORY_APP_BROWSER) == true)
+            assertNull(browserIntents.single().selector)
+            assertNotNull("The URL is directed to an available browser", browserIntents.single().`package`)
             assertEquals("Opening a link must not send terminal input", "", input.toString())
         }
     }
