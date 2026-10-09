@@ -81,7 +81,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHosts: () -> Unit, onHostDetail: () -> Unit, onReconnect: () -> Unit, onNewSession: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
+fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHostDetail: () -> Unit, onReconnect: () -> Unit, onRestart: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
     val transferStatus by session.transfers.status.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
@@ -101,11 +101,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var terminal by remember { mutableStateOf<TerminalView?>(null) }
     var confirmPaste by remember { mutableStateOf<String?>(null) }
     var closeConfirm by remember { mutableStateOf(false) }
+    var restartConfirm by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var sessionMenu by remember { mutableStateOf(false) }
     var fileAction by remember { mutableStateOf<FileAction?>(null) }
     var commonCommandsOpen by rememberSaveable { mutableStateOf(false) }
-    var editSessionTitle by remember { mutableStateOf(false) }
     var ctrlArmed by remember { mutableStateOf(false) }
     var shiftArmed by remember { mutableStateOf(false) }
     var dockPinned by rememberSaveable { mutableStateOf(prefs.getBoolean("dockPinned", false)) }
@@ -363,15 +363,15 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     }
                 }
                 DropdownMenu(sessionMenu, ::dismissDockMenus) {
-                    DropdownMenuItem(text = { Text(tr("返回主机列表")) }, onClick = { sessionMenu = false; onHosts() })
                     DropdownMenuItem(text = { Text(tr("返回主机详情")) }, onClick = { sessionMenu = false; onHostDetail() })
-                    DropdownMenuItem(text = { Text(tr("修改会话标题")) }, onClick = { sessionMenu = false; editSessionTitle = true })
                     DropdownMenuItem(text = { Text(tr("关闭当前会话")) }, onClick = { sessionMenu = false; if (state.active) closeConfirm = true else onClose() },
                         modifier = Modifier.testTag("close-session"))
-                    if (session.mode == SessionMode.TMUX) DropdownMenuItem(
-                        text = { Text(tr("新会话")) },
-                        onClick = { sessionMenu = false; onNewSession() },
-                        modifier = Modifier.testTag("new-session")
+                    // A tmux pane restarts over the live connection; a plain shell restarts by reconnecting.
+                    DropdownMenuItem(
+                        text = { Text(tr("重启当前会话")) },
+                        onClick = { sessionMenu = false; restartConfirm = true },
+                        enabled = session.mode == SessionMode.SHELL || state.phase == Phase.CONNECTED,
+                        modifier = Modifier.testTag("restart-session")
                     )
                     HorizontalDivider()
                     sessions.forEach { other ->
@@ -647,7 +647,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
     }
     pending?.let { request -> PromptDialog(request) }
-    if (editSessionTitle) SessionTitleDialog(session) { editSessionTitle = false }
     FileTransferUi(session, fileAction, onInsertPath = { path ->
         updateDraft(insertDraftText(draft, CodexImageAttach.pathForPaste(path), 128 * 1024)); editor = true; hideKeyboard()
     }) { fileAction = null }
@@ -660,6 +659,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }, onDismiss = { commonCommandsOpen = false })
     confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text(tr("发送多行文本？")) }, text = { Text(tr("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。")) }, confirmButton = { TextButton(onClick = { sendPaste(text); confirmPaste = null }, enabled = state.phase == Phase.CONNECTED) { Text(tr("发送")) } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text(tr("取消")) } }) }
     if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text(tr("关闭当前会话？")) }, text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")) }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text(tr("关闭")) } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text(tr("取消")) } })
+    if (restartConfirm) AlertDialog(onDismissRequest = { restartConfirm = false }, title = { Text(tr("重启当前会话？")) },
+        text = { Text(if (session.mode == SessionMode.TMUX) tr("正在运行的程序会被结束，然后在同一目录重新启动。") else tr("当前 shell 会结束并重新连接。")) },
+        confirmButton = { TextButton(onClick = { restartConfirm = false; onRestart() }, modifier = Modifier.testTag("restart-session-confirm")) { Text(tr("重启")) } },
+        dismissButton = { TextButton(onClick = { restartConfirm = false }) { Text(tr("取消")) } })
 }
 
 /** Idle timeout of the collapsed toolbox button; 0 keeps it visible (instrumentation tests). */

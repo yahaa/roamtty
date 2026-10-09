@@ -127,6 +127,21 @@ object Tmux {
     fun attachCommand(sessionName: String): String = "exec " + attachShellCommand(sessionName)
 
     /**
+     * Restarts [sessionName]'s pane in the folder it is in, ending whatever runs there. Prints the
+     * command line of the pane's foreground program (nothing when only the shell ran) so it can be
+     * typed into the fresh shell. tmux before 2.6 has no `respawn-pane -c`, so it falls back to a plain respawn.
+     */
+    fun restartPaneCommand(sessionName: String): String {
+        val name = sanitizeSessionName(sessionName)
+        return "/bin/sh -c '$PATH_SETUP; " +
+            "p=\$(tmux display-message -p -t $name \"#{pane_pid}\") && [ -n \"\$p\" ] || exit 1; " +
+            "d=\$(tmux display-message -p -t $name \"#{pane_current_path}\"); " +
+            "ps -A -ww -o ppid= -o stat= -o args= | while read q s a; do [ \"\$q\" = \"\$p\" ] || continue; " +
+            "case \"\$s\" in *+*) printf \"%s\\n\" \"\$a\"; break;; esac; done; " +
+            "tmux respawn-pane -k \${d:+-c \"\$d\"} -t $name 2>/dev/null || exec tmux respawn-pane -k -t $name'"
+    }
+
+    /**
      * POSIX script ending [sessionName] and the processes in its panes; exits 0 when the session is
      * already gone. `=` matches the name exactly, so a missing legacy name never prefix-matches another.
      */

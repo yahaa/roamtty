@@ -586,6 +586,9 @@ class JschSession(
             else -> null
         }
 
+    /** See [Tmux.restartPaneCommand]: the ended foreground command line ("" for a bare shell), or null on failure. */
+    suspend fun restartTmuxPane(): String? = runCommand(Tmux.restartPaneCommand(tmuxName))?.trim()
+
     private fun connectedSession(): Session? =
         session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
 

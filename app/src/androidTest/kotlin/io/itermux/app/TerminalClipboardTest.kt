@@ -50,7 +50,7 @@ class TerminalClipboardTest {
             var active by mutableStateOf(session)
             compose.setContent {
                 MaterialTheme { TerminalPane(active, Modifier.fillMaxSize(), listOf(active), false,
-                    {}, {}, {}, {}, {}, {}, {}, {}) }
+                    {}, {}, {}, {}, {}, {}, {}) }
             }
             compose.waitForIdle()
             compose.runOnIdle { previous = clipboard.primaryClip }
