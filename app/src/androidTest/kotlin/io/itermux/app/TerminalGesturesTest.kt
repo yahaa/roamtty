@@ -147,6 +147,22 @@ class TerminalGesturesTest {
         }
     }
 
+    @Test fun urlApostropheOpensTheWholeAddressButItsEnclosingQuoteDoesNot() {
+        terminalContent()
+        monitorBrowser()
+        val url = "https://example.test/Guns_N'_Roses"
+        compose.runOnIdle { feed("  '$url'\r\n$ ") }
+        for (column in listOf(3 + url.indexOf('\''), 3 + url.length)) {
+            val point = androidx.compose.ui.geometry.Offset((column + 0.5f) * terminal.mRenderer.fontWidth, rowY(0))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        compose.runOnIdle {
+            assertEquals(listOf(url), browserIntents.map { it.dataString })
+            assertEquals("", input.toString())
+        }
+    }
+
     @Test fun urlDoubleTripleAndLongPressKeepTheirTerminalGestures() {
         terminalContent()
         monitorBrowser()

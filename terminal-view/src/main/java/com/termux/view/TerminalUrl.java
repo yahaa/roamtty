@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 /** Finds web URLs at terminal cell positions. */
 final class TerminalUrl {
     private static final Pattern WEB_URL = Pattern.compile(
-        "https?://[^\\s\\p{Z}\\p{Cc}<>\"'`，。！？；：、（）【】《》“”‘’]+", Pattern.CASE_INSENSITIVE);
+        "https?://[^\\s\\p{Z}\\p{Cc}<>\"`，。！？；：、（）【】《》“”‘’]+", Pattern.CASE_INSENSITIVE);
 
     static String at(TerminalEmulator emulator, int column, int row) {
         if (column < 0 || column >= emulator.mColumns ||
@@ -23,12 +23,17 @@ final class TerminalUrl {
         int offset = line.offsetAt(line.cellAt(column, row));
         Matcher matcher = WEB_URL.matcher(line.text);
         while (matcher.find()) {
+            int start = matcher.start();
+            int candidateEnd = quotedItemEnd(line.text, start, matcher.end());
+            // Resume after this quoted item so another URL swallowed by the broad candidate
+            // pattern is still independently clickable.
+            if (candidateEnd < matcher.end()) matcher.region(candidateEnd, line.text.length());
             // The logical-line reader is bounded. Never open a URL cut off by its scan limit.
-            if (matcher.end() == line.text.length() && emulator.getScreen().getLineWrap(line.lastRow)) continue;
-            int end = trimEnd(line.text, matcher.start(), matcher.end());
-            if (offset < matcher.start() || offset >= end) continue;
-            if (endsAtAmbiguousWrap(line, matcher.end())) return null;
-            String url = line.text.substring(matcher.start(), end);
+            if (candidateEnd == line.text.length() && emulator.getScreen().getLineWrap(line.lastRow)) continue;
+            int end = trimEnd(line.text, start, candidateEnd);
+            if (offset < start || offset >= end) continue;
+            if (endsAtAmbiguousWrap(line, candidateEnd)) return null;
+            String url = line.text.substring(start, end);
             try {
                 if (new URI(url).getRawAuthority() != null) return url;
             } catch (URISyntaxException ignored) {
@@ -36,6 +41,17 @@ final class TerminalUrl {
             }
         }
         return null;
+    }
+
+    private static int quotedItemEnd(String text, int start, int end) {
+        if (start == 0 || text.charAt(start - 1) != '\'') return end;
+        for (int i = start; i + 2 < end; i++) {
+            // Separately quoted list items provide an explicit boundary; internal apostrophes
+            // such as Guns_N'_Roses and a trailing apostrophe in rockin' remain URL characters.
+            if (text.charAt(i) == '\'' && (text.charAt(i + 1) == ',' || text.charAt(i + 1) == ';') &&
+                text.charAt(i + 2) == '\'') return i + 1;
+        }
+        return end;
     }
 
     private static final int MAX_LINK_ROWS = 128;
@@ -173,6 +189,9 @@ final class TerminalUrl {
             else if (last == ')' && round < 0) { end--; round++; }
             else if (last == ']' && square < 0) { end--; square++; }
             else if (last == '}' && curly < 0) { end--; curly++; }
+            // Apostrophes are legal URL characters. Strip only an enclosing quote paired with
+            // one immediately before the scheme; punctuation inside that pair belongs to the URL.
+            else if (last == '\'' && start > 0 && text.charAt(start - 1) == '\'') return end - 1;
             else break;
         }
         return end;

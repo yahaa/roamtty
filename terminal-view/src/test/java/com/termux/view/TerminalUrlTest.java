@@ -156,6 +156,50 @@ public class TerminalUrlTest {
         assertNull(TerminalUrl.at(t, 57, 0));
     }
 
+    @Test public void apostrophesRemainPartOfUrlPathsQueriesAndFragments() {
+        for (String url : new String[] {
+            "https://example.test/Guns_N'_Roses", "https://example.test/rockin'",
+            "https://example.test/?name=O'Brien#it's-here"
+        }) {
+            TerminalEmulator t = terminal(100, 4, "see " + url + " end");
+            for (int col = 4; col < 4 + url.length(); col++) assertEquals(url, TerminalUrl.at(t, col, 0));
+            assertNull(TerminalUrl.at(t, 4 + url.length(), 0));
+        }
+    }
+
+    @Test public void enclosingSingleQuotesAreExcludedButInnerApostrophesRemain() {
+        String url = "https://example.test/Guns_N'_Roses";
+        TerminalEmulator t = terminal(100, 4, "see '" + url + "'. end");
+        for (int col = 5; col < 5 + url.length(); col++) assertEquals(url, TerminalUrl.at(t, col, 0));
+        assertNull(TerminalUrl.at(t, 4, 0));
+        assertNull(TerminalUrl.at(t, 5 + url.length(), 0));
+        assertNull(TerminalUrl.at(t, 6 + url.length(), 0));
+        t = terminal(100, 4, "'https://example.test/path!' and ('https://two.test/rockin'')");
+        assertEquals("https://example.test/path!", TerminalUrl.at(t, 4, 0));
+        assertEquals("https://two.test/rockin'", TerminalUrl.at(t, 39, 0));
+    }
+
+    @Test public void apostrophesSurviveAutomaticAndTuiLineWrapping() {
+        TerminalEmulator t = terminal(20, 5, "https://example.test/Guns_N'_Roses");
+        assertEquals("https://example.test/Guns_N'_Roses", TerminalUrl.at(t, 8, 1));
+        t = terminal(40, 5, "(\033[4mhttps://example.test/Guns_N\033[0m\r\n  \033[4m'_Roses\033[0m)");
+        assertEquals("https://example.test/Guns_N'_Roses", TerminalUrl.at(t, 2, 0));
+        assertEquals("https://example.test/Guns_N'_Roses", TerminalUrl.at(t, 2, 1));
+    }
+
+    @Test public void adjacentQuotedItemsDoNotBecomeOneUrl() {
+        for (String separator : new String[] {",", ";"}) {
+            String text = "['https://one.test/a'" + separator + "'https://two.test/b']";
+            TerminalEmulator t = terminal(100, 4, text);
+            assertEquals("https://one.test/a", TerminalUrl.at(t, 5, 0));
+            assertEquals("https://two.test/b", TerminalUrl.at(t, text.indexOf("https://two") + 5, 0));
+            assertNull(TerminalUrl.at(t, text.indexOf(separator), 0));
+        }
+        TerminalEmulator t = terminal(100, 4, "['https://one.test/a','plain text']");
+        assertEquals("https://one.test/a", TerminalUrl.at(t, 5, 0));
+        assertNull(TerminalUrl.at(t, 25, 0));
+    }
+
     @Test public void localAndIpv6UrlsAndUppercaseSchemeWork() {
         TerminalEmulator t = terminal(100, 4, "HTTP://localhost:3000/ http://127.0.0.1:8080/ http://[::1]:3000/");
         assertEquals("HTTP://localhost:3000/", TerminalUrl.at(t, 0, 0));
