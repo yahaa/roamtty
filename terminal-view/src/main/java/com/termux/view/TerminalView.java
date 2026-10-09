@@ -166,6 +166,7 @@ public final class TerminalView extends View {
             /** Input gestures must start and finish in the same live, writable view. */
             boolean writableAtDown;
             TerminalSession sessionAtDown;
+            String urlAtDown;
             /** Where the finger last moved past the touch slop, and where it is now, while a swipe may become a hold. */
             float holdX, holdY, lastX, lastY;
             /** The swipe-and-hold already fired: lifting sends nothing more. */
@@ -212,6 +213,10 @@ public final class TerminalView extends View {
                 if (isSelectingText()) {
                     stopTextSelectionMode();
                     return true;
+                }
+                if (urlAtDown != null) {
+                    if (sessionAtDown != mTermSession) return true;
+                    if (mClient.onOpenUrl(urlAtDown)) return true;
                 }
                 requestFocus();
                 mClient.onSingleTapUp(event);
@@ -305,6 +310,8 @@ public final class TerminalView extends View {
                 downX = x;
                 downY = y;
                 sessionAtDown = mTermSession;
+                // Capture before the single-tap delay: incoming output may move or replace this row.
+                urlAtDown = getUrlAt(x, y);
                 writableAtDown = isWritableLiveViewport();
                 scaledInGesture = false;
                 swipeHeld = false;
@@ -1445,6 +1452,14 @@ public final class TerminalView extends View {
 
     int textRowAt(float y) {
         return (int) Math.floor((y - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing) + mTopRow;
+    }
+
+    /** The complete HTTP(S) URL under a touch, including soft wraps and scrolled history. */
+    private String getUrlAt(float x, float y) {
+        if (mEmulator == null || mRenderer == null || x < 0 || y < 0 || x >= getWidth() || y >= getHeight()) return null;
+        int row = textRowAt(y);
+        if (row < mTopRow || row >= mTopRow + mEmulator.mRows) return null;
+        return TerminalUrl.at(mEmulator, (int) Math.floor(x / mRenderer.mFontWidth), row);
     }
 
     public void setCursorDraggingEnabled(boolean enabled) { mCursorDrag.setEnabled(enabled); }

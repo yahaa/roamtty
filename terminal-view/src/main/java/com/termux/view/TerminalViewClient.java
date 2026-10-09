@@ -28,6 +28,9 @@ public interface TerminalViewClient {
      */
     void onSingleTapUp(MotionEvent e);
 
+    /** Open the URL captured when a confirmed single tap began; true consumes the tap. */
+    default boolean onOpenUrl(String url) { return false; }
+
     /** Explicit double-tap action on a writable terminal, fired only once no third tap follows. Read-only history never calls this. */
     default void onDoubleTap(MotionEvent e) {}
 

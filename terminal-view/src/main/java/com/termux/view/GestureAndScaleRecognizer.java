@@ -117,13 +117,23 @@ final class GestureAndScaleRecognizer {
 
     public void onTouchEvent(MotionEvent event) {
         trackTaps(event);
-        mGestureDetector.onTouchEvent(event);
+        boolean tripleTap = event.getActionMasked() == MotionEvent.ACTION_UP && mTapCount == 3;
+        if (tripleTap) {
+            // GestureDetector sees tap three as a new single tap. Cancel BEFORE its UP: a held
+            // third tap can confirm synchronously on UP, otherwise it confirms after a delay.
+            MotionEvent cancel = MotionEvent.obtain(event);
+            cancel.setAction(MotionEvent.ACTION_CANCEL);
+            mGestureDetector.onTouchEvent(cancel);
+            cancel.recycle();
+        } else {
+            mGestureDetector.onTouchEvent(event);
+        }
         mScaleDetector.onTouchEvent(event);
         if (event.getActionMasked() == MotionEvent.ACTION_UP && mTapCount == 2) {
             cancelPendingDoubleTap();
             mPendingDoubleTap = MotionEvent.obtain(event);
             mHandler.postDelayed(mFireDoubleTap, ViewConfiguration.getDoubleTapTimeout());
-        } else if (event.getActionMasked() == MotionEvent.ACTION_UP && mTapCount == 3) {
+        } else if (tripleTap) {
             resetTaps();
             mListener.onTripleTap(event);
         }
