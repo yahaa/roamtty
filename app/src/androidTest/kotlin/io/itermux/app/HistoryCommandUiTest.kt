@@ -37,7 +37,7 @@ class HistoryCommandUiTest {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             withTimeout(10_000) { session.commonCommands.first { it is CommonCommandsState.Ready } }
             compose.setContent { MaterialTheme {
-                TerminalPane(session, Modifier.fillMaxSize(), listOf(session), false, {}, {}, {}, {}, {}, {}, {}, {})
+                TerminalPane(session, Modifier.fillMaxSize(), listOf(session), false, {}, {}, {}, {}, {}, {}, {})
             } }
             withContext(Dispatchers.Main) { session.draft = "unsent draft" }
             for (bracketed in listOf(false, true)) {

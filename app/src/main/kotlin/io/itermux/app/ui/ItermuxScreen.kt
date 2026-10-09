@@ -197,6 +197,12 @@ fun ItermuxScreen(
         else begin(ConnectRequest(session.host, SessionMode.SHELL, terminateSessionId = session.id))
     }
 
+    /** tmux restarts the pane over the live connection; a plain shell gets a fresh one by reconnecting. */
+    fun restartSession(session: TerminalConnection) {
+        if (session.mode != SessionMode.TMUX) connect(session.host, session.mode, session.title.value, reuseSessionId = session.id)
+        else scope.launch { if (!session.restartPane()) toast(tr("未能重启会话，请检查连接后重试")) }
+    }
+
     /** A new session in [directory]; with [agent], that agent is started there and names the session. */
     fun launchOn(host: Host, directory: String, agent: AgentLaunch?) {
         if (!StartDirectory.isSupported(directory)) {
@@ -408,10 +414,9 @@ fun ItermuxScreen(
                     if (active != null) key(active) {
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
-                            onHosts = { page = "hosts" }, onHostDetail = ::leaveTerminal,
+                            onHostDetail = ::leaveTerminal,
                             onReconnect = { connect(active.host, active.mode, active.title.value, reuseSessionId = active.id) },
-                            // A new session follows the host's current plugins (mosh first, tmux when installed).
-                            onNewSession = { connect(hosts.firstOrNull { it.id == active.host.id } ?: active.host) },
+                            onRestart = { restartSession(active) },
                             onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active },
                             // Closing ends the terminal page too: back to the host the session belonged to.

@@ -70,4 +70,31 @@ class TmuxSessionNameTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test fun restartPaneEndsTheForegroundProgramAndReportsIt() {
+        assumeTrue(runCatching { ProcessBuilder("tmux", "-V").start().waitFor() == 0 }.getOrDefault(false))
+        val dir = java.nio.file.Files.createTempDirectory("tmux-restart").toFile()
+        val work = java.io.File(dir, "work").apply { mkdir() }.canonicalPath
+        fun sh(script: String): Pair<Int, String> = ProcessBuilder("/bin/sh", "-c", script).also {
+            it.environment().remove("TMUX")
+            it.environment()["TMUX_TMPDIR"] = dir.path
+        }.redirectErrorStream(true).start().let { val out = it.inputStream.bufferedReader().readText(); it.waitFor() to out }
+        try {
+            assertEquals(0, sh("tmux new-session -d -s roamtty-r -x 80 -y 24 -c '$work' sh").first)
+            sh("tmux send-keys -t roamtty-r 'tail -f /dev/null --retry' Enter")
+            var running = ""
+            repeat(50) { if (running != "tail") { Thread.sleep(100); running = sh("tmux display -p -t roamtty-r '#{pane_current_command}'").second.trim() } }
+            assertEquals("tail", running)
+            val pid = sh("tmux display -p -t roamtty-r '#{pane_pid}'").second.trim()
+            assertEquals(0 to "tail -f /dev/null --retry", sh(Tmux.restartPaneCommand("roamtty-r")).let { it.first to it.second.trim() })
+            // A fresh pane process in the same folder; a bare shell reports no program.
+            assertTrue(sh("tmux display -p -t roamtty-r '#{pane_pid}'").second.trim() != pid)
+            assertEquals(work, sh("tmux display -p -t roamtty-r '#{pane_current_path}'").second.trim())
+            assertEquals(0 to "", sh(Tmux.restartPaneCommand("roamtty-r")).let { it.first to it.second.trim() })
+            assertTrue(sh(Tmux.restartPaneCommand("roamtty-missing")).first != 0)
+        } finally {
+            sh("tmux kill-server")
+            dir.deleteRecursively()
+        }
+    }
 }

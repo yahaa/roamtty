@@ -233,6 +233,16 @@ class TerminalConnection(
         }
     }
 
+    /** Restarts the tmux pane in its folder and types its foreground program again; false when tmux was not reached. */
+    suspend fun restartPane(): Boolean {
+        val command = ssh.restartTmuxPane() ?: return false
+        if (command.isNotEmpty()) {
+            delay(500) // let the fresh shell print its prompt before the command echoes
+            runWhenConnected(command)
+        }
+        return true
+    }
+
     /** Detects a connection that died while the phone slept or changed networks. */
     fun verifyAlive() { if (job != null) scope.launch { ssh.verifyAlive() } }
 
