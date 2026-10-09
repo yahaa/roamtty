@@ -88,6 +88,10 @@ public final class TerminalView extends View {
     private MotionEvent mFlingEvent;
     private final TerminalCursorDrag mCursorDrag = new TerminalCursorDrag(this);
     private BaseInputConnection mInputConnection;
+    /** Numbers input connections; the latest batch starts at the first one created after an IME last used one. */
+    private int mInputGeneration;
+    private int mInputBatchStart;
+    private boolean mInputBatchUsed = true;
     private final ImeBackspaceTracker mImeBackspace = new ImeBackspaceTracker();
     private Integer mExtractedTextToken;
     /** Roamtty: told about every key or IME edit the user makes, before it reaches the terminal. */
@@ -490,11 +494,23 @@ public final class TerminalView extends View {
         if (Build.VERSION.SDK_INT >= 30) outAttrs.setInitialSurroundingText(initial.text);
 
         final TerminalSession inputOwner = mTermSession;
+        final int generation = ++mInputGeneration;
+        if (mInputBatchUsed) {
+            mInputBatchStart = generation;
+            mInputBatchUsed = false;
+        }
         return mInputConnection = new BaseInputConnection(this, true) {
 
-            /** A detached IME may finish or edit its old connection after a session change. */
+            /**
+             * A detached IME may finish or edit its old connection after a keyboard switch, restart or session change.
+             * Switching keyboards makes Android create several connections in a row and hand the IME any one of them,
+             * so the latest batch is accepted and the one the IME actually calls becomes current.
+             */
             private boolean isCurrentConnection() {
-                return mInputConnection == this && mTermSession == inputOwner;
+                if (mTermSession != inputOwner || generation < mInputBatchStart) return false;
+                mInputConnection = this;
+                mInputBatchUsed = true;
+                return true;
             }
 
             private void clearEditable() {
@@ -745,7 +761,13 @@ public final class TerminalView extends View {
         };
     }
 
-    /** IME offsets must refer to its editable buffer, never the remote screen's padded cells. */
+    /**
+     * Stands for the remote line while nothing is composed: IMEs stop a held delete (WeChat IME) or skip
+     * delete entirely (Typeless) when they see no text before the cursor. Deleting it sends DEL keys.
+     */
+    private static final String IME_REMOTE_PLACEHOLDER = new String(new char[64]).replace('\0', ' ');
+
+    /** IME offsets must refer to its editable buffer or the placeholder, never the remote screen's padded cells. */
     private ExtractedText imeSnapshot(@Nullable Editable composing) {
         ExtractedText result = new ExtractedText();
         result.partialStartOffset = result.partialEndOffset = -1;
@@ -755,8 +777,8 @@ public final class TerminalView extends View {
             result.selectionStart = ImeDeleteGuard.clampIndex(Selection.getSelectionStart(composing), len);
             result.selectionEnd = ImeDeleteGuard.clampIndex(Selection.getSelectionEnd(composing), len);
         } else {
-            result.text = "";
-            result.selectionStart = result.selectionEnd = 0;
+            result.text = IME_REMOTE_PLACEHOLDER;
+            result.selectionStart = result.selectionEnd = IME_REMOTE_PLACEHOLDER.length();
         }
         return result;
     }

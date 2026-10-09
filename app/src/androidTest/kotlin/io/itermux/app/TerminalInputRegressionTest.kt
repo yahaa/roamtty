@@ -185,7 +185,7 @@ class TerminalInputRegressionTest {
         compose.runOnIdle {
             ime.setComposingText("拼音🙂", 1)
             assertTrue(ime.deleteSurroundingText(Int.MAX_VALUE, 0))
-            assertEquals("", ime.getExtractedText(ExtractedTextRequest(), 0).text.toString())
+            assertTrue(ime.getExtractedText(ExtractedTextRequest(), 0).text.isBlank())
             assertEquals("", session.input.toString())
             ime.setComposingText("另一个拼音", 1)
             assertTrue(ime.deleteSurroundingTextInCodePoints(Int.MAX_VALUE, Int.MAX_VALUE))
@@ -223,7 +223,7 @@ class TerminalInputRegressionTest {
                 assertEquals("Local deletes must not spill into remote input", "", session.input.toString())
                 SystemClock.sleep(100)
             }
-            assertEquals("", checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0)).text.toString())
+            assertTrue(checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0)).text.isBlank())
 
             val remoteStarted = SystemClock.uptimeMillis()
             ime.deleteSurroundingText(1, 0)
@@ -325,17 +325,58 @@ class TerminalInputRegressionTest {
         }
     }
 
-    @Test fun replacingAnInputConnectionWithinTheSameSessionAlsoRejectsOldCallbacks() {
+    @Test fun switchingKeyboardsKeepsWhicheverConnectionOfTheSessionTheImeUses() {
+        terminalContent()
+        compose.runOnIdle {
+            // Android creates several connections during a keyboard switch and may hand the IME an earlier one.
+            val used = terminal.onCreateInputConnection(EditorInfo())
+            terminal.onCreateInputConnection(EditorInfo())
+            assertTrue(used.commitText("typed", 1))
+            assertTrue(used.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)))
+            assertTrue(used.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL)))
+            assertEquals("typed\u007f", session.input.toString())
+            session.input.clear()
+            // Clearing the line discards the composition in the connection the IME is using.
+            used.setComposingText("pin", 1)
+            terminal.clearCurrentInput()
+            assertTrue(used.getExtractedText(ExtractedTextRequest(), 0).text.isBlank())
+        }
+    }
+
+    @Test fun aDetachedKeyboardCannotFinishCommitOrDeleteAfterANewBatchOfConnections() {
         terminalContent()
         compose.runOnIdle {
             val old = terminal.onCreateInputConnection(EditorInfo())
             old.setComposingText("old", 1)
-            val current = terminal.onCreateInputConnection(EditorInfo())
+            // Switch or restart: a new batch is created before the new keyboard calls in.
+            val first = terminal.onCreateInputConnection(EditorInfo())
+            val second = terminal.onCreateInputConnection(EditorInfo())
             assertFalse(old.finishComposingText())
             assertFalse(old.commitText("wrong", 1))
-            assertFalse(old.deleteSurroundingText(Int.MAX_VALUE, 0))
-            current.commitText("valid", 1)
+            assertFalse(old.deleteSurroundingText(1, 0))
+            assertTrue(second.commitText("valid", 1))
+            // Once the new keyboard is in, the rest of its batch is not reopened by a later batch either.
+            terminal.onCreateInputConnection(EditorInfo())
+            assertFalse(first.commitText("wrong", 1))
             assertEquals("valid", session.input.toString())
+        }
+    }
+
+    @Test fun deleteWorksForImesThatCheckTheTextBeforeTheCursorFirst() {
+        terminalContent()
+        compose.runOnIdle {
+            val ime = terminal.onCreateInputConnection(EditorInfo())
+            // Typeless deletes only when it sees text before the cursor, then deletes that many chars.
+            val before = ime.getTextBeforeCursor(33, 0).toString()
+            assertTrue(before.isNotEmpty())
+            // WeChat IME stops a held delete once it sees no text before the cursor, even after committing:
+            // the placeholder must outlast the hold that clears the line.
+            ime.commitText("你好", 1)
+            val held = ime.getExtractedText(ExtractedTextRequest(), 0)
+            assertTrue(held.text.isBlank() && held.selectionStart >= 16)
+            session.input.clear()
+            assertTrue(ime.deleteSurroundingText(before.length.coerceAtMost(1), 0))
+            assertEquals("\u007f", session.input.toString())
         }
     }
 
