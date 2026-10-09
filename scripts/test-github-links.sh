@@ -36,13 +36,17 @@ fixture_installed=true
 run_tests() {
     "${adb[@]}" shell am instrument -w -r -e class io.itermux.app.GitHubLinkTest -e githubExpected "$2" \
         com.roamtty.app.test/io.itermux.app.ItermuxTestRunner > "$results/$1.log" 2>&1
-    if ! rg -q 'OK \(3 tests\)' "$results/$1.log" || rg -q '^INSTRUMENTATION_STATUS_CODE: -' "$results/$1.log"; then
+    if ! rg -q 'OK \(4 tests\)' "$results/$1.log" || rg -q '^INSTRUMENTATION_STATUS_CODE: -' "$results/$1.log"; then
         cat "$results/$1.log"
         exit 1
     fi
-    echo "$1: 3 passed, 0 failed/skipped"
+    echo "$1: 4 passed, 0 failed/skipped"
 }
+"${adb[@]}" shell am start -S -W -n com.github.android/.LinkFixture --ez linksEnabled true > "$results/enable-alias.log"
 run_tests available app
+"${adb[@]}" shell am start -S -W -n com.github.android/.LinkFixture --ez linksEnabled false > "$results/disable-alias.log"
+run_tests component_disabled browser
+"${adb[@]}" shell am start -S -W -n com.github.android/.LinkFixture --ez linksEnabled true >> "$results/enable-alias.log"
 "${adb[@]}" shell pm suspend com.github.android
 run_tests suspended browser
 "${adb[@]}" shell pm unsuspend com.github.android

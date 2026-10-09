@@ -27,7 +27,7 @@
 
 `-PitermuxVersionName=...` 可标记测试包版本，`-PitermuxApplicationId=...` 可用独立包名安装测试包。Release 构建开启 R8 代码与资源压缩，规则见 `app/proguard-rules.pro`。
 
-GitHub 链接回归：`scripts/test-github-links.sh emulator-5554`，在未安装 GitHub 的隔离模拟器中构建测试处理应用，验证可用、挂起、停用和未安装时的打开与回退行为，结束后卸载测试处理应用。
+GitHub 链接回归：`scripts/test-github-links.sh emulator-5554`，在未安装 GitHub 的隔离模拟器中构建测试处理应用，验证动态启用链接入口、停用入口、挂起应用、停用应用和未安装时的打开与回退行为，结束后卸载测试处理应用。
 
 Windows 上可用 `scripts/bootstrap.ps1`、`scripts/install-sdk.ps1` 在项目目录内安装工具链，`scripts/build.ps1` 构建。
 

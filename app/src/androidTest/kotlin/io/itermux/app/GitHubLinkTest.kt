@@ -20,6 +20,7 @@ class GitHubLinkTest {
             override fun startActivity(intent: Intent) {
                 launches.add(Intent(intent))
                 if (intent.`package` == github && failure != null) throw failure
+                if (InstrumentationRegistry.getArguments().getString("githubLaunch") == "true") super.startActivity(intent)
             }
         }
         openTerminalUrl(context, url)
@@ -39,17 +40,22 @@ class GitHubLinkTest {
         }
     }
 
-    @Test fun githubLinksPreferTheAvailableAppAndPreserveTheWholeAddress() {
-        for (address in listOf(url, url.replace("https:", "http:"), url.replace("github.com", "www.github.com"))) {
-            val launch = open(address).single()
-            assertExpectedHandler(launch)
-            for (intent in targets(launch)) {
-                assertEquals(address, intent.dataString)
-                assertEquals(Intent.ACTION_VIEW, intent.action)
-                assertTrue(intent.hasCategory(Intent.CATEGORY_BROWSABLE))
-                assertNull(intent.selector)
-            }
+    private fun assertOpensAddress(address: String) {
+        val launch = open(address).single()
+        assertExpectedHandler(launch)
+        for (intent in targets(launch)) {
+            assertEquals(address, intent.dataString)
+            assertEquals(Intent.ACTION_VIEW, intent.action)
+            assertTrue(intent.hasCategory(Intent.CATEGORY_BROWSABLE))
+            assertNull(intent.selector)
         }
+    }
+
+    @Test fun githubPrLinkPrefersTheAvailableAppAndPreservesTheWholeAddress() = assertOpensAddress(url)
+
+    @Test fun httpAndWwwLinksPreferTheAvailableApp() {
+        assertOpensAddress(url.replace("https:", "http:"))
+        assertOpensAddress(url.replace("github.com", "www.github.com"))
     }
 
     @Test fun otherHostsAndGithubLookalikesStayInTheBrowser() {

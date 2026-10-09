@@ -26,12 +26,17 @@ class BrowserTargetsTest {
         )))
     }
 
-    @Test fun disabledAndPrivateActivitiesAreExcluded() {
+    @Test fun disabledAppsAndPrivateActivitiesAreExcluded() {
         assertEquals(listOf("active.browser"), usableWebPackages(listOf(
             browser("disabled.app", enabled = false),
-            browser("disabled.activity").apply { activityInfo.enabled = false },
             browser("private.activity").apply { activityInfo.exported = false },
             browser("active.browser")
+        )))
+    }
+
+    @Test fun resolvedAliasKeepsItsDisabledManifestDefaultAfterRuntimeActivation() {
+        assertEquals(listOf("com.github.android"), usableWebPackages(listOf(
+            browser("com.github.android").apply { activityInfo.enabled = false }
         )))
     }
 

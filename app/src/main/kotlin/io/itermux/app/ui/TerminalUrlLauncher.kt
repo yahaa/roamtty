@@ -40,7 +40,8 @@ internal fun usableWebPackages(activities: List<ResolveInfo>): List<String> =
         val activity = resolved.activityInfo ?: return@mapNotNull null
         val app = activity.applicationInfo ?: return@mapNotNull null
         activity.packageName.takeIf {
-            activity.enabled && activity.exported && app.enabled && (app.flags and ApplicationInfo.FLAG_SUSPENDED) == 0
+            // Queries omit MATCH_DISABLED_COMPONENTS; enabled aliases can still report their manifest default as false.
+            activity.exported && app.enabled && (app.flags and ApplicationInfo.FLAG_SUSPENDED) == 0
         }
     }.distinct()
 
