@@ -185,7 +185,7 @@ class TerminalInputRegressionTest {
         compose.runOnIdle {
             ime.setComposingText("拼音🙂", 1)
             assertTrue(ime.deleteSurroundingText(Int.MAX_VALUE, 0))
-            assertEquals("", ime.getExtractedText(ExtractedTextRequest(), 0).text.toString())
+            assertTrue(ime.getExtractedText(ExtractedTextRequest(), 0).text.isBlank())
             assertEquals("", session.input.toString())
             ime.setComposingText("另一个拼音", 1)
             assertTrue(ime.deleteSurroundingTextInCodePoints(Int.MAX_VALUE, Int.MAX_VALUE))
@@ -223,7 +223,7 @@ class TerminalInputRegressionTest {
                 assertEquals("Local deletes must not spill into remote input", "", session.input.toString())
                 SystemClock.sleep(100)
             }
-            assertEquals("", checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0)).text.toString())
+            assertTrue(checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0)).text.isBlank())
 
             val remoteStarted = SystemClock.uptimeMillis()
             ime.deleteSurroundingText(1, 0)
@@ -339,7 +339,7 @@ class TerminalInputRegressionTest {
             // Clearing the line discards the composition in the connection the IME is using.
             used.setComposingText("pin", 1)
             terminal.clearCurrentInput()
-            assertEquals("", used.getExtractedText(ExtractedTextRequest(), 0).text.toString())
+            assertTrue(used.getExtractedText(ExtractedTextRequest(), 0).text.isBlank())
         }
     }
 
@@ -350,6 +350,12 @@ class TerminalInputRegressionTest {
             // Typeless deletes only when it sees text before the cursor, then deletes that many chars.
             val before = ime.getTextBeforeCursor(33, 0).toString()
             assertTrue(before.isNotEmpty())
+            // WeChat IME stops a held delete once it sees no text before the cursor, even after committing:
+            // the placeholder must outlast the hold that clears the line.
+            ime.commitText("你好", 1)
+            val held = ime.getExtractedText(ExtractedTextRequest(), 0)
+            assertTrue(held.text.isBlank() && held.selectionStart >= 16)
+            session.input.clear()
             assertTrue(ime.deleteSurroundingText(before.length.coerceAtMost(1), 0))
             assertEquals("\u007f", session.input.toString())
         }

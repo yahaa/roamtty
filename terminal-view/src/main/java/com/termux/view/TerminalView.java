@@ -528,9 +528,6 @@ public final class TerminalView extends View {
             public CharSequence getTextBeforeCursor(int length, int flags) {
                 ExtractedText snapshot = imeSnapshot(getEditable());
                 int textLen = snapshot.text.length();
-                // Some IMEs (Typeless) drop delete when nothing precedes the cursor; one space stands
-                // for the remote line, and deleting it sends one DEL.
-                if (textLen == 0 && length > 0) return " ";
                 int end = ImeDeleteGuard.clampIndex(Math.min(snapshot.selectionStart, snapshot.selectionEnd), textLen);
                 int start = ImeDeleteGuard.clampIndex(end - Math.max(0, length), textLen);
                 return snapshot.text.subSequence(start, end);
@@ -754,7 +751,13 @@ public final class TerminalView extends View {
         };
     }
 
-    /** IME offsets must refer to its editable buffer, never the remote screen's padded cells. */
+    /**
+     * Stands for the remote line while nothing is composed: IMEs stop a held delete (WeChat IME) or skip
+     * delete entirely (Typeless) when they see no text before the cursor. Deleting it sends DEL keys.
+     */
+    private static final String IME_REMOTE_PLACEHOLDER = new String(new char[64]).replace('\0', ' ');
+
+    /** IME offsets must refer to its editable buffer or the placeholder, never the remote screen's padded cells. */
     private ExtractedText imeSnapshot(@Nullable Editable composing) {
         ExtractedText result = new ExtractedText();
         result.partialStartOffset = result.partialEndOffset = -1;
@@ -764,8 +767,8 @@ public final class TerminalView extends View {
             result.selectionStart = ImeDeleteGuard.clampIndex(Selection.getSelectionStart(composing), len);
             result.selectionEnd = ImeDeleteGuard.clampIndex(Selection.getSelectionEnd(composing), len);
         } else {
-            result.text = "";
-            result.selectionStart = result.selectionEnd = 0;
+            result.text = IME_REMOTE_PLACEHOLDER;
+            result.selectionStart = result.selectionEnd = IME_REMOTE_PLACEHOLDER.length();
         }
         return result;
     }
