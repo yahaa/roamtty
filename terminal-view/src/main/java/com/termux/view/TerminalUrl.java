@@ -22,23 +22,25 @@ final class TerminalUrl {
         TerminalTextLine line = TerminalTextLine.at(emulator, row);
         int offset = line.offsetAt(line.cellAt(column, row));
         Matcher matcher = WEB_URL.matcher(line.text);
-        while (matcher.find()) {
+        for (int next = 0; matcher.find(next);) {
             int start = matcher.start();
             int candidateEnd = quotedItemEnd(line.text, start, matcher.end());
-            // Resume after this quoted item so another URL swallowed by the broad candidate
-            // pattern is still independently clickable.
-            if (candidateEnd < matcher.end()) matcher.region(candidateEnd, line.text.length());
+            next = candidateEnd; // Resume after this item, including separately quoted URLs.
             // The logical-line reader is bounded. Never open a URL cut off by its scan limit.
             if (candidateEnd == line.text.length() && emulator.getScreen().getLineWrap(line.lastRow)) continue;
             int end = trimEnd(line.text, start, candidateEnd);
             if (offset < start || offset >= end) continue;
             if (endsAtAmbiguousWrap(line, candidateEnd)) return null;
-            String url = line.text.substring(start, end);
-            try {
-                if (new URI(url).getRawAuthority() != null) return url;
-            } catch (URISyntaxException ignored) {
-                // Incomplete or malformed output is ordinary terminal text.
-            }
+            return validatedUrl(line.text.substring(start, end));
+        }
+        return null;
+    }
+
+    private static String validatedUrl(String url) {
+        try {
+            if (WEB_URL.matcher(url).matches() && new URI(url).getRawAuthority() != null) return url;
+        } catch (URISyntaxException ignored) {
+            // Incomplete or malformed output is ordinary terminal text.
         }
         return null;
     }
@@ -103,7 +105,8 @@ final class TerminalUrl {
                                                int tappedColumn, int tappedRow) {
         StringBuilder url = new StringBuilder();
         boolean tapped = false;
-        for (int y = startRow; y < emulator.mRows && y - startRow < MAX_LINK_ROWS; y++) {
+        String completeUrl = null;
+        link: for (int y = startRow; y < emulator.mRows && y - startRow < MAX_LINK_ROWS; y++) {
             TerminalRow line = rowAt(emulator, y);
             int cell = y == startRow ? startColumn : 0;
             int offset = line.findStartOfColumn(cell);
@@ -112,7 +115,7 @@ final class TerminalUrl {
                 while (offset < line.getSpaceUsed() && line.mText[offset] == ' ') { offset++; cell++; }
                 if (offset == line.getSpaceUsed()) break;
                 String fragment = new String(line.mText, offset, line.getSpaceUsed() - offset);
-                if (hasWebScheme(fragment)) return tapped ? new Match(null) : null;
+                if (hasWebScheme(fragment)) break;
             }
             int baseColumn = cell;
             for (; offset < line.getSpaceUsed();) {
@@ -121,31 +124,26 @@ final class TerminalUrl {
                 if (width > 0) baseColumn = cell;
                 boolean linkStyle = underlined(line.getStyle(baseColumn));
                 if (point == ')' && !linkStyle) {
-                    if (!tapped) return null;
-                    String value = url.toString();
-                    try {
-                        if (WEB_URL.matcher(value).matches() && new URI(value).getRawAuthority() != null)
-                            return new Match(value);
-                    } catch (URISyntaxException ignored) { }
-                    return new Match(null);
+                    completeUrl = validatedUrl(url.toString());
+                    break link;
                 }
                 if (point == ' ') {
-                    if (emulator.getScreen().getLineWrap(y)) return tapped ? new Match(null) : null;
+                    if (emulator.getScreen().getLineWrap(y)) break link;
                     for (int i = offset; i < line.getSpaceUsed(); i++) {
-                        if (line.mText[i] != ' ') return tapped ? new Match(null) : null;
+                        if (line.mText[i] != ' ') break link;
                     }
                     break;
                 }
-                if (!linkStyle) return tapped ? new Match(null) : null;
+                if (!linkStyle) break link;
                 url.appendCodePoint(point);
                 if (url.length() <= 8 && !webPrefix(url.toString())) return null;
                 if (y == tappedRow && tappedColumn >= cell && tappedColumn < cell + width) tapped = true;
-                if (url.length() > MAX_LINK_LENGTH) return tapped ? new Match(null) : null;
+                if (url.length() > MAX_LINK_LENGTH) break link;
                 cell += width;
                 offset += Character.charCount(point);
             }
         }
-        return tapped ? new Match(null) : null;
+        return tapped ? new Match(completeUrl) : null;
     }
 
     private static boolean webPrefix(String text) {
@@ -172,23 +170,18 @@ final class TerminalUrl {
     }
 
     private static int trimEnd(String text, int start, int end) {
-        int round = 0, square = 0, curly = 0;
+        String opening = "([{", closing = ")]}";
+        int[] balance = new int[opening.length()];
         for (int i = start; i < end; i++) {
-            switch (text.charAt(i)) {
-                case '(': round++; break;
-                case ')': round--; break;
-                case '[': square++; break;
-                case ']': square--; break;
-                case '{': curly++; break;
-                case '}': curly--; break;
-            }
+            int open = opening.indexOf(text.charAt(i)), close = closing.indexOf(text.charAt(i));
+            if (open >= 0) balance[open]++;
+            if (close >= 0) balance[close]--;
         }
         while (end > start) {
             char last = text.charAt(end - 1);
+            int bracket = closing.indexOf(last);
             if (".,;:!?".indexOf(last) >= 0) end--;
-            else if (last == ')' && round < 0) { end--; round++; }
-            else if (last == ']' && square < 0) { end--; square++; }
-            else if (last == '}' && curly < 0) { end--; curly++; }
+            else if (bracket >= 0 && balance[bracket] < 0) { end--; balance[bracket]++; }
             // Apostrophes are legal URL characters. Strip only an enclosing quote paired with
             // one immediately before the scheme; punctuation inside that pair belongs to the URL.
             else if (last == '\'' && start > 0 && text.charAt(start - 1) == '\'') return end - 1;
