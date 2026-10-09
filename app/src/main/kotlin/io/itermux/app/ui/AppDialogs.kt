@@ -92,6 +92,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• Hold the little ghost to open a ring of shortcuts for the program in front (Claude Code, Codex, Grok, Gemini, or keyboard keys in a plain shell); drag onto one and let go to send it. In a shell, rest on Fn to open F1–F12.\n" +
         "• Hold the command line to show a magnifier and drag the cursor, even across lines; hold other output to select and copy it.\n" +
         "• Holding the keyboard's delete key for about a second clears the line; quick taps delete one character each. Clearing needs Ctrl+U/Ctrl+K on the remote side.\n" +
+        "• After Enter, the keyboard hides by itself if you type nothing for 15 seconds.\n" +
         "• When you stop typing, an Enter key appears at the end of the cursor row; otherwise an Esc key sits there. On a line starting with / (slash commands), ↑/↓/← keys also appear around the pet.",
     "Toolbox" to "• The controls start hidden. Tap the ghost with the wrench on the right edge to open them; it fades after a few seconds and returns when you touch the screen.\n" +
         "• Toolbox buttons: Upload file, Download file, Insert image (up to 9 photos, their remote paths are typed in), Common commands (from the remote shell history) and the session switcher. Shortcut keys live on the little ghost (hold it).\n" +
@@ -113,6 +114,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
         "• 长按小精灵，周围弹出当前程序的快捷键（Claude Code、Codex、Grok、Gemini；普通终端为 Ctrl、Shift、Fn 等按键），拖到某个键上松手即发送；在终端里停在 Fn 上会展开 F1–F12。\n" +
         "• 长按当前命令行显示放大镜，可左右或跨行拖动光标；长按其他输出可选择复制。\n" +
         "• 按住输入法删除键约 1 秒清空当前行，快速点按只逐字删除；清空需远端支持 Ctrl+U/Ctrl+K。\n" +
+        "• 按回车后 15 秒内没有输入，键盘自动收起。\n" +
         "• 停止输入后，光标行末尾出现回车键，其余时间显示 Esc 键。输入以 / 开头的斜杠命令时，小精灵上下和左边也会出现 ↑/↓/← 键。",
     "操作栏" to "• 操作栏默认隐藏，点击右侧拿着扳手的小幽灵展开；小幽灵闲置几秒后淡出，触摸屏幕即重新出现。\n" +
         "• 操作栏按钮：上传文件、下载文件、插入图片（最多 9 张，自动填入远端路径）、常用命令（来自远端 shell 历史）以及会话切换。快捷键在小精灵上（长按它）。\n" +

@@ -7,7 +7,7 @@ package com.termux.view;
 public final class ImeBackspaceTracker {
     public enum Action { DELETE, CLEAR, IGNORE }
     static final long REPEAT_GAP_MS = 150;
-    static final long HOLD_MS = 1000;
+    static final long HOLD_MS = 600;
     private long started = -1;
     private long last = -1;
     private boolean cleared;

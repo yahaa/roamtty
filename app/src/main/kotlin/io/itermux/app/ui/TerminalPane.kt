@@ -287,7 +287,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         terminal?.clearFocus()
         keyboard.hide()
     }
-    // Enter puts the keyboard away after a short pause, so a quick follow-up line can still be typed.
+    // Enter puts the keyboard away after 15s without typing, so a follow-up line can still be typed.
     var keyboardHide by remember { mutableStateOf<Job?>(null) }
     fun hideKeyboardSoon() {
         keyboardHide?.cancel()
@@ -695,7 +695,7 @@ private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewp
 }
 
 private val CursorKeyHeight = 32.dp
-internal const val KeyboardHideAfterEnterMillis = 3_000L
+internal const val KeyboardHideAfterEnterMillis = 15_000L
 
 /** A slim key drawn inside a larger touch area, tinted on press; shows [icon], or [label] when there is none. */
 @Composable
