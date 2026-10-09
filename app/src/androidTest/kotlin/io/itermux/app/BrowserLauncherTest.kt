@@ -2,15 +2,17 @@ package io.itermux.app
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import androidx.core.net.toUri
 import io.itermux.app.ui.browserLaunchIntent
 import org.junit.Assert.*
 import org.junit.Test
 
 class BrowserLauncherTest {
     private val url = "https://github.com/yahaa/roamtty?x=1&y=2#readme"
+    private val view get() = Intent(Intent.ACTION_VIEW, url.toUri())
 
     @Test fun availableDefaultBrowserWins() {
-        val intent = browserLaunchIntent(url, listOf("system.browser", "com.android.chrome"), "com.android.chrome")
+        val intent = browserLaunchIntent(view, listOf("system.browser", "com.android.chrome"), "com.android.chrome")
         assertEquals("com.android.chrome", intent.`package`)
         assertEquals(Intent.ACTION_VIEW, intent.action)
         assertEquals(url, intent.dataString)
@@ -18,18 +20,18 @@ class BrowserLauncherTest {
     }
 
     @Test fun respectsAnotherAvailableDefaultBrowser() {
-        val intent = browserLaunchIntent(url, listOf("firefox", "com.android.chrome"), "firefox")
+        val intent = browserLaunchIntent(view, listOf("firefox", "com.android.chrome"), "firefox")
         assertEquals("firefox", intent.`package`)
     }
 
     @Test fun unavailableDefaultFallsBackToTheOnlyAvailableBrowser() {
-        val intent = browserLaunchIntent(url, listOf("com.android.chrome"), "suspended.system.browser")
+        val intent = browserLaunchIntent(view, listOf("com.android.chrome"), "suspended.system.browser")
         assertEquals("com.android.chrome", intent.`package`)
         assertEquals(url, intent.dataString)
     }
 
     @Test fun noDefaultShowsOnlyAvailableBrowsersInChooser() {
-        val chooser = browserLaunchIntent(url, listOf("com.android.chrome", "firefox"), "android")
+        val chooser = browserLaunchIntent(view, listOf("com.android.chrome", "firefox"), "android")
         assertEquals(Intent.ACTION_CHOOSER, chooser.action)
         @Suppress("DEPRECATION")
         val targets = listOf(chooser.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)!!) +
@@ -40,6 +42,6 @@ class BrowserLauncherTest {
 
     @Test(expected = ActivityNotFoundException::class)
     fun noAvailableBrowserNeverLaunchesASuspendedDefault() {
-        browserLaunchIntent(url, emptyList(), "suspended.system.browser")
+        browserLaunchIntent(view, emptyList(), "suspended.system.browser")
     }
 }

@@ -125,6 +125,16 @@ public class TerminalUrlTest {
         assertNull(TerminalUrl.at(t, 3, 1));
     }
 
+    @Test public void multipleStyledLinksKeepTheirOwnParenthesesAndCellPositions() {
+        TerminalEmulator t = terminal(100, 4,
+            "中文 e\u0301 (note) (\033[4mhttps://one.test/a_(b)\033[0m) " +
+            "(\033[4mhttps://two.test/c\033[0m)");
+        assertEquals("https://one.test/a_(b)", TerminalUrl.at(t, 17, 0));
+        assertEquals("https://two.test/c", TerminalUrl.at(t, 48, 0));
+        assertNull(TerminalUrl.at(t, 14, 0));
+        assertNull(TerminalUrl.at(t, 39, 0));
+    }
+
     @Test public void tuiWrappedLinkLimitsNeverOpenItsPrefix() {
         TerminalEmulator t = terminal(80, 200,
             "(\033[4mhttps://one.test/" + "\033[0m\r\n  \033[4ma".repeat(130) + "\033[0m)");

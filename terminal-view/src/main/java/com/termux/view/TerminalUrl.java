@@ -24,13 +24,14 @@ final class TerminalUrl {
         Matcher matcher = WEB_URL.matcher(line.text);
         for (int next = 0; matcher.find(next);) {
             int start = matcher.start();
+            if (offset < start) return null;
             int candidateEnd = quotedItemEnd(line.text, start, matcher.end());
             next = candidateEnd; // Resume after this item, including separately quoted URLs.
+            if (offset >= candidateEnd) continue;
             // The logical-line reader is bounded. Never open a URL cut off by its scan limit.
-            if (candidateEnd == line.text.length() && emulator.getScreen().getLineWrap(line.lastRow)) continue;
+            if (candidateEnd == line.text.length() && emulator.getScreen().getLineWrap(line.lastRow)) return null;
             int end = trimEnd(line.text, start, candidateEnd);
-            if (offset < start || offset >= end) continue;
-            if (endsAtAmbiguousWrap(line, candidateEnd)) return null;
+            if (offset >= end || endsAtAmbiguousWrap(line, candidateEnd)) return null;
             return validatedUrl(line.text.substring(start, end));
         }
         return null;
@@ -85,8 +86,10 @@ final class TerminalUrl {
         int first = Math.max(-emulator.getScreen().getActiveTranscriptRows(), row - MAX_LINK_ROWS + 1);
         for (int y = row; y >= first; y--) {
             TerminalRow line = rowAt(emulator, y);
+            int lastOpening = line.getSpaceUsed() - 1;
+            while (lastOpening >= 0 && line.mText[lastOpening] != '(') lastOpening--;
             int cell = 0;
-            for (int i = 0; i < line.getSpaceUsed();) {
+            for (int i = 0; i <= lastOpening;) {
                 int point = Character.codePointAt(line.mText, i, line.getSpaceUsed());
                 int width = Math.max(0, WcWidth.width(point));
                 if (point == '(' && cell + 1 < emulator.mColumns &&
@@ -170,6 +173,7 @@ final class TerminalUrl {
     }
 
     private static int trimEnd(String text, int start, int end) {
+        if (".,;:!?)]}'".indexOf(text.charAt(end - 1)) < 0) return end;
         String opening = "([{", closing = ")]}";
         int[] balance = new int[opening.length()];
         for (int i = start; i < end; i++) {

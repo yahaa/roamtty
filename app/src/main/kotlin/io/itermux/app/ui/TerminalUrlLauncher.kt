@@ -12,7 +12,8 @@ internal fun openTerminalUrl(context: Context, url: String) {
     val view = webViewIntent(url)
     val manager = context.packageManager
     val flags = PackageManager.MATCH_DEFAULT_ONLY or PackageManager.MATCH_ALL
-    if (view.data?.host?.lowercase() in listOf("github.com", "www.github.com")) {
+    val host = view.data?.host?.lowercase()
+    if (host == "github.com" || host == "www.github.com") {
         val github = Intent(view).setPackage("com.github.android")
         if (github.`package` in usableWebPackages(manager.queryIntentActivities(github, flags))) {
             try {
@@ -31,8 +32,9 @@ internal fun openTerminalUrl(context: Context, url: String) {
         .addCategory(Intent.CATEGORY_BROWSABLE)
     // Without MATCH_ALL Android can return only the default browser, even if it is suspended.
     val packages = usableWebPackages(manager.queryIntentActivities(probe, flags))
-    val defaultPackage = manager.resolveActivity(probe, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
-    context.startActivity(browserLaunchIntent(url, packages, defaultPackage))
+    val defaultPackage = if (packages.size > 1)
+        manager.resolveActivity(probe, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName else null
+    context.startActivity(browserLaunchIntent(view, packages, defaultPackage))
 }
 
 internal fun usableWebPackages(activities: List<ResolveInfo>): List<String> =
@@ -45,9 +47,8 @@ internal fun usableWebPackages(activities: List<ResolveInfo>): List<String> =
         }
     }.distinct()
 
-internal fun browserLaunchIntent(url: String, packages: List<String>, defaultPackage: String?): Intent {
+internal fun browserLaunchIntent(view: Intent, packages: List<String>, defaultPackage: String?): Intent {
     if (packages.isEmpty()) throw ActivityNotFoundException("No available browser")
-    val view = webViewIntent(url)
     if (defaultPackage in packages) return view.setPackage(defaultPackage)
     if (packages.size == 1) return view.setPackage(packages.single())
     val choices = packages.map { Intent(view).setPackage(it) }
