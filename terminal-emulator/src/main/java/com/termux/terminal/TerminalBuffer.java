@@ -739,7 +739,14 @@ public final class TerminalBuffer {
         }
     }
 
-    public synchronized void doTerminalBitmapsGC(int timeDelta) {
+    public void doTerminalBitmapsGC(int timeDelta) {
+        // The emulator calls this for every code point: without images, skip the lock and the clock read.
+        // Emulator access is serialized on Main, so the unlocked read cannot miss a fresh image.
+        if (mTerminalBitmaps.isEmpty()) return;
+        collectTerminalBitmaps(timeDelta);
+    }
+
+    private synchronized void collectTerminalBitmaps(int timeDelta) {
         if (mTerminalBitmaps.isEmpty() || mTerminalBitmapsLastGC + timeDelta > SystemClock.uptimeMillis()) {
             return;
         }
