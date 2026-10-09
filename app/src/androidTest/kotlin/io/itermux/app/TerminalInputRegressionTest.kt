@@ -325,17 +325,33 @@ class TerminalInputRegressionTest {
         }
     }
 
-    @Test fun replacingAnInputConnectionWithinTheSameSessionAlsoRejectsOldCallbacks() {
+    @Test fun switchingKeyboardsKeepsWhicheverConnectionOfTheSessionTheImeUses() {
         terminalContent()
         compose.runOnIdle {
-            val old = terminal.onCreateInputConnection(EditorInfo())
-            old.setComposingText("old", 1)
-            val current = terminal.onCreateInputConnection(EditorInfo())
-            assertFalse(old.finishComposingText())
-            assertFalse(old.commitText("wrong", 1))
-            assertFalse(old.deleteSurroundingText(Int.MAX_VALUE, 0))
-            current.commitText("valid", 1)
-            assertEquals("valid", session.input.toString())
+            // Android creates several connections during a keyboard switch and may hand the IME an earlier one.
+            val used = terminal.onCreateInputConnection(EditorInfo())
+            terminal.onCreateInputConnection(EditorInfo())
+            assertTrue(used.commitText("typed", 1))
+            assertTrue(used.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)))
+            assertTrue(used.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL)))
+            assertEquals("typed\u007f", session.input.toString())
+            session.input.clear()
+            // Clearing the line discards the composition in the connection the IME is using.
+            used.setComposingText("pin", 1)
+            terminal.clearCurrentInput()
+            assertEquals("", used.getExtractedText(ExtractedTextRequest(), 0).text.toString())
+        }
+    }
+
+    @Test fun deleteWorksForImesThatCheckTheTextBeforeTheCursorFirst() {
+        terminalContent()
+        compose.runOnIdle {
+            val ime = terminal.onCreateInputConnection(EditorInfo())
+            // Typeless deletes only when it sees text before the cursor, then deletes that many chars.
+            val before = ime.getTextBeforeCursor(33, 0).toString()
+            assertTrue(before.isNotEmpty())
+            assertTrue(ime.deleteSurroundingText(before.length.coerceAtMost(1), 0))
+            assertEquals("\u007f", session.input.toString())
         }
     }
 

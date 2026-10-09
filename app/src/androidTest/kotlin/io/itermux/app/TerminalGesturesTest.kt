@@ -336,7 +336,8 @@ class TerminalGesturesTest {
             val info = EditorInfo()
             val connection = terminal.onCreateInputConnection(info)
             assertEquals(0, info.initialSelStart)
-            assertEquals("", connection.getTextBeforeCursor(1000, 0).toString())
+            // Only the fixed placeholder, never the remote prompt or padding.
+            assertEquals(" ", connection.getTextBeforeCursor(1000, 0).toString())
             assertEquals("", connection.getTextAfterCursor(1000, 0).toString())
             connection.setComposingText("zhong", 1)
             assertEquals("zhong", connection.getTextBeforeCursor(1000, 0).toString())
@@ -348,7 +349,7 @@ class TerminalGesturesTest {
             connection.commitText("  a b  ", 1)
             connection.finishComposingText()
             assertEquals("中文  a b  ", input.toString())
-            assertEquals("", connection.getTextBeforeCursor(1000, 0).toString())
+            assertEquals(" ", connection.getTextBeforeCursor(1000, 0).toString())
             assertEquals(0, connection.getExtractedText(ExtractedTextRequest(), 0).selectionStart)
         }
     }

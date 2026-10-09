@@ -492,9 +492,15 @@ public final class TerminalView extends View {
         final TerminalSession inputOwner = mTermSession;
         return mInputConnection = new BaseInputConnection(this, true) {
 
-            /** A detached IME may finish or edit its old connection after a session change. */
+            /**
+             * A detached IME may finish or edit its old connection after a session change.
+             * Switching keyboards makes Android create several connections and keep any one of them,
+             * so within the session the connection the IME actually calls becomes the current one.
+             */
             private boolean isCurrentConnection() {
-                return mInputConnection == this && mTermSession == inputOwner;
+                if (mTermSession != inputOwner) return false;
+                mInputConnection = this;
+                return true;
             }
 
             private void clearEditable() {
@@ -522,6 +528,9 @@ public final class TerminalView extends View {
             public CharSequence getTextBeforeCursor(int length, int flags) {
                 ExtractedText snapshot = imeSnapshot(getEditable());
                 int textLen = snapshot.text.length();
+                // Some IMEs (Typeless) drop delete when nothing precedes the cursor; one space stands
+                // for the remote line, and deleting it sends one DEL.
+                if (textLen == 0 && length > 0) return " ";
                 int end = ImeDeleteGuard.clampIndex(Math.min(snapshot.selectionStart, snapshot.selectionEnd), textLen);
                 int start = ImeDeleteGuard.clampIndex(end - Math.max(0, length), textLen);
                 return snapshot.text.subSequence(start, end);

@@ -280,7 +280,7 @@ class TerminalUiTest {
                         val text = ic!!.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
                         assertEquals("", text.text.toString())
                         assertEquals(text.text.length, text.selectionStart)
-                        assertEquals("", ic.getTextBeforeCursor(20, 0).toString())
+                        assertEquals(" ", ic.getTextBeforeCursor(20, 0).toString())
                         ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
                         ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))
                     }
@@ -307,7 +307,7 @@ class TerminalUiTest {
                     delay(1500)
                 } else {
                     withContext(Dispatchers.Main) {
-                        assertEquals("Remote text must not become an IME editing buffer", "", ic!!.getTextBeforeCursor(100, 0).toString())
+                        assertEquals("Remote text must not become an IME editing buffer", " ", ic!!.getTextBeforeCursor(100, 0).toString())
                     }
                     repeat(44) {
                         withContext(Dispatchers.Main) {
