@@ -128,7 +128,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             // A session running an agent is told apart by the agent's mark rather than the host's system.
             if (kind != null) AgentIcon(kind, 44.dp, agent?.state.takeIf { connected })
             else SessionSystemIcon(session, 44.dp)
-            Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
+            // A gap before the menu, so a cut-off title's … never runs into its dots.
+            Column(Modifier.weight(1f).padding(start = Spacing.Row, end = Spacing.Tight)) {
                 Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.testTag("$tagPrefix-title-${session.id}"),
                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 // The line beneath always keeps its place, so the title stays put as commands come and go: the command
@@ -209,13 +210,14 @@ private fun TurnDone(seconds: Long, color: Color, modifier: Modifier = Modifier)
 private val SPINNER_FRAMES = listOf("·", "✢", "✳", "✶", "✻", "✽").let { it + it.reversed().drop(1).dropLast(1) }
     .let { it.drop(4) + it.take(4) }
 
-/** The session's ⋯ on its card: close it, ending everything it runs, without asking. */
+/** The session's ⋮ on its card: close it, ending everything it runs, without asking. */
 @Composable
 private fun SessionMenu(session: TerminalConnection, tagPrefix: String, onClose: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { menu = true }, modifier = Modifier.testTag("$tagPrefix-menu-${session.id}")) {
-            Icon(painterResource(R.drawable.ic_more), contentDescription = tr("会话选项"),
+            // Upright dots: a row of them beside a truncated title read as one long ellipsis.
+            Icon(painterResource(R.drawable.ic_more_vert), contentDescription = tr("会话选项"),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         DropdownMenu(menu, { menu = false }) {

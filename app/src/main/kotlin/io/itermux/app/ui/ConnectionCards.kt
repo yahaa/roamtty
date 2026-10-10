@@ -42,14 +42,14 @@ import io.itermux.ssh.TerminalTransport
     ListCard(onClick = openDetail, onClickLabel = tr("查看详情"), modifier = Modifier.testTag("host-card-${host.id}")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HostSystemIcon(host.os)
-            Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
+            Column(Modifier.weight(1f).padding(start = Spacing.Row, end = Spacing.Tight)) {
                 Text(host.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${host.username}@${host.address}:${host.port}", style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Box {
                 IconButton(onClick = { menu = true }, modifier = Modifier.testTag("host-menu-${host.id}")) {
-                    Icon(painterResource(R.drawable.ic_more), contentDescription = trf("主机选项：%s", host.name),
+                    Icon(painterResource(R.drawable.ic_more_vert), contentDescription = trf("主机选项：%s", host.name),
                         tint = colors.onSurfaceVariant)
                 }
                 DropdownMenu(menu, { menu = false }) {
