@@ -36,6 +36,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.edit
 import io.itermux.app.ItermuxApp
@@ -102,13 +104,20 @@ fun ItermuxScreen(
     BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
-    /** Leaves the terminal or file browser for its host's detail page; the host list when that host is gone. */
-    fun leaveTerminal() {
+    /** The home page's tabs: sessions first, then hosts. */
+    val homePager = rememberPagerState { 2 }
+    /** Opens the detail page of the selected session's host; the host list when that host is gone. */
+    fun showSessionHost() {
         val hostId = sessions.find { it.id == selected }?.host?.id
         if (hostId != null && hosts.any { it.id == hostId }) {
             detailHostId = hostId
             page = "host"
         } else page = "hosts"
+    }
+    /** Leaves the terminal or file browser for the home page on its sessions tab. */
+    fun leaveTerminal() {
+        page = "hosts"
+        homePager.requestScrollToPage(0)
     }
     BackHandler(page == "terminal") { leaveTerminal() }
     LaunchedEffect(service, sessions, selected, page) {
@@ -119,8 +128,6 @@ fun ItermuxScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val hostGridState = rememberLazyGridState()
-    /** The home page's tabs: sessions first, then hosts. */
-    val homePager = rememberPagerState { 2 }
     BackHandler(page == "hosts" && homePager.currentPage != 0 && !searchExpanded && !drawerState.isOpen) {
         scope.launch { homePager.animateScrollToPage(0) }
     }
@@ -152,7 +159,8 @@ fun ItermuxScreen(
     var pluginTarget by remember { mutableStateOf<PluginTarget?>(null) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     fun toast(message: String) { Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
-    fun start(request: ConnectRequest, password: String = "", passphrase: String = "") {
+    /** [open] shows the session once it connects; a reconnect from the session list stays on the list. */
+    fun start(request: ConnectRequest, password: String = "", passphrase: String = "", open: Boolean = true) {
         val bound = service ?: run { toast(tr("会话服务尚未就绪，请稍后重试")); return }
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             permission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -187,11 +195,13 @@ fun ItermuxScreen(
                 if (request.title.isNotBlank()) session.rename(request.title)
                 request.agent?.let { session.launchedAgent.value = it }
                 request.startupCommand?.let { session.runWhenConnected(it, request.agentHooks) }
+                if (!open) return@launch
                 selected = session.id
                 page = if (request.openFilesAfterConnect) "files" else "terminal"
             } catch (e: Exception) {
                 credentials?.clear()
                 if (e is CancellationException) throw e
+                if (!open) return@launch
                 // Session limits and missing entries are reported by check()/error() with localized text.
                 toast((e as? IllegalStateException)?.message ?: tr("无法读取凭据，请重新导入密钥或保存密码。"))
             }
@@ -214,6 +224,30 @@ fun ItermuxScreen(
         else begin(ConnectRequest(session.host, SessionMode.SHELL, terminateSessionId = session.id))
     }
 
+    val resumed by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+    val onSessionsTab = page == "hosts" && homePager.currentPage == 0 && resumed.isAtLeast(Lifecycle.State.RESUMED)
+    /** Sessions that already retried an unreachable host during this look at the session list. */
+    val retriedThisVisit = remember(onSessionsTab) { mutableSetOf<String>() }
+    // While the session list is on screen, sessions that dropped, came back from the journal or lost the network
+    // reconnect by themselves; only on hosts that need no typed password.
+    LaunchedEffect(onSessionsTab, service, sessions, hosts) {
+        if (!onSessionsTab || service == null) return@LaunchedEffect
+        service.awaitRestoration()
+        service.sessions.value.forEach { session ->
+            val host = hosts.firstOrNull { it.id == session.host.id } ?: return@forEach
+            if (host.auth != AuthMethod.KEY.name && (host.auth != AuthMethod.PASSWORD.name || host.encryptedPassword == null)) return@forEach
+            launch {
+                session.state.first { reconnectsFromList(it) && session.id !in retriedThisVisit }
+                autoReconnectedAt[session.id]?.let { delay(it + AUTO_RECONNECT_INTERVAL_MS - SystemClock.elapsedRealtime()) }
+                val state = session.state.value
+                if (!reconnectsFromList(state)) return@launch
+                // A host still out of reach is tried once per visit, not every few seconds.
+                if (!reconnectsOnOpen(state)) retriedThisVisit += session.id
+                autoReconnectedAt[session.id] = SystemClock.elapsedRealtime()
+                start(ConnectRequest(host, session.mode, session.title.value, reuseSessionId = session.id), open = false)
+            }
+        }
+    }
     /** tmux restarts the pane over the live connection; a plain shell gets a fresh one by reconnecting. */
     fun restartSession(session: TerminalConnection) {
         if (session.mode != SessionMode.TMUX) connect(session.host, session.mode, session.title.value, reuseSessionId = session.id)
@@ -384,8 +418,9 @@ fun ItermuxScreen(
                                         Modifier.fillMaxSize().testTag("home-sessions-empty"),
                                         action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
                                     matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
+                                    // A little wider than the host cards: session rows carry more text.
                                     else -> LazyColumn(Modifier.fillMaxSize().testTag("home-sessions-list"),
-                                        contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
+                                        contentPadding = PaddingValues(start = Spacing.Tight, end = Spacing.Tight, bottom = Spacing.Page)) {
                                         item(key = "sessions") {
                                             HomeSessionsList(matching, onOpen = { selected = it.id; page = "terminal" },
                                                 onClose = { service?.close(it.id) }, onForget = ::forgetSession)
@@ -414,11 +449,7 @@ fun ItermuxScreen(
                         val connected = sessions.any { it.host.id == detailHost.id && (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
                         HostDetailPage(detailHost,
                             hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
-                            sessions = sessionsByActivity.filter { it.host.id == detailHost.id },
                             onBack = { page = "hosts" },
-                            onOpenSession = { selected = it.id; page = "terminal" },
-                            onCloseSession = { service?.close(it.id) },
-                            onForgetSession = ::forgetSession,
                             onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
                             onBrowseFiles = { browseFiles(detailHost) },
                             onEdit = { editHostId = detailHost.id; editorOpen = true },
@@ -472,12 +503,12 @@ fun ItermuxScreen(
                         }
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
-                            onHostDetail = ::leaveTerminal,
+                            onHostDetail = ::showSessionHost,
                             onReconnect = reconnect.takeUnless { autoReconnect && !autoTried },
                             onRestart = { restartSession(active) },
                             onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active },
-                            // Closing ends the terminal page too: back to the host the session belonged to.
+                            // Closing ends the terminal page too: back to where it was opened from.
                             onClose = { leaveTerminal(); service?.close(active.id) })
                     }
                 }

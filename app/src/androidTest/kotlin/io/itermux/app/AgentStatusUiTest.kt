@@ -3,6 +3,7 @@ package io.itermux.app
 import android.content.Intent
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -54,7 +55,8 @@ class AgentStatusUiTest {
                     withAgentHooks = true)
             }
             val working = withTimeout(40_000) { session.agentStatus.first { it?.state == AgentStatus.State.WORKING } }!!
-            check(working.tool == "Bash" && working.detail == "make test" && working.task == "refactor the parser") { "$working" }
+            check(working.tool == "Bash" && working.detail == "make test" && working.task == "refactor the parser" &&
+                working.directory.isNotEmpty()) { "$working" }
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("home-session-${session.id}").fetchSemanticsNodes().isNotEmpty() }
             // The row merges its texts into one node.
             val row = compose.onNodeWithTag("home-session-${session.id}")
@@ -62,7 +64,8 @@ class AgentStatusUiTest {
                 runCatching { row.assertTextContains("Bash: make test", substring = true) }.isSuccess
             }
             row.assertTextContains(tr("运行中"), substring = true)
-            row.assertTextContains("refactor the parser", substring = true)
+            // The task is the row's title, said once.
+            compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("refactor the parser")
             compose.onNodeWithTag("agent-icon-claude", useUnmergedTree = true).assertExists()
             context.getExternalFilesDir(null)?.let { dir ->
                 java.io.FileOutputStream(java.io.File(dir, "agent-row.png")).use {

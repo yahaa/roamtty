@@ -89,7 +89,8 @@ object Tmux {
      */
     fun agentStatusCommand(sessionName: String): String =
         "/bin/sh -c '$PATH_SETUP; tmux display-message -p -t ${sanitizeSessionName(sessionName)} " +
-            "\"#{pane_current_command}|#{@roamtty_agent}|#{@roamtty_task}\" 2>/dev/null && date +%s'"
+            "\"#{pane_current_command}|#{@roamtty_agent}|#{@roamtty_task}\" 2>/dev/null && " +
+            "tmux display-message -p -t ${sanitizeSessionName(sessionName)} \"#{pane_current_path}\" 2>/dev/null; date +%s'"
 
     fun newSessionName(): String = "roamtty-${UUID.randomUUID().toString().replace("-", "").take(12)}"
 

@@ -83,7 +83,11 @@ class HostDetailDeviceTest {
             screenshot("launch-sheet-agent")
             compose.onNodeWithTag("launch-open").performClick()
             compose.waitUntil(20_000) { trustIfAsked(); compose.onAllNodesWithTag("terminal").fetchSemanticsNodes().isNotEmpty() }
-            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } // terminal → host detail
+            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } // terminal → sessions tab
+            compose.waitUntil(5000) { compose.onAllNodes(hasTestTag("home-tab-sessions") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("home-tab-hosts").performClick()
+            awaitTag("host-card-$id")
+            compose.onNodeWithTag("host-card-$id").performClick()
             compose.waitUntil(5000) { compose.onAllNodesWithText("Codex · projects", substring = true).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("host-detail").assertExists()
             compose.onNodeWithTag("host-detail-more").performClick()
