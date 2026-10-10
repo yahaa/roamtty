@@ -71,18 +71,19 @@ fun agentActivity(status: AgentStatus?): String {
 }
 
 /**
- * A session's name in the session list: the task its agent was given, else the name of the folder the agent works in
- * (the home as `~`), else [title] without the agent's name ("Claude · roamtty" → "roamtty"). Empty when there is none
- * of these. The whole folder is [sessionListPath].
+ * A session's name in the session list: the task its agent was given, else the agent's name and the name of the folder
+ * it works in ("Claude · roamtty", the home as `~`), else [title] (one saved as "Claude Code · roamtty" shortened to
+ * "Claude · roamtty"). Without a known agent the folder stands alone. Empty when there is none of these. The whole
+ * folder is [sessionListPath].
  */
 fun sessionListTitle(title: String, status: AgentStatus?, agent: CodingAgent?, username: String): String {
     status?.task?.takeIf { it.isNotBlank() }?.let { return it }
     sessionListPath(status, username).takeIf { it.isNotEmpty() }?.let { path ->
-        return if (path == "~" || path == "/") path else path.trimEnd('/').substringAfterLast('/')
+        val folder = if (path == "~" || path == "/") path else path.trimEnd('/').substringAfterLast('/')
+        return if (agent == null) folder else "${agent.shortLabel} · $folder"
     }
     if (agent == null) return title
-    return listOf(agent.shortLabel, agent.label).firstNotNullOfOrNull { name -> title.removePrefix("$name · ").takeIf { it != title } }
-        ?: title
+    return title.removePrefix("${agent.label} · ").takeIf { it != title }?.let { "${agent.shortLabel} · $it" } ?: title
 }
 
 /** The folder the session's agent works in, the home as `~`; empty when tmux did not say. */
