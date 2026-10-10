@@ -4,6 +4,7 @@ import io.itermux.app.tr
 import io.itermux.app.trf
 
 import io.itermux.app.data.Host
+import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
@@ -23,6 +24,17 @@ internal data class ConnectRequest(
     /** Credentials end this closed entry's remote tmux session instead of opening a terminal. */
     val terminateSessionId: String? = null
 )
+
+/** Messages of a connection that dropped or was restored from the journal, not one the user or the server ended. */
+internal const val RESTORED_MESSAGE = "连接已中断。会话记录已恢复，未发送的输入不会重发。"
+internal const val DROPPED_MESSAGE = "SSH 已断开。未发送的输入已丢弃。"
+
+/** Opening such a terminal reconnects it at once instead of offering a reconnect button. */
+internal fun reconnectsOnOpen(state: ConnectionState) =
+    state.phase == Phase.DISCONNECTED && state.message in setOf(RESTORED_MESSAGE, DROPPED_MESSAGE)
+
+/** At most one automatic reconnect per session within this window, so a host that drops at once cannot loop. */
+internal const val AUTO_RECONNECT_INTERVAL_MS = 10_000L
 
 internal fun authLabel(auth: String) = when (auth) {
     "KEY" -> tr("私钥")

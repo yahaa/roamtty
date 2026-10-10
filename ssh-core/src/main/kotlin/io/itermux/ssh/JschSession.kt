@@ -131,7 +131,7 @@ class JschSession(
                         if (reachedConnected) attempt = 0
                         // Prefer keepalive to prevent idle drops; only auto-reattach tmux after transient death.
                         if (target.mode != SessionMode.TMUX || ++attempt > 10) {
-                            update(Phase.DISCONNECTED, "SSH 已断开，请手动重连。未发送的输入已丢弃。")
+                            update(Phase.DISCONNECTED, "SSH 已断开。未发送的输入已丢弃。")
                             break
                         }
                         update(Phase.CONNECTING, "连接中断，正在自动重连…")

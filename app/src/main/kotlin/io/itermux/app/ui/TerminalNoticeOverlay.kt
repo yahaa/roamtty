@@ -44,7 +44,8 @@ internal fun TerminalNoticeOverlay(content: @Composable () -> Unit) {
 @Composable
 internal fun TerminalConnectionNotice(
     state: ConnectionState,
-    onReconnect: () -> Unit,
+    /** Null while the terminal reconnects by itself. */
+    onReconnect: (() -> Unit)?,
     onShell: () -> Unit,
     onReverify: () -> Unit,
 ) {
@@ -53,7 +54,7 @@ internal fun TerminalConnectionNotice(
             Button(onClick = onReverify) { Text(tr("重新核验…")) }
         } else {
             if (state.phase == Phase.TMUX_MISSING) TextButton(onClick = onShell) { Text(tr("改用普通 SSH")) }
-            Button(onClick = onReconnect) { Text(tr("手动重连")) }
+            onReconnect?.let { Button(onClick = it) { Text(tr("重新连接")) } }
         }
     }) {
         if (state.message.isNotBlank()) Text(tr(state.message), style = MaterialTheme.typography.bodyMedium)

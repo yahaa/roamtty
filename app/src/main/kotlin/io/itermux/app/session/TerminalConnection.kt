@@ -69,7 +69,7 @@ class TerminalConnection(
         log = { android.util.Log.i("RoamttyConn", "${host.name}#$sessionNumber $it") }
     )
     val state = if (credentials != null) ssh.state else MutableStateFlow(ConnectionState(
-        Phase.DISCONNECTED, "连接已中断，请手动重连。会话记录已恢复，未发送的输入不会重发。" )).asStateFlow()
+        Phase.DISCONNECTED, io.itermux.app.ui.RESTORED_MESSAGE)).asStateFlow()
     val detectedSystem = ssh.detectedSystem
     /** SSH or mosh once connected; null before the first connection. */
     val transport = ssh.transport

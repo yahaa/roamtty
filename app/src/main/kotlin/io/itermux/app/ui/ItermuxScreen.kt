@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import android.widget.Toast
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
@@ -132,6 +133,8 @@ fun ItermuxScreen(
     /** A host-menu launch: the host, and whether it starts an AI agent rather than a plain terminal. */
     var launchRequest by remember { mutableStateOf<Pair<Host, Boolean>?>(null) }
     var connectRequest by remember { mutableStateOf<ConnectRequest?>(null) }
+    /** Session id → when it last reconnected by itself on open; see [AUTO_RECONNECT_INTERVAL_MS]. */
+    val autoReconnectedAt = remember { mutableMapOf<String, Long>() }
     var terminatePrompt by remember { mutableStateOf<PendingPrompt?>(null) }
     var reverify by remember { mutableStateOf<TerminalConnection?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
@@ -411,12 +414,27 @@ fun ItermuxScreen(
                         action = { FilledTonalButton(onClick = { page = "hosts" }) { Text(tr("返回主机列表")) } })
                 } else {
                     val active = sessions.find { it.id == selected }
-                    // Manual reconnect preserves the journal id but replaces the transport and emulator.
+                    // Reconnecting preserves the journal id but replaces the transport and emulator.
                     if (active != null) key(active) {
+                        // The saved host, not the session's copy: a password saved since then spares a prompt.
+                        val reconnect = { connect(hosts.firstOrNull { it.id == active.host.id } ?: active.host,
+                            active.mode, active.title.value, reuseSessionId = active.id) }
+                        val activeState by active.state.collectAsStateWithLifecycle()
+                        val autoReconnect = reconnectsOnOpen(activeState)
+                        // Set once the automatic attempt left this entry disconnected, e.g. a dismissed password prompt.
+                        var autoTried by remember { mutableStateOf(false) }
+                        LaunchedEffect(autoReconnect) {
+                            if (!autoReconnect) return@LaunchedEffect
+                            val last = autoReconnectedAt[active.id]
+                            if (last != null) delay(last + AUTO_RECONNECT_INTERVAL_MS - SystemClock.elapsedRealtime())
+                            autoReconnectedAt[active.id] = SystemClock.elapsedRealtime()
+                            autoTried = true
+                            reconnect()
+                        }
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
                             onHostDetail = ::leaveTerminal,
-                            onReconnect = { connect(active.host, active.mode, active.title.value, reuseSessionId = active.id) },
+                            onReconnect = reconnect.takeUnless { autoReconnect && !autoTried },
                             onRestart = { restartSession(active) },
                             onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active },
