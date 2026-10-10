@@ -113,7 +113,7 @@ class HostReachabilityTest {
     }
 
     @Test fun latencyLabels() {
-        assertEquals("TCP <1 ms", latencyLabel(0))
-        assertEquals("TCP 42 ms", latencyLabel(42))
+        assertEquals("DNS+TCP <1 ms", latencyLabel(0))
+        assertEquals("DNS+TCP 42 ms", latencyLabel(42))
     }
 }

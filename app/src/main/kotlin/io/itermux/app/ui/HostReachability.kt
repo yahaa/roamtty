@@ -12,11 +12,11 @@ import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Socket
 
-/** Whether a saved host's sshd answers, with the TCP connection time when it does. */
+/** Whether a saved host's sshd answers, with the DNS resolution and TCP connection time when it does. */
 internal sealed interface HostReachability {
     data object Checking : HostReachability
     data object Offline : HostReachability
-    /** Last TCP connect time, excluding DNS and the SSH greeting; null when only a live session proves it is up. */
+    /** Last DNS + TCP connect time, excluding the SSH greeting; null when only a live session proves it is up. */
     data class Online(val latencyMs: Long?) : HostReachability
 }
 
@@ -25,24 +25,24 @@ private const val ONLINE_INTERVAL_MS = 60_000L
 private const val OFFLINE_FIRST_RETRY_MS = 30_000L
 private const val OFFLINE_MAX_INTERVAL_MS = 300_000L
 
-/** Measures TCP connection time and separately checks SSH availability; no key exchange or login happens. */
+/** Measures DNS + TCP connection time and separately checks SSH availability; no key exchange or login happens. */
 internal suspend fun probeHost(host: Host, timeoutMs: Int = PROBE_TIMEOUT_MS): HostReachability =
     withContext(Dispatchers.IO) {
         sshTcpConnectTime(host.address, host.port, timeoutMs)?.let { HostReachability.Online(it) } ?: HostReachability.Offline
     }
 
 /**
- * Times only the TCP connect to [address]:[port], after name resolution. This follows the socket's actual route,
+ * Times name resolution through successful TCP connect to [address]:[port]. This follows the socket's actual route,
  * including Tailscale; a TCP-terminating proxy can limit the measurement to the proxy leg.
- * A valid SSH identification must still arrive within the same [timeoutMs] budget before returning the time:
+ * After resolution, TCP connect and a valid SSH identification share the same [timeoutMs] budget:
  * a local proxy accepting a connection for an offline host must not make it appear online. Waiting for sshd's
  * greeting is deliberately excluded from the latency, as are key exchange and authentication.
  */
 internal fun sshTcpConnectTime(address: String, port: Int, timeoutMs: Int): Long? = runCatching {
     Socket().use { socket ->
-        val target = InetSocketAddress(address, port)
         val start = System.nanoTime()
-        val deadline = start + timeoutMs * 1_000_000L
+        val target = InetSocketAddress(address, port)
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
         socket.connect(target, timeoutMs)
         val connectMs = (System.nanoTime() - start) / 1_000_000
         val input = socket.getInputStream()
