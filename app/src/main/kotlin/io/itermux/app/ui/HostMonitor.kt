@@ -5,6 +5,7 @@ import io.itermux.app.ItermuxApp
 import io.itermux.app.data.Host
 import io.itermux.app.session.HostMetrics
 import io.itermux.app.session.HostMetricsReader
+import io.itermux.app.session.MetricsReading
 import io.itermux.app.session.PendingPrompt
 import io.itermux.app.session.RemoteFolders
 import io.itermux.ssh.*
@@ -104,12 +105,16 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
         var previous: Pair<HostMetrics, Long>? = null
         while (currentCoroutineContext().isActive) {
             visible.first { it }
-            val current = reader.read()
-            if (current == null) {
-                samplingFailed.value = true
-                metrics.value = null
-                netRate.value = null
-                return
+            val current = when (val reading = reader.read()) {
+                is MetricsReading.Sample -> reading.metrics
+                // The login loop reconnects and shows its own notice; this is not a permissions problem.
+                MetricsReading.Lost -> return
+                MetricsReading.Unavailable -> {
+                    samplingFailed.value = true
+                    metrics.value = null
+                    netRate.value = null
+                    return
+                }
             }
             samplingFailed.value = false
             val now = SystemClock.elapsedRealtime()

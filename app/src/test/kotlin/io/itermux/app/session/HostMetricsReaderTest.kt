@@ -34,50 +34,57 @@ class HostMetricsReaderTest {
     @Test fun unknownNativeWindowsFallsBackThenCachesWorkingCollector() = runBlocking {
         val host = Host()
         val reader = HostMetricsReader(host)
-        assertEquals(50.0, reader.read()!!.cpuPercent!!, 0.001)
-        assertEquals(37.0, reader.read()!!.gpus.single().utilPercent!!, 0.001)
+        assertEquals(50.0, reader.sample().cpuPercent!!, 0.001)
+        assertEquals(37.0, reader.sample().gpus.single().utilPercent!!, 0.001)
         assertEquals(listOf("unix", "windows", "gpu", "windows", "gpu"), host.calls)
     }
     @Test fun knownWindowsDoesNotProbePosixOnEveryRefresh() = runBlocking {
         val host = Host()
-        assertNotNull(HostMetricsReader(host, preferWindows = true).read())
+        HostMetricsReader(host, preferWindows = true).sample()
         assertEquals(listOf("windows", "gpu"), host.calls)
     }
     @Test fun unixHostsKeepTheirExistingCollector() = runBlocking {
         val host = Host(unix = 0)
         val reader = HostMetricsReader(host)
-        assertEquals(25.0, reader.read()!!.cpuPercent!!, 0.001)
-        assertNotNull(reader.read())
+        assertEquals(25.0, reader.sample().cpuPercent!!, 0.001)
+        reader.sample()
         assertEquals(listOf("unix", "unix"), host.calls)
     }
     @Test fun wrongStoredOsCanFallBackToPosix() = runBlocking {
         val host = Host(unix = 0, windows = 127)
-        assertEquals(25.0, HostMetricsReader(host, preferWindows = true).read()!!.cpuPercent!!, 0.001)
+        assertEquals(25.0, HostMetricsReader(host, preferWindows = true).sample().cpuPercent!!, 0.001)
         assertEquals(listOf("windows", "unix"), host.calls)
     }
     @Test fun driverFailureCannotDiscardCoreMetricsOrAcceptPartialGpuOutput() = runBlocking {
         for (status in listOf(null, 1)) {
-            val sample = HostMetricsReader(Host(gpu = status)).read()!!
+            val sample = HostMetricsReader(Host(gpu = status)).sample()
             assertEquals(50.0, sample.cpuPercent!!, 0.001)
             assertTrue(sample.gpus.isEmpty())
         }
     }
     @Test fun emptyOrFailedCommandsAreNotHealthySamples() = runBlocking {
         val failed = Host(unix = 3, windows = 3)
-        assertNull(HostMetricsReader(failed).read())
+        assertEquals(MetricsReading.Unavailable, HostMetricsReader(failed).read())
         val empty = Host(unix = 0, windows = 0).apply { unixLines = listOf("hostname=only"); windowsLines = emptyList() }
-        assertNull(HostMetricsReader(empty).read())
+        assertEquals(MetricsReading.Unavailable, HostMetricsReader(empty).read())
     }
     @Test fun totalMemoryAloneCannotMarkEmptyGaugesHealthy() = runBlocking {
         val host = Host().apply { windowsLines = listOf("kb_MemTotal=16777216") }
-        assertNull(HostMetricsReader(host).read())
+        assertEquals(MetricsReading.Unavailable, HostMetricsReader(host).read())
         host.windowsLines = listOf("kb_MemTotal=0", "kb_MemAvailable=0")
-        assertNull(HostMetricsReader(host).read())
+        assertEquals(MetricsReading.Unavailable, HostMetricsReader(host).read())
     }
     @Test fun timeoutReturnsForReconnectWithoutAnotherProbe() = runBlocking {
         val host = Host(unix = null)
-        assertNull(HostMetricsReader(host).read())
+        assertEquals(MetricsReading.Lost, HostMetricsReader(host).read())
         assertEquals(listOf("unix"), host.calls)
+    }
+    @Test fun timeoutAfterDiscoveryIsLostNotUnavailable() = runBlocking {
+        val host = Host(windows = 0)
+        val reader = HostMetricsReader(host, preferWindows = true)
+        reader.sample()
+        host.windows = null
+        assertEquals(MetricsReading.Lost, reader.read())
     }
     @Test fun missingAndRolledBackNetworkCountersClearRates() {
         val last = HostMetrics(netRxBytes = 100, netTxBytes = 200)
@@ -86,4 +93,6 @@ class HostMetricsReaderTest {
         assertNull(HostMetrics(netRxBytes = 50, netTxBytes = 600).networkRateSince(last, 2.0))
         assertNull(last.networkRateSince(last, 0.0))
     }
+
+    private suspend fun HostMetricsReader.sample() = (read() as MetricsReading.Sample).metrics
 }
