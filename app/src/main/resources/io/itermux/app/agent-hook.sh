@@ -47,7 +47,11 @@ case "$event" in
       apply_patch) detail=$(printf '%s' "$detail" | sed -nE 's/^\*\*\* Begin Patch \*\*\* (Add|Update|Delete) File: ([^ ]+).*/\2/p') ;;
     esac
     record working "$tool" "$detail" ;;
-  post) record working "" "" ;;
+  post)
+    # The finished tool stays shown while the agent works on, until the next tool, a new prompt or the turn's end:
+    # most tools end within a second, too quickly for the app to see them otherwise.
+    current=$(get @roamtty_agent)
+    record working "$(printf '%s' "$current" | cut -d '|' -f 4)" "$(printf '%s' "$current" | cut -d '|' -f 5)" ;;
   ask)
     # Codex asks for permission with a PermissionRequest hook.
     tool=$(field 'tool_name|toolName' 40)
