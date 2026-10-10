@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Socket
 
-/** Whether a saved host's SSH port accepts connections, with the connect time when it does. */
+/** Whether a saved host's sshd answers, with the time its greeting took when it does. */
 internal sealed interface HostReachability {
     data object Checking : HostReachability
     data object Offline : HostReachability
@@ -25,24 +25,45 @@ private const val ONLINE_INTERVAL_MS = 60_000L
 private const val OFFLINE_FIRST_RETRY_MS = 30_000L
 private const val OFFLINE_MAX_INTERVAL_MS = 300_000L
 
-/** Times a TCP connect to the host's SSH port; no SSH handshake or login happens. */
+/** Times the host's SSH greeting; no SSH key exchange or login happens. */
 internal suspend fun probeHost(host: Host, timeoutMs: Int = PROBE_TIMEOUT_MS): HostReachability =
     withContext(Dispatchers.IO) {
-        tcpRoundTrip(host.address, host.port, timeoutMs)?.let { HostReachability.Online(it) } ?: HostReachability.Offline
+        sshGreetingTime(host.address, host.port, timeoutMs)?.let { HostReachability.Online(it) } ?: HostReachability.Offline
     }
 
 /**
- * Milliseconds from starting a TCP connect to [address]:[port] until it is accepted (one round
- * trip), or null if it fails. Name resolution happens before the clock starts.
+ * Milliseconds from starting a TCP connect to [address]:[port] until the server's `SSH-` version line arrives, or
+ * null if it fails within [timeoutMs]. An accepted connect alone proves nothing: a proxy or VPN app on the phone
+ * (Clash-style TUN modes) accepts every TCP connect locally in a few ms, even to a machine that is switched off, so
+ * only the greeting, which comes from sshd itself, counts. Name resolution happens before the clock starts.
  */
-internal fun tcpRoundTrip(address: String, port: Int, timeoutMs: Int): Long? = runCatching {
+internal fun sshGreetingTime(address: String, port: Int, timeoutMs: Int): Long? = runCatching {
     Socket().use { socket ->
         val target = InetSocketAddress(address, port)
         val start = System.nanoTime()
+        val deadline = start + timeoutMs * 1_000_000L
         socket.connect(target, timeoutMs)
-        (System.nanoTime() - start) / 1_000_000
+        val input = socket.getInputStream()
+        // RFC 4253 lets a server send other lines before its version line, so skip those (bounded).
+        val line = StringBuilder()
+        repeat(MAX_GREETING_BYTES) {
+            val remainingMs = (deadline - System.nanoTime()) / 1_000_000
+            if (remainingMs <= 0) return@runCatching null
+            socket.soTimeout = remainingMs.toInt()
+            when (val b = input.read()) {
+                -1 -> return@runCatching null
+                '\n'.code -> line.clear()
+                else -> {
+                    line.append(b.toChar())
+                    if (line.length == 4 && line.toString() == "SSH-") return@runCatching (System.nanoTime() - start) / 1_000_000
+                }
+            }
+        }
+        null
     }
 }.getOrNull()
+
+private const val MAX_GREETING_BYTES = 8_192
 
 /**
  * Wait before re-probing: online hosts every minute; offline hosts back off 30s, 1m, 2m, 4m, then
