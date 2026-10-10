@@ -48,6 +48,23 @@ data class AgentStatus(
     }
 }
 
+/** The tools agents run shell commands with. */
+private val shellTools = setOf("Bash", "PowerShell", "run_terminal_command", "shell", "exec_command", "local_shell")
+
+/**
+ * What the agent is running, for the session list: a shell command as `$ command`, another tool by its name and what it
+ * works on; empty while it runs nothing.
+ */
+fun agentActivity(status: AgentStatus?): String {
+    if (status == null || status.state == AgentStatus.State.IDLE) return ""
+    return when {
+        status.detail.isEmpty() -> status.tool
+        status.tool.isEmpty() -> status.detail
+        status.tool in shellTools -> "$ ${status.detail}"
+        else -> "${status.tool} ${status.detail}"
+    }
+}
+
 /**
  * A session's name in the session list: the task its agent was given, else the name of the folder the agent works in
  * (the home as `~`), else [title] without the agent's name ("Claude · roamtty" → "roamtty"). Empty when there is none

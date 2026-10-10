@@ -42,6 +42,10 @@ case "$event" in
     [ -n "$detail" ] || detail=$(field pattern 120)
     [ -n "$detail" ] || detail=$(field url 120)
     [ -n "$detail" ] || detail=$(field description 120)
+    # Codex edits files with a patch as its command: the file it changes says more.
+    case "$tool" in
+      apply_patch) detail=$(printf '%s' "$detail" | sed -nE 's/^\*\*\* Begin Patch \*\*\* (Add|Update|Delete) File: ([^ ]+).*/\2/p') ;;
+    esac
     record working "$tool" "$detail" ;;
   post) record working "" "" ;;
   ask)

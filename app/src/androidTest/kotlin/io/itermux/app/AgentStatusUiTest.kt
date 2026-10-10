@@ -71,6 +71,8 @@ class AgentStatusUiTest {
             // The task is the row's title, said once.
             compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("refactor the parser")
             compose.onNodeWithTag("agent-icon-codex", useUnmergedTree = true).assertExists()
+            // Between the title and the state, the command it runs.
+            compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("$ make test")
             context.getExternalFilesDir(null)?.let { dir ->
                 java.io.FileOutputStream(java.io.File(dir, "agent-row.png")).use {
                     row.captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)

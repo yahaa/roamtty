@@ -68,6 +68,19 @@ class AgentStatusTest {
         assertTrue("[ \"\$ROAMTTY_AGENT\" = grok ]" in AgentHooks.script)
     }
 
+    @Test fun activityShowsWhatTheAgentRuns() {
+        val working = AgentStatus.parse("sh|working|1|codex|Bash|make test|t\n2")!!
+        assertEquals("$ make test", agentActivity(working))
+        assertEquals("$ sleep 6", agentActivity(working.copy(tool = "run_terminal_command", detail = "sleep 6")))
+        assertEquals("Read src/a.kt", agentActivity(working.copy(tool = "Read", detail = "src/a.kt")))
+        assertEquals("WebSearch", agentActivity(working.copy(tool = "WebSearch", detail = "")))
+        assertEquals("Claude needs your permission to use Bash",
+            agentActivity(working.copy(state = AgentStatus.State.WAITING, tool = "", detail = "Claude needs your permission to use Bash")))
+        assertEquals("", agentActivity(working.copy(tool = "", detail = "")))
+        assertEquals("", agentActivity(working.copy(state = AgentStatus.State.IDLE)))
+        assertEquals("", agentActivity(null))
+    }
+
     @Test fun theScriptShipsWithTheApp() {
         assertNotNull(AgentHooks.script)
         assertTrue(AgentHooks.script.startsWith("#!/bin/sh"))
