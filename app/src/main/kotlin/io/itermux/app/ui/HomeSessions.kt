@@ -106,7 +106,7 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
 
 /**
  * One session card: the agent's mark (or the host's system), what it works on, its status and where it runs, with close
- * in its menu. The title is the agent's task, else its folder; see [sessionListTitle].
+ * in its menu. The title is the agent's task, else the agent and its folder ("Claude · roamtty"); see [sessionListTitle].
  */
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit,
@@ -118,7 +118,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
     val shown = sessionListTitle(title, agent.takeIf { connected }, kind, session.host.username)
-    // Where it runs, on the status line's right: the host, and the agent's whole folder unless that is the title.
+    // Where it runs, on the status line's right: the host, and the agent's whole folder (the title names only its last part).
     val path = sessionListPath(agent.takeIf { connected }, session.host.username)
     val location = listOf(session.host.name, path).filter { it.isNotEmpty() && it != shown }.distinct().joinToString(" · ")
     // What an agent is running; no line while it runs nothing.

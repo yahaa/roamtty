@@ -46,9 +46,9 @@ class SessionRowActionsUiTest {
                     SessionRow(session, onClick = {}, onClose = { closed += session })
                 }
             }
-            // An agent's session shows the agent's mark, its folder as the title and its host beneath; not the transport.
+            // An agent's session shows the agent's mark, the agent and its folder as the title and its host beneath; not the transport.
             compose.onNodeWithTag("agent-icon-grok", useUnmergedTree = true).assertExists()
-            compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("roamtty")
+            compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("Grok · roamtty")
             compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true).assertTextEquals("详情主机")
 
             compose.onNodeWithTag("home-session-menu-${session.id}").performClick()
