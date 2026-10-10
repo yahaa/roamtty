@@ -123,8 +123,9 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 SessionMenu(session, state.active, tagPrefix,
                     onClose = { forget -> if (forget) confirmForget = true else confirmClose = true })
             }
-            // What an agent is running; an empty line while it runs nothing, so its row keeps its height.
-            if (kind != null) Text(agentActivity(agent.takeIf { connected }), Modifier.padding(end = Spacing.Row)
+            // What an agent is running; no line while it runs nothing.
+            val activity = agentActivity(agent.takeIf { connected })
+            if (activity.isNotEmpty()) Text(activity, Modifier.padding(end = Spacing.Row)
                 .testTag("$tagPrefix-activity-${session.id}"), style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
