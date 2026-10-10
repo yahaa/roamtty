@@ -46,6 +46,6 @@ internal fun phaseLabel(phase: Phase) = when (phase) {
     Phase.DISCONNECTED -> tr("已断开")
     Phase.AUTH_FAILED -> tr("认证失败")
     Phase.HOST_KEY_CHANGED -> tr("指纹变化")
-    Phase.TMUX_MISSING -> tr("缺少 tmux")
+    Phase.TMUX_MISSING -> tr("缺少 tmux 或 psmux")
     Phase.FAILED -> tr("连接失败")
 }

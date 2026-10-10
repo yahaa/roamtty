@@ -15,6 +15,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import io.itermux.app.*
 import io.itermux.app.data.Host
+import io.itermux.app.data.installedPlugins
 import io.itermux.app.data.prefersMosh
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
@@ -164,7 +165,12 @@ class SessionService : Service() {
             interaction = interaction, connectTimeoutMs = 15_000)
         var status: Int? = null
         try {
-            ssh.administer { remote -> status = remote.run(Tmux.killSessionScript(existing.remoteSessionName), 15_000) {} }
+            ssh.administer { remote ->
+                status = remote.run(Tmux.killSessionScript(existing.remoteSessionName), 15_000) {}
+                // A native Windows shell cannot run the POSIX script; its sessions live in psmux.
+                if (status != 0 && existing.host.installedPlugins?.contains(HostPlugin.PSMUX) == true)
+                    status = remote.runCommand(Psmux.killSessionCommand(existing.remoteSessionName), 15_000) {}
+            }
         } finally { ssh.disconnect() }
         return when (status) {
             0 -> { forget(id); null }
