@@ -94,12 +94,12 @@ internal fun HomeListHeader(label: String, addDescription: String, addTag: Strin
 /** Every session the app holds, most active first, as cards laid out like the host list; a tap opens its terminal. */
 @Composable
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
-    onClose: (TerminalConnection) -> Unit) {
+    onClose: (TerminalConnection) -> Unit, hostOffline: (TerminalConnection) -> Boolean = { false }) {
     LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), modifier = Modifier.fillMaxSize().testTag("home-sessions-list"),
         horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row),
         contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
         gridItems(sessions, key = { it.id }) { session ->
-            SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) })
+            SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) }, hostOffline = hostOffline(session))
         }
     }
 }
@@ -110,7 +110,7 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
  */
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit,
-    tagPrefix: String = "home-session") {
+    tagPrefix: String = "home-session", hostOffline: Boolean = false) {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val agent by session.agentStatus.collectAsStateWithLifecycle()
@@ -152,7 +152,9 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
         // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
         val status = agent
         Row(Modifier.padding(top = Spacing.Row, end = Spacing.Page - 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (status != null && connected) AgentStatusLine(status) else StatusLabel(state.phase)
+            if (status != null && connected) AgentStatusLine(status)
+            // A session the list waits to reconnect says why it is not trying: its host does not answer.
+            else StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"), hostOffline = hostOffline && !state.active)
             Text(location, Modifier.weight(1f).padding(start = Spacing.Tight).testTag("$tagPrefix-location-${session.id}"),
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)

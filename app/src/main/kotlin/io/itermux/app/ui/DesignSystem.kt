@@ -1,5 +1,6 @@
 package io.itermux.app.ui
 
+import io.itermux.app.tr
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -229,14 +230,14 @@ internal fun EmptyState(
     }
 }
 
-/** Connection state as a coloured dot plus text, so colour is never the only signal. */
+/** Connection state as a coloured dot plus text, so colour is never the only signal; [hostOffline] names the reason. */
 @Composable
-internal fun StatusLabel(phase: Phase, modifier: Modifier = Modifier) {
-    val color = StatusColors.of(phase)
+internal fun StatusLabel(phase: Phase, modifier: Modifier = Modifier, hostOffline: Boolean = false) {
+    val color = if (hostOffline) StatusColors.danger else StatusColors.of(phase)
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(6.dp))
-        Text(phaseLabel(phase), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false,
+        Text(if (hostOffline) tr("主机离线") else phaseLabel(phase), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false,
             color = if (phase == Phase.CONNECTED) color else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

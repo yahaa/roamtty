@@ -39,10 +39,21 @@ internal fun reconnectsOnOpen(state: ConnectionState) =
     state.phase == Phase.DISCONNECTED && state.message in setOf(RESTORED_MESSAGE, DROPPED_MESSAGE)
 
 internal const val UNREACHABLE_MESSAGE = "网络不可达或连接被中断，请检查网络和 VPN 后重连。"
+internal const val TIMEOUT_MESSAGE = "连接超时，请检查网络、VPN 和主机端口。"
 
-/** The session list also reconnects a session that gave up on an unreachable host, which the network may be back for. */
+/**
+ * The session list also reconnects a session that gave up on an unreachable or silent host, which may be back by
+ * then; it only does so once [hostBackSince] says the host answers again.
+ */
 internal fun reconnectsFromList(state: ConnectionState) =
-    reconnectsOnOpen(state) || state.phase == Phase.FAILED && state.message == UNREACHABLE_MESSAGE
+    reconnectsOnOpen(state) || state.phase == Phase.FAILED && state.message in setOf(UNREACHABLE_MESSAGE, TIMEOUT_MESSAGE)
+
+/**
+ * Whether a probe measured at or after [since] found the host's sshd answering. Until then the session list leaves an
+ * offline host's sessions alone instead of showing them "connecting" again and again.
+ */
+internal fun hostBackSince(status: HostReachability, checkedAt: Long?, since: Long) =
+    status is HostReachability.Online && checkedAt != null && checkedAt >= since
 
 /** At most one automatic reconnect per session within this window, so a host that drops at once cannot loop. */
 internal const val AUTO_RECONNECT_INTERVAL_MS = 10_000L
