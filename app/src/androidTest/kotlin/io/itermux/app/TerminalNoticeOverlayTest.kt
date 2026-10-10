@@ -39,7 +39,7 @@ class TerminalNoticeOverlayTest {
             if (expectGolden) assertEquals(viewport.top + viewport.height * 0.382f, card.center.y, 1f)
             compose.onNodeWithText(tr(if (phase == Phase.DISCONNECTED) "已断开" else if (phase == Phase.AUTH_FAILED) "认证失败" else "连接失败"))
                 .assertIsDisplayed()
-            compose.onNodeWithText(tr("手动重连")).assertIsDisplayed().performClick()
+            compose.onNodeWithText(tr("重新连接")).assertIsDisplayed().performClick()
         }
         assertPlacement(true)
         compose.runOnIdle { height = 144.dp; phase = Phase.AUTH_FAILED }
@@ -57,7 +57,7 @@ class TerminalNoticeOverlayTest {
                     oldFingerprint = "SHA256:old", newFingerprint = "SHA256:new"), {}, {}, { verified = true })
             }
         } } }
-        compose.onNodeWithText(tr("手动重连")).assertDoesNotExist()
+        compose.onNodeWithText(tr("重新连接")).assertDoesNotExist()
         compose.onNodeWithText(tr("重新核验…")).assertIsDisplayed().performClick()
         assertTrue(verified)
         compose.onNodeWithTag("terminal-connection-notice").performTouchInput { swipeUp() }

@@ -82,7 +82,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHostDetail: () -> Unit, onReconnect: () -> Unit, onRestart: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
+fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHostDetail: () -> Unit, onReconnect: (() -> Unit)?, onRestart: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
     val state by session.state.collectAsStateWithLifecycle()
     val transferStatus by session.transfers.status.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()

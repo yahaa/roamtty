@@ -87,7 +87,7 @@ class SessionReconnectUiTest {
             compose.onNodeWithText(tr("取消固定操作栏")).assertIsDisplayed()
 
             withContext(Dispatchers.Main) { original.disconnect() }
-            compose.onNodeWithText(tr("手动重连")).assertIsDisplayed()
+            compose.onNodeWithText(tr("重新连接")).assertIsDisplayed()
             assertControlsHidden()
             compose.onNodeWithText(tr("取消固定操作栏")).assertDoesNotExist()
             assertTrue(prefs.getBoolean("dockPinned", false))
@@ -135,7 +135,7 @@ class SessionReconnectUiTest {
             if (card.height / 2 + 16 * context.resources.displayMetrics.density < viewport.height * 0.382f) {
                 assertEquals(viewport.top + viewport.height * 0.382f, card.center.y, 1f)
             }
-            compose.onNodeWithText(tr("手动重连")).assertIsDisplayed()
+            compose.onNodeWithText(tr("重新连接")).assertIsDisplayed()
         }
         try {
             compose.openSession(session.id)
@@ -199,7 +199,7 @@ class SessionReconnectUiTest {
             }
             try {
                 compose.openSession(original.id)
-                compose.onNodeWithText(tr("手动重连")).assertIsDisplayed()
+                compose.onNodeWithText(tr("重新连接")).assertIsDisplayed()
                 // Keep the test harness from cancelling infinite animations when they start.
                 compose.mainClock.autoAdvance = false
                 val replacement = withContext(Dispatchers.Main) {
@@ -208,7 +208,7 @@ class SessionReconnectUiTest {
                 compose.mainClock.advanceTimeBy(100)
                 compose.onNodeWithTag("terminal-connection-motion").assertIsDisplayed()
                 assertControlsHidden()
-                compose.onNodeWithText(tr("手动重连")).assertDoesNotExist()
+                compose.onNodeWithText(tr("重新连接")).assertDoesNotExist()
                 val progress = compose.onNodeWithTag("terminal-connection-progress").fetchSemanticsNode().boundsInRoot
                 val terminalBounds = compose.onNodeWithTag("terminal-notice-viewport").fetchSemanticsNode().boundsInRoot
                 assertEquals(terminalBounds.center.x, progress.center.x, 1f)
@@ -230,7 +230,7 @@ class SessionReconnectUiTest {
                 compose.mainClock.autoAdvance = true
                 compose.onNodeWithTag("terminal-connection-cancel").performClick()
                 compose.onNodeWithTag("terminal-connection-progress").assertDoesNotExist()
-                compose.onNodeWithText(tr("手动重连")).assertIsDisplayed()
+                compose.onNodeWithText(tr("重新连接")).assertIsDisplayed()
                 assertEquals(Phase.DISCONNECTED, replacement.state.value.phase)
                 assertControlsHidden()
             } finally {
