@@ -75,6 +75,7 @@ import io.itermux.app.session.*
 import io.itermux.app.R
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -185,6 +186,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val slashCommandLine by session.slashCommandLine.collectAsStateWithLifecycle()
     var petArrowsAwake by remember { mutableStateOf(false) }
     var petArrowTouches by remember { mutableIntStateOf(0) }
+    // Where the pet and its arrows sit (root coordinates), so the cursor-row Enter/Esc key can step aside.
+    var petArrowBounds by remember { mutableStateOf<Rect?>(null) }
+    val petArrowsShown = (petArrowsAwake || slashCommandLine != 0) && petCenter == null
     LaunchedEffect(petArrowTouches) {
         if (petArrowTouches == 0) return@LaunchedEffect
         petArrowsAwake = true
@@ -473,7 +477,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 androidx.compose.animation.AnimatedVisibility(enterKeyAwake && cursorKeysAllowed,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
                     terminal?.let { view ->
-                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight) {
+                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight, avoid = petArrowBounds.takeIf { petArrowsShown }) {
                             CursorKey(R.drawable.ic_return, tr("回车"), "cursor-enter") {
                                 enterKeyTyping = false
                                 enterKeyTouches++
@@ -491,7 +495,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 androidx.compose.animation.AnimatedVisibility(!enterKeyAwake && cursorKeysAllowed,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(120))) {
                     terminal?.let { view ->
-                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight) {
+                        CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight, avoid = petArrowBounds.takeIf { petArrowsShown }) {
                             CursorKey(null, tr("发送 Esc"), "cursor-escape", label = "Esc") {
                                 ctrlArmed = false
                                 shiftArmed = false
@@ -576,11 +580,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         } else if (dockAvailable && !dockVisible) {
             // Leave the composition while hidden so taps on that edge reach the terminal.
             // The ring opens around the pet, so the arrows step aside while it is up.
-            val petArrowsShown = (petArrowsAwake || slashCommandLine != 0) && petCenter == null
             AnimatedVisibility(toolboxAwake || petCenter != null || petArrowsShown, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
                 exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
                 // Up above the pet, Down below it and Left to its left; the pet stays put between them.
-                TerminalDockPlacement { Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                TerminalDockPlacement { Column(Modifier.onGloballyPositioned { petArrowBounds = it.boundsInRoot() },
+                    horizontalAlignment = Alignment.CenterHorizontally) {
                     androidx.compose.animation.AnimatedVisibility(petArrowsShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
                         CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "pet-arrow-up") {
                             petArrowTouches++
@@ -680,7 +684,8 @@ internal object TerminalToolbox {
 
 /** Keys at the right end of the cursor row, [height] tall and centred on it; hidden while the cursor is scrolled away. */
 @Composable
-private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewportHeight: Int, height: Dp, keys: @Composable () -> Unit) {
+private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewportHeight: Int, height: Dp,
+    avoid: Rect? = null, keys: @Composable () -> Unit) {
     // Output moves the cursor: follow it on every screen revision.
     checkNotNull(outputRevision.value)
     val rowTop = view.getCursorRowTop()
@@ -691,7 +696,11 @@ private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewp
         val top = 6.dp.roundToPx() + rowTop + view.lineHeight / 2 - height.roundToPx() / 2
         top.coerceIn(0, (viewportHeight - height.roundToPx()).coerceAtLeast(0))
     }
-    Box(Modifier.offset { IntOffset(0, keyTop) }) { keys() }
+    // The pet's Up/Down/Left keys sit at the same right edge: when the row falls within their span, slide left of them.
+    var containerTop by remember { mutableFloatStateOf(0f) }
+    val keyShift = if (avoid != null && containerTop + keyTop < avoid.bottom && containerTop + keyTop + with(density) { height.roundToPx() } > avoid.top)
+        with(density) { (avoid.width + 8.dp.toPx() + 40.dp.toPx()).roundToInt() } else 0
+    Box(Modifier.offset { IntOffset(-keyShift, keyTop) }.onGloballyPositioned { containerTop = it.positionInRoot().y - keyTop }) { keys() }
 }
 
 private val CursorKeyHeight = 32.dp
