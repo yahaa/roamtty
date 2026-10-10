@@ -66,25 +66,24 @@ class NavigationThemeTest {
             compose.onAllNodesWithContentDescription("Windows").onFirst().assertExists()
             compose.onAllNodesWithContentDescription("Linux").onFirst().assertExists()
             compose.onAllNodesWithContentDescription("macOS").onFirst().assertExists()
-            compose.onNodeWithTag("brand-logo").assertIsDisplayed()
-            compose.onNodeWithTag("brand-logo").performClick()
-            compose.onNodeWithTag("navigation-drawer").assertIsDisplayed()
-            compose.onNodeWithTag("drawer-guide").assertIsDisplayed()
+            // No sidebar: settings and help sit in the app menu, and the open session leads the home page.
+            compose.onNodeWithContentDescription("打开导航").assertDoesNotExist()
+            compose.onNodeWithTag("app-menu").assertIsDisplayed().performClick()
+            compose.onNodeWithTag("menu-guide").assertIsDisplayed()
             compose.onNodeWithText("帮助").assertIsDisplayed()
-            // Hosts show their count like sessions do.
-            val hostCount = app.database.hosts().observe().first().size
-            compose.onNodeWithTag("drawer-hosts").assert(hasText("$hostCount"))
-            capture("navigation-drawer")
-            compose.onNodeWithTag("drawer-sessions").assertDoesNotExist()
-            compose.onNodeWithTag("drawer-hosts").performClick()
-            compose.waitUntil(8_000) { !compose.onNodeWithTag("navigation-drawer").isDisplayed() }
-            // Hosts are the only home page: no 主机/会话 tabs, and the title is the host icon beside "主机".
-            compose.onNodeWithTag("hosts-tab").assertDoesNotExist()
-            compose.onNodeWithTag("sessions-tab").assertDoesNotExist()
+            capture("navigation-app-menu")
+            compose.onNodeWithTag("menu-settings").assertIsDisplayed()
+            compose.onNodeWithTag("menu-guide").performClick()
+            compose.onNodeWithText("关闭").performClick()
+            compose.waitUntil(8_000) { compose.onAllNodesWithTag("menu-guide").fetchSemanticsNodes().isEmpty() }
             compose.onNodeWithTag("hosts-title").assertIsDisplayed()
-            compose.onNodeWithTag("drawer-guide").assertIsNotDisplayed()
-            compose.onNodeWithTag("brand-logo").performClick()
-            compose.onNodeWithTag("drawer-settings").performClick()
+            compose.onNodeWithTag("home-sessions").assertIsDisplayed()
+            compose.onNodeWithTag("home-session-${session.id}").assertIsDisplayed()
+            compose.onNodeWithTag("hosts-header").assertIsDisplayed()
+            // Three hosts need no search.
+            compose.onNodeWithTag("search-toggle").assertDoesNotExist()
+            compose.onNodeWithTag("app-menu").performClick()
+            compose.onNodeWithTag("menu-settings").performClick()
             compose.onNodeWithText("外观").assertIsDisplayed()
             compose.onNodeWithText("深色").performClick()
             compose.waitUntil(8_000) { prefs.getString("theme", null) == "DARK" }
@@ -93,18 +92,18 @@ class NavigationThemeTest {
             capture("navigation-dark-hosts")
             compose.onNodeWithTag("host-grid").performTouchInput { swipeUp() }
             capture("navigation-dark-os-icons")
-            compose.onNodeWithTag("brand-logo").performClick()
-            compose.onNodeWithTag("drawer-guide").assertIsDisplayed()
+            compose.onNodeWithTag("app-menu").performClick()
+            compose.onNodeWithTag("menu-guide").assertIsDisplayed()
             compose.waitForIdle()
             Thread.sleep(250)
-            captureWindow("navigation-settings-drawer")
-            compose.onNodeWithTag("drawer-guide").performClick()
+            captureWindow("navigation-dark-app-menu")
+            compose.onNodeWithTag("menu-guide").performClick()
             compose.onNodeWithText("版本 ${BuildConfig.VERSION_NAME}").assertIsDisplayed()
             compose.onNodeWithText("关闭").performClick()
             compose.onNodeWithTag("terminal").assertDoesNotExist()
             compose.onAllNodesWithContentDescription("Windows").onFirst().assertExists()
-            compose.onNodeWithTag("brand-logo").performClick()
-            compose.onNodeWithTag("drawer-settings").performClick()
+            compose.onNodeWithTag("app-menu").performClick()
+            compose.onNodeWithTag("menu-settings").performClick()
             compose.onNodeWithText("浅色").performClick()
             compose.waitUntil(8_000) { prefs.getString("theme", null) == "LIGHT" }
             compose.onNodeWithTag("close-settings").performClick()
@@ -135,8 +134,8 @@ class NavigationThemeTest {
             compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
             compose.waitUntil(8_000) { compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
             compose.waitUntil(8_000) { compose.onAllNodes(isRoot()).fetchSemanticsNodes().size == 1 }
-            compose.onNodeWithTag("brand-logo").performClick()
-            compose.onNodeWithTag("drawer-settings").performClick()
+            compose.onNodeWithTag("app-menu").performClick()
+            compose.onNodeWithTag("menu-settings").performClick()
             compose.onNodeWithText("外观").assertIsDisplayed()
             compose.waitForIdle()
             Thread.sleep(250)

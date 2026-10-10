@@ -14,6 +14,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -43,6 +44,7 @@ import io.itermux.app.AppLocale
 import io.itermux.app.trf
 import io.itermux.app.R
 import io.itermux.app.data.Host
+import io.itermux.app.data.hostListOrder
 import io.itermux.app.data.newSessionMode
 import io.itermux.app.data.multiplexer
 import io.itermux.app.data.prefersMosh
@@ -78,20 +80,32 @@ fun ItermuxScreen(
         if (sessions.isEmpty()) flowOf(emptyMap())
         else combine(sessions.map { session -> session.state.map { session.id to it.phase } }) { it.toMap() }
     }.collectAsStateWithLifecycle(emptyMap())
+    val sessionAttention by remember(sessions) {
+        if (sessions.isEmpty()) flowOf(emptyMap())
+        else combine(sessions.map { session -> session.attention.map { session.id to it } }) { it.toMap() }
+    }.collectAsStateWithLifecycle(emptyMap())
     val hostReachability = remember { HostReachabilityTracker() }
-    // The session list and drawer show live sessions first; terminal tabs keep their open order.
+    // The home page and host pages show live sessions first; terminal tabs keep their open order.
     val sessionsByActivity = remember(sessions, sessionPhases) {
         sessions.sortedBy { activityRank(sessionPhases[it.id] ?: it.state.value.phase) }
+    }
+    // Home lists sessions that rang for the user first.
+    val homeSessions = remember(sessionsByActivity, sessionAttention) {
+        sessionsByActivity.sortedByDescending { sessionAttention[it.id] == true }
     }
     var page by rememberSaveable { mutableStateOf("hosts") }
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val prefs = remember(context) { context.getSharedPreferences("app-settings", Context.MODE_PRIVATE) }
     var theme by remember { mutableStateOf(AppTheme.from(prefs.getString("theme", null))) }
+    var openLastSession by remember { mutableStateOf(prefs.getBoolean(OPEN_LAST_SESSION_KEY, false)) }
+    /** Bumped when a launch is remembered, so host cards re-read their quick launch. */
+    var launchRevision by remember { mutableIntStateOf(0) }
+    /** The wall clock for "used 5 minutes ago", ticking each minute while the home page shows. */
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var settingsReturnPage by rememberSaveable { mutableStateOf("hosts") }
     /** The host whose detail page is shown when [page] is "host". */
     var detailHostId by rememberSaveable { mutableStateOf<String?>(null) }
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val lightTheme = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
     val terminalVisible = page == "terminal" && sessions.isNotEmpty()
     val navigationVisible = page == "hosts"
@@ -99,8 +113,7 @@ fun ItermuxScreen(
     val terminalChrome = terminalVisible || page == "files"
     // Older IMEs reveal system bars without changing window focus. Restore immersive mode on close.
     LaunchedEffect(terminalChrome, imeVisible, lightTheme, landscape) { onChromeChange(terminalChrome, lightTheme) }
-    BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
-    BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
+    BackHandler(page == "settings") { page = settingsReturnPage }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     /** Leaves the terminal or file browser for its host's detail page; the host list when that host is gone. */
     fun leaveTerminal() {
@@ -116,6 +129,24 @@ fun ItermuxScreen(
         if (service != null && page == "terminal" && service.sessions.value.none { it.id == selected }) page = "hosts"
         if (service != null && page == "files" && service.sessions.value.none { it.id == selected }) page = "hosts"
     }
+    // Once per launch, with the setting on: straight back into the last terminal (it reconnects itself on open).
+    var launchHandled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(service) {
+        if (service == null || launchHandled) return@LaunchedEffect
+        service.awaitRestoration()
+        launchHandled = true
+        val last = prefs.getString(LAST_SESSION_KEY, null)
+        if (openLastSession && page == "hosts" && pendingShareImages.isEmpty() && service.sessions.value.any { it.id == last }) {
+            selected = last
+            page = "terminal"
+        }
+    }
+    LaunchedEffect(page) {
+        while (page == "hosts") {
+            now = System.currentTimeMillis()
+            delay(60_000)
+        }
+    }
     var search by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val hostGridState = rememberLazyGridState()
@@ -123,7 +154,7 @@ fun ItermuxScreen(
         hostGridState.scrollToItem(hostGridState.firstVisibleItemIndex)
     }
     val searchFocus = remember { FocusRequester() }
-    BackHandler(navigationVisible && searchExpanded && !imeVisible && !drawerState.isOpen) {
+    BackHandler(navigationVisible && searchExpanded && !imeVisible) {
         searchExpanded = false
         search = ""
     }
@@ -177,6 +208,7 @@ fun ItermuxScreen(
                 request.startupCommand?.let(session::runWhenConnected)
                 selected = session.id
                 page = if (request.openFilesAfterConnect) "files" else "terminal"
+                launch(Dispatchers.IO) { app.database.hosts().markUsed(request.host.id, System.currentTimeMillis()) }
             } catch (e: Exception) {
                 credentials?.clear()
                 if (e is CancellationException) throw e
@@ -213,6 +245,8 @@ fun ItermuxScreen(
             toast(tr(StartDirectory.UNSUPPORTED_MESSAGE))
             return
         }
+        prefs.saveLastLaunch(host.id, directory, agent)
+        launchRevision++
         if (agent != null) connect(host, title = agent.title, startupCommand = agent.commandLine)
         else connect(host, startupCommand = StartDirectory.command(directory))
     }
@@ -278,19 +312,6 @@ fun ItermuxScreen(
             return@MaterialTheme
         }
         val colors = MaterialTheme.colorScheme
-        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files" && page != "host",
-            drawerContent = {
-                ItermuxDrawer(page, hosts.size, sessionsByActivity,
-                    onHosts = { page = "hosts"; scope.launch { drawerState.close() } },
-                    onOpenSession = { selected = it; page = "terminal"; scope.launch { drawerState.close() } },
-                    onSettings = {
-                        if (page != "settings") settingsReturnPage = page
-                        page = "settings"
-                        scope.launch { drawerState.close() }
-                    },
-                    onGuide = { scope.launch { drawerState.close() }; showAbout = true },
-                    onClose = { scope.launch { drawerState.close() } })
-            }) {
         Surface(Modifier.fillMaxSize(), color = colors.background) {
             // The terminal fills the display, including the area beside a camera cutout and under the
             // transparent portrait status bar. Only desktop window chrome reserves an edge; the terminal
@@ -300,25 +321,19 @@ fun ItermuxScreen(
             val imeInsets = if (terminalVisible) WindowInsets(0) else WindowInsets.ime
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).windowInsetsPadding(imeInsets)) {
                 if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files" && page != "host") AppToolbar(
-                    navigation = {
-                        ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo")) {
-                            focusManager.clearFocus(force = true)
-                            keyboardController?.hide()
-                            scope.launch { drawerState.open() }
-                        }
-                    },
                     actions = {
                         if (navigationVisible) {
-                            // Portrait shows "Add host" beside the host list title; landscape has no large title.
+                            // Portrait shows "Add host" beside the large title; landscape has no large title.
                             val showAddHost = page == "hosts" && (landscape || imeVisible)
-                            // Landscape has no large title, so the toolbar carries it; search stays the outermost icon.
-                            Box(Modifier.weight(1f).padding(horizontal = Spacing.Tight)) {
-                                if (landscape || imeVisible) HostsTitle(MaterialTheme.typography.titleLarge)
+                            // Landscape has no large title, so the toolbar carries it; the app menu stays the outermost icon.
+                            Box(Modifier.weight(1f).padding(horizontal = Spacing.Page - 4.dp)) {
+                                if (landscape || imeVisible) HomeTitle(MaterialTheme.typography.titleLarge)
                             }
                             if (showAddHost) ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
                                 editHostId = null; editorOpen = true
                             }
-                            AppSearchToggle(searchExpanded, onToggle = {
+                            // A handful of hosts fits on screen; search only earns its place in a longer list.
+                            if (hosts.size > SEARCH_HOST_THRESHOLD || searchExpanded) AppSearchToggle(searchExpanded, onToggle = {
                                 if (searchExpanded) {
                                     search = ""
                                     focusManager.clearFocus(force = true)
@@ -327,8 +342,14 @@ fun ItermuxScreen(
                                 searchExpanded = !searchExpanded
                             }, searchDescription = tr("搜索主机"),
                                 modifier = Modifier.testTag("search-toggle"))
+                            AppMenu(onSettings = {
+                                focusManager.clearFocus(force = true)
+                                keyboardController?.hide()
+                                settingsReturnPage = page
+                                page = "settings"
+                            }, onGuide = { showAbout = true })
                         } else {
-                            // Settings is a drawer destination: closing returns to the page it was opened from.
+                            // Settings opens from the app menu: closing returns to the page it was opened from.
                             Spacer(Modifier.weight(1f))
                             ToolbarIcon(R.drawable.ic_close, tr("关闭设置"), Modifier.testTag("close-settings")) { page = settingsReturnPage }
                         }
@@ -338,7 +359,7 @@ fun ItermuxScreen(
                 if (page == "hosts") {
                     Column(Modifier.fillMaxSize()) {
                         if (largeTitle) LargeTitle(tr("搜索结果"), titleContent = if (search.isBlank()) {
-                            { HostsTitle(MaterialTheme.typography.headlineMedium) }
+                            { HomeTitle(MaterialTheme.typography.headlineMedium) }
                         } else null, action = {
                             ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
                                 editHostId = null; editorOpen = true
@@ -349,24 +370,44 @@ fun ItermuxScreen(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(bottom = Spacing.Tight)
                                     .focusRequester(searchFocus).testTag("host-search"))
                         }
-                        val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
+                        val filtered = hosts.sortedWith(hostListOrder).filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
                         // A live connection already proves the host is up, whatever the last probe said. Sessions keep
                         // the endpoint they were opened with, so one still on an edited host's old address does not count.
                         val connectedEndpoints = sessions.filter { (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
                             .map { Triple(it.host.id, it.host.address, it.host.port) }.toSet()
                         ProbeHostReachability(hostReachability, hosts,
                             connected = hosts.filter { Triple(it.id, it.address, it.port) in connectedEndpoints }.map { it.id }.toSet())
-                        if (filtered.isEmpty()) {
+                        // Running sessions lead the page; a search narrows the page to hosts.
+                        val sections = search.isBlank() && homeSessions.isNotEmpty()
+                        if (filtered.isEmpty() && !sections) {
                             if (hosts.isEmpty()) EmptyState(tr("从第一台主机开始"), tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
                                 Modifier.weight(1f),
                                 artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
                                 action = { Button(onClick = { editHostId = null; editorOpen = true }) { Text(tr("添加主机")) } })
                             else EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.weight(1f))
                         } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
-                            items(filtered, key = { it.id }) { host -> HostCard(host, { detailHostId = host.id; page = "host" }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
-                                hostReachability.statusOf(host).let { probed ->
-                                    if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
-                                }, openTerminal = { launchRequest = host to false }, launchAgent = { launchRequest = host to true }) }
+                            if (sections) {
+                                item(key = "home-sessions", span = { GridItemSpan(maxLineSpan) }) {
+                                    ActiveSessionsSection(homeSessions, onOpen = { selected = it.id; page = "terminal" },
+                                        Modifier.padding(bottom = Spacing.Tight))
+                                }
+                                if (filtered.isNotEmpty()) item(key = "hosts-header", span = { GridItemSpan(maxLineSpan) }) {
+                                    Text(tr("主机"), style = MaterialTheme.typography.sectionHeader, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = Spacing.Page).semantics { heading() }.testTag("hosts-header"))
+                                }
+                            }
+                            items(filtered, key = { it.id }) { host ->
+                                val hostSessions = sessions.filter { it.host.id == host.id }
+                                val lastLaunch = remember(host.id, launchRevision) { prefs.lastLaunch(host.id) }
+                                HostCard(host, { detailHostId = host.id; page = "host" }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
+                                    hostReachability.statusOf(host).let { probed ->
+                                        if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
+                                    }, openTerminal = { launchRequest = host to false }, launchAgent = { launchRequest = host to true },
+                                    sessions = HostSessionCount(hostSessions.size,
+                                        hostSessions.count { (sessionPhases[it.id] ?: it.state.value.phase).let { phase -> phase !in livePhases } }),
+                                    lastLaunch = lastLaunch, quickLaunch = { lastLaunch?.let { launchOn(host, it.directory, it.agent) } },
+                                    togglePin = { scope.launch { app.database.hosts().setPinned(host.id, !host.pinned) } }, now = now)
+                            }
                         }
                     }
                 } else if (page == "host") {
@@ -394,8 +435,7 @@ fun ItermuxScreen(
                             RemoteFileBrowserPage(filesSession, onBack = ::leaveTerminal, Modifier.weight(1f),
                                 // A new terminal session (tmux when the host has it) so the agent outlives the browser.
                                 onLaunchAgent = { launch ->
-                                    connect(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host,
-                                        title = launch.title, startupCommand = launch.commandLine)
+                                    launchOn(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host, launch.directory, launch)
                                 }, onOpenTerminal = { directory ->
                                     launchOn(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host, directory, null)
                                 })
@@ -408,7 +448,11 @@ fun ItermuxScreen(
                     SettingsPage(theme, { option ->
                         theme = option
                         prefs.edit { putString("theme", option.name) }
-                    }, AppLocale.language, { option -> AppLocale.set(context, option); service?.refreshLanguage() })
+                    }, AppLocale.language, { option -> AppLocale.set(context, option); service?.refreshLanguage() },
+                        openLastSession = openLastSession, onOpenLastSessionChange = {
+                            openLastSession = it
+                            prefs.edit { putBoolean(OPEN_LAST_SESSION_KEY, it) }
+                        })
                 } else if (sessions.isEmpty()) {
                     EmptyState(tr("终端已就绪"), tr("连接一台主机，开始远端工作。"), Modifier.fillMaxSize(),
                         action = { FilledTonalButton(onClick = { page = "hosts" }) { Text(tr("返回主机列表")) } })
@@ -420,6 +464,10 @@ fun ItermuxScreen(
                         val reconnect = { connect(hosts.firstOrNull { it.id == active.host.id } ?: active.host,
                             active.mode, active.title.value, reuseSessionId = active.id) }
                         val activeState by active.state.collectAsStateWithLifecycle()
+                        // The terminal is on screen, so whatever rang for the user has been seen.
+                        val attention by active.attention.collectAsStateWithLifecycle()
+                        LaunchedEffect(attention) { if (attention) active.attention.value = false }
+                        LaunchedEffect(active.id) { prefs.edit { putString(LAST_SESSION_KEY, active.id) } }
                         val autoReconnect = reconnectsOnOpen(activeState)
                         // Set once the automatic attempt left this entry disconnected, e.g. a dismissed password prompt.
                         var autoTried by remember { mutableStateOf(false) }
@@ -444,7 +492,6 @@ fun ItermuxScreen(
                 }
             }
         }
-        }
         if (editorOpen) {
             val editHost = editHostId?.let { id -> hosts.firstOrNull { it.id == id } }
             if (editHostId == null || editHost != null) HostEditor(app, editHost,
@@ -458,7 +505,7 @@ fun ItermuxScreen(
             }
         }
         deleteHost?.let { host -> AlertDialog(onDismissRequest = { deleteHost = null }, title = { Text(trf("删除 %s？", host.name)) }, text = { Text(tr("将删除这台主机及保存的凭据，并关闭它的连接。服务器信任记录会独立保留，可通过重新核验移除。远端 tmux 任务不受影响。")) },
-            confirmButton = { TextButton(onClick = { scope.launch { sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }; app.database.hosts().delete(host.id); deleteHost = null } }) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) } },
+            confirmButton = { TextButton(onClick = { scope.launch { sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }; app.database.hosts().delete(host.id); prefs.forgetHostLaunches(host.id); deleteHost = null } }) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { deleteHost = null }) { Text(tr("取消")) } }) }
         connectRequest?.let { request -> CredentialsDialog(request, { connectRequest = null }) { password, phrase ->
             connectRequest = null
@@ -508,13 +555,35 @@ fun ItermuxScreen(
     }
 }
 
-/** The host list's title: the host icon beside "主机". */
+/** The home page's title: the app mark beside its name. */
 @Composable
-private fun HostsTitle(style: TextStyle) {
+private fun HomeTitle(style: TextStyle) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.Tight),
         modifier = Modifier.testTag("hosts-title")) {
-        Icon(painterResource(R.drawable.ic_hosts), contentDescription = null,
-            modifier = Modifier.size(with(LocalDensity.current) { style.fontSize.toDp() }))
-        Text(tr("主机"), style = style, maxLines = 1, modifier = Modifier.semantics { heading() })
+        ItermuxLogo(Modifier.size(with(LocalDensity.current) { style.fontSize.toDp() } * 1.15f))
+        Text("Roamtty", style = style, maxLines = 1, modifier = Modifier.semantics { heading() })
     }
 }
+
+/** Settings and help, the destinations that are not hosts or sessions, behind one overflow button. */
+@Composable
+private fun AppMenu(onSettings: () -> Unit, onGuide: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        ToolbarIcon(R.drawable.ic_more, tr("更多"), Modifier.testTag("app-menu")) { open = true }
+        DropdownMenu(open, { open = false }) {
+            DropdownMenuItem(text = { Text(tr("设置")) }, onClick = { open = false; onSettings() },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_settings), contentDescription = null) },
+                modifier = Modifier.testTag("menu-settings"))
+            DropdownMenuItem(text = { Text(tr("帮助")) }, onClick = { open = false; onGuide() },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_help), contentDescription = null) },
+                modifier = Modifier.testTag("menu-guide"))
+        }
+    }
+}
+
+/** Phases in which a session is connected or on its way there; anything else counts as disconnected on host cards. */
+private val livePhases = setOf(Phase.CONNECTED, Phase.CONNECTING, Phase.VERIFYING, Phase.AUTHENTICATING)
+private const val SEARCH_HOST_THRESHOLD = 6
+internal const val OPEN_LAST_SESSION_KEY = "openLastSession"
+private const val LAST_SESSION_KEY = "lastSessionId"

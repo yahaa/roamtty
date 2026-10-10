@@ -85,7 +85,8 @@ internal class HostEditorDraft : ViewModel() {
                                 ?.let { app.vault.encrypt(it, "$id:password") },
                             encryptedKey = credentials?.privateKey?.let { app.vault.encrypt(it, "$id:key") },
                             keyLabel = label, os = if (sameTarget) original!!.os else HostSystem.UNKNOWN.name,
-                            plugins = if (sameTarget) original!!.plugins else null)
+                            plugins = if (sameTarget) original!!.plugins else null,
+                            pinned = original?.pinned ?: false, lastUsedAt = original?.lastUsedAt ?: 0)
                             .also { app.database.hosts().save(it) }
                     }
                 } finally { secret.fill(0); key?.fill(0); phrase?.fill(0) }

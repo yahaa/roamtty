@@ -42,6 +42,11 @@ class TerminalConnection(
     val pending = MutableStateFlow<PendingPrompt?>(null)
     val inputWarning = MutableStateFlow<String?>(null)
     val revision = MutableStateFlow(0L)
+    /**
+     * Set when the remote rings the bell or posts a notification (how Claude Code and Codex ask for the user);
+     * the home page flags the session until its terminal is shown again, which clears it.
+     */
+    val attention = MutableStateFlow(false)
     private val mutableTitle = MutableStateFlow(initialTitle)
     val title = mutableTitle.asStateFlow()
     val defaultTitle: String get() = trf("%s · 会话 %d", host.name, sessionNumber)
@@ -252,7 +257,8 @@ class TerminalConnection(
     override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
     override fun onCopyTextToClipboard(text: String) { copyToClipboard?.invoke(text) }
     override fun onPasteTextFromClipboard() { pasteFromClipboard?.invoke() }
-    override fun onBell() = Unit
+    override fun onBell() { attention.value = true }
+    override fun onNotification(body: String?) { attention.value = true }
     override fun onColorsChanged() { onScreenChanged?.invoke() }
     val transfers = FileTransferController(scope)
     val fileBrowser = RemoteBrowserState(scope)

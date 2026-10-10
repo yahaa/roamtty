@@ -5,6 +5,8 @@ import io.itermux.app.trf
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -37,16 +39,27 @@ import io.itermux.ssh.HostSystem
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.TerminalTransport
 
+/** What the host card shows about this host's sessions. */
+internal data class HostSessionCount(val total: Int = 0, val disconnected: Int = 0)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun HostCard(host: Host, openDetail: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit,
     managePlugins: () -> Unit = {}, reachability: HostReachability = HostReachability.Checking,
-    openTerminal: () -> Unit = {}, launchAgent: () -> Unit = {}) {
+    openTerminal: () -> Unit = {}, launchAgent: () -> Unit = {}, sessions: HostSessionCount = HostSessionCount(),
+    lastLaunch: LastLaunch? = null, quickLaunch: () -> Unit = {}, togglePin: () -> Unit = {}, now: Long = System.currentTimeMillis()) {
     var menu by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
-    ListCard(onClick = openDetail, onClickLabel = tr("查看详情"), modifier = Modifier.testTag("host-card-${host.id}")) {
+    ListCard(onClick = openDetail, onClickLabel = tr("查看详情"), onLongClick = { menu = true }, onLongClickLabel = tr("主机选项"),
+        modifier = Modifier.testTag("host-card-${host.id}")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HostSystemIcon(host.os)
             Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
-                Text(host.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(host.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false))
+                    if (host.pinned) Icon(painterResource(R.drawable.ic_pin), contentDescription = tr("已置顶"),
+                        tint = colors.onSurfaceVariant, modifier = Modifier.padding(start = 6.dp).size(14.dp).testTag("host-pinned-${host.id}"))
+                }
                 Text("${host.username}@${host.address}:${host.port}", style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -62,12 +75,15 @@ import io.itermux.ssh.TerminalTransport
                     DropdownMenuItem(text = { Text(tr("AI 助手")) }, onClick = { menu = false; launchAgent() },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_agent), contentDescription = null) },
                         modifier = Modifier.testTag("host-open-agent-${host.id}"))
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text(tr("编辑主机")) }, onClick = { menu = false; edit() },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_edit), contentDescription = null) })
                     DropdownMenuItem(text = { Text(tr("查看文件")) }, onClick = { menu = false; browseFiles() },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null) },
                         modifier = Modifier.testTag("host-browse-files-${host.id}"))
+                    HorizontalDivider()
+                    DropdownMenuItem(text = { Text(if (host.pinned) tr("取消置顶") else tr("置顶")) }, onClick = { menu = false; togglePin() },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_pin), contentDescription = null) },
+                        modifier = Modifier.testTag("host-pin-${host.id}"))
+                    DropdownMenuItem(text = { Text(tr("编辑主机")) }, onClick = { menu = false; edit() },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_edit), contentDescription = null) })
                     DropdownMenuItem(text = { Text(tr("安装插件")) }, onClick = { menu = false; managePlugins() },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_plugin), contentDescription = null) },
                         modifier = Modifier.testTag("host-plugins-${host.id}"))
@@ -78,18 +94,53 @@ import io.itermux.ssh.TerminalTransport
                 }
             }
         }
-        Row(Modifier.padding(top = Spacing.Row), horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(Modifier.padding(top = Spacing.Row, end = Spacing.Row), horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
             HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}"))
-            // Once probed, the card lists only the plugins the host actually has.
+            if (sessions.total > 0) MetaTag(if (sessions.disconnected > 0) trf("%d 个会话 · %d 个断开", sessions.total, sessions.disconnected)
+                else trf("%d 个会话", sessions.total), Modifier.testTag("host-sessions-${host.id}"))
+            // Once probed, the card lists only the plugins the host actually has, and offers tmux when it has none.
             val plugins = host.installedPlugins
-            if (plugins == null) MetaTag(modeLabel(host.mode == SessionMode.TMUX.name, host.multiplexer))
-            else HostPlugin.entries.filter { it in plugins }.forEach {
-                MetaTag(it.id, Modifier.testTag("host-plugin-${it.id}-${host.id}"))
+            when {
+                plugins == null -> MetaTag(modeLabel(host.mode == SessionMode.TMUX.name, host.multiplexer))
+                plugins.none(HostPlugin::keepsSessions) -> MultiplexerHint(host.multiplexer.id, managePlugins,
+                    Modifier.testTag("host-install-mux-${host.id}"))
+                else -> HostPlugin.entries.filter { it in plugins }.forEach {
+                    MetaTag(it.id, Modifier.testTag("host-plugin-${it.id}-${host.id}"))
+                }
             }
-            MetaTag(authLabel(host.auth))
             if (host.os == "UNKNOWN") MetaTag(tr("待检测系统"))
+            if (host.lastUsedAt > 0) MetaTag(lastUsedLabel(host.lastUsedAt, now), Modifier.testTag("host-last-used-${host.id}"))
         }
+        // The usual next step, one tap away: replay the last launch, or pick what to start the first time.
+        FilledTonalButton(onClick = if (lastLaunch != null) quickLaunch else launchAgent,
+            contentPadding = PaddingValues(horizontal = Spacing.Row), shape = MaterialTheme.shapes.small,
+            modifier = Modifier.padding(top = Spacing.Row, end = Spacing.Row).fillMaxWidth().heightIn(min = 40.dp)
+                .testTag("host-quick-launch-${host.id}")) {
+            Icon(painterResource(if (lastLaunch?.agent == null && lastLaunch != null) R.drawable.ic_sessions else R.drawable.ic_agent),
+                contentDescription = null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(lastLaunch?.let { trf("启动 %s", it.label) } ?: tr("启动 AI 助手"), style = MaterialTheme.typography.labelLarge,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** No tmux (psmux on Windows) yet: sessions die with the connection, so the card offers to install it. */
+@Composable private fun MultiplexerHint(multiplexer: String, onInstall: () -> Unit, modifier: Modifier = Modifier) {
+    Text(trf("未装 %s · 安装", multiplexer), style = MaterialTheme.typography.labelMedium, color = StatusColors.warning, maxLines = 1,
+        modifier = modifier.clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onInstall)
+            .background(StatusColors.warning.copy(alpha = 0.12f)).padding(horizontal = 6.dp, vertical = 2.dp))
+}
+
+/** "刚刚", "5 分钟前", "3 小时前", "2 天前". */
+internal fun lastUsedLabel(at: Long, now: Long): String {
+    val minutes = ((now - at) / 60_000).coerceAtLeast(0)
+    return when {
+        minutes < 1 -> tr("刚刚使用")
+        minutes < 60 -> trf("%d 分钟前使用", minutes)
+        minutes < 24 * 60 -> trf("%d 小时前使用", minutes / 60)
+        else -> trf("%d 天前使用", minutes / (24 * 60))
     }
 }
 
@@ -146,11 +197,13 @@ internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active
 }
 
 /** The card used by the host list: one shape, one surface, whole-card tap target. */
-@Composable private fun ListCard(onClick: () -> Unit, onClickLabel: String, modifier: Modifier = Modifier,
-    bottomPadding: Dp = Spacing.Page, content: @Composable ColumnScope.() -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+@Composable private fun ListCard(onClick: () -> Unit, onClickLabel: String, onLongClick: () -> Unit, onLongClickLabel: String,
+    modifier: Modifier = Modifier, bottomPadding: Dp = Spacing.Page, content: @Composable ColumnScope.() -> Unit) {
     // The tag and click live on the same node so the card reads as one merged, labelled button.
     Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.groupedContainer) {
-        Column(modifier.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+        Column(modifier.combinedClickable(onClickLabel = onClickLabel, role = Role.Button, onLongClickLabel = onLongClickLabel,
+            onLongClick = onLongClick, onClick = onClick)
             .padding(start = Spacing.Page, top = 14.dp, end = 4.dp, bottom = bottomPadding), content = content)
     }
 }

@@ -420,3 +420,26 @@ internal fun SharedPreferences.saveRecentStartDirectories(hostId: String, direct
 
 private const val RECENT_KEY = "startDirectories"
 private const val FILTER_THRESHOLD = 8
+
+/** What was last started on a host: a folder and, for an agent, which one and how. Replayed by the host card's quick launch. */
+internal data class LastLaunch(val directory: String, val agent: AgentLaunch?) {
+    val label: String get() = agent?.title ?: trf("终端 · %s", folderName(directory))
+}
+
+internal fun SharedPreferences.lastLaunch(hostId: String): LastLaunch? {
+    val parts = getString("$LAST_LAUNCH_KEY:$hostId", null)?.split('\n') ?: return null
+    if (parts.size != 3 || !StartDirectory.isSupported(parts[0])) return null
+    val agent = parts[1].takeIf { it.isNotEmpty() }?.let { name -> CodingAgent.entries.firstOrNull { it.name == name } ?: return null }
+    return LastLaunch(parts[0], agent?.let { AgentLaunch(it, parts[0], AgentMode.from(parts[2])) })
+}
+
+internal fun SharedPreferences.saveLastLaunch(hostId: String, directory: String, agent: AgentLaunch?) {
+    if (!StartDirectory.isSupported(directory)) return
+    edit { putString("$LAST_LAUNCH_KEY:$hostId", "$directory\n${agent?.agent?.name.orEmpty()}\n${agent?.mode?.name.orEmpty()}") }
+}
+
+/** Drops a deleted host's remembered folders and last launch. */
+internal fun SharedPreferences.forgetHostLaunches(hostId: String) =
+    edit { remove("$LAST_LAUNCH_KEY:$hostId"); remove("$RECENT_KEY:$hostId") }
+
+private const val LAST_LAUNCH_KEY = "lastLaunch"

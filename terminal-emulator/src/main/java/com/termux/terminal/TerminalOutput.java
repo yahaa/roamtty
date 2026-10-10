@@ -8,6 +8,9 @@ public abstract class TerminalOutput {
     /** OSC 7 directory metadata, when supplied by the remote shell. */
     public void onWorkingDirectoryChanged(String uri) {}
 
+    /** A desktop notification (OSC 9 or OSC 777;notify), as AI coding agents send when they need the user. */
+    public void onNotification(String body) {}
+
     /** Write a string using the UTF-8 encoding to the terminal client. */
     public final void write(String data) {
         if (data == null) return;

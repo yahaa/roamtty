@@ -2793,6 +2793,12 @@ public final class TerminalEmulator {
             case 7:
                 mSession.onWorkingDirectoryChanged(textParameter);
                 break;
+            case 9: // iTerm2 notification; `9;4;...` is ConEmu's progress report, not a notification.
+                if (!textParameter.startsWith("4;")) mSession.onNotification(textParameter);
+                break;
+            case 777: // urxvt notification: `777;notify;title;body`.
+                if (textParameter.startsWith("notify;")) mSession.onNotification(textParameter.substring(7));
+                break;
             case 4:
                 // P s = 4 ; c ; spec → Change Color Number c to the color specified by spec. This can be a name or RGB
                 // specification as per XParseColor. Any number of c name pairs may be given. The color numbers correspond

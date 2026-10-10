@@ -3,6 +3,7 @@ package io.itermux.app.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -33,7 +34,8 @@ import kotlinx.coroutines.*
 
 @Composable
 internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
-    language: AppLanguage, onLanguageChange: (AppLanguage) -> Unit) {
+    language: AppLanguage, onLanguageChange: (AppLanguage) -> Unit,
+    openLastSession: Boolean = false, onOpenLastSessionChange: (Boolean) -> Unit = {}) {
     val context = LocalContext.current
     val power = context.getSystemService(PowerManager::class.java)
     var exempt by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(context.packageName)) }
@@ -93,6 +95,12 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
                             }
                         }
                     }
+                }
+                GroupedSection(header = tr("启动"), footer = tr("打开 App 时直接回到上次使用的终端，断开的会话会自动重连。")) {
+                    GroupedRow(tr("启动时打开上次的会话"),
+                        Modifier.toggleable(openLastSession, role = Role.Switch, onValueChange = onOpenLastSessionChange)
+                            .testTag("settings-open-last-session"),
+                        trailing = { Switch(openLastSession, onCheckedChange = null) })
                 }
                 DownloadDirectorySetting()
                 GroupedSection(header = tr("后台连接"),

@@ -306,8 +306,7 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("download-file").performTouchInput { click() }
             compose.waitForDownloadEntry("phone-a", 8000)
             compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
-            // The closed navigation drawer also composes a "关闭" button off screen.
-            compose.onNode(hasContentDescription("关闭") and !hasAnyAncestor(hasTestTag("navigation-drawer"))).performClick()
+            compose.onNode(hasContentDescription("关闭")).performClick()
             checkFileActions()
             checkDock()
             compose.onNodeWithTag("collapse-dock").performClick()

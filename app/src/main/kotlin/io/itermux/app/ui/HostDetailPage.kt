@@ -123,6 +123,14 @@ internal fun HostDetailPage(
                         onClick = onBrowseFiles)
                 }
                 HostSessionsSection(sessions, onOpenSession, onCloseSession, onForgetSession)
+                // Probed and without tmux/psmux: sessions end with the connection, so suggest the plugin sheet.
+                if (host.installedPlugins?.none(HostPlugin::keepsSessions) == true) GroupedSection(
+                    footer = trf("装好 %s 后，断线或切到后台时远端任务继续运行，重连即可回到原处。", host.multiplexer.id)) {
+                    GroupedRow(trf("安装 %s，让 AI 会话不怕断线", host.multiplexer.id), Modifier.testTag("host-detail-install-mux"),
+                        leading = { Icon(painterResource(R.drawable.ic_plugin), contentDescription = null, Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.primary) },
+                        trailing = { Chevron() }, onClick = onManagePlugins)
+                }
                 if (monitor == null) MonitorLoginCard { askPassword = true }
                 else MonitorSection(monitor, onLogin = { if (host.needsTypedPassword || host.auth == "KEY") askPassword = true else monitor.start() })
                 HostInfoSection(host, metrics)

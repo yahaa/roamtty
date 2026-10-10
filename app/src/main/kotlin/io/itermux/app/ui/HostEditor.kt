@@ -1,6 +1,11 @@
 package io.itermux.app.ui
 
 import io.itermux.app.tr
+import io.itermux.app.trf
+import io.itermux.app.session.ImportedHost
+import io.itermux.app.session.SshImport
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalClipboardManager
 
 import android.provider.OpenableColumns
 import android.content.ContextWrapper
@@ -95,6 +100,45 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
             finally { busy = false }
         }
     }
+    var importText by rememberSaveable { mutableStateOf("") }
+    var importNote by rememberSaveable { mutableStateOf<String?>(null) }
+    var importChoices by remember { mutableStateOf<List<ImportedHost>>(emptyList()) }
+    val clipboard = LocalClipboardManager.current
+    fun apply(host: ImportedHost) {
+        name = host.name
+        address = host.address
+        port = host.port.toString()
+        if (host.username.isNotEmpty()) username = host.username
+        if (host.identityFile != null) auth = "KEY"
+        importChoices = emptyList()
+        importNote = host.identityFile?.let { trf("已填入 %s。该主机使用私钥 %s，请在下方导入。", host.name, it) }
+            ?: trf("已填入 %s，请检查后保存。", host.name)
+    }
+    fun import(text: String) {
+        val hosts = SshImport.parse(text)
+        when {
+            hosts.isEmpty() -> importNote = tr("未识别到主机。请粘贴 ssh 命令、ssh:// 地址或 ~/.ssh/config 片段。")
+            hosts.size == 1 -> apply(hosts.single())
+            else -> { importNote = null; importChoices = hosts }
+        }
+    }
+    val importSection: @Composable () -> Unit = {
+        GroupedSection(header = tr("快速填写"), footer = importNote ?: tr("粘贴 ssh 命令（如 ssh -p 2222 me@dev）、ssh:// 地址或 ~/.ssh/config 片段，自动填入下方信息。")) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FormField(importText, { importText = it }, tr("ssh 命令或配置"), tr("ssh me@dev.example.com"),
+                    // A pasted ~/.ssh/config keeps its lines.
+                    Modifier.weight(1f).testTag("host-import"), KeyboardOptions(keyboardType = KeyboardType.Uri), enabled = !busy,
+                    singleLine = false)
+                if (importText.isBlank()) TextButton(enabled = !busy, modifier = Modifier.testTag("host-import-paste"), onClick = {
+                    importText = clipboard.getText()?.text.orEmpty().take(16 * 1024)
+                    import(importText)
+                }) { Text(tr("粘贴")) }
+                else TextButton(enabled = !busy, modifier = Modifier.testTag("host-import-apply"), onClick = {
+                    focusManager.clearFocus(); keyboard?.hide(); import(importText)
+                }) { Text(tr("识别")) }
+            }
+        }
+    }
     val connectionSection: @Composable () -> Unit = {
         GroupedSection(header = tr("连接信息")) {
             FormField(name, { name = it }, tr("名称"), tr("例如：开发工作站"), Modifier.testTag("host-name"), enabled = !busy)
@@ -181,6 +225,7 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                         verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
                         error?.let { Text(tr(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(horizontal = Spacing.Page)) }
+                        if (original == null) importSection()
                         if (wide) Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Section)) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
                                 connectionSection()
@@ -203,15 +248,27 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
     }
     }
     draft.pending.value?.let { PromptDialog(it) }
+    if (importChoices.isNotEmpty()) AlertDialog(onDismissRequest = { importChoices = emptyList() },
+        title = { Text(trf("找到 %d 台主机", importChoices.size)) },
+        text = {
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                importChoices.forEach { host ->
+                    GroupedRow(host.name, Modifier.testTag("host-import-choice-${host.name}"),
+                        subtitle = "${host.username.ifEmpty { "?" }}@${host.address}:${host.port}", onClick = { apply(host) })
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = { importChoices = emptyList() }) { Text(tr("取消")) } })
 }
 
 /** A borderless field for grouped forms: the panel supplies the shape, dividers separate rows. */
 @Composable
 private fun FormField(value: String, onValueChange: (String) -> Unit, label: String, placeholder: String? = null,
     modifier: Modifier = Modifier, keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    visualTransformation: VisualTransformation = VisualTransformation.None, enabled: Boolean = true) {
+    visualTransformation: VisualTransformation = VisualTransformation.None, enabled: Boolean = true, singleLine: Boolean = true) {
     TextField(value, onValueChange, label = { Text(label) }, placeholder = placeholder?.let { { Text(it) } },
-        enabled = enabled, singleLine = true, keyboardOptions = keyboardOptions, visualTransformation = visualTransformation,
+        enabled = enabled, singleLine = singleLine, maxLines = if (singleLine) 1 else 4, keyboardOptions = keyboardOptions, visualTransformation = visualTransformation,
         modifier = modifier.fillMaxWidth(),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,

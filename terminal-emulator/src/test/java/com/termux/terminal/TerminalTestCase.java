@@ -22,6 +22,8 @@ public abstract class TerminalTestCase extends TestCase {
 		public final List<String> clipboardPuts = new ArrayList<>();
         public final List<String> workingDirectories = new ArrayList<>();
         @Override public void onWorkingDirectoryChanged(String uri) { workingDirectories.add(uri); }
+        public final List<String> notifications = new ArrayList<>();
+        @Override public void onNotification(String body) { notifications.add(body); }
 		public int bellsRung = 0;
 		public int colorsChanged = 0;
 

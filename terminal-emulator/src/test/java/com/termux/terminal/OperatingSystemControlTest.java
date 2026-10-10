@@ -20,6 +20,16 @@ public class OperatingSystemControlTest extends TerminalTestCase {
         assertTrue(mOutput.titleChanges.isEmpty());
     }
 
+    public void testNotificationsReachTheClientButProgressReportsAndBellsDoNot() {
+        withTerminalSized(20, 5);
+        enterString("\033]9;Claude needs your input\007");
+        enterString("\033]9;4;1;50\007");
+        enterString("\033]777;notify;Codex;done\033\\");
+        enterString("\033]777;other;x\007");
+        assertEquals(java.util.Arrays.asList("Claude needs your input", "Codex;done"), mOutput.notifications);
+        assertEquals(0, mOutput.bellsRung);
+    }
+
 	public void testSetTitle() throws Exception {
 		List<ChangedTitle> expectedTitleChanges = new ArrayList<>();
 
