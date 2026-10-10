@@ -48,12 +48,14 @@ class HostDetailSessionActionsUiTest {
                         onLaunch = { _, _ -> }, onBrowseFiles = {}, onEdit = {}, onManagePlugins = {}, onDelete = {})
                 }
             }
+            compose.onNodeWithTag("host-session-menu-${session.id}").performClick()
             compose.onNodeWithTag("host-session-rename-${session.id}").performClick()
             compose.onNodeWithTag("session-title-input").performTextInput("部署脚本")
             compose.onNodeWithText("保存").performClick()
             assertEquals("部署脚本", session.title.value)
             compose.onNodeWithTag("host-session-${session.id}").assertTextContains("部署脚本", substring = true)
 
+            compose.onNodeWithTag("host-session-menu-${session.id}").performClick()
             compose.onNodeWithTag("host-session-close-${session.id}").performClick()
             compose.onNodeWithText("关闭连接").performClick()
             assertEquals(listOf(session), closed)

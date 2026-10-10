@@ -1,7 +1,9 @@
 package io.itermux.app
 
 import android.content.Intent
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -60,6 +62,13 @@ class AgentStatusUiTest {
                 runCatching { row.assertTextContains("Bash: make test", substring = true) }.isSuccess
             }
             row.assertTextContains(tr("运行中"), substring = true)
+            row.assertTextContains("refactor the parser", substring = true)
+            compose.onNodeWithTag("agent-icon-claude", useUnmergedTree = true).assertExists()
+            context.getExternalFilesDir(null)?.let { dir ->
+                java.io.FileOutputStream(java.io.File(dir, "agent-row.png")).use {
+                    row.captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
         } finally {
             session.write("\u0003exit\r")
             prompts.cancel()

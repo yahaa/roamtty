@@ -94,6 +94,8 @@ class TerminalConnection(
             catch (_: Exception) { /* Metadata persistence must never tear down a terminal. */ }
         }
     }
+    /** The agent this session was started to run, for sessions the app launched; others show it once hooks report. */
+    val launchedAgent = MutableStateFlow<CodingAgent?>(null)
     private val mutableAgentStatus = MutableStateFlow<AgentStatus?>(null)
     /** What an agent started with hooks reports in this tmux session; null for none, or while the host is out of reach. */
     val agentStatus = mutableAgentStatus.asStateFlow()
