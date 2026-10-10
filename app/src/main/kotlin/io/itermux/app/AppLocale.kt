@@ -346,7 +346,7 @@ private object EnglishText {
         "显示更多" to "Show more",
         "编辑主机" to "Edit host",
         "删除主机" to "Delete host",
-        "tmux · 可恢复" to "tmux · Resumable",
+        "%s · 可恢复" to "%s · Resumable",
         "SSH · 普通会话" to "SSH · Plain session",
         "关闭" to "Close",
         "普通 SSH shell 会结束。" to "The plain SSH shell will end.",

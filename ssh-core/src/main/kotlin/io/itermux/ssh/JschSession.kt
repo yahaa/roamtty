@@ -47,8 +47,9 @@ class JschSession(
     private val mutableNativeWindows = MutableStateFlow<Boolean?>(null)
     /** True once a plugin probe found cmd.exe or PowerShell, not a POSIX shell; null until probed. */
     val nativeWindows = mutableNativeWindows.asStateFlow()
+    private val mutableMultiplexer = MutableStateFlow<HostPlugin?>(null)
     /** Which multiplexer keeps this TMUX-mode session; found on the first attach, kept for reattaches. */
-    @Volatile private var multiplexer: HostPlugin? = null
+    val multiplexer = mutableMultiplexer.asStateFlow()
     private val mutableTransport = MutableStateFlow<TerminalTransport?>(null)
     /** Which transport carries the live terminal; null until connected. */
     val transport = mutableTransport.asStateFlow()
@@ -194,11 +195,11 @@ class JschSession(
             ?.also { mutableNativeWindows.value = true; mutableDetectedPlugins.value = it }
 
     /** tmux where a POSIX shell has it, else psmux on a native Windows shell; null when neither runs. */
-    private suspend fun findMultiplexer(ssh: Session): HostPlugin? = multiplexer ?: when {
+    private suspend fun findMultiplexer(ssh: Session): HostPlugin? = multiplexer.value ?: when {
         hasTmux(ssh) -> HostPlugin.TMUX
         Psmux.parseProbe(runCommand(ssh, Psmux.probeCommand)) == true -> HostPlugin.PSMUX
         else -> null
-    }?.also { multiplexer = it }
+    }?.also { mutableMultiplexer.value = it }
 
     private fun tcpKeepaliveFactory() = object : SocketFactory {
         override fun createSocket(host: String, port: Int): Socket {
@@ -600,7 +601,7 @@ class JschSession(
         queues.trySendSize(dimensions)
     }
 
-    private fun display(format: String): String = if (multiplexer == HostPlugin.PSMUX) Psmux.displayCommand(tmuxName, format)
+    private fun display(format: String): String = if (multiplexer.value == HostPlugin.PSMUX) Psmux.displayCommand(tmuxName, format)
         else Tmux.command("display-message -p -t $tmuxName \"$format\"")
 
     /** Whether the active tmux pane runs a full-screen program; null when tmux cannot be asked. */
@@ -613,7 +614,7 @@ class JschSession(
 
     /** See [Tmux.restartPaneCommand]: the ended foreground command line ("" for a bare shell), or null on failure. */
     suspend fun restartTmuxPane(): String? = runCommand(
-        if (multiplexer == HostPlugin.PSMUX) Psmux.restartPaneCommand(tmuxName) else Tmux.restartPaneCommand(tmuxName))?.trim()
+        if (multiplexer.value == HostPlugin.PSMUX) Psmux.restartPaneCommand(tmuxName) else Tmux.restartPaneCommand(tmuxName))?.trim()
 
     private fun connectedSession(): Session? =
         session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
@@ -638,7 +639,7 @@ class JschSession(
     suspend fun readFileContent(remotePath: String, maxBytes: Int): RemoteFileContent = withFiles { files.readFileContent(remotePath, maxBytes) }
     suspend fun currentWorkingDirectory(): String? = when {
         target.mode != SessionMode.TMUX -> validWorkingDirectory(runCommand(shellWorkingDirectoryCommand))
-        multiplexer == HostPlugin.PSMUX -> runCommand(display("#{pane_current_path}"))?.let(Psmux::sftpPath)?.takeIf(::isValidRemoteDirectory)
+        multiplexer.value == HostPlugin.PSMUX -> runCommand(display("#{pane_current_path}"))?.let(Psmux::sftpPath)?.takeIf(::isValidRemoteDirectory)
         else -> validWorkingDirectory(runCommand(display("#{pane_current_path}")))
     }
     suspend fun rename(oldPath: String, newPath: String) = withFiles { files.rename(oldPath, newPath) }

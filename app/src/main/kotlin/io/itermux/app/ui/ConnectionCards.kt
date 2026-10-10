@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.data.installedPlugins
+import io.itermux.app.data.multiplexer
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.session.clipSessionTitle
 import io.itermux.ssh.SessionMode
@@ -82,7 +83,7 @@ import io.itermux.ssh.TerminalTransport
             HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}"))
             // Once probed, the card lists only the plugins the host actually has.
             val plugins = host.installedPlugins
-            if (plugins == null) MetaTag(modeLabel(host.mode == SessionMode.TMUX.name))
+            if (plugins == null) MetaTag(modeLabel(host.mode == SessionMode.TMUX.name, host.multiplexer))
             else HostPlugin.entries.filter { it in plugins }.forEach {
                 MetaTag(it.id, Modifier.testTag("host-plugin-${it.id}-${host.id}"))
             }

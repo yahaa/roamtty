@@ -34,6 +34,7 @@ import io.itermux.app.ItermuxApp
 import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.data.installedPlugins
+import io.itermux.app.data.multiplexer
 import io.itermux.app.session.AgentLaunch
 import io.itermux.app.session.HostMetrics
 import io.itermux.app.session.TerminalConnection
@@ -211,6 +212,7 @@ private fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, onC
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val transport by session.transport.collectAsStateWithLifecycle()
+    val multiplexer by session.multiplexer.collectAsStateWithLifecycle()
     var editTitle by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
@@ -223,7 +225,7 @@ private fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, onC
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Tight), verticalAlignment = Alignment.CenterVertically) {
                 StatusLabel(state.phase)
-                MetaTag(if (session.mode == SessionMode.TMUX) "tmux" else "SSH")
+                MetaTag(if (session.mode == SessionMode.TMUX) (multiplexer ?: session.host.multiplexer).id else "SSH")
                 if (transport == TerminalTransport.MOSH) MetaTag("mosh")
             }
         }
@@ -506,7 +508,7 @@ private fun HostInfoSection(host: Host, metrics: HostMetrics?) {
         add(tr("端口") to host.port.toString())
         add(tr("用户名") to host.username)
         add(tr("认证方式") to (authLabel(host.auth) + (host.keyLabel?.takeIf { host.auth == "KEY" }?.let { " · $it" } ?: "")))
-        add(tr("新会话") to modeLabel(host.mode == SessionMode.TMUX.name))
+        add(tr("新会话") to modeLabel(host.mode == SessionMode.TMUX.name, host.multiplexer))
         add(tr("插件") to (host.installedPlugins?.let { found ->
             HostPlugin.entries.filter { it in found }.joinToString(" · ") { it.id }.ifEmpty { tr("未安装") }
         } ?: tr("未检测")))

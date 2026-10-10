@@ -73,6 +73,8 @@ class TerminalConnection(
     val detectedSystem = ssh.detectedSystem
     /** SSH or mosh once connected; null before the first connection. */
     val transport = ssh.transport
+    /** tmux or psmux once a resumable session attached; null before that and for plain shells. */
+    val multiplexer = ssh.multiplexer
     private val systemWatcher = if (credentials == null) null else scope.launch {
         launch {
             ssh.detectedPlugins.filterNotNull().collect { plugins ->
