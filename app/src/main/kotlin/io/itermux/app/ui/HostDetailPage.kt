@@ -215,6 +215,7 @@ internal fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, on
     val title by session.title.collectAsStateWithLifecycle()
     val transport by session.transport.collectAsStateWithLifecycle()
     val multiplexer by session.multiplexer.collectAsStateWithLifecycle()
+    val agent by session.agentStatus.collectAsStateWithLifecycle()
     var editTitle by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
@@ -238,6 +239,7 @@ internal fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, on
                 MetaTag(if (session.mode == SessionMode.TMUX) (multiplexer ?: session.host.multiplexer).id else "SSH")
                 if (transport == TerminalTransport.MOSH) MetaTag("mosh")
             }
+            agent?.let { AgentStatusLine(it, Modifier.padding(top = 4.dp)) }
         }
         IconButton(onClick = { editTitle = true }, modifier = Modifier.testTag("$tagPrefix-rename-${session.id}")) {
             Icon(painterResource(R.drawable.ic_edit), contentDescription = tr("修改会话标题"),

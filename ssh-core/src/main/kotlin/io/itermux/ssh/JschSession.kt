@@ -612,6 +612,20 @@ class JschSession(
             else -> null
         }
 
+    /** The agent status lines of [Tmux.agentStatusCommand]; null without tmux, a reachable host or a quick answer. */
+    suspend fun agentStatus(): String? {
+        if (target.mode != SessionMode.TMUX || multiplexer.value != HostPlugin.TMUX) return null
+        return auxiliarySession(interactive = false)?.let { runCommand(it, Tmux.agentStatusCommand(tmuxName)) }
+    }
+
+    /** Writes [content] to `~/.roamtty/[name]` on the host, replacing it; [name] is a plain file name. */
+    suspend fun writeHostFile(name: String, content: String): Boolean {
+        require(name.all { it.isLetterOrDigit() || it in "-_." } && !name.startsWith("."))
+        return auxiliarySession(interactive = false)?.let {
+            runCommand(it, "/bin/sh -c 'mkdir -p \"\$HOME/.roamtty\" && cat > \"\$HOME/.roamtty/$name\"'", content)
+        } != null
+    }
+
     /** See [Tmux.restartPaneCommand]: the ended foreground command line ("" for a bare shell), or null on failure. */
     suspend fun restartTmuxPane(): String? = runCommand(
         if (multiplexer.value == HostPlugin.PSMUX) Psmux.restartPaneCommand(tmuxName) else Tmux.restartPaneCommand(tmuxName))?.trim()
