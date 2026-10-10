@@ -312,8 +312,8 @@ fun ItermuxScreen(
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).windowInsetsPadding(imeInsets)) {
                 if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files" && page != "host") AppToolbar(
                     navigation = {
-                        // As wide as the actions on the right, so the home tabs sit in the middle of the screen.
-                        Box(Modifier.width(if (navigationVisible) 96.dp else 48.dp)) {
+                        // As wide as the search on the right, so the home tabs sit in the middle of the screen.
+                        Box(Modifier.width(48.dp)) {
                             ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo")) {
                                 focusManager.clearFocus(force = true)
                                 keyboardController?.hide()
@@ -336,12 +336,6 @@ fun ItermuxScreen(
                                 searchExpanded = !searchExpanded
                             }, searchDescription = tr(if (homePager.currentPage == 0) "搜索会话" else "搜索主机"),
                                 modifier = Modifier.testTag("search-toggle"))
-                            // The + adds to the tab in view: a session on a host, or a host.
-                            if (homePager.currentPage == 0)
-                                ToolbarIcon(R.drawable.ic_add, tr("新建会话"), Modifier.testTag("add-session")) { newSessionOpen = true }
-                            else ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
-                                editHostId = null; editorOpen = true
-                            }
                         } else {
                             // Settings is a drawer destination: closing returns to the page it was opened from.
                             Spacer(Modifier.weight(1f))
@@ -369,7 +363,10 @@ fun ItermuxScreen(
                                 action = { Button(onClick = { editHostId = null; editorOpen = true }) { Text(tr("添加主机")) } })
                         }
                         HorizontalPager(homePager, Modifier.weight(1f).testTag("home-pager"), key = { HOME_TAB_TAGS[it] }) { tab ->
-                            if (tab == 0) {
+                            if (tab == 0) Column(Modifier.fillMaxSize()) {
+                                HomeListHeader(trf("会话 · %d", sessionsByActivity.size), tr("新建会话"), "add-session") {
+                                    newSessionOpen = true
+                                }
                                 val matching = sessionsByActivity.filter {
                                     "${it.displayTitle} ${it.host.name} ${it.host.address} ${it.host.username}".contains(search, true)
                                 }
@@ -385,18 +382,21 @@ fun ItermuxScreen(
                                         action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
                                     matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
                                     else -> LazyColumn(Modifier.fillMaxSize().testTag("home-sessions-list"),
-                                        contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = Spacing.Tight, bottom = Spacing.Page)) {
+                                        contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
                                         item(key = "sessions") {
                                             HomeSessionsList(matching, onOpen = { selected = it.id; page = "terminal" },
                                                 onClose = { service?.close(it.id) }, onForget = ::forgetSession)
                                         }
                                     }
                                 }
-                            } else {
+                            } else Column(Modifier.fillMaxSize()) {
+                                HomeListHeader(trf("主机 · %d", hosts.size), tr("添加主机"), "add-host") {
+                                    editHostId = null; editorOpen = true
+                                }
                                 val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
                                 if (hosts.isEmpty()) firstHost(Modifier.fillMaxSize())
                                 else if (filtered.isEmpty()) EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.fillMaxSize())
-                                else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.fillMaxSize().testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = Spacing.Tight, bottom = Spacing.Page)) {
+                                else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.fillMaxSize().testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
                                     items(filtered, key = { it.id }) { host -> HostCard(host, { detailHostId = host.id; page = "host" }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
                                         hostReachability.statusOf(host).let { probed ->
                                             if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
