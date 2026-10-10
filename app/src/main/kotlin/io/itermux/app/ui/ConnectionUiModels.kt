@@ -1,5 +1,6 @@
 package io.itermux.app.ui
 
+import io.itermux.app.session.CodingAgent
 import io.itermux.app.tr
 import io.itermux.app.trf
 
@@ -21,6 +22,10 @@ internal data class ConnectRequest(
     val plugins: Boolean = false,
     /** Typed into the new terminal once it connects, e.g. an AI coding agent started from the file browser. */
     val startupCommand: String? = null,
+    /** The startup command starts an agent that reports through [io.itermux.app.session.AgentHooks]. */
+    val agentHooks: Boolean = false,
+    /** The agent the startup command starts. */
+    val agent: CodingAgent? = null,
     /** Credentials end this closed entry's remote tmux session instead of opening a terminal. */
     val terminateSessionId: String? = null
 )

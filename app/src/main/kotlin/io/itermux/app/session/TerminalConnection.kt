@@ -9,7 +9,11 @@ import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import android.os.SystemClock
 import java.io.InputStream
 import java.io.OutputStream
@@ -88,6 +92,24 @@ class TerminalConnection(
             try { onHostSystemDetected(system) }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Metadata persistence must never tear down a terminal. */ }
+        }
+    }
+    /** The agent this session was started to run, for sessions the app launched; others show it once hooks report. */
+    val launchedAgent = MutableStateFlow<CodingAgent?>(null)
+    private val mutableAgentStatus = MutableStateFlow<AgentStatus?>(null)
+    /** What an agent started with hooks reports in this tmux session; null for none, or while the host is out of reach. */
+    val agentStatus = mutableAgentStatus.asStateFlow()
+    private val agentStatusWatcher = if (credentials == null || mode != SessionMode.TMUX) null else scope.launch {
+        ssh.state.map { it.phase == Phase.CONNECTED }.distinctUntilChanged().collectLatest { connected ->
+            if (!connected) { mutableAgentStatus.value = null; return@collectLatest }
+            while (true) {
+                val output = ssh.agentStatus()
+                // A poll that got no answer keeps what was shown; only an answer without an agent clears it.
+                val status = if (output == null) mutableAgentStatus.value else AgentStatus.parse(output)
+                mutableAgentStatus.value = status
+                // An agent shows up within seconds of starting; without one the poll can be lazy.
+                delay(if (status != null) 3_000 else 10_000)
+            }
         }
     }
     private val mutableCommonCommands = MutableStateFlow<CommonCommandsState>(CommonCommandsState.Idle)
@@ -224,15 +246,26 @@ class TerminalConnection(
 
     private var startupJob: Job? = null
     /** Types [command] once into a ready writer; explicitly rejected input may wait for reattachment. */
-    fun runWhenConnected(command: String) {
+    fun runWhenConnected(command: String, withAgentHooks: Boolean = false) {
         startupJob?.cancel()
         startupJob = scope.launch {
+            if (withAgentHooks) installAgentHooks()
             val input = "$command\r".toByteArray(Charsets.UTF_8)
             try {
                 if (!enqueueStartupCommand(ssh.state, ssh.inputEpoch, revision) { epoch -> ssh.write(input, epoch) })
                     inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
             } finally { input.fill(0) }
         }
+    }
+
+    /** Puts the hook script and settings on the host before an agent starts; a failure only costs the status. */
+    private suspend fun installAgentHooks() {
+        ssh.state.first { !it.active || it.phase == Phase.CONNECTED }
+        try {
+            ssh.writeHostFile(AgentHooks.SCRIPT_PATH.substringAfterLast('/'), AgentHooks.script) &&
+                ssh.writeHostFile(AgentHooks.SETTINGS_PATH.substringAfterLast('/'), AgentHooks.claudeSettings)
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { /* The agent still starts, without reporting. */ }
     }
 
     /** Restarts the tmux pane in its folder and types its foreground program again; false when tmux was not reached. */
@@ -262,6 +295,7 @@ class TerminalConnection(
         transfers.cancel()
         commonCommandsJob?.cancel()
         commonCommandsWatcher?.cancel()
+        agentStatusWatcher?.cancel()
         systemWatcher?.cancel()
         pending.value?.answer?.complete(null)
         ssh.disconnect()

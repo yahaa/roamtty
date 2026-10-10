@@ -185,7 +185,8 @@ fun ItermuxScreen(
                     bound.open(request.host, request.mode, credentials, preferMosh = request.host.prefersMosh && !request.openFilesAfterConnect)
                 }
                 if (request.title.isNotBlank()) session.rename(request.title)
-                request.startupCommand?.let(session::runWhenConnected)
+                request.agent?.let { session.launchedAgent.value = it }
+                request.startupCommand?.let { session.runWhenConnected(it, request.agentHooks) }
                 selected = session.id
                 page = if (request.openFilesAfterConnect) "files" else "terminal"
             } catch (e: Exception) {
@@ -203,8 +204,9 @@ fun ItermuxScreen(
         else start(request)
     }
     fun connect(host: Host, mode: SessionMode = host.newSessionMode, title: String = "", reuseSessionId: String? = null,
-        openFilesAfterConnect: Boolean = false, startupCommand: String? = null) {
-        begin(ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect, startupCommand = startupCommand))
+        openFilesAfterConnect: Boolean = false, startupCommand: String? = null, agentHooks: Boolean = false, agent: CodingAgent? = null) {
+        begin(ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect, startupCommand = startupCommand,
+            agentHooks = agentHooks, agent = agent.takeIf { startupCommand != null }))
     }
     /** Drops a disconnected tmux session's record; with [terminateRemote], logs in to kill it on the server first. */
     fun forgetSession(session: TerminalConnection, terminateRemote: Boolean) {
@@ -224,7 +226,8 @@ fun ItermuxScreen(
             toast(tr(StartDirectory.UNSUPPORTED_MESSAGE))
             return
         }
-        if (agent != null) connect(host, title = agent.title, startupCommand = agent.commandLine)
+        if (agent != null) connect(host, title = agent.title, startupCommand = agent.commandLine, agentHooks = agent.reportsStatus,
+            agent = agent.agent)
         else connect(host, startupCommand = StartDirectory.command(directory))
     }
 
@@ -431,7 +434,7 @@ fun ItermuxScreen(
                                 // A new terminal session (tmux when the host has it) so the agent outlives the browser.
                                 onLaunchAgent = { launch ->
                                     connect(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host,
-                                        title = launch.title, startupCommand = launch.commandLine)
+                                        title = launch.title, startupCommand = launch.commandLine, agentHooks = launch.reportsStatus, agent = launch.agent)
                                 }, onOpenTerminal = { directory ->
                                     launchOn(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host, directory, null)
                                 })

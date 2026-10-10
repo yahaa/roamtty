@@ -83,6 +83,14 @@ object Tmux {
     fun sanitizeSessionName(name: String): String =
         name.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.take(64).ifEmpty { LEGACY_SESSION }
 
+    /**
+     * One line `pane_command|state|since|agent|tool|detail|task` of what an agent reports through the session options
+     * `@roamtty_agent` and `@roamtty_task` (empty when it reports nothing), then the host's clock for the elapsed time.
+     */
+    fun agentStatusCommand(sessionName: String): String =
+        "/bin/sh -c '$PATH_SETUP; tmux display-message -p -t ${sanitizeSessionName(sessionName)} " +
+            "\"#{pane_current_command}|#{@roamtty_agent}|#{@roamtty_task}\" 2>/dev/null && date +%s'"
+
     fun newSessionName(): String = "roamtty-${UUID.randomUUID().toString().replace("-", "").take(12)}"
 
     /**

@@ -36,6 +36,7 @@ import io.itermux.app.data.Host
 import io.itermux.app.data.installedPlugins
 import io.itermux.app.data.multiplexer
 import io.itermux.app.session.AgentLaunch
+import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.HostMetrics
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
@@ -215,6 +216,9 @@ internal fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, on
     val title by session.title.collectAsStateWithLifecycle()
     val transport by session.transport.collectAsStateWithLifecycle()
     val multiplexer by session.multiplexer.collectAsStateWithLifecycle()
+    val agent by session.agentStatus.collectAsStateWithLifecycle()
+    val launched by session.launchedAgent.collectAsStateWithLifecycle()
+    var menu by remember { mutableStateOf(false) }
     var editTitle by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
@@ -222,7 +226,9 @@ internal fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, on
         .heightIn(min = 56.dp).padding(start = Spacing.Page, end = 4.dp, top = 10.dp, bottom = 10.dp).testTag("$tagPrefix-${session.id}"),
         verticalAlignment = Alignment.CenterVertically) {
         if (showHost) {
-            SessionSystemIcon(session, 40.dp)
+            // A session running an agent is told apart by the agent's mark rather than the host's system.
+            val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
+            if (kind != null) AgentIcon(kind, 40.dp, agent?.state) else SessionSystemIcon(session, 40.dp)
             Spacer(Modifier.width(Spacing.Row))
         }
         Column(Modifier.weight(1f)) {
@@ -235,18 +241,28 @@ internal fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, on
                 if (showHost && title.isNotBlank()) Text(session.host.name, style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false))
+                (CodingAgent.fromCommand(agent?.agent) ?: launched)?.let { MetaTag(it.label) }
                 MetaTag(if (session.mode == SessionMode.TMUX) (multiplexer ?: session.host.multiplexer).id else "SSH")
                 if (transport == TerminalTransport.MOSH) MetaTag("mosh")
             }
-        }
-        IconButton(onClick = { editTitle = true }, modifier = Modifier.testTag("$tagPrefix-rename-${session.id}")) {
-            Icon(painterResource(R.drawable.ic_edit), contentDescription = tr("修改会话标题"),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            agent?.let { AgentStatusLine(it, Modifier.padding(top = 4.dp)) }
         }
         val forget = session.closeForgets(state.active)
-        TextButton(onClick = { if (forget) confirmForget = true else confirmClose = true },
-            contentPadding = PaddingValues(horizontal = Spacing.Row), modifier = Modifier.testTag("$tagPrefix-close-${session.id}")) {
-            Text(if (forget) tr("移除") else tr("关闭"), maxLines = 1, softWrap = false)
+        Box {
+            IconButton(onClick = { menu = true }, modifier = Modifier.testTag("$tagPrefix-menu-${session.id}")) {
+                Icon(painterResource(R.drawable.ic_more), contentDescription = tr("会话选项"),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            DropdownMenu(menu, { menu = false }) {
+                DropdownMenuItem(text = { Text(tr("修改会话标题")) }, onClick = { menu = false; editTitle = true },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_edit), contentDescription = null) },
+                    modifier = Modifier.testTag("$tagPrefix-rename-${session.id}"))
+                DropdownMenuItem(text = { Text(if (forget) tr("移除") else tr("关闭"), color = MaterialTheme.colorScheme.error) },
+                    onClick = { menu = false; if (forget) confirmForget = true else confirmClose = true },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error) },
+                    modifier = Modifier.testTag("$tagPrefix-close-${session.id}"))
+            }
         }
     }
     if (editTitle) SessionTitleDialog(session) { editTitle = false }
