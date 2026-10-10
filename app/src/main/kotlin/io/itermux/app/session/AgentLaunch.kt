@@ -15,6 +15,9 @@ enum class CodingAgent(val label: String, val shortLabel: String, val command: S
 
         /** The agent a hook reported itself as (its [command]), or null for one this app does not know. */
         fun fromCommand(value: String?) = entries.firstOrNull { it.command == value }
+
+        /** The agent a session named by [AgentLaunch.title] was started for, or null for any other title. */
+        fun fromTitle(title: String) = entries.firstOrNull { title.startsWith("${it.shortLabel} · ") || title.startsWith("${it.label} · ") }
     }
 }
 

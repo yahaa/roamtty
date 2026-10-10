@@ -43,14 +43,15 @@ private fun AgentStatus.State.color() = when (this) {
 internal fun AgentIcon(agent: CodingAgent, size: Dp, state: AgentStatus.State? = null) {
     val (brand, icon) = when (agent) {
         CodingAgent.CLAUDE -> Color(0xFFD97757) to R.drawable.ic_agent_claude
-        CodingAgent.CODEX -> Color(0xFF4F7CFF) to R.drawable.ic_agent_codex
-        CodingAgent.GROK -> Color(0xFF8A8A92) to R.drawable.ic_agent_grok
+        CodingAgent.CODEX -> Color(0xFF6F86FF) to R.drawable.ic_agent_codex
+        // Grok's mark is black on white or white on black: it takes the text colour.
+        CodingAgent.GROK -> MaterialTheme.colorScheme.onSurface to R.drawable.ic_agent_grok
     }
     Box(Modifier.size(size).testTag("agent-icon-${agent.command}")) {
-        Surface(color = brand.copy(alpha = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.14f else 0.24f),
+        Surface(color = brand.copy(alpha = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.12f else 0.18f),
             shape = RoundedCornerShape(size * 0.28f), modifier = Modifier.fillMaxSize()) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(painterResource(icon), contentDescription = agent.label, tint = brand, modifier = Modifier.size(size * 0.58f))
+                Icon(painterResource(icon), contentDescription = agent.label, tint = brand, modifier = Modifier.size(size * 0.55f))
             }
         }
         if (state != null) Box(Modifier.align(Alignment.BottomEnd).size(size * 0.34f).clip(CircleShape)

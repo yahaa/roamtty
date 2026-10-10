@@ -51,4 +51,12 @@ class AgentLaunchTest {
         assertEquals("Claude · roamtty", shortenLegacyAgentTitle("Claude Code · roamtty"))
         assertEquals("Claude Code notes", shortenLegacyAgentTitle("Claude Code notes"))
     }
+
+    @Test fun restoredSessionsTellTheirAgentByTitle() {
+        assertEquals(CodingAgent.GROK, CodingAgent.fromTitle(AgentLaunch(CodingAgent.GROK, "/srv/roamtty").title))
+        assertEquals(CodingAgent.CODEX, CodingAgent.fromTitle("Codex · roamtty"))
+        assertEquals(CodingAgent.CLAUDE, CodingAgent.fromTitle("Claude Code · roamtty"))
+        assertEquals(null, CodingAgent.fromTitle("部署脚本"))
+        assertEquals(null, CodingAgent.fromTitle("Grokking notes"))
+    }
 }

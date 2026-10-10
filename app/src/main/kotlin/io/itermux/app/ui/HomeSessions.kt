@@ -28,10 +28,7 @@ import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.session.sessionListTitle
 import io.itermux.app.tr
-import io.itermux.app.data.multiplexer
 import io.itermux.ssh.Phase
-import io.itermux.ssh.SessionMode
-import io.itermux.ssh.TerminalTransport
 
 /**
  * The home page's tabs in the toolbar, after Grok's header: the names side by side, the selected one in full
@@ -89,28 +86,23 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
 }
 
 /**
- * One session: the agent's mark (or the host's system), what it works on, its status and transport, with rename and
- * close in its menu. The title is the agent's task, else its folder; see [sessionListTitle].
+ * One session: the agent's mark (or the host's system), what it works on, its status and host, with close in its
+ * menu. The title is the agent's task, else its folder; see [sessionListTitle].
  */
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: (terminateRemote: Boolean) -> Unit,
     tagPrefix: String = "home-session") {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
-    val transport by session.transport.collectAsStateWithLifecycle()
-    val multiplexer by session.multiplexer.collectAsStateWithLifecycle()
     val agent by session.agentStatus.collectAsStateWithLifecycle()
     val launched by session.launchedAgent.collectAsStateWithLifecycle()
-    var editTitle by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
     val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
     val shown = sessionListTitle(title, agent.takeIf { connected }, kind, session.host.username)
     // The default title already names the host; the others do not. The agent's mark tells the agent.
-    val meta = listOfNotNull(session.host.name.takeIf { shown.isNotBlank() },
-        if (session.mode == SessionMode.TMUX) (multiplexer ?: session.host.multiplexer).id else "ssh",
-        "mosh".takeIf { transport == TerminalTransport.MOSH }).joinToString(" · ")
+    val meta = if (shown.isNotBlank()) session.host.name else ""
     Row(Modifier.fillMaxWidth().clickable(onClickLabel = tr("打开终端"), role = Role.Button, onClick = onClick)
         .heightIn(min = 56.dp).padding(start = Spacing.Row, end = 0.dp, top = 10.dp, bottom = 10.dp).testTag("$tagPrefix-${session.id}"),
         verticalAlignment = Alignment.CenterVertically) {
@@ -122,7 +114,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(shown.ifBlank { session.defaultTitle }, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"), style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                SessionMenu(session, state.active, tagPrefix, onEdit = { editTitle = true },
+                SessionMenu(session, state.active, tagPrefix,
                     onClose = { forget -> if (forget) confirmForget = true else confirmClose = true })
             }
             // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
@@ -134,14 +126,13 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             }
         }
     }
-    if (editTitle) SessionTitleDialog(session) { editTitle = false }
     if (confirmClose) SessionCloseDialog(session, { confirmClose = false }, onClose)
     if (confirmForget) SessionForgetDialog(session, { confirmForget = false }, onForget)
 }
 
-/** The session's ⋯ on its title line: rename it, or close it (remove it when closing would only forget it). */
+/** The session's ⋯ on its title line: close it (remove it when closing would only forget it). */
 @Composable
-private fun SessionMenu(session: TerminalConnection, active: Boolean, tagPrefix: String, onEdit: () -> Unit,
+private fun SessionMenu(session: TerminalConnection, active: Boolean, tagPrefix: String,
     onClose: (forget: Boolean) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val forget = session.closeForgets(active)
@@ -152,9 +143,6 @@ private fun SessionMenu(session: TerminalConnection, active: Boolean, tagPrefix:
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(text = { Text(tr("修改会话标题")) }, onClick = { menu = false; onEdit() },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_edit), contentDescription = null) },
-                modifier = Modifier.testTag("$tagPrefix-rename-${session.id}"))
             DropdownMenuItem(text = { Text(if (forget) tr("移除") else tr("关闭"), color = MaterialTheme.colorScheme.error) },
                 onClick = { menu = false; onClose(forget) },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null,

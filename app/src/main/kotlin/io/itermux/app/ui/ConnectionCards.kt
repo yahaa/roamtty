@@ -18,8 +18,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,7 +29,6 @@ import io.itermux.app.data.Host
 import io.itermux.app.data.installedPlugins
 import io.itermux.app.data.multiplexer
 import io.itermux.app.session.TerminalConnection
-import io.itermux.app.session.clipSessionTitle
 import io.itermux.ssh.SessionMode
 import io.itermux.ssh.HostSystem
 import io.itermux.ssh.HostPlugin
@@ -153,22 +150,6 @@ internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active
         Column(modifier.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
             .padding(start = Spacing.Page, top = 14.dp, end = 4.dp, bottom = bottomPadding), content = content)
     }
-}
-
-@Composable internal fun SessionTitleDialog(session: TerminalConnection, onDismiss: () -> Unit) {
-    var title by remember(session.id) { mutableStateOf(session.title.value) }
-    val focusManager = LocalFocusManager.current
-    val keyboardController = LocalSoftwareKeyboardController.current
-    fun finish() { focusManager.clearFocus(force = true); keyboardController?.hide(); onDismiss() }
-    AlertDialog(onDismissRequest = ::finish, title = { Text(tr("修改会话标题")) },
-        text = { Column {
-            Text(tr("主机名与会话标题在同一行显示。标题留空则显示会话编号。"))
-            OutlinedTextField(title, { title = clipSessionTitle(it) }, label = { Text(tr("会话标题")) },
-                placeholder = { Text(session.defaultTitle) }, singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("session-title-input"))
-        } },
-        confirmButton = { TextButton(onClick = { session.rename(title); finish() }) { Text(tr("保存")) } },
-        dismissButton = { TextButton(onClick = ::finish) { Text(tr("取消")) } })
 }
 
 @Composable internal fun SessionSystemIcon(session: TerminalConnection, size: Dp = 44.dp) {
