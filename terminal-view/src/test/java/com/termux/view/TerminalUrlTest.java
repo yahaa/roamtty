@@ -143,6 +143,24 @@ public class TerminalUrlTest {
         assertNull(TerminalUrl.at(t, 5, 0));
     }
 
+    @Test public void hardWrappedBareUrlIsWholeFromEitherRow() {
+        for (String style : new String[] {"", "\033[4m"}) {
+            TerminalEmulator t = terminal(40, 5,
+                "  PR: " + style + "https://github.com/yahaa/\033[0m\r\n  " + style + "roamtty/pull/135\033[0m\r\n");
+            for (int col = 6; col < 31; col++)
+                assertEquals("https://github.com/yahaa/roamtty/pull/135", TerminalUrl.at(t, col, 0));
+            for (int col = 2; col < 18; col++)
+                assertEquals("https://github.com/yahaa/roamtty/pull/135", TerminalUrl.at(t, col, 1));
+            assertNull(TerminalUrl.at(t, 18, 1));
+        }
+    }
+
+    @Test public void urlFollowedByShortProseRowIsNotExtended() {
+        TerminalEmulator t = terminal(40, 5, "see https://one.test/a\r\nnext line\r\n");
+        assertEquals("https://one.test/a", TerminalUrl.at(t, 6, 0));
+        assertNull(TerminalUrl.at(t, 1, 1));
+    }
+
     @Test public void hardLineBreakDoesNotJoinUrls() {
         TerminalEmulator t = terminal(40, 4, "https://one.test\r\nhttps://two.test");
         assertEquals("https://one.test", TerminalUrl.at(t, 3, 0));
