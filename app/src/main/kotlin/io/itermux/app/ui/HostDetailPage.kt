@@ -207,8 +207,10 @@ private fun HostSessionsSection(sessions: List<TerminalConnection>, onOpen: (Ter
     }
 }
 
+/** One session: title, status and transport, with rename and close. [showHost] adds the host's icon and name, for lists across hosts. */
 @Composable
-private fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: (terminateRemote: Boolean) -> Unit) {
+internal fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: (terminateRemote: Boolean) -> Unit,
+    showHost: Boolean = false, tagPrefix: String = "host-session") {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val transport by session.transport.collectAsStateWithLifecycle()
@@ -217,25 +219,33 @@ private fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, onC
     var confirmClose by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().clickable(onClickLabel = tr("打开终端"), role = Role.Button, onClick = onClick)
-        .heightIn(min = 56.dp).padding(start = Spacing.Page, end = 4.dp, top = 10.dp, bottom = 10.dp).testTag("host-session-${session.id}"),
+        .heightIn(min = 56.dp).padding(start = Spacing.Page, end = 4.dp, top = 10.dp, bottom = 10.dp).testTag("$tagPrefix-${session.id}"),
         verticalAlignment = Alignment.CenterVertically) {
+        if (showHost) {
+            SessionSystemIcon(session, 40.dp)
+            Spacer(Modifier.width(Spacing.Row))
+        }
         Column(Modifier.weight(1f)) {
             Text(title.ifBlank { session.defaultTitle }, style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Tight), verticalAlignment = Alignment.CenterVertically) {
                 StatusLabel(state.phase)
+                // The default title already names the host; a custom one does not.
+                if (showHost && title.isNotBlank()) Text(session.host.name, style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false))
                 MetaTag(if (session.mode == SessionMode.TMUX) (multiplexer ?: session.host.multiplexer).id else "SSH")
                 if (transport == TerminalTransport.MOSH) MetaTag("mosh")
             }
         }
-        IconButton(onClick = { editTitle = true }, modifier = Modifier.testTag("host-session-rename-${session.id}")) {
+        IconButton(onClick = { editTitle = true }, modifier = Modifier.testTag("$tagPrefix-rename-${session.id}")) {
             Icon(painterResource(R.drawable.ic_edit), contentDescription = tr("修改会话标题"),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         }
         val forget = session.closeForgets(state.active)
         TextButton(onClick = { if (forget) confirmForget = true else confirmClose = true },
-            contentPadding = PaddingValues(horizontal = Spacing.Row), modifier = Modifier.testTag("host-session-close-${session.id}")) {
+            contentPadding = PaddingValues(horizontal = Spacing.Row), modifier = Modifier.testTag("$tagPrefix-close-${session.id}")) {
             Text(if (forget) tr("移除") else tr("关闭"), maxLines = 1, softWrap = false)
         }
     }
