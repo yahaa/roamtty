@@ -1,19 +1,34 @@
 package io.itermux.app.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateValue
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.LinearGradientShader
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -26,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import io.itermux.app.R
 import io.itermux.app.data.Host
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.itermux.app.session.AgentStatus
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.session.agentActivity
@@ -75,23 +91,22 @@ internal fun HomeListHeader(label: String, addDescription: String, addTag: Strin
     }
 }
 
-/** Every session the app holds, most active first; a tap opens its terminal. */
+/** Every session the app holds, most active first, as cards laid out like the host list; a tap opens its terminal. */
 @Composable
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
     onClose: (TerminalConnection) -> Unit) {
-    GroupedSection(modifier = Modifier.testTag("home-sessions")) {
-        sessions.forEachIndexed { index, session ->
-            if (index > 0) GroupedDivider()
-            key(session.id) {
-                SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) })
-            }
+    LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), modifier = Modifier.fillMaxSize().testTag("home-sessions-list"),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row),
+        contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
+        gridItems(sessions, key = { it.id }) { session ->
+            SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) })
         }
     }
 }
 
 /**
- * One session: the agent's mark (or the host's system), what it works on, its status and where it runs, with close in its
- * menu. The title is the agent's task, else its folder; see [sessionListTitle].
+ * One session card: the agent's mark (or the host's system), what it works on, its status and where it runs, with close
+ * in its menu. The title is the agent's task, else its folder; see [sessionListTitle].
  */
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit,
@@ -103,48 +118,85 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
     val shown = sessionListTitle(title, agent.takeIf { connected }, kind, session.host.username)
-    // Where it runs, under the title on the right: the host, and the agent's whole folder unless that is the title.
+    // Where it runs, on the status line's right: the host, and the agent's whole folder unless that is the title.
     val path = sessionListPath(agent.takeIf { connected }, session.host.username)
     val location = listOf(session.host.name, path).filter { it.isNotEmpty() && it != shown }.distinct().joinToString(" · ")
-    Row(Modifier.fillMaxWidth().clickable(onClickLabel = tr("打开终端"), role = Role.Button, onClick = onClick)
-        .heightIn(min = 56.dp).padding(start = Spacing.Row, end = 0.dp, top = 10.dp, bottom = 10.dp).testTag("$tagPrefix-${session.id}"),
-        verticalAlignment = Alignment.CenterVertically) {
-        // A session running an agent is told apart by the agent's mark rather than the host's system.
-        if (kind != null) AgentIcon(kind, 40.dp, agent?.state.takeIf { connected })
-        else SessionSystemIcon(session, 40.dp)
-        Spacer(Modifier.width(Spacing.Row))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"), style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                SessionMenu(session, tagPrefix, onClose)
+    // What an agent is running; no line while it runs nothing.
+    val activity = agentActivity(agent.takeIf { connected })
+    ListCard(onClick = onClick, onClickLabel = tr("打开终端"), modifier = Modifier.testTag("$tagPrefix-${session.id}")) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // A session running an agent is told apart by the agent's mark rather than the host's system.
+            if (kind != null) AgentIcon(kind, 44.dp, agent?.state.takeIf { connected })
+            else SessionSystemIcon(session, 44.dp)
+            Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
+                Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.testTag("$tagPrefix-title-${session.id}"),
+                    style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // The line beneath always keeps its place, so the title stays put as commands come and go: the command
+                // the agent runs, a spinner while it works on without one, else nothing.
+                Box(contentAlignment = Alignment.CenterStart) {
+                    Text(activity.ifEmpty { " " }, if (activity.isEmpty()) Modifier else Modifier.testTag("$tagPrefix-activity-${session.id}"),
+                        style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (activity.isEmpty() && connected && agent?.state == AgentStatus.State.WORKING)
+                        WorkingSpinner(kind?.brand() ?: MaterialTheme.colorScheme.primary,
+                            Modifier.testTag("$tagPrefix-working-${session.id}"))
+                }
             }
-            // What an agent is running; no line while it runs nothing.
-            val activity = agentActivity(agent.takeIf { connected })
-            if (activity.isNotEmpty()) Text(activity, Modifier.padding(end = Spacing.Row)
-                .testTag("$tagPrefix-activity-${session.id}"), style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
-                overflow = TextOverflow.Ellipsis)
-            // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
-            val status = agent
-            Row(Modifier.padding(end = Spacing.Row), verticalAlignment = Alignment.CenterVertically) {
-                if (status != null && connected) AgentStatusLine(status) else StatusLabel(state.phase)
-                Text(location, Modifier.weight(1f).padding(start = Spacing.Tight).testTag("$tagPrefix-location-${session.id}"),
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
-            }
+            SessionMenu(session, tagPrefix, onClose)
+        }
+        // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
+        val status = agent
+        Row(Modifier.padding(top = Spacing.Row, end = Spacing.Page - 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (status != null && connected) AgentStatusLine(status) else StatusLabel(state.phase)
+            Text(location, Modifier.weight(1f).padding(start = Spacing.Tight).testTag("$tagPrefix-location-${session.id}"),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
         }
     }
 }
 
-/** The session's ⋯ on its title line: close it, ending everything it runs, without asking. */
+/**
+ * Claude Code's spinner, for an agent busy between commands: a star that grows and shrinks through its frames beside
+ * "思考中…" with a highlight sweeping across, both in [color].
+ */
+@Composable
+private fun WorkingSpinner(color: Color, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "working")
+    val frame by transition.animateValue(0, SPINNER_FRAMES.size, Int.VectorConverter,
+        infiniteRepeatable(tween(SPINNER_FRAMES.size * 120, easing = LinearEasing)), label = "frame")
+    val sweep by transition.animateFloat(-1f, 2f, infiniteRepeatable(tween(2000, easing = LinearEasing)), label = "sweep")
+    val style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+    Row(modifier.clearAndSetSemantics { }, verticalAlignment = Alignment.CenterVertically) {
+        // The frames differ in width: a fixed box keeps the words beside them still.
+        Box(Modifier.width(14.dp), contentAlignment = Alignment.Center) {
+            Text(SPINNER_FRAMES[frame.coerceIn(SPINNER_FRAMES.indices)], style = style, color = color, maxLines = 1)
+        }
+        Spacer(Modifier.width(4.dp))
+        val dim = color.copy(alpha = 0.6f)
+        Text(tr("思考中…"), maxLines = 1, style = style.copy(brush = object : ShaderBrush() {
+            override fun createShader(size: Size): Shader {
+                val x = sweep * size.width
+                return LinearGradientShader(Offset(x - size.width / 3, 0f), Offset(x + size.width / 3, 0f),
+                    listOf(dim, color, dim))
+            }
+        }))
+    }
+}
+
+/**
+ * The frames of [WorkingSpinner]'s star, out and back as Claude Code draws it; it rests on the full star, which is all
+ * that shows with animations turned off.
+ */
+private val SPINNER_FRAMES = listOf("·", "✢", "✳", "✶", "✻", "✽").let { it + it.reversed().drop(1).dropLast(1) }
+    .let { it.drop(4) + it.take(4) }
+
+/** The session's ⋯ on its card: close it, ending everything it runs, without asking. */
 @Composable
 private fun SessionMenu(session: TerminalConnection, tagPrefix: String, onClose: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { menu = true }, modifier = Modifier.size(width = 44.dp, height = 28.dp)
-            .testTag("$tagPrefix-menu-${session.id}")) {
-            Icon(painterResource(R.drawable.ic_more), contentDescription = tr("会话选项"), Modifier.size(20.dp),
+        IconButton(onClick = { menu = true }, modifier = Modifier.testTag("$tagPrefix-menu-${session.id}")) {
+            Icon(painterResource(R.drawable.ic_more), contentDescription = tr("会话选项"),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         DropdownMenu(menu, { menu = false }) {

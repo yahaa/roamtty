@@ -99,8 +99,8 @@ class HomePageTest {
             Espresso.pressBack()
             compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("home-tab-sessions") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("home-session-${session.id}").assertIsDisplayed()
-            // The row's details are one quiet line: the mode, no pills repeating what the mark already says.
-            compose.onNodeWithTag("home-session-${session.id}").assertTextContains("ssh", substring = true)
+            // The card's details are one quiet line: its state and the host it runs on.
+            compose.onNodeWithTag("home-session-${session.id}").assertTextContains(host.name, substring = true)
 
             // A session opened from the list returns to the sessions tab, even after the hosts tab was last shown.
             compose.onNodeWithTag("home-tab-hosts").performClick()

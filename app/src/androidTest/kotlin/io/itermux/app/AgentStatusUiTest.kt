@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -25,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -53,7 +55,9 @@ class AgentStatusUiTest {
             val hook = "sh ~/.roamtty/agent-hook.sh codex"
             withContext(Dispatchers.Main) {
                 session.runWhenConnected("[ -x ~/.roamtty/codex ] && printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; " +
-                    "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"make test\"}}' | $hook tool; sleep 600",
+                    "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"make test\"}}' | $hook tool; sleep 20; " +
+                    // Then a new prompt: working on, with no command yet.
+                    "printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; sleep 600",
                     agentHooks = CodingAgent.CODEX)
             }
             val working = withTimeout(40_000) { session.agentStatus.first { it?.state == AgentStatus.State.WORKING } }!!
@@ -73,11 +77,22 @@ class AgentStatusUiTest {
             compose.onNodeWithTag("agent-icon-codex", useUnmergedTree = true).assertExists()
             // Between the title and the state, the command it runs.
             compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("$ make test")
-            context.getExternalFilesDir(null)?.let { dir ->
-                java.io.FileOutputStream(java.io.File(dir, "agent-row.png")).use {
+            fun capture(name: String) = context.getExternalFilesDir(null)?.let { dir ->
+                java.io.FileOutputStream(java.io.File(dir, "$name.png")).use {
                     row.captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
                 }
             }
+            capture("agent-row")
+            val titleTop = compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true)
+                .getUnclippedBoundsInRoot().top
+            // Working on without a command, the line beneath holds dots, and the title stays where it was.
+            compose.waitUntil(30_000) {
+                compose.onAllNodesWithTag("home-session-working-${session.id}", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertDoesNotExist()
+            assertEquals(titleTop, compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true)
+                .getUnclippedBoundsInRoot().top)
+            capture("agent-row-working")
         } finally {
             session.write("\u0003exit\r")
             prompts.cancel()

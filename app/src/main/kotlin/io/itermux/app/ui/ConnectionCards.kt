@@ -109,8 +109,8 @@ internal fun latencyLabel(ms: Long): String = if (ms < 1) "<1 ms" else "$ms ms"
 /** Whether closing [session] would only drop its record: a disconnected tmux session, still running remotely. */
 internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active && mode == SessionMode.TMUX
 
-/** The card used by the host list: one shape, one surface, whole-card tap target. */
-@Composable private fun ListCard(onClick: () -> Unit, onClickLabel: String, modifier: Modifier = Modifier,
+/** The card used by the host and session lists: one shape, one surface, whole-card tap target. */
+@Composable internal fun ListCard(onClick: () -> Unit, onClickLabel: String, modifier: Modifier = Modifier,
     bottomPadding: Dp = Spacing.Page, content: @Composable ColumnScope.() -> Unit) {
     // The tag and click live on the same node so the card reads as one merged, labelled button.
     Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.groupedContainer) {

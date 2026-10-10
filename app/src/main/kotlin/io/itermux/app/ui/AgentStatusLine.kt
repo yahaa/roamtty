@@ -35,17 +35,26 @@ private fun AgentStatus.State.color() = when (this) {
     AgentStatus.State.IDLE -> StatusColors.success
 }
 
+/** The colour of an agent's mark. */
+@Composable
+internal fun CodingAgent.brand(): Color = when (this) {
+    CodingAgent.CLAUDE -> Color(0xFFD97757)
+    CodingAgent.CODEX -> Color(0xFF6F86FF)
+    // Grok's mark is black on white or white on black: it takes the text colour.
+    CodingAgent.GROK -> MaterialTheme.colorScheme.onSurface
+}
+
 /**
  * An agent's mark on a tile in its own colours; with [state], a dot in the corner shows what it is doing, so a list of
  * sessions tells at a glance which agent is busy and which waits for an answer.
  */
 @Composable
 internal fun AgentIcon(agent: CodingAgent, size: Dp, state: AgentStatus.State? = null) {
-    val (brand, icon) = when (agent) {
-        CodingAgent.CLAUDE -> Color(0xFFD97757) to R.drawable.ic_agent_claude
-        CodingAgent.CODEX -> Color(0xFF6F86FF) to R.drawable.ic_agent_codex
-        // Grok's mark is black on white or white on black: it takes the text colour.
-        CodingAgent.GROK -> MaterialTheme.colorScheme.onSurface to R.drawable.ic_agent_grok
+    val brand = agent.brand()
+    val icon = when (agent) {
+        CodingAgent.CLAUDE -> R.drawable.ic_agent_claude
+        CodingAgent.CODEX -> R.drawable.ic_agent_codex
+        CodingAgent.GROK -> R.drawable.ic_agent_grok
     }
     Box(Modifier.size(size).testTag("agent-icon-${agent.command}")) {
         Surface(color = brand.copy(alpha = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.12f else 0.18f),
