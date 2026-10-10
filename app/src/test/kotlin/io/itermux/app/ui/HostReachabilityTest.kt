@@ -7,16 +7,38 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.ServerSocket
+import kotlin.concurrent.thread
 
 class HostReachabilityTest {
-    @Test fun sshPortProbeTimesAListeningPort() {
-        ServerSocket(0).use { server -> assertNotNull(tcpRoundTrip("127.0.0.1", server.localPort, 1_000)) }
+    @Test fun probeTimesTheSshGreeting() {
+        serving("SSH-2.0-OpenSSH_9.9\r\n") { port -> assertNotNull(sshGreetingTime("127.0.0.1", port, 1_000)) }
+        serving("Welcome\r\nSSH-2.0-OpenSSH_for_Windows_9.5\r\n") { port -> assertNotNull(sshGreetingTime("127.0.0.1", port, 1_000)) }
+    }
+
+    /** A local proxy that accepts the connect for a machine that is off: silent, or hangs up. */
+    @Test fun acceptedConnectWithoutGreetingIsOffline() {
+        serving(null) { port -> assertNull(sshGreetingTime("127.0.0.1", port, 300)) }
+        serving("") { port -> assertNull(sshGreetingTime("127.0.0.1", port, 1_000)) }
+        serving("HTTP/1.1 400 Bad Request\r\n") { port -> assertNull(sshGreetingTime("127.0.0.1", port, 1_000)) }
     }
 
     @Test fun sshPortProbeFailsOnClosedPortOrUnknownHost() {
         val port = ServerSocket(0).use { it.localPort }
-        assertNull(tcpRoundTrip("127.0.0.1", port, 1_000))
-        assertNull(tcpRoundTrip("host.invalid", 22, 1_000))
+        assertNull(sshGreetingTime("127.0.0.1", port, 1_000))
+        assertNull(sshGreetingTime("host.invalid", 22, 1_000))
+    }
+
+    /** Accepts one connection and writes [greeting] then closes it, or holds it open silently when null. */
+    private fun serving(greeting: String?, probe: (Int) -> Unit) = ServerSocket(0).use { server ->
+        val worker = thread {
+            runCatching {
+                server.accept().use { client ->
+                    if (greeting == null) Thread.sleep(1_000) else client.getOutputStream().write(greeting.toByteArray())
+                }
+            }
+        }
+        probe(server.localPort)
+        worker.join()
     }
 
     @Test fun offlineHostsBackOffToFiveMinutes() {
