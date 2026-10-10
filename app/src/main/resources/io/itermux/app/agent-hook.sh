@@ -26,7 +26,9 @@ record() {
 case "$event" in
   start) record idle "" "" ;;
   prompt)
-    put @roamtty_task "$(field prompt 200)"
+    # Claude Code also submits "<task-notification>…" itself when a background task ends: that is no task of the user's.
+    task=$(field prompt 200)
+    case "$task" in "<"*) ;; *) put @roamtty_task "$task" ;; esac
     record working "" "" ;;
   tool)
     tool=$(field tool_name 40)
