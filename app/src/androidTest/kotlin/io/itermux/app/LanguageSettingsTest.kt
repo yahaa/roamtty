@@ -6,7 +6,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -41,13 +41,13 @@ class LanguageSettingsTest {
                     .compress(Bitmap.CompressFormat.PNG, 100, it)
             }
             compose.onNodeWithTag("close-settings").performClick()
-            compose.onNodeWithContentDescription("Search hosts").assertIsDisplayed()
+            compose.onNodeWithTag("home-tab-hosts").assertTextEquals("Hosts")
             compose.onNodeWithTag("brand-logo").performClick()
             compose.onNodeWithTag("drawer-guide").performClick()
             compose.onNodeWithText("Sessions and AI agents").assertIsDisplayed()
             compose.onNodeWithText("Close").performClick()
             compose.activityRule.scenario.recreate()
-            compose.onNodeWithContentDescription("Search hosts").assertIsDisplayed()
+            compose.onNodeWithTag("home-tab-hosts").assertTextEquals("Hosts")
             compose.onNodeWithTag("brand-logo").performClick()
             compose.onNodeWithTag("drawer-settings").performClick()
             compose.onNodeWithTag("settings-language-zh_cn").performClick()

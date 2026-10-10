@@ -2,9 +2,9 @@ package io.itermux.app
 
 import android.content.Intent
 import android.graphics.Bitmap
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
@@ -21,8 +21,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import kotlin.math.abs
 
-/** The home page leads with the sessions, above the hosts, and its + starts a new session on a picked host. */
+/** The home page opens on its sessions tab; the toolbar's 会话/主机 tabs, a swipe or Back move between the two. */
 @RunWith(AndroidJUnit4::class)
 class HomePageTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
@@ -35,12 +36,13 @@ class HomePageTest {
     }
 
     private fun capture(name: String) {
+        compose.waitForIdle()
         File(context.getExternalFilesDir(null), "$name.png").outputStream().use {
-            compose.onAllNodes(isRoot()).onFirst().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().compress(Bitmap.CompressFormat.PNG, 100, it)
         }
     }
 
-    @Test fun sessionsLeadTheHomePageAndPlusStartsOne() = runBlocking<Unit> {
+    @Test fun sessionsTabLeadsAndTabsSwitchToHosts() = runBlocking<Unit> {
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
         // Port 1 refuses at once, so the session stays listed without a server.
         val host = Host(name = "首页会话主机", address = "127.0.0.1", port = 1, username = "test")
@@ -48,28 +50,48 @@ class HomePageTest {
         val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials("test-only".toByteArray())) }
         try {
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("home-session-${session.id}").fetchSemanticsNodes().isNotEmpty() }
-            val sessionsTitle = compose.onNodeWithTag("sessions-title").assertIsDisplayed().getUnclippedBoundsInRoot()
-            val row = compose.onNodeWithTag("home-session-${session.id}").assertIsDisplayed()
-                .assertTextContains("首页会话主机", substring = true).getUnclippedBoundsInRoot()
-            val hostsTitle = compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("hosts-title"))
-                .let { compose.onNodeWithTag("hosts-title").getUnclippedBoundsInRoot() }
-            assertTrue("sessions come before hosts", sessionsTitle.top < row.top && row.bottom <= hostsTitle.top)
-            compose.onNodeWithTag("host-grid").performScrollToIndex(0)
-            capture("home-sessions-first")
+            val root = compose.onRoot().getUnclippedBoundsInRoot()
+            val sessionsTab = compose.onNodeWithTag("home-tab-sessions").assertIsSelected().assertTextEquals("会话")
+                .getUnclippedBoundsInRoot()
+            val hostsTab = compose.onNodeWithTag("home-tab-hosts").assertIsNotSelected().assertTextEquals("主机")
+                .getUnclippedBoundsInRoot()
+            val tabsCenter = (sessionsTab.left + hostsTab.right) / 2
+            assertTrue("tabs sit in the middle: $tabsCenter of ${root.right}", abs((tabsCenter - root.right / 2).value) < 4f)
+            compose.onNodeWithTag("home-session-${session.id}").assertIsDisplayed()
+                .assertTextContains("首页会话主机", substring = true)
+            compose.onNodeWithTag("host-card-${host.id}").assertDoesNotExist()
+            capture("home-tab-sessions")
 
-            // + sits at the right end of the sessions title.
+            // The + starts a session on a picked host.
             val add = compose.onNodeWithTag("add-session").assertIsDisplayed().getUnclippedBoundsInRoot()
-            assertTrue("add button on the right", add.left > (sessionsTitle.left + sessionsTitle.right) / 2)
+            assertTrue("add button on the right", add.left > hostsTab.right)
             compose.onNodeWithTag("add-session").performClick()
-            compose.onNodeWithTag("new-session-sheet").assertIsDisplayed()
             compose.onNodeWithTag("new-session-sheet").performScrollToNode(hasTestTag("new-session-host-${host.id}"))
-            compose.waitForIdle()
-            File(context.getExternalFilesDir(null), "home-new-session-sheet.png").outputStream().use {
-                InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().compress(Bitmap.CompressFormat.PNG, 100, it)
-            }
             compose.onNodeWithTag("new-session-terminal-${host.id}").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("new-session-sheet").fetchSemanticsNodes().isEmpty() }
             compose.onNodeWithText("打开终端").assertIsDisplayed()
+            Espresso.pressBack()
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("打开终端").fetchSemanticsNodes().isEmpty() }
+
+            // A tap on 主机 shows the hosts, and the + adds a host there.
+            compose.onNodeWithTag("home-tab-hosts").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("host-grid").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("home-tab-hosts").assertIsSelected()
+            compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${host.id}"))
+            compose.onNodeWithTag("host-card-${host.id}").assertIsDisplayed()
+            compose.onNodeWithTag("add-host").assertIsDisplayed()
+            compose.onNodeWithTag("add-session").assertDoesNotExist()
+            capture("home-tab-hosts")
+
+            // A swipe right goes back to the sessions, and Back on the hosts tab does too.
+            compose.onNodeWithTag("home-pager").performTouchInput { swipeRight() }
+            compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("home-tab-sessions") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("home-session-${session.id}").assertIsDisplayed()
+            compose.onNodeWithTag("home-pager").performTouchInput { swipeLeft() }
+            compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("home-tab-hosts") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            Espresso.pressBack()
+            compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("home-tab-sessions") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("home-session-${session.id}").assertIsDisplayed()
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id); service.forget(session.id) }
             app.database.hosts().delete(host.id)

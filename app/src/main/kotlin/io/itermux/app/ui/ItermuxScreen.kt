@@ -14,8 +14,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -118,6 +119,11 @@ fun ItermuxScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val hostGridState = rememberLazyGridState()
+    /** The home page's tabs: sessions first, then hosts. */
+    val homePager = rememberPagerState { 2 }
+    BackHandler(page == "hosts" && homePager.currentPage != 0 && !searchExpanded && !drawerState.isOpen) {
+        scope.launch { homePager.animateScrollToPage(0) }
+    }
     LaunchedEffect(landscape) {
         hostGridState.scrollToItem(hostGridState.firstVisibleItemIndex)
     }
@@ -282,7 +288,7 @@ fun ItermuxScreen(
         ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files" && page != "host",
             drawerContent = {
                 ItermuxDrawer(page, hosts.size, sessionsByActivity,
-                    onHosts = { page = "hosts"; scope.launch { drawerState.close() } },
+                    onHosts = { page = "hosts"; homePager.requestScrollToPage(1); scope.launch { drawerState.close() } },
                     onOpenSession = { selected = it; page = "terminal"; scope.launch { drawerState.close() } },
                     onSettings = {
                         if (page != "settings") settingsReturnPage = page
@@ -302,16 +308,21 @@ fun ItermuxScreen(
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).windowInsetsPadding(imeInsets)) {
                 if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files" && page != "host") AppToolbar(
                     navigation = {
-                        ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo")) {
-                            focusManager.clearFocus(force = true)
-                            keyboardController?.hide()
-                            scope.launch { drawerState.open() }
+                        // As wide as the actions on the right, so the home tabs sit in the middle of the screen.
+                        Box(Modifier.width(if (navigationVisible) 96.dp else 48.dp)) {
+                            ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo")) {
+                                focusManager.clearFocus(force = true)
+                                keyboardController?.hide()
+                                scope.launch { drawerState.open() }
+                            }
                         }
                     },
                     actions = {
                         if (navigationVisible) {
-                            // The sessions and hosts titles, each with its add button, lead their sections in the list.
-                            Spacer(Modifier.weight(1f))
+                            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                HomeTabs(listOf(tr("会话"), tr("主机")), homePager.currentPage,
+                                    onSelect = { scope.launch { homePager.animateScrollToPage(it) } })
+                            }
                             AppSearchToggle(searchExpanded, onToggle = {
                                 if (searchExpanded) {
                                     search = ""
@@ -319,67 +330,70 @@ fun ItermuxScreen(
                                     keyboardController?.hide()
                                 }
                                 searchExpanded = !searchExpanded
-                            }, searchDescription = tr("搜索主机"),
+                            }, searchDescription = tr(if (homePager.currentPage == 0) "搜索会话" else "搜索主机"),
                                 modifier = Modifier.testTag("search-toggle"))
+                            // The + adds to the tab in view: a session on a host, or a host.
+                            if (homePager.currentPage == 0 && hosts.isNotEmpty())
+                                ToolbarIcon(R.drawable.ic_add, tr("新建会话"), Modifier.testTag("add-session")) { newSessionOpen = true }
+                            else ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
+                                editHostId = null; editorOpen = true
+                            }
                         } else {
                             // Settings is a drawer destination: closing returns to the page it was opened from.
                             Spacer(Modifier.weight(1f))
                             ToolbarIcon(R.drawable.ic_close, tr("关闭设置"), Modifier.testTag("close-settings")) { page = settingsReturnPage }
                         }
                     })
-                // Landscape phones have little height: the toolbar names the page instead.
-                val largeTitle = !landscape && !imeVisible
                 if (page == "hosts") {
                     Column(Modifier.fillMaxSize()) {
-                        if (largeTitle && search.isNotBlank()) LargeTitle(tr("搜索结果"))
                         if (searchExpanded) {
-                            AppSearchField(search, { search = it }, tr("名称、地址或用户名"),
+                            AppSearchField(search, { search = it },
+                                tr(if (homePager.currentPage == 0) "标题、主机、地址或用户名" else "名称、地址或用户名"),
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(bottom = Spacing.Tight)
                                     .focusRequester(searchFocus).testTag("host-search"))
                         }
-                        val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
                         // A live connection already proves the host is up, whatever the last probe said. Sessions keep
                         // the endpoint they were opened with, so one still on an edited host's old address does not count.
                         val connectedEndpoints = sessions.filter { (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
                             .map { Triple(it.host.id, it.host.address, it.host.port) }.toSet()
                         ProbeHostReachability(hostReachability, hosts,
                             connected = hosts.filter { Triple(it.id, it.address, it.port) in connectedEndpoints }.map { it.id }.toSet())
-                        val hostsTitle = @Composable { modifier: Modifier ->
-                            HomeSectionTitle(tr("主机"), R.drawable.ic_hosts, MaterialTheme.typography.titleLarge,
-                                modifier.testTag("hosts-title")) {
-                                ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
-                                    editHostId = null; editorOpen = true
-                                }
-                            }
-                        }
-                        if (filtered.isEmpty()) {
-                            // With no host there is nothing to start a session on, so first run shows the hosts title alone.
-                            if (hosts.isEmpty()) hostsTitle(Modifier.padding(start = Spacing.Page, end = Spacing.Page, top = Spacing.Tight))
-                            if (hosts.isEmpty()) EmptyState(tr("从第一台主机开始"), tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
-                                Modifier.weight(1f),
+                        val firstHost = @Composable { modifier: Modifier ->
+                            EmptyState(tr("从第一台主机开始"), tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
+                                modifier,
                                 artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
                                 action = { Button(onClick = { editHostId = null; editorOpen = true }) { Text(tr("添加主机")) } })
-                            else EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.weight(1f))
-                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle && search.isNotBlank()) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
-                            // Sessions lead the home page, above the hosts; a search shows matching hosts alone.
-                            if (search.isBlank()) {
-                                val fullWidth: LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
-                                item(key = "sessions-title", span = fullWidth) {
-                                    HomeSectionTitle(tr("会话"), R.drawable.ic_sessions, MaterialTheme.typography.titleLarge,
-                                        Modifier.testTag("sessions-title")) {
-                                        ToolbarIcon(R.drawable.ic_add, tr("新建会话"), Modifier.testTag("add-session")) { newSessionOpen = true }
+                        }
+                        HorizontalPager(homePager, Modifier.weight(1f).testTag("home-pager"), key = { HOME_TAB_TAGS[it] }) { tab ->
+                            if (tab == 0) {
+                                val matching = sessionsByActivity.filter {
+                                    "${it.displayTitle} ${it.host.name} ${it.host.address} ${it.host.username}".contains(search, true)
+                                }
+                                when {
+                                    hosts.isEmpty() && sessionsByActivity.isEmpty() -> firstHost(Modifier.fillMaxSize())
+                                    sessionsByActivity.isEmpty() -> EmptyState(tr("暂无会话"), tr("选择主机，打开终端或 AI 助手。"),
+                                        Modifier.fillMaxSize().testTag("home-sessions-empty"),
+                                        action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
+                                    matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
+                                    else -> LazyColumn(Modifier.fillMaxSize().testTag("home-sessions-list"),
+                                        contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = Spacing.Tight, bottom = Spacing.Page)) {
+                                        item(key = "sessions") {
+                                            HomeSessionsList(matching, onOpen = { selected = it.id; page = "terminal" },
+                                                onClose = { service?.close(it.id) }, onForget = ::forgetSession)
+                                        }
                                     }
                                 }
-                                item(key = "sessions", span = fullWidth) {
-                                    HomeSessionsList(sessionsByActivity, onOpen = { selected = it.id; page = "terminal" },
-                                        onClose = { service?.close(it.id) }, onForget = ::forgetSession)
+                            } else {
+                                val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
+                                if (hosts.isEmpty()) firstHost(Modifier.fillMaxSize())
+                                else if (filtered.isEmpty()) EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.fillMaxSize())
+                                else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.fillMaxSize().testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = Spacing.Tight, bottom = Spacing.Page)) {
+                                    items(filtered, key = { it.id }) { host -> HostCard(host, { detailHostId = host.id; page = "host" }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
+                                        hostReachability.statusOf(host).let { probed ->
+                                            if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
+                                        }, openTerminal = { launchRequest = host to false }, launchAgent = { launchRequest = host to true }) }
                                 }
-                                item(key = "hosts-title", span = fullWidth) { hostsTitle(Modifier.padding(top = Spacing.Tight)) }
                             }
-                            items(filtered, key = { it.id }) { host -> HostCard(host, { detailHostId = host.id; page = "host" }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
-                                hostReachability.statusOf(host).let { probed ->
-                                    if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
-                                }, openTerminal = { launchRequest = host to false }, launchAgent = { launchRequest = host to true }) }
                         }
                     }
                 } else if (page == "host") {

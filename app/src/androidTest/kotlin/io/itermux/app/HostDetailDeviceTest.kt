@@ -49,6 +49,7 @@ class HostDetailDeviceTest {
         app.database.hosts().save(Host(id = id, name = "Fixture box", address = "127.0.0.1", port = 22228, username = "itermux_test",
             mode = "SHELL", encryptedPassword = app.vault.encrypt(password.toByteArray(), "$id:password")))
         try {
+            compose.onNodeWithTag("home-tab-hosts").performClick()
             compose.waitUntil(8000) { compose.onAllNodesWithTag("host-card-$id").fetchSemanticsNodes().isNotEmpty() }
             fun trustIfAsked() {
                 if (compose.onAllNodesWithText("信任并连接").fetchSemanticsNodes().isNotEmpty()) compose.onNodeWithText("信任并连接").performClick()

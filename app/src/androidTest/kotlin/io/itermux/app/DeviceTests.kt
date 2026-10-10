@@ -528,6 +528,7 @@ class TerminalUiTest {
         }.forEach { app.database.hosts().delete(it.id) }
         val label = "UI 测试 ${UUID.randomUUID().toString().take(6)}"
         compose.onNodeWithTag("host-search").assertDoesNotExist()
+        compose.onNodeWithTag("home-tab-hosts").performClick()
         capture("hosts-compact")
         compose.onNodeWithTag("add-host").performClick()
         compose.onNodeWithText("名称").performTextInput(label)
@@ -542,7 +543,7 @@ class TerminalUiTest {
         capture("hosts-search")
         compose.onNodeWithTag("search-toggle").performClick()
         compose.onNodeWithTag("host-search").assertDoesNotExist()
-        compose.onNodeWithText("主机列表").assertIsDisplayed()
+        compose.onNodeWithTag("home-tab-hosts").assertIsDisplayed().assertIsSelected()
         compose.activity.runOnUiThread { (compose.activity.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0) }
         compose.waitForIdle()
         capture("hosts")
