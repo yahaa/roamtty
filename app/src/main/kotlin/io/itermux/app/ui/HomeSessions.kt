@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.itermux.app.R
@@ -26,8 +27,10 @@ import io.itermux.app.data.Host
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.TerminalConnection
+import io.itermux.app.session.sessionListPath
 import io.itermux.app.session.sessionListTitle
 import io.itermux.app.tr
+import io.itermux.app.trf
 import io.itermux.ssh.Phase
 
 /**
@@ -86,7 +89,7 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
 }
 
 /**
- * One session: the agent's mark (or the host's system), what it works on, and its status, with close in its
+ * One session: the agent's mark (or the host's system), what it works on, its status and where it runs, with close in its
  * menu. The title is the agent's task, else its folder; see [sessionListTitle].
  */
 @Composable
@@ -101,8 +104,9 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
     val shown = sessionListTitle(title, agent.takeIf { connected }, kind, session.host.username)
-    // The host leads the title ("dev.roamtty"); the default title already names it. The agent's mark tells the agent.
-    val heading = if (shown.isBlank()) session.defaultTitle else "${session.host.name}.$shown"
+    // Where it runs, under the title on the right: the host, and the agent's whole folder unless that is the title.
+    val path = sessionListPath(agent.takeIf { connected }, session.host.username)
+    val location = listOf(session.host.name, path).filter { it.isNotEmpty() && it != shown }.distinct().joinToString(" · ")
     Row(Modifier.fillMaxWidth().clickable(onClickLabel = tr("打开终端"), role = Role.Button, onClick = onClick)
         .heightIn(min = 56.dp).padding(start = Spacing.Row, end = 0.dp, top = 10.dp, bottom = 10.dp).testTag("$tagPrefix-${session.id}"),
         verticalAlignment = Alignment.CenterVertically) {
@@ -112,15 +116,19 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
         Spacer(Modifier.width(Spacing.Row))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(heading, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"), style = MaterialTheme.typography.bodyLarge,
+                Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"), style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 SessionMenu(session, state.active, tagPrefix,
                     onClose = { forget -> if (forget) confirmForget = true else confirmClose = true })
             }
             // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
             val status = agent
-            if (status != null && connected) AgentStatusLine(status, Modifier.padding(end = Spacing.Row))
-            else StatusLabel(state.phase, Modifier.padding(end = Spacing.Row))
+            Row(Modifier.padding(end = Spacing.Row), verticalAlignment = Alignment.CenterVertically) {
+                if (status != null && connected) AgentStatusLine(status) else StatusLabel(state.phase)
+                Text(location, Modifier.weight(1f).padding(start = Spacing.Tight).testTag("$tagPrefix-location-${session.id}"),
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+            }
         }
     }
     if (confirmClose) SessionCloseDialog(session, { confirmClose = false }, onClose)

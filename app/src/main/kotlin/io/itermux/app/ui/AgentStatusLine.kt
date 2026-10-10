@@ -60,8 +60,8 @@ internal fun AgentIcon(agent: CodingAgent, size: Dp, state: AgentStatus.State? =
 }
 
 /**
- * What an agent in the session is doing: its state and how long that has lasted, and the tool behind it. The task
- * it was given is the session's title, so it is not repeated here.
+ * What an agent in the session is doing: its state and how long that has lasted. The task it was given is the
+ * session's title, so it is not repeated here.
  */
 @Composable
 internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier) {
@@ -75,11 +75,6 @@ internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier)
     val ticks by produceState(0L, status) { while (true) { value += 1; delay(10_000) } }
     // The status arrives with the time the state has lasted; the clock below only moves it on between polls.
     val elapsed = status.elapsedMillis + ticks * 10_000
-    val what = when (status.state) {
-        AgentStatus.State.IDLE -> ""
-        AgentStatus.State.WORKING -> listOf(status.tool, status.detail).filter { it.isNotEmpty() }.joinToString(": ")
-        AgentStatus.State.WAITING -> status.detail.ifEmpty { status.tool }
-    }
     Row(modifier.testTag("agent-status"), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(6.dp))
@@ -87,8 +82,6 @@ internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier)
             maxLines = 1, softWrap = false)
         Text(" · ${duration(elapsed / 1000)}", style = MaterialTheme.typography.labelMedium,
             color = colors.onSurfaceVariant, maxLines = 1, softWrap = false)
-        if (what.isNotEmpty()) Text(" · $what", style = MaterialTheme.typography.labelMedium,
-            color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

@@ -133,6 +133,7 @@ private object EnglishText {
         "取消全部" to "Cancel all",
         "终端选区" to "Terminal selection",
         "%s · 会话 %d" to "%s · Session %d",
+        "会话 %d" to "Session %d",
         "选择接收图片的主机和会话。" to "Choose the host and session to receive your images.",
         "复制路径" to "Copy path",
         "文件操作" to "File actions",
