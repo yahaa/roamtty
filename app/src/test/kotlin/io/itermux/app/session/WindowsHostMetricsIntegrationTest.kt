@@ -30,9 +30,9 @@ class WindowsHostMetricsIntegrationTest {
                 // Exercise first-login detection on a host that does not have /bin/sh.
                 val reader = HostMetricsReader(remote)
                 repeat(2) {
-                    val sample = reader.read()
-                    assertNotNull("Native Windows returned no sample", sample)
-                    samples += sample!!
+                    val reading = reader.read()
+                    assertTrue("Native Windows returned no sample: $reading", reading is MetricsReading.Sample)
+                    samples += (reading as MetricsReading.Sample).metrics
                     delay(1000)
                 }
             } }
