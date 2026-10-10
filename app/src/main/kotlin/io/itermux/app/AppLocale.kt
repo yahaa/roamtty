@@ -390,6 +390,8 @@ private object EnglishText {
         "标题、主机、地址或用户名" to "Title, host, address, or username",
         "暂无会话" to "No sessions yet",
         "新建会话" to "New session",
+        "会话 · %d" to "Sessions · %d",
+        "主机 · %d" to "Hosts · %d",
         "选择主机，打开终端或 AI 助手。" to "Pick a host, then open a terminal or an AI agent.",
         "填写主机信息，打开终端或 AI 助手。" to "Fill in a host, then open a terminal or an AI agent.",
         "选择已有主机，或填写新主机。" to "Pick a saved host, or fill in a new one.",

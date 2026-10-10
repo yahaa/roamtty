@@ -23,6 +23,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 
 /** The home page opens on its sessions tab; the toolbar's 会话/主机 tabs, a swipe or Back move between the two. */
@@ -64,9 +65,13 @@ class HomePageTest {
             compose.onNodeWithTag("host-card-${host.id}").assertDoesNotExist()
             capture("home-tab-sessions")
 
+            // Search is the toolbar's last button, flush right; the + sits at the list's top right, beneath it.
+            val searchToggle = compose.onNodeWithTag("search-toggle").assertIsDisplayed().getUnclippedBoundsInRoot()
+            assertTrue("search flush right: ${searchToggle.right} of ${root.right}", root.right - searchToggle.right < 8.dp)
             // The + starts a session on a picked host.
             val add = compose.onNodeWithTag("add-session").assertIsDisplayed().getUnclippedBoundsInRoot()
-            assertTrue("add button on the right", add.left > hostsTab.right)
+            assertTrue("add at the list's right", abs((add.right - searchToggle.right).value) < 1f)
+            assertTrue("add below the toolbar", add.top >= searchToggle.bottom)
             compose.onNodeWithTag("add-session").performClick()
             compose.onNodeWithTag("new-session-sheet").performScrollToNode(hasTestTag("new-session-host-${host.id}"))
             compose.onNodeWithTag("new-session-terminal-${host.id}").performClick()
@@ -81,8 +86,8 @@ class HomePageTest {
             compose.onNodeWithTag("home-tab-hosts").assertIsSelected()
             compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${host.id}"))
             compose.onNodeWithTag("host-card-${host.id}").assertIsDisplayed()
-            compose.onNodeWithTag("add-host").assertIsDisplayed()
-            compose.onNodeWithTag("add-session").assertDoesNotExist()
+            val addHost = compose.onNodeWithTag("add-host").assertIsDisplayed().getUnclippedBoundsInRoot()
+            assertTrue("add host at the list's right", abs((addHost.right - searchToggle.right).value) < 1f)
             capture("home-tab-hosts")
 
             // A swipe right goes back to the sessions, and Back on the hosts tab does too.

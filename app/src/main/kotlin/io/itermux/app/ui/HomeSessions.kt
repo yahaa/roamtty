@@ -54,6 +54,17 @@ internal fun HomeTabs(titles: List<String>, selected: Int, onSelect: (Int) -> Un
 /** Test tags of the home tabs, in page order. */
 internal val HOME_TAB_TAGS = listOf("home-tab-sessions", "home-tab-hosts")
 
+/** The line above a home list: how many it holds on the left, the + that adds one on the right. */
+@Composable
+internal fun HomeListHeader(label: String, addDescription: String, addTag: String, onAdd: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = Spacing.Page, end = Spacing.Page - 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        ToolbarIcon(R.drawable.ic_add, addDescription, Modifier.testTag(addTag), onClick = onAdd)
+    }
+}
+
 /** Every session the app holds, most active first; a tap opens its terminal. */
 @Composable
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
