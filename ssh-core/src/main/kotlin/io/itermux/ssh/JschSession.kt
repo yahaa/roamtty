@@ -420,6 +420,8 @@ class JschSession(
         override suspend fun probePlugins(): Set<HostPlugin>? = probePlugins(ssh)
         override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int? =
             execute(ssh, HostPluginProbe.command, script, timeoutMs, onLine = onLine)?.first
+        override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int? =
+            execute(ssh, command, null, timeoutMs, onLine = onLine)?.first
     }
 
     /**

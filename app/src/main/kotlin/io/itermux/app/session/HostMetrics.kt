@@ -45,6 +45,13 @@ data class HostMetrics(
     val memPercent: Double? get() = memUsedBytes?.let { used -> memTotalBytes?.takeIf { it > 0 }?.let { 100.0 * used / it } }
     val swapUsedBytes: Long? get() = if (swapTotalBytes != null && swapFreeBytes != null) (swapTotalBytes - swapFreeBytes).coerceAtLeast(0) else null
 
+    fun networkRateSince(previous: HostMetrics, seconds: Double): Pair<Double, Double>? {
+        val rx = netRxBytes ?: return null; val tx = netTxBytes ?: return null
+        val lastRx = previous.netRxBytes ?: return null; val lastTx = previous.netTxBytes ?: return null
+        if (seconds <= 0 || rx < lastRx || tx < lastTx) return null
+        return (rx - lastRx) / seconds to (tx - lastTx) / seconds
+    }
+
     companion object {
         /** POSIX sh for Linux (/proc) and macOS (sysctl); each line is key=value, missing tools print nothing. */
         val script = """
@@ -127,6 +134,8 @@ data class HostMetrics(
             }
             fun one(key: String) = values[key]?.firstOrNull()?.takeIf { it.isNotEmpty() }
             fun number(key: String) = one(key)?.toLongOrNull()
+            val windows = one("platform") == "windows"
+            fun processName(path: String) = (if (windows) path.replace('\\', '/') else path).trimEnd('/').substringAfterLast('/')
             val load = one("load")?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }.orEmpty()
             val net = one("net")?.split(' ')?.mapNotNull { it.toLongOrNull() }
             val nvidia = values["gpu"].orEmpty().mapNotNull(::nvidiaGpu)
@@ -138,7 +147,9 @@ data class HostMetrics(
                 arch = one("arch"),
                 cpuModel = one("model")?.replace(Regex("\\s+"), " "),
                 cpus = number("cpus")?.toInt()?.takeIf { it > 0 },
-                cpuPercent = cpuPercent(one("cpu1"), one("cpu2")) ?: one("idle")?.toDoubleOrNull()?.let { (100 - it).coerceIn(0.0, 100.0) },
+                cpuPercent = cpuPercent(one("cpu1"), one("cpu2")) ?:
+                    one("cpu")?.toDoubleOrNull()?.takeIf { it in 0.0..100.0 } ?:
+                    one("idle")?.toDoubleOrNull()?.let { (100 - it).coerceIn(0.0, 100.0) },
                 load = load.take(3).mapNotNull { it.toDoubleOrNull() },
                 tasks = load.getOrNull(3)?.takeIf { '/' in it },
                 uptimeSeconds = one("uptime")?.toDoubleOrNull()?.toLong(),
@@ -158,7 +169,7 @@ data class HostMetrics(
                     val parts = row.trim().split(Regex("\\s+"), limit = 3)
                     val cpu = parts.getOrNull(0)?.toDoubleOrNull()
                     val mem = parts.getOrNull(1)?.toDoubleOrNull()
-                    val name = parts.getOrNull(2)?.trimEnd('/')?.substringAfterLast('/')
+                    val name = parts.getOrNull(2)?.let(::processName)
                     if (cpu != null && mem != null && !name.isNullOrEmpty()) Process(name, cpu, mem) else null
                 },
                 gpus = (values["amdgpu"].orEmpty().mapNotNull { amdGpu(0, it) } +
@@ -168,7 +179,7 @@ data class HostMetrics(
                 gpuProcesses = values["gpuproc"].orEmpty().mapNotNull { row ->
                     val parts = row.split(',').map { it.trim() }
                     val pid = parts.firstOrNull()?.toLongOrNull()
-                    val name = parts.drop(1).dropLast(1).joinToString(", ").trimEnd('/').substringAfterLast('/')
+                    val name = processName(parts.drop(1).dropLast(1).joinToString(", "))
                     if (parts.size >= 3 && pid != null && name.isNotEmpty()) GpuProcess(pid, name, mib(parts.last())) else null
                 }.sortedByDescending { it.memBytes ?: -1 },
             )

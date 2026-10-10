@@ -158,4 +158,6 @@ interface RemoteHost {
     suspend fun probePlugins(): Set<HostPlugin>?
     /** Runs a POSIX shell script; returns its exit status, or null on timeout or a lost connection. */
     suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int?
+    /** Runs a command through the server's configured shell, without requiring a POSIX shell. */
+    suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int?
 }

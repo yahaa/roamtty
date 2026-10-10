@@ -7,6 +7,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StartDirectoryTest {
+    @Test fun windowsDriveRootsAndBreadcrumbsStayAbsolute() {
+        assertEquals("C:/", StartDirectory.normalize("C:\\"))
+        assertEquals("C:/", StartDirectory.normalize("C:/"))
+        assertEquals(listOf("C:" to "C:/", "Users" to "C:/Users", "测试" to "C:/Users/测试"),
+            StartDirectory.segments("C:\\Users\\测试"))
+    }
+
+    @Test fun nativeWindowsLaunchUsesAnEncodedLiteralPath() {
+        val command = StartDirectory.command("C:\\Users\\it's 中文 \$(whoami) %TEMP% [work]")!!
+        assertTrue("Windows launch must work from CMD and PowerShell", command.startsWith("powershell.exe "))
+        val script = String(java.util.Base64.getDecoder().decode(command.substringAfter("-EncodedCommand ")), Charsets.UTF_16LE)
+        assertTrue(script.contains("Set-Location -LiteralPath"))
+    }
+
+    @Test fun unixDriveLikeNamesKeepTheirLiteralBackslashes() {
+        assertEquals("/C:/a\\b", StartDirectory.normalize("/C:/a\\b"))
+        assertEquals("cd -- '/C:/a\\b'", StartDirectory.command("/C:/a\\b"))
+    }
+
+
     @Test fun homeNeedsNoCommand() {
         listOf("", "  ", "~", "~/", " ~ ").forEach { assertNull(it, StartDirectory.command(it)) }
     }

@@ -39,6 +39,7 @@ private object EnglishText {
         "安装插件" to "Install plugins",
         "正在检测已安装的插件…" to "Checking installed plugins…",
         "正在连接主机…" to "Connecting to host…",
+        "无法读取监控数据，请检查远端系统查询权限后重试。" to "Couldn't read monitoring data. Check remote system query permissions and try again.",
         "正在重连…" to "Reconnecting…",
         "重新连接" to "Reconnect",
         "无法检测插件。目前支持 Linux、macOS、BSD，以及使用 MSYS2 或 Cygwin shell 的 Windows 主机。" to "Plugins can't be detected. Linux, macOS, BSD and Windows hosts with an MSYS2 or Cygwin shell are supported.",

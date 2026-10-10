@@ -87,7 +87,8 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     var listing by remember { mutableStateOf<Pair<String, RemoteFolders>?>(null) }
     var loading by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
-    LaunchedEffect(current, ready) {
+    var retry by remember { mutableIntStateOf(0) }
+    LaunchedEffect(current, ready, retry) {
         failed = false
         if (!ready || browser == null) return@LaunchedEffect
         loading = true
@@ -111,7 +112,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
 
     fun launch() {
         if (!StartDirectory.isSupported(current)) return
-        val dir = StartDirectory.normalize(current)
+        val dir = StartDirectory.normalize(shown?.takeUnless { stale }?.startDirectory(current) ?: current)
         preferences.saveRecentStartDirectories(host.id, StartDirectory.remember(recent, dir))
         if (forAgent) preferences.saveAgentChoice(agent, mode)
         onLaunch(dir, if (forAgent) AgentLaunch(agent, dir, mode) else null)
@@ -141,7 +142,10 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
                             connection != null && !connection.active && !ready -> CenterNote(
                                 connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
                                 tr("重新连接")) { browser.start() }
-                            failed -> CenterNote(tr("无法打开这个文件夹"), tr("回到主目录")) { current = StartDirectory.HOME }
+                            failed -> CenterNote(tr("无法打开这个文件夹"), tr(if (StartDirectory.isHome(current)) "重试" else "回到主目录")) {
+                                current = StartDirectory.HOME
+                                retry++
+                            }
                             shown == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                             }
@@ -154,7 +158,9 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
             if (forAgent) AgentChooser(agent, mode, { agent = it }, { mode = it })
             val buttonColor by animateColorAsState(if (yolo) colors.error else colors.primary, label = "launch-button")
             val name = folderName(current)
-            Button(onClick = ::launch, enabled = !failed && !unsupported,
+            // Home always opens; other folders wait for their listing (native Windows resolves `~/x` from it), unless there is no login to list with.
+            Button(onClick = ::launch, enabled = !unsupported &&
+                (StartDirectory.isHome(current) || browser == null || (ready && !failed && !loading && !stale)),
                 colors = ButtonDefaults.buttonColors(containerColor = buttonColor,
                     contentColor = if (yolo) colors.onError else colors.onPrimary),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row)
