@@ -139,6 +139,10 @@ fun ItermuxScreen(
     var launchRequest by remember { mutableStateOf<Pair<Host, Boolean>?>(null) }
     /** The home page's "new session" sheet, which picks the host before the launch sheet. */
     var newSessionOpen by rememberSaveable { mutableStateOf(false) }
+    /** Set while the host editor fills in a new host for a new session: whether that session starts an AI agent. */
+    var newHostForAgent by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    /** A host just saved for a new session, waiting for the host list to carry it: its id, and whether it starts an agent. */
+    var savedForSession by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var connectRequest by remember { mutableStateOf<ConnectRequest?>(null) }
     /** Session id → when it last reconnected by itself on open; see [AUTO_RECONNECT_INTERVAL_MS]. */
     val autoReconnectedAt = remember { mutableMapOf<String, Long>() }
@@ -333,7 +337,7 @@ fun ItermuxScreen(
                             }, searchDescription = tr(if (homePager.currentPage == 0) "搜索会话" else "搜索主机"),
                                 modifier = Modifier.testTag("search-toggle"))
                             // The + adds to the tab in view: a session on a host, or a host.
-                            if (homePager.currentPage == 0 && hosts.isNotEmpty())
+                            if (homePager.currentPage == 0)
                                 ToolbarIcon(R.drawable.ic_add, tr("新建会话"), Modifier.testTag("add-session")) { newSessionOpen = true }
                             else ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
                                 editHostId = null; editorOpen = true
@@ -370,7 +374,12 @@ fun ItermuxScreen(
                                     "${it.displayTitle} ${it.host.name} ${it.host.address} ${it.host.username}".contains(search, true)
                                 }
                                 when {
-                                    hosts.isEmpty() && sessionsByActivity.isEmpty() -> firstHost(Modifier.fillMaxSize())
+                                    // No host is needed first: the new-session sheet fills one in on the way.
+                                    hosts.isEmpty() && sessionsByActivity.isEmpty() -> EmptyState(tr("从第一个会话开始"),
+                                        tr("填写远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
+                                        Modifier.fillMaxSize().testTag("home-sessions-empty"),
+                                        artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
+                                        action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
                                     sessionsByActivity.isEmpty() -> EmptyState(tr("暂无会话"), tr("选择主机，打开终端或 AI 助手。"),
                                         Modifier.fillMaxSize().testTag("home-sessions-empty"),
                                         action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
@@ -478,7 +487,17 @@ fun ItermuxScreen(
                 onDismiss = { editorOpen = false; editHostId = null },
                 onSaved = { editorOpen = false; editHostId = null })
         }
-        if (newSessionOpen) NewSessionSheet(hosts, onDismiss = { newSessionOpen = false }) { host, forAgent ->
+        newHostForAgent?.let { forAgent ->
+            HostEditor(app, null, forSession = true, onDismiss = { newHostForAgent = null },
+                onSaved = { id -> newHostForAgent = null; savedForSession = id to forAgent })
+        }
+        savedForSession?.let { (id, forAgent) ->
+            LaunchedEffect(hosts, id) {
+                hosts.firstOrNull { it.id == id }?.let { savedForSession = null; launchRequest = it to forAgent }
+            }
+        }
+        if (newSessionOpen) NewSessionSheet(hosts, onDismiss = { newSessionOpen = false },
+            onNewHost = { newSessionOpen = false; newHostForAgent = it }) { host, forAgent ->
             newSessionOpen = false
             launchRequest = host to forAgent
         }

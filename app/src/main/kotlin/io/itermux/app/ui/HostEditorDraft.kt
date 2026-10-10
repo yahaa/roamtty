@@ -60,13 +60,14 @@ internal class HostEditorDraft : ViewModel() {
         savingJob = viewModelScope.launch {
             var credentials: Credentials? = null
             try {
-                require(name.value.trim().isNotEmpty() && name.value.length <= 80) { tr("名称需为 1–80 个字符") }
+                // A blank name falls back to the address, so a host filled in for a new session needs no name.
+                val hostName = name.value.trim().ifEmpty { address.value.trim() }
+                require(hostName.isNotEmpty() && hostName.length <= 80) { tr("名称需为 1–80 个字符") }
                 val target = Target(address.value.trim(), port.value.toIntOrNull() ?: 0, username.value.trim(),
                     AuthMethod.valueOf(auth.value), SessionMode.valueOf(mode.value))
                 require(auth.value != "KEY" || imported.value != null || original?.encryptedKey != null) { tr("请先导入私钥") }
                 require(!savePassword.value || auth.value != "PASSWORD" || password.value.isNotEmpty() || original?.encryptedPassword != null) { tr("请输入要保存的密码") }
                 val sameTarget = original?.let { it.address == target.address && it.port == target.port && it.username == target.username } == true
-                val hostName = name.value.trim()
                 val label = keyLabel.value.takeIf { auth.value == "KEY" }
                 val keepPassword = savePassword.value
                 val secret = password.value.toByteArray()

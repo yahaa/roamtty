@@ -38,7 +38,9 @@ import kotlinx.coroutines.*
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved: () -> Unit) {
+/** Adds or edits a host. With [forSession], it fills in a new host on the way to a new session, then hands over its id. */
+fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved: (hostId: String) -> Unit,
+    forSession: Boolean = false) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
@@ -65,7 +67,7 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
     var busy by draft.busy
     val detecting by draft.detecting
     val saved by draft.saved
-    LaunchedEffect(saved) { if (saved) { draft.close(); onSaved() } }
+    LaunchedEffect(saved) { if (saved) { val id = draft.id; draft.close(); onSaved(id) } }
     val keyPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             busy = true
@@ -167,11 +169,11 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                 // Modal form bar: cancel and save stay on opposite edges, the title is centered.
                 Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), contentAlignment = Alignment.Center) {
                     TextButton(onClick = { draft.close(); onDismiss() }, enabled = !busy, modifier = Modifier.align(Alignment.CenterStart)) { Text(tr("取消")) }
-                    Text(if (original == null) tr("添加主机") else tr("编辑主机"), style = MaterialTheme.typography.titleMedium,
+                    Text(if (forSession) tr("新建会话") else if (original == null) tr("添加主机") else tr("编辑主机"), style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(horizontal = 96.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     TextButton(enabled = !busy, modifier = Modifier.align(Alignment.CenterEnd).testTag("save-host"),
                         onClick = { focusManager.clearFocus(); keyboard?.hide(); draft.save(app, original) }) {
-                        Text(if (busy) tr("处理中") else tr("保存"), fontWeight = FontWeight.SemiBold)
+                        Text(if (busy) tr("处理中") else if (forSession) tr("下一步") else tr("保存"), fontWeight = FontWeight.SemiBold)
                     }
                 }
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
