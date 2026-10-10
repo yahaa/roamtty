@@ -72,8 +72,10 @@ internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier)
         AgentStatus.State.WAITING -> tr("等待确认")
         AgentStatus.State.IDLE -> tr("空闲")
     }
-    val ticks by produceState(0L, status) { while (true) { value += 1; delay(10_000) } }
-    // The status arrives with the time the state has lasted; the clock below only moves it on between polls.
+    // The status arrives with the time the state has lasted; the clock below only moves it on between polls, starting
+    // over with each status (produceState would keep its count across them).
+    var ticks by remember(status) { mutableLongStateOf(0L) }
+    LaunchedEffect(status) { while (true) { delay(10_000); ticks += 1 } }
     val elapsed = status.elapsedMillis + ticks * 10_000
     Row(modifier.testTag("agent-status"), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))

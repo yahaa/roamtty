@@ -23,12 +23,17 @@ class AgentLaunchTest {
         assertEquals(AgentMode.READ_ONLY, AgentMode.from("READ_ONLY"))
     }
     @Test fun directoryIsQuotedForTheShell() {
-        assertEquals("cd -- '/srv/it'\\''s $(x) dir' && codex",
+        assertEquals("cd -- '/srv/it'\\''s $(x) dir' && ~/.roamtty/codex",
             AgentLaunch(CodingAgent.CODEX, "/srv/it's \$(x) dir").commandLine)
     }
     @Test fun homeFolderNeedsNoCd() {
         assertEquals("claude --settings ~/.roamtty/claude-hooks.json", AgentLaunch(CodingAgent.CLAUDE, "~").commandLine)
-        assertEquals("cd -- ~/'work/app' && grok", AgentLaunch(CodingAgent.GROK, "~/work/app").commandLine)
+        assertEquals("cd -- ~/'work/app' && ~/.roamtty/grok", AgentLaunch(CodingAgent.GROK, "~/work/app").commandLine)
+    }
+    @Test fun codexAndGrokStartThroughTheirLauncherWithTheirFlags() {
+        assertEquals("cd -- '/a' && ~/.roamtty/codex --sandbox read-only",
+            AgentLaunch(CodingAgent.CODEX, "/a", AgentMode.READ_ONLY).commandLine)
+        assertEquals("cd -- '/a' && ~/.roamtty/grok --always-approve", AgentLaunch(CodingAgent.GROK, "/a", AgentMode.YOLO).commandLine)
     }
     @Test fun titleNamesAgentAndFolder() {
         assertEquals("Grok · web", AgentLaunch(CodingAgent.GROK, "/srv/web/").title)

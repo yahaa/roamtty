@@ -194,7 +194,7 @@ fun ItermuxScreen(
                 }
                 if (request.title.isNotBlank()) session.rename(request.title)
                 request.agent?.let { session.launchedAgent.value = it }
-                request.startupCommand?.let { session.runWhenConnected(it, request.agentHooks) }
+                request.startupCommand?.let { session.runWhenConnected(it, request.agent.takeIf { request.agentHooks }) }
                 if (!open) return@launch
                 selected = session.id
                 page = if (request.openFilesAfterConnect) "files" else "terminal"

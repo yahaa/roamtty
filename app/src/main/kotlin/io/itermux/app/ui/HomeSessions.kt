@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -27,6 +28,7 @@ import io.itermux.app.data.Host
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.TerminalConnection
+import io.itermux.app.session.agentActivity
 import io.itermux.app.session.sessionListPath
 import io.itermux.app.session.sessionListTitle
 import io.itermux.app.tr
@@ -121,6 +123,12 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 SessionMenu(session, state.active, tagPrefix,
                     onClose = { forget -> if (forget) confirmForget = true else confirmClose = true })
             }
+            // What an agent is running; no line while it runs nothing.
+            val activity = agentActivity(agent.takeIf { connected })
+            if (activity.isNotEmpty()) Text(activity, Modifier.padding(end = Spacing.Row)
+                .testTag("$tagPrefix-activity-${session.id}"), style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
             // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
             val status = agent
             Row(Modifier.padding(end = Spacing.Row), verticalAlignment = Alignment.CenterVertically) {

@@ -31,8 +31,8 @@ enum class AgentMode {
 }
 
 data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: AgentMode = AgentMode.STANDARD) {
-    /** Claude Code reports its state through hooks, on hosts that run POSIX scripts. */
-    val reportsStatus: Boolean get() = agent == CodingAgent.CLAUDE && !WindowsShell.isPath(StartDirectory.normalize(directory))
+    /** Agents report their state through hooks on hosts that run POSIX scripts. */
+    val reportsStatus: Boolean get() = !WindowsShell.isPath(StartDirectory.normalize(directory))
 
     val agentCommand: String get() = when (mode) {
         AgentMode.READ_ONLY -> "${agent.command} ${agent.readOnlyFlag}"
@@ -40,8 +40,15 @@ data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: 
         AgentMode.YOLO -> "${agent.command} ${agent.yoloFlag}"
     }
 
-    /** [agentCommand] as typed: Claude Code also reads the hook settings [AgentHooks.install] puts on the host. */
-    private val typedCommand: String get() = if (reportsStatus) "$agentCommand --settings ${AgentHooks.SETTINGS_PATH}" else agentCommand
+    /**
+     * [agentCommand] as typed: with the hooks [AgentHooks.hostFile] puts on the host, which Claude Code reads from its
+     * settings and the other agents get from their launcher.
+     */
+    private val typedCommand: String get() = when {
+        !reportsStatus -> agentCommand
+        agent == CodingAgent.CLAUDE -> "$agentCommand --settings ${AgentHooks.SETTINGS_PATH}"
+        else -> AgentHooks.command(agent) + agentCommand.removePrefix(agent.command)
+    }
 
     /** Windows folders open PowerShell; keep npm's .ps1 execution policy from blocking its native .cmd shim. */
     val commandLine: String get() {

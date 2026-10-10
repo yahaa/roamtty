@@ -249,10 +249,10 @@ class TerminalConnection(
 
     private var startupJob: Job? = null
     /** Types [command] once into a ready writer; explicitly rejected input may wait for reattachment. */
-    fun runWhenConnected(command: String, withAgentHooks: Boolean = false) {
+    fun runWhenConnected(command: String, agentHooks: CodingAgent? = null) {
         startupJob?.cancel()
         startupJob = scope.launch {
-            if (withAgentHooks) installAgentHooks()
+            if (agentHooks != null) installAgentHooks(agentHooks)
             val input = "$command\r".toByteArray(Charsets.UTF_8)
             try {
                 if (!enqueueStartupCommand(ssh.state, ssh.inputEpoch, revision) { epoch -> ssh.write(input, epoch) })
@@ -261,12 +261,13 @@ class TerminalConnection(
         }
     }
 
-    /** Puts the hook script and settings on the host before an agent starts; a failure only costs the status. */
-    private suspend fun installAgentHooks() {
+    /** Puts the hook script and [agent]'s hook file on the host before it starts; a failure only costs the status. */
+    private suspend fun installAgentHooks(agent: CodingAgent) {
         ssh.state.first { !it.active || it.phase == Phase.CONNECTED }
         try {
+            val (name, content, executable) = AgentHooks.hostFile(agent)
             ssh.writeHostFile(AgentHooks.SCRIPT_PATH.substringAfterLast('/'), AgentHooks.script) &&
-                ssh.writeHostFile(AgentHooks.SETTINGS_PATH.substringAfterLast('/'), AgentHooks.claudeSettings)
+                ssh.writeHostFile(name, content, executable)
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { /* The agent still starts, without reporting. */ }
     }
