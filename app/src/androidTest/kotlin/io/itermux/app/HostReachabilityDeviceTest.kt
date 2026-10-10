@@ -33,7 +33,7 @@ class HostReachabilityDeviceTest {
         compose.waitUntil(5_000) { tracker.statusOf(host) is HostReachability.Online }
         val latency = (tracker.statusOf(host) as HostReachability.Online).latencyMs!!
         assertTrue("TCP connect time included the 700 ms greeting delay: $latency ms", latency in 0..349)
-        compose.onNodeWithTag("host-card-${host.id}").assertTextContains("在线 · DNS+TCP", substring = true)
+        compose.onNodeWithTag("host-card-${host.id}").assertTextContains("在线 ·", substring = true)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         File(context.getExternalFilesDir(null), "host-tcp-latency.png").outputStream().use {
             compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)

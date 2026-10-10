@@ -107,7 +107,7 @@ import io.itermux.ssh.TerminalTransport
     }
 }
 
-internal fun latencyLabel(ms: Long): String = if (ms < 1) "DNS+TCP <1 ms" else "DNS+TCP $ms ms"
+internal fun latencyLabel(ms: Long): String = if (ms < 1) "<1 ms" else "$ms ms"
 
 /** Whether closing [session] would only drop its record: a disconnected tmux session, still running remotely. */
 internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active && mode == SessionMode.TMUX
