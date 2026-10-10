@@ -12,11 +12,11 @@ import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Socket
 
-/** Whether a saved host's sshd answers, with the time its greeting took when it does. */
+/** Whether a saved host's sshd answers, with the DNS resolution and TCP connection time when it does. */
 internal sealed interface HostReachability {
     data object Checking : HostReachability
     data object Offline : HostReachability
-    /** [latencyMs] is null when the host is known to be up (a live session) but has not answered a probe. */
+    /** Last DNS + TCP connect time, excluding the SSH greeting; null when only a live session proves it is up. */
     data class Online(val latencyMs: Long?) : HostReachability
 }
 
@@ -25,24 +25,26 @@ private const val ONLINE_INTERVAL_MS = 60_000L
 private const val OFFLINE_FIRST_RETRY_MS = 30_000L
 private const val OFFLINE_MAX_INTERVAL_MS = 300_000L
 
-/** Times the host's SSH greeting; no SSH key exchange or login happens. */
+/** Measures DNS + TCP connection time and separately checks SSH availability; no key exchange or login happens. */
 internal suspend fun probeHost(host: Host, timeoutMs: Int = PROBE_TIMEOUT_MS): HostReachability =
     withContext(Dispatchers.IO) {
-        sshGreetingTime(host.address, host.port, timeoutMs)?.let { HostReachability.Online(it) } ?: HostReachability.Offline
+        sshTcpConnectTime(host.address, host.port, timeoutMs)?.let { HostReachability.Online(it) } ?: HostReachability.Offline
     }
 
 /**
- * Milliseconds from starting a TCP connect to [address]:[port] until the server's `SSH-` version line arrives, or
- * null if it fails within [timeoutMs]. An accepted connect alone proves nothing: a proxy or VPN app on the phone
- * (Clash-style TUN modes) accepts every TCP connect locally in a few ms, even to a machine that is switched off, so
- * only the greeting, which comes from sshd itself, counts. Name resolution happens before the clock starts.
+ * Times name resolution through successful TCP connect to [address]:[port]. This follows the socket's actual route,
+ * including Tailscale; a TCP-terminating proxy can limit the measurement to the proxy leg.
+ * After resolution, TCP connect and a valid SSH identification share the same [timeoutMs] budget:
+ * a local proxy accepting a connection for an offline host must not make it appear online. Waiting for sshd's
+ * greeting is deliberately excluded from the latency, as are key exchange and authentication.
  */
-internal fun sshGreetingTime(address: String, port: Int, timeoutMs: Int): Long? = runCatching {
+internal fun sshTcpConnectTime(address: String, port: Int, timeoutMs: Int): Long? = runCatching {
     Socket().use { socket ->
-        val target = InetSocketAddress(address, port)
         val start = System.nanoTime()
-        val deadline = start + timeoutMs * 1_000_000L
+        val target = InetSocketAddress(address, port)
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
         socket.connect(target, timeoutMs)
+        val connectMs = (System.nanoTime() - start) / 1_000_000
         val input = socket.getInputStream()
         // RFC 4253 lets a server send other lines before its version line, so skip those (bounded).
         val line = StringBuilder()
@@ -52,11 +54,13 @@ internal fun sshGreetingTime(address: String, port: Int, timeoutMs: Int): Long? 
             socket.soTimeout = remainingMs.toInt()
             when (val b = input.read()) {
                 -1 -> return@runCatching null
-                '\n'.code -> line.clear()
-                else -> {
-                    line.append(b.toChar())
-                    if (line.length == 4 && line.toString() == "SSH-") return@runCatching (System.nanoTime() - start) / 1_000_000
+                '\n'.code -> {
+                    if (line.startsWith("SSH-")) {
+                        return@runCatching connectMs.takeIf { line.length + 1 <= 255 && SSH_IDENTIFICATION.matches(line) }
+                    }
+                    line.clear()
                 }
+                else -> line.append(b.toChar())
             }
         }
         null
@@ -64,6 +68,8 @@ internal fun sshGreetingTime(address: String, port: Int, timeoutMs: Int): Long? 
 }.getOrNull()
 
 private const val MAX_GREETING_BYTES = 8_192
+// RFC 4253: printable ASCII software name without spaces or '-', optional comments, and a complete line.
+private val SSH_IDENTIFICATION = Regex("""SSH-(?:2\.0|1\.99)-[\x21-\x2C\x2E-\x7E]+(?: [^\x00\r\n]*)?\r?""")
 
 /**
  * Wait before re-probing: online hosts every minute; offline hosts back off 30s, 1m, 2m, 4m, then
