@@ -155,6 +155,31 @@ public class TerminalUrlTest {
         }
     }
 
+    @Test public void hardWrappedUrlIgnoresBlankCellsAfterItsFirstFragment() {
+        TerminalEmulator t = terminal(40, 5, "  PR: https://github.com/yahaa/\r\n  roamtty/pull/135\r\n");
+        assertNull(TerminalUrl.at(t, 35, 0));
+    }
+
+    @Test public void hardWrapFollowedByASoftWrapKeepsTheWholeUrl() {
+        String url = "https://github.com/yahaa/roamtty/pull/135/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        TerminalEmulator t = terminal(40, 6, "  PR: https://github.com/yahaa/\r\n  roamtty/pull/135/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n");
+        assertTrue(t.getScreen().getLineWrap(1));
+        for (int row = 0; row < 3; row++) assertEquals("row " + row, url, TerminalUrl.at(t, row == 0 ? 10 : 3, row));
+    }
+
+    @Test public void hardWrappedUrlJoinsWideContinuationsByCellWidth() {
+        TerminalEmulator t = terminal(20, 4, "https://x.test/a/b/c\r\n\u4e2d\u6587");
+        // Two free cells and a four-cell continuation: it would not have fitted, so it belongs to the URL.
+        assertEquals("https://x.test/a/b/c\u4e2d\u6587", TerminalUrl.at(t, 3, 0));
+    }
+
+    @Test public void overlongHardWrappedUrlNeverOpensItsFirstFragment() {
+        StringBuilder sb = new StringBuilder("see https://one.test/\r\n");
+        for (int i = 0; i < 100; i++) sb.append("  ").append("a".repeat(100)).append("\r\n");
+        TerminalEmulator t = terminal(105, 140, sb.toString());
+        assertNull(TerminalUrl.at(t, 8, 0));
+    }
+
     @Test public void urlFollowedByShortProseRowIsNotExtended() {
         TerminalEmulator t = terminal(40, 5, "see https://one.test/a\r\nnext line\r\n");
         assertEquals("https://one.test/a", TerminalUrl.at(t, 6, 0));

@@ -119,6 +119,16 @@ final class TerminalUrl {
         return text.substring(start, end);
     }
 
+    private static int cellWidth(String text) {
+        int cells = 0;
+        for (int i = 0; i < text.length();) {
+            int point = text.codePointAt(i);
+            cells += Math.max(0, WcWidth.width(point));
+            i += Character.charCount(point);
+        }
+        return cells;
+    }
+
     private static int contentLength(TerminalRow line) {
         int end = line.getSpaceUsed();
         while (end > 0 && line.mText[end - 1] == ' ') end--;
@@ -138,10 +148,11 @@ final class TerminalUrl {
 
     /** The row ends in a token that the next row's first token would not have fitted behind. */
     private static boolean continues(TerminalEmulator emulator, int y) {
-        if (y + 1 >= emulator.mRows || emulator.getScreen().getLineWrap(y) || lastToken(emulator, y) == null)
-            return false;
-        String next = firstToken(emulator, y + 1);
-        return !next.isEmpty() && !hasWebScheme(next) && freeCells(emulator, y) <= next.length();
+        if (y + 1 >= emulator.mRows || lastToken(emulator, y) == null) return false;
+        boolean soft = emulator.getScreen().getLineWrap(y);
+        String next = rowToken(emulator, y + 1, !soft, new int[2]);
+        if (next.isEmpty() || hasWebScheme(next)) return false;
+        return soft || freeCells(emulator, y) <= cellWidth(next);
     }
 
     /**
@@ -179,23 +190,24 @@ final class TerminalUrl {
         TerminalRow topLine = rowAt(emulator, top);
         int topStart = contentLength(topLine) - first.length();
         StringBuilder url = new StringBuilder(first);
-        boolean tapped = false, joined = false;
+        boolean tapped = false, hardWrapped = false;
         if (top == row) {
             int offset = topLine.findStartOfColumn(column);
-            tapped = offset >= topStart;
+            tapped = offset >= topStart && offset < contentLength(topLine);
         }
         for (int y = top; y + 1 < emulator.mRows && y - top < MAX_LINK_ROWS && continues(emulator, y); y++) {
             String next = rowToken(emulator, y + 1, !emulator.getScreen().getLineWrap(y), range);
-            joined = true;
+            if (!emulator.getScreen().getLineWrap(y)) hardWrapped = true;
             if (y + 1 == row) {
                 int offset = rowAt(emulator, row).findStartOfColumn(column);
                 if (offset >= range[0] && offset < range[1]) tapped = true;
             }
             url.append(next);
-            if (url.length() > MAX_LINK_LENGTH) return null;
+            if (url.length() > MAX_LINK_LENGTH) return tapped ? new Match(null) : null;
             if (range[1] < contentLength(rowAt(emulator, y + 1))) break;
         }
-        if (!joined || !tapped) return null;
+        // Plain terminal soft wraps are read by the ordinary matcher.
+        if (!hardWrapped || !tapped) return null;
         String result = url.toString();
         int end = trimEnd(result, 0, result.length());
         String valid = validatedUrl(result.substring(0, end));
