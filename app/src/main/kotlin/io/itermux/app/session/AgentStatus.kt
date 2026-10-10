@@ -14,6 +14,8 @@ data class AgentStatus(
     val elapsedMillis: Long,
     /** The pane's working directory; empty when tmux did not say. */
     val directory: String = "",
+    /** Seconds the last turn worked, once it stopped; null while one runs, or before the first. */
+    val workedSeconds: Long? = null,
 ) {
     enum class State { WORKING, WAITING, IDLE }
 
@@ -22,13 +24,15 @@ data class AgentStatus(
         private val shells = setOf("bash", "zsh", "fish", "dash", "ash", "ksh", "csh", "tcsh", "nu", "pwsh", "login")
 
         /**
-         * Output of the status command: `pane_command|state|since|agent|tool|detail|task`, the pane's path, then the
+         * Output of the status command: `pane_command|state|since|agent|tool|detail|worked|task` (`worked` missing in
+         * older reports), the pane's path, then the
          * host's time. The state counts only while the pane still runs a program: an agent killed before it could report
          * leaves its last state behind, but the pane is back at a shell.
          */
         fun parse(output: String?): AgentStatus? {
             val lines = output?.lines()?.filter { it.isNotBlank() } ?: return null
-            val fields = lines.firstOrNull()?.split('|', limit = 7)?.takeIf { it.size == 7 } ?: return null
+            val fields = lines.firstOrNull()?.split('|', limit = 8)?.takeIf { it.size >= 7 } ?: return null
+            val worked = if (fields.size == 8) fields[6].trim().toLongOrNull() else null
             if (fields[0].trimStart('-') in shells) return null
             val state = when (fields[1]) {
                 "working" -> State.WORKING
@@ -40,7 +44,8 @@ data class AgentStatus(
             val now = lines.drop(1).lastOrNull()?.trim()?.toLongOrNull()
             val directory = if (lines.size >= 3) lines[1].trim() else ""
             val elapsed = if (since != null && now != null) ((now - since) * 1000).coerceAtLeast(0) else 0
-            return AgentStatus(state, fields[3], fields[4].trim(), fields[5].trim(), clean(fields[6]), elapsed, directory)
+            return AgentStatus(state, fields[3], fields[4].trim(), fields[5].trim(), clean(fields.last()), elapsed, directory,
+                worked.takeIf { state == State.IDLE })
         }
 
         /** A byte-limited hook value may end in half a character. */
@@ -52,7 +57,7 @@ data class AgentStatus(
 private val shellTools = setOf("Bash", "PowerShell", "run_terminal_command", "shell", "exec_command", "local_shell")
 
 /**
- * What the agent is running, for the session list: a shell command as `$ command`, another tool by its name and what it
+ * What the agent is running, for the session list: a shell command as `Running command`, as Claude Code says it, another tool by its name and what it
  * works on; empty while it runs nothing.
  */
 fun agentActivity(status: AgentStatus?): String {
@@ -60,7 +65,7 @@ fun agentActivity(status: AgentStatus?): String {
     return when {
         status.detail.isEmpty() -> status.tool
         status.tool.isEmpty() -> status.detail
-        status.tool in shellTools -> "$ ${status.detail}"
+        status.tool in shellTools -> "Running ${status.detail}"
         else -> "${status.tool} ${status.detail}"
     }
 }

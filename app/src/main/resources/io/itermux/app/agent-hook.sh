@@ -29,11 +29,16 @@ record() {
 }
 
 case "$event" in
-  start) record idle "" "" ;;
+  start)
+    tmux set-option -u -q -t "$TMUX_PANE" @roamtty_worked 2>/dev/null
+    record idle "" "" ;;
   prompt)
     # Claude Code also submits "<task-notification>…" itself when a background task ends: that is no task of the user's.
     task=$(field prompt 200)
     case "$task" in "<"*) ;; *) put @roamtty_task "$task" ;; esac
+    # A turn starts: the time it began, for how long it worked once it stops.
+    put @roamtty_turn "$(date +%s)"
+    tmux set-option -u -q -t "$TMUX_PANE" @roamtty_worked 2>/dev/null
     record working "" "" ;;
   tool)
     tool=$(field 'tool_name|toolName' 40)
@@ -71,9 +76,14 @@ case "$event" in
         if [ -n "$tool" ]; then record waiting "$tool" "$(printf '%s' "$current" | cut -d '|' -f 5)"
         else record waiting "" "$(field message 120)"; fi ;;
     esac ;;
-  stop) record idle "" "" ;;
+  stop)
+    # How long the turn worked, in seconds; Claude Code shows it as "Worked for …".
+    turn=$(get @roamtty_turn)
+    case "$turn" in ''|*[!0-9]*) ;; *) put @roamtty_worked "$(( $(date +%s) - turn ))" ;; esac
+    record idle "" "" ;;
   end)
-    tmux set-option -u -q -t "$TMUX_PANE" @roamtty_agent 2>/dev/null
-    tmux set-option -u -q -t "$TMUX_PANE" @roamtty_task 2>/dev/null ;;
+    for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked; do
+      tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null
+    done ;;
 esac
 exit 0

@@ -96,7 +96,7 @@ internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier)
     }
 }
 
-private fun duration(seconds: Long): String = when {
+internal fun duration(seconds: Long): String = when {
     seconds < 60 -> trf("%d 秒", seconds)
     seconds < 3600 -> trf("%d 分钟", seconds / 60)
     else -> trf("%d 小时 %d 分钟", seconds / 3600, seconds % 3600 / 60)
