@@ -100,7 +100,7 @@ class NavigationThemeTest {
             captureWindow("navigation-settings-drawer")
             compose.onNodeWithTag("drawer-guide").performClick()
             compose.onNodeWithText("版本 ${BuildConfig.VERSION_NAME}").assertIsDisplayed()
-            compose.onNodeWithText("关闭").performClick()
+            compose.onAllNodesWithText("关闭").filterToOne(hasAnyAncestor(isDialog())).performClick()
             compose.onNodeWithTag("terminal").assertDoesNotExist()
             compose.onAllNodesWithContentDescription("Windows").onFirst().assertExists()
             compose.onNodeWithTag("brand-logo").performClick()

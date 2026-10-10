@@ -14,6 +14,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -23,11 +25,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
@@ -132,6 +131,8 @@ fun ItermuxScreen(
     var deleteHost by remember { mutableStateOf<Host?>(null) }
     /** A host-menu launch: the host, and whether it starts an AI agent rather than a plain terminal. */
     var launchRequest by remember { mutableStateOf<Pair<Host, Boolean>?>(null) }
+    /** The home page's "new session" sheet, which picks the host before the launch sheet. */
+    var newSessionOpen by rememberSaveable { mutableStateOf(false) }
     var connectRequest by remember { mutableStateOf<ConnectRequest?>(null) }
     /** Session id → when it last reconnected by itself on open; see [AUTO_RECONNECT_INTERVAL_MS]. */
     val autoReconnectedAt = remember { mutableMapOf<String, Long>() }
@@ -309,15 +310,8 @@ fun ItermuxScreen(
                     },
                     actions = {
                         if (navigationVisible) {
-                            // Portrait shows "Add host" beside the host list title; landscape has no large title.
-                            val showAddHost = page == "hosts" && (landscape || imeVisible)
-                            // Landscape has no large title, so the toolbar carries it; search stays the outermost icon.
-                            Box(Modifier.weight(1f).padding(horizontal = Spacing.Tight)) {
-                                if (landscape || imeVisible) HostsTitle(MaterialTheme.typography.titleLarge)
-                            }
-                            if (showAddHost) ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
-                                editHostId = null; editorOpen = true
-                            }
+                            // The sessions and hosts titles, each with its add button, lead their sections in the list.
+                            Spacer(Modifier.weight(1f))
                             AppSearchToggle(searchExpanded, onToggle = {
                                 if (searchExpanded) {
                                     search = ""
@@ -337,13 +331,7 @@ fun ItermuxScreen(
                 val largeTitle = !landscape && !imeVisible
                 if (page == "hosts") {
                     Column(Modifier.fillMaxSize()) {
-                        if (largeTitle) LargeTitle(tr("搜索结果"), titleContent = if (search.isBlank()) {
-                            { HostsTitle(MaterialTheme.typography.headlineMedium) }
-                        } else null, action = {
-                            ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
-                                editHostId = null; editorOpen = true
-                            }
-                        })
+                        if (largeTitle && search.isNotBlank()) LargeTitle(tr("搜索结果"))
                         if (searchExpanded) {
                             AppSearchField(search, { search = it }, tr("名称、地址或用户名"),
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(bottom = Spacing.Tight)
@@ -356,13 +344,38 @@ fun ItermuxScreen(
                             .map { Triple(it.host.id, it.host.address, it.host.port) }.toSet()
                         ProbeHostReachability(hostReachability, hosts,
                             connected = hosts.filter { Triple(it.id, it.address, it.port) in connectedEndpoints }.map { it.id }.toSet())
+                        val hostsTitle = @Composable { modifier: Modifier ->
+                            HomeSectionTitle(tr("主机"), R.drawable.ic_hosts, MaterialTheme.typography.titleLarge,
+                                modifier.testTag("hosts-title")) {
+                                ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
+                                    editHostId = null; editorOpen = true
+                                }
+                            }
+                        }
                         if (filtered.isEmpty()) {
+                            // With no host there is nothing to start a session on, so first run shows the hosts title alone.
+                            if (hosts.isEmpty()) hostsTitle(Modifier.padding(start = Spacing.Page, end = Spacing.Page, top = Spacing.Tight))
                             if (hosts.isEmpty()) EmptyState(tr("从第一台主机开始"), tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
                                 Modifier.weight(1f),
                                 artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
                                 action = { Button(onClick = { editHostId = null; editorOpen = true }) { Text(tr("添加主机")) } })
                             else EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.weight(1f))
-                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
+                        } else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.weight(1f).testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (largeTitle && search.isNotBlank()) 0.dp else Spacing.Tight, bottom = Spacing.Page)) {
+                            // Sessions lead the home page, above the hosts; a search shows matching hosts alone.
+                            if (search.isBlank()) {
+                                val fullWidth: LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
+                                item(key = "sessions-title", span = fullWidth) {
+                                    HomeSectionTitle(tr("会话"), R.drawable.ic_sessions, MaterialTheme.typography.titleLarge,
+                                        Modifier.testTag("sessions-title")) {
+                                        ToolbarIcon(R.drawable.ic_add, tr("新建会话"), Modifier.testTag("add-session")) { newSessionOpen = true }
+                                    }
+                                }
+                                item(key = "sessions", span = fullWidth) {
+                                    HomeSessionsList(sessionsByActivity, onOpen = { selected = it.id; page = "terminal" },
+                                        onClose = { service?.close(it.id) }, onForget = ::forgetSession)
+                                }
+                                item(key = "hosts-title", span = fullWidth) { hostsTitle(Modifier.padding(top = Spacing.Tight)) }
+                            }
                             items(filtered, key = { it.id }) { host -> HostCard(host, { detailHostId = host.id; page = "host" }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
                                 hostReachability.statusOf(host).let { probed ->
                                     if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
@@ -451,6 +464,10 @@ fun ItermuxScreen(
                 onDismiss = { editorOpen = false; editHostId = null },
                 onSaved = { editorOpen = false; editHostId = null })
         }
+        if (newSessionOpen) NewSessionSheet(hosts, onDismiss = { newSessionOpen = false }) { host, forAgent ->
+            newSessionOpen = false
+            launchRequest = host to forAgent
+        }
         launchRequest?.let { (host, forAgent) ->
             LaunchSheet(host, forAgent, monitor = null, onDismiss = { launchRequest = null }) { directory, agent ->
                 launchRequest = null
@@ -505,16 +522,5 @@ fun ItermuxScreen(
             }
         }
         if (showAbout) AboutDialog(context) { showAbout = false }
-    }
-}
-
-/** The host list's title: the host icon beside "主机". */
-@Composable
-private fun HostsTitle(style: TextStyle) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.Tight),
-        modifier = Modifier.testTag("hosts-title")) {
-        Icon(painterResource(R.drawable.ic_hosts), contentDescription = null,
-            modifier = Modifier.size(with(LocalDensity.current) { style.fontSize.toDp() }))
-        Text(tr("主机"), style = style, maxLines = 1, modifier = Modifier.semantics { heading() })
     }
 }
