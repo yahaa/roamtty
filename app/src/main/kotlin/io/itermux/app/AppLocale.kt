@@ -389,7 +389,6 @@ private object EnglishText {
         "试试其他名称或地址" to "Try a different name or address",
         "标题、主机、地址或用户名" to "Title, host, address, or username",
         "暂无会话" to "No sessions yet",
-        "点右上角 + 新建会话" to "Tap + at the top right to start one",
         "新建会话" to "New session",
         "选择主机，打开终端或 AI 助手。" to "Pick a host, then open a terminal or an AI agent.",
         "没有匹配的会话" to "No matching sessions",

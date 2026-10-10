@@ -1,48 +1,63 @@
 package io.itermux.app.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
 
-/** A home page section title: an icon beside the name, with the section's add button on the right. */
+/**
+ * The home page's tabs in the toolbar, after Grok's header: the names side by side, the selected one in full
+ * colour with a short bar beneath it.
+ */
 @Composable
-internal fun HomeSectionTitle(title: String, icon: Int, style: TextStyle, modifier: Modifier = Modifier,
-    action: (@Composable () -> Unit)? = null) {
-    Row(modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-            Icon(painterResource(icon), contentDescription = null,
-                modifier = Modifier.size(with(LocalDensity.current) { style.fontSize.toDp() }))
-            Text(title, style = style, maxLines = 1, modifier = Modifier.semantics { heading() })
+internal fun HomeTabs(titles: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight),
+        verticalAlignment = Alignment.CenterVertically) {
+        titles.forEachIndexed { index, title ->
+            val active = index == selected
+            val color by animateColorAsState(if (active) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), label = "home-tab")
+            Column(Modifier.clip(MaterialTheme.shapes.small)
+                .selectable(active, role = Role.Tab, onClick = { onSelect(index) })
+                .heightIn(min = 48.dp).padding(horizontal = Spacing.Row).testTag(HOME_TAB_TAGS[index]),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Text(title, style = MaterialTheme.typography.titleLarge, color = color, maxLines = 1,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.size(width = 20.dp, height = 3.dp).clip(CircleShape)
+                    .background(if (active) color else Color.Transparent))
+            }
         }
-        action?.invoke()
     }
 }
 
-/** Every session the app holds, most active first, above the hosts; a tap opens its terminal. */
+/** Test tags of the home tabs, in page order. */
+internal val HOME_TAB_TAGS = listOf("home-tab-sessions", "home-tab-hosts")
+
+/** Every session the app holds, most active first; a tap opens its terminal. */
 @Composable
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
     onClose: (TerminalConnection) -> Unit, onForget: (TerminalConnection, Boolean) -> Unit) {
     GroupedSection(modifier = Modifier.testTag("home-sessions")) {
-        if (sessions.isEmpty()) GroupedRow(tr("暂无会话"), Modifier.testTag("home-sessions-empty"),
-            subtitle = tr("点右上角 + 新建会话"))
-        else sessions.forEachIndexed { index, session ->
+        sessions.forEachIndexed { index, session ->
             if (index > 0) GroupedDivider()
             key(session.id) {
                 HostSessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },

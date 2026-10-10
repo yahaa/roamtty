@@ -37,6 +37,7 @@ class HostSystemUiTest {
     }
 
     private fun fillEditor(name: String, password: String = "", port: String = "22238") {
+        compose.onNodeWithTag("home-tab-hosts").performClick()
         compose.onNodeWithTag("add-host").performClick()
         compose.onNodeWithTag("host-name").performTextInput(name)
         compose.onNodeWithTag("host-address").performTextInput("127.0.0.1")
@@ -141,6 +142,7 @@ class HostSystemUiTest {
         val first = hosts.minBy { it.name.lowercase() }
         try {
             hosts.forEach { app.database.hosts().save(it) }
+            compose.onNodeWithTag("home-tab-hosts").performClick()
             compose.waitUntil(5000) { compose.onAllNodesWithTag("host-card-${first.id}").fetchSemanticsNodes().isNotEmpty() }
             hosts.forEach {
                 compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${it.id}"))

@@ -62,6 +62,7 @@ class NavigationThemeTest {
             app.database.hosts().save(host)
             app.database.hosts().save(linuxHost)
             app.database.hosts().save(macHost)
+            compose.onNodeWithTag("home-tab-hosts").performClick()
             compose.waitUntil(8_000) { compose.onAllNodesWithText(host.name).fetchSemanticsNodes().isNotEmpty() }
             compose.onAllNodesWithContentDescription("Windows").onFirst().assertExists()
             compose.onAllNodesWithContentDescription("Linux").onFirst().assertExists()
@@ -78,10 +79,9 @@ class NavigationThemeTest {
             compose.onNodeWithTag("drawer-sessions").assertDoesNotExist()
             compose.onNodeWithTag("drawer-hosts").performClick()
             compose.waitUntil(8_000) { !compose.onNodeWithTag("navigation-drawer").isDisplayed() }
-            // Hosts are the only home page: no 主机/会话 tabs, and the title is the host icon beside "主机".
-            compose.onNodeWithTag("hosts-tab").assertDoesNotExist()
-            compose.onNodeWithTag("sessions-tab").assertDoesNotExist()
-            compose.onNodeWithTag("hosts-title").assertIsDisplayed()
+            // The drawer's hosts entry opens the home page on its hosts tab.
+            compose.onNodeWithTag("home-tab-hosts").assertIsDisplayed().assertIsSelected()
+            compose.onNodeWithTag("home-tab-sessions").assertIsDisplayed().assertIsNotSelected()
             compose.onNodeWithTag("drawer-guide").assertIsNotDisplayed()
             compose.onNodeWithTag("brand-logo").performClick()
             compose.onNodeWithTag("drawer-settings").performClick()
