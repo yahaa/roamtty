@@ -60,11 +60,11 @@ internal fun AgentIcon(agent: CodingAgent, size: Dp, state: AgentStatus.State? =
 }
 
 /**
- * What an agent in the session is doing: its state and how long that has lasted, and the tool behind it. [meta] sits
- * quietly at the end of the line. The task it was given is the session's title, so it is not repeated here.
+ * What an agent in the session is doing: its state and how long that has lasted, and the tool behind it. The task
+ * it was given is the session's title, so it is not repeated here.
  */
 @Composable
-internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier, meta: String = "") {
+internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val color = status.state.color()
     val label = when (status.state) {
@@ -87,10 +87,8 @@ internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier,
             maxLines = 1, softWrap = false)
         Text(" · ${duration(elapsed / 1000)}", style = MaterialTheme.typography.labelMedium,
             color = colors.onSurfaceVariant, maxLines = 1, softWrap = false)
-        if (what.isNotEmpty()) Text(" · $what", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+        if (what.isNotEmpty()) Text(" · $what", style = MaterialTheme.typography.labelMedium,
             color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        else Spacer(Modifier.weight(1f))
-        if (meta.isNotEmpty()) SessionMeta(meta, Modifier.padding(start = Spacing.Tight))
     }
 }
 
@@ -98,11 +96,4 @@ private fun duration(seconds: Long): String = when {
     seconds < 60 -> trf("%d 秒", seconds)
     seconds < 3600 -> trf("%d 分钟", seconds / 60)
     else -> trf("%d 小时 %d 分钟", seconds / 3600, seconds % 3600 / 60)
-}
-
-/** A session's quiet details, such as its host, multiplexer and transport, in one line of small text. */
-@Composable
-internal fun SessionMeta(text: String, modifier: Modifier = Modifier) {
-    Text(text, modifier.testTag("session-meta"), style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), maxLines = 1, softWrap = false)
 }

@@ -86,7 +86,7 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
 }
 
 /**
- * One session: the agent's mark (or the host's system), what it works on, its status and host, with close in its
+ * One session: the agent's mark (or the host's system), what it works on, and its status, with close in its
  * menu. The title is the agent's task, else its folder; see [sessionListTitle].
  */
 @Composable
@@ -101,8 +101,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
     val shown = sessionListTitle(title, agent.takeIf { connected }, kind, session.host.username)
-    // The default title already names the host; the others do not. The agent's mark tells the agent.
-    val meta = if (shown.isNotBlank()) session.host.name else ""
+    // The host leads the title ("dev.roamtty"); the default title already names it. The agent's mark tells the agent.
+    val heading = if (shown.isBlank()) session.defaultTitle else "${session.host.name}.$shown"
     Row(Modifier.fillMaxWidth().clickable(onClickLabel = tr("打开终端"), role = Role.Button, onClick = onClick)
         .heightIn(min = 56.dp).padding(start = Spacing.Row, end = 0.dp, top = 10.dp, bottom = 10.dp).testTag("$tagPrefix-${session.id}"),
         verticalAlignment = Alignment.CenterVertically) {
@@ -112,18 +112,15 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
         Spacer(Modifier.width(Spacing.Row))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(shown.ifBlank { session.defaultTitle }, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"), style = MaterialTheme.typography.bodyLarge,
+                Text(heading, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"), style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 SessionMenu(session, state.active, tagPrefix,
                     onClose = { forget -> if (forget) confirmForget = true else confirmClose = true })
             }
             // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
             val status = agent
-            if (status != null && connected) AgentStatusLine(status, Modifier.padding(end = Spacing.Row), meta = meta)
-            else Row(Modifier.padding(end = Spacing.Row), verticalAlignment = Alignment.CenterVertically) {
-                StatusLabel(state.phase, Modifier.weight(1f))
-                SessionMeta(meta, Modifier.padding(start = Spacing.Tight))
-            }
+            if (status != null && connected) AgentStatusLine(status, Modifier.padding(end = Spacing.Row))
+            else StatusLabel(state.phase, Modifier.padding(end = Spacing.Row))
         }
     }
     if (confirmClose) SessionCloseDialog(session, { confirmClose = false }, onClose)
