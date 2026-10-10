@@ -8,7 +8,6 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -31,8 +30,8 @@ class LanguageSettingsTest {
         val previous = prefs.getString("language", null)
         try {
             compose.runOnUiThread { AppLocale.set(context, AppLanguage.ZH_CN) }
-            compose.onNodeWithTag("app-menu").performClick()
-            compose.onNodeWithTag("menu-settings").performClick()
+            compose.onNodeWithTag("brand-logo").performClick()
+            compose.onNodeWithTag("drawer-settings").performClick()
             compose.onNodeWithText("语言").assertIsDisplayed()
             compose.onNodeWithTag("settings-language-english").performClick()
             compose.onNodeWithText("Language").assertIsDisplayed()
@@ -43,15 +42,15 @@ class LanguageSettingsTest {
                     .compress(Bitmap.CompressFormat.PNG, 100, it)
             }
             compose.onNodeWithTag("close-settings").performClick()
-            compose.onNodeWithContentDescription("More").assertIsDisplayed()
-            compose.onNodeWithTag("app-menu").performClick()
-            compose.onNodeWithTag("menu-guide").performClick()
+            compose.onNodeWithTag("hosts-title").assertIsDisplayed()
+            compose.onNodeWithTag("brand-logo").performClick()
+            compose.onNodeWithTag("drawer-guide").performClick()
             compose.onNodeWithText("Sessions and AI agents").assertIsDisplayed()
             compose.onNodeWithText("Close").performClick()
             compose.activityRule.scenario.recreate()
-            compose.onNodeWithContentDescription("More").assertIsDisplayed()
-            compose.onNodeWithTag("app-menu").performClick()
-            compose.onNodeWithTag("menu-settings").performClick()
+            compose.onNodeWithTag("hosts-title").assertIsDisplayed()
+            compose.onNodeWithTag("brand-logo").performClick()
+            compose.onNodeWithTag("drawer-settings").performClick()
             compose.onNodeWithTag("settings-language-zh_cn").performClick()
             compose.onNodeWithText("外观").assertIsDisplayed()
             compose.onNodeWithText("语言").assertIsDisplayed()

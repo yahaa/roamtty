@@ -527,6 +527,9 @@ class TerminalUiTest {
             it.name.matches(Regex("UI 测试 [0-9a-f]{6}")) && it.address == "dev.example.com" && it.username == "developer"
         }.forEach { app.database.hosts().delete(it.id) }
         val label = "UI 测试 ${UUID.randomUUID().toString().take(6)}"
+        // Search shows only for a long host list, so pad the list past the threshold.
+        val fillers = (1..7).map { Host(name = "UI 测试 ${UUID.randomUUID().toString().take(6)}", address = "dev.example.com", username = "developer") }
+        fillers.forEach { app.database.hosts().save(it) }
         compose.onNodeWithTag("host-search").assertDoesNotExist()
         capture("hosts-compact")
         compose.onNodeWithTag("add-host").performClick()
@@ -542,13 +545,14 @@ class TerminalUiTest {
         capture("hosts-search")
         compose.onNodeWithTag("search-toggle").performClick()
         compose.onNodeWithTag("host-search").assertDoesNotExist()
-        compose.onNodeWithText("主机列表").assertIsDisplayed()
+        compose.onNodeWithTag("hosts-title").assertIsDisplayed()
         compose.activity.runOnUiThread { (compose.activity.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0) }
         compose.waitForIdle()
         capture("hosts")
         val saved = app.database.hosts().observe().first().first { it.name == label }
         assertNull(saved.encryptedPassword)
         app.database.hosts().delete(saved.id)
+        fillers.forEach { app.database.hosts().delete(it.id) }
         java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "host-count.txt").writeText(app.database.hosts().observe().first().size.toString())
     }
 }

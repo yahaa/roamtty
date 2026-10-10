@@ -141,9 +141,9 @@ class PerfProbeTest {
         val views = mutableListOf<WeakReference<*>>()
         memory("switch start")
         repeat(20) { i ->
-            // Back leads terminal → host page → home page, which lists the sessions.
+            // Back leads terminal → host page → host list, where the drawer button is.
             repeat(3) {
-                if (compose.onAllNodes(androidx.compose.ui.test.hasTestTag("app-menu")).fetchSemanticsNodes().isEmpty()) {
+                if (compose.onAllNodes(androidx.compose.ui.test.hasTestTag("brand-logo")).fetchSemanticsNodes().isEmpty()) {
                     compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }; compose.waitForIdle()
                 }
             }

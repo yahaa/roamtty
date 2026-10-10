@@ -85,7 +85,7 @@ fun ItermuxScreen(
         else combine(sessions.map { session -> session.attention.map { session.id to it } }) { it.toMap() }
     }.collectAsStateWithLifecycle(emptyMap())
     val hostReachability = remember { HostReachabilityTracker() }
-    // The home page and host pages show live sessions first; terminal tabs keep their open order.
+    // The home page, drawer and host pages show live sessions first; terminal tabs keep their open order.
     val sessionsByActivity = remember(sessions, sessionPhases) {
         sessions.sortedBy { activityRank(sessionPhases[it.id] ?: it.state.value.phase) }
     }
@@ -106,6 +106,7 @@ fun ItermuxScreen(
     var settingsReturnPage by rememberSaveable { mutableStateOf("hosts") }
     /** The host whose detail page is shown when [page] is "host". */
     var detailHostId by rememberSaveable { mutableStateOf<String?>(null) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val lightTheme = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
     val terminalVisible = page == "terminal" && sessions.isNotEmpty()
     val navigationVisible = page == "hosts"
@@ -113,7 +114,8 @@ fun ItermuxScreen(
     val terminalChrome = terminalVisible || page == "files"
     // Older IMEs reveal system bars without changing window focus. Restore immersive mode on close.
     LaunchedEffect(terminalChrome, imeVisible, lightTheme, landscape) { onChromeChange(terminalChrome, lightTheme) }
-    BackHandler(page == "settings") { page = settingsReturnPage }
+    BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
+    BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     /** Leaves the terminal or file browser for its host's detail page; the host list when that host is gone. */
     fun leaveTerminal() {
@@ -154,7 +156,7 @@ fun ItermuxScreen(
         hostGridState.scrollToItem(hostGridState.firstVisibleItemIndex)
     }
     val searchFocus = remember { FocusRequester() }
-    BackHandler(navigationVisible && searchExpanded && !imeVisible) {
+    BackHandler(navigationVisible && searchExpanded && !imeVisible && !drawerState.isOpen) {
         searchExpanded = false
         search = ""
     }
@@ -312,6 +314,19 @@ fun ItermuxScreen(
             return@MaterialTheme
         }
         val colors = MaterialTheme.colorScheme
+        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files" && page != "host",
+            drawerContent = {
+                ItermuxDrawer(page, hosts.size, sessionsByActivity,
+                    onHosts = { page = "hosts"; scope.launch { drawerState.close() } },
+                    onOpenSession = { selected = it; page = "terminal"; scope.launch { drawerState.close() } },
+                    onSettings = {
+                        if (page != "settings") settingsReturnPage = page
+                        page = "settings"
+                        scope.launch { drawerState.close() }
+                    },
+                    onGuide = { scope.launch { drawerState.close() }; showAbout = true },
+                    onClose = { scope.launch { drawerState.close() } })
+            }) {
         Surface(Modifier.fillMaxSize(), color = colors.background) {
             // The terminal fills the display, including the area beside a camera cutout and under the
             // transparent portrait status bar. Only desktop window chrome reserves an edge; the terminal
@@ -321,12 +336,19 @@ fun ItermuxScreen(
             val imeInsets = if (terminalVisible) WindowInsets(0) else WindowInsets.ime
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).windowInsetsPadding(imeInsets)) {
                 if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files" && page != "host") AppToolbar(
+                    navigation = {
+                        ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo")) {
+                            focusManager.clearFocus(force = true)
+                            keyboardController?.hide()
+                            scope.launch { drawerState.open() }
+                        }
+                    },
                     actions = {
                         if (navigationVisible) {
                             // Portrait shows "Add host" beside the large title; landscape has no large title.
                             val showAddHost = page == "hosts" && (landscape || imeVisible)
-                            // Landscape has no large title, so the toolbar carries it; the app menu stays the outermost icon.
-                            Box(Modifier.weight(1f).padding(horizontal = Spacing.Page - 4.dp)) {
+                            // Landscape has no large title, so the toolbar carries it; search stays the outermost icon.
+                            Box(Modifier.weight(1f).padding(horizontal = Spacing.Tight)) {
                                 if (landscape || imeVisible) HomeTitle(MaterialTheme.typography.titleLarge)
                             }
                             if (showAddHost) ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
@@ -342,14 +364,8 @@ fun ItermuxScreen(
                                 searchExpanded = !searchExpanded
                             }, searchDescription = tr("搜索主机"),
                                 modifier = Modifier.testTag("search-toggle"))
-                            AppMenu(onSettings = {
-                                focusManager.clearFocus(force = true)
-                                keyboardController?.hide()
-                                settingsReturnPage = page
-                                page = "settings"
-                            }, onGuide = { showAbout = true })
                         } else {
-                            // Settings opens from the app menu: closing returns to the page it was opened from.
+                            // Settings is a drawer destination: closing returns to the page it was opened from.
                             Spacer(Modifier.weight(1f))
                             ToolbarIcon(R.drawable.ic_close, tr("关闭设置"), Modifier.testTag("close-settings")) { page = settingsReturnPage }
                         }
@@ -492,6 +508,7 @@ fun ItermuxScreen(
                 }
             }
         }
+        }
         if (editorOpen) {
             val editHost = editHostId?.let { id -> hosts.firstOrNull { it.id == id } }
             if (editHostId == null || editHost != null) HostEditor(app, editHost,
@@ -562,23 +579,6 @@ private fun HomeTitle(style: TextStyle) {
         modifier = Modifier.testTag("hosts-title")) {
         ItermuxLogo(Modifier.size(with(LocalDensity.current) { style.fontSize.toDp() } * 1.15f))
         Text("Roamtty", style = style, maxLines = 1, modifier = Modifier.semantics { heading() })
-    }
-}
-
-/** Settings and help, the destinations that are not hosts or sessions, behind one overflow button. */
-@Composable
-private fun AppMenu(onSettings: () -> Unit, onGuide: () -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        ToolbarIcon(R.drawable.ic_more, tr("更多"), Modifier.testTag("app-menu")) { open = true }
-        DropdownMenu(open, { open = false }) {
-            DropdownMenuItem(text = { Text(tr("设置")) }, onClick = { open = false; onSettings() },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_settings), contentDescription = null) },
-                modifier = Modifier.testTag("menu-settings"))
-            DropdownMenuItem(text = { Text(tr("帮助")) }, onClick = { open = false; onGuide() },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_help), contentDescription = null) },
-                modifier = Modifier.testTag("menu-guide"))
-        }
     }
 }
 

@@ -66,8 +66,8 @@ class HomePageTest {
             hosts.forEach { app.database.hosts().save(it) }
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("host-card-${alpha.id}").fetchSemanticsNodes().isNotEmpty() }
 
-            // No sidebar; the session sits above the hosts.
-            compose.onNodeWithContentDescription("打开导航").assertDoesNotExist()
+            // The sidebar stays; the session also sits above the hosts.
+            compose.onNodeWithTag("brand-logo").assertIsDisplayed()
             compose.onNodeWithTag("home-session-${session.id}").assertIsDisplayed()
             assertTrue(compose.onNodeWithTag("home-sessions").fetchSemanticsNode().boundsInRoot.bottom <= cardTop(pinned))
             // Pinned first, then the recently used host, then by name.
@@ -171,8 +171,8 @@ class HomePageTest {
             compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("host-detail").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("host-detail-back").performClick()
-            compose.onNodeWithTag("app-menu").performClick()
-            compose.onNodeWithTag("menu-settings").performClick()
+            compose.onNodeWithTag("brand-logo").performClick()
+            compose.onNodeWithTag("drawer-settings").performClick()
             compose.onNodeWithTag("settings-open-last-session").performScrollTo().performClick()
             assertTrue(prefs.getBoolean(OPEN_LAST_SESSION_KEY, false))
             compose.onNodeWithTag("close-settings").performClick()
