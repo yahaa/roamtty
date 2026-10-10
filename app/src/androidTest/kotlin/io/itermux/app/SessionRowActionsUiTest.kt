@@ -5,7 +5,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -26,7 +25,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** A session row shows its agent and host, and its menu closes the session. */
+/** A session row shows its agent and host, and its menu closes the session without asking. */
 @RunWith(AndroidJUnit4::class)
 class SessionRowActionsUiTest {
     @get:Rule val compose = createComposeRule()
@@ -42,7 +41,7 @@ class SessionRowActionsUiTest {
         try {
             compose.setContent {
                 MaterialTheme(colorScheme = DarkColors) {
-                    SessionRow(session, onClick = {}, onClose = { closed += session }, onForget = {})
+                    SessionRow(session, onClick = {}, onClose = { closed += session })
                 }
             }
             // An agent's session shows the agent's mark, its folder as the title and its host beneath; not the transport.
@@ -53,7 +52,6 @@ class SessionRowActionsUiTest {
             compose.onNodeWithTag("home-session-menu-${session.id}").performClick()
             compose.onNodeWithTag("home-session-rename-${session.id}").assertDoesNotExist()
             compose.onNodeWithTag("home-session-close-${session.id}").performClick()
-            compose.onNodeWithText("关闭连接").performClick()
             assertEquals(listOf(session), closed)
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id) }

@@ -283,6 +283,7 @@ class TerminalConnection(
     }
 
     /** Detects a connection that died while the phone slept or changed networks. */
+    suspend fun killRemoteSession() = ssh.killTmuxSession()
     fun verifyAlive() { if (job != null) scope.launch { ssh.verifyAlive() } }
 
     override fun reset() { parser.reset(); onScreenChanged?.invoke() }

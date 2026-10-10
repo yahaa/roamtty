@@ -78,13 +78,12 @@ internal fun HomeListHeader(label: String, addDescription: String, addTag: Strin
 /** Every session the app holds, most active first; a tap opens its terminal. */
 @Composable
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
-    onClose: (TerminalConnection) -> Unit, onForget: (TerminalConnection, Boolean) -> Unit) {
+    onClose: (TerminalConnection) -> Unit) {
     GroupedSection(modifier = Modifier.testTag("home-sessions")) {
         sessions.forEachIndexed { index, session ->
             if (index > 0) GroupedDivider()
             key(session.id) {
-                SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
-                    onForget = { onForget(session, it) })
+                SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) })
             }
         }
     }
@@ -95,14 +94,12 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
  * menu. The title is the agent's task, else its folder; see [sessionListTitle].
  */
 @Composable
-internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: (terminateRemote: Boolean) -> Unit,
+internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit,
     tagPrefix: String = "home-session") {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val agent by session.agentStatus.collectAsStateWithLifecycle()
     val launched by session.launchedAgent.collectAsStateWithLifecycle()
-    var confirmClose by remember { mutableStateOf(false) }
-    var confirmForget by remember { mutableStateOf(false) }
     val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
     val shown = sessionListTitle(title, agent.takeIf { connected }, kind, session.host.username)
@@ -120,8 +117,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"), style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                SessionMenu(session, state.active, tagPrefix,
-                    onClose = { forget -> if (forget) confirmForget = true else confirmClose = true })
+                SessionMenu(session, tagPrefix, onClose)
             }
             // What an agent is running; no line while it runs nothing.
             val activity = agentActivity(agent.takeIf { connected })
@@ -139,16 +135,12 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             }
         }
     }
-    if (confirmClose) SessionCloseDialog(session, { confirmClose = false }, onClose)
-    if (confirmForget) SessionForgetDialog(session, { confirmForget = false }, onForget)
 }
 
-/** The session's ⋯ on its title line: close it (remove it when closing would only forget it). */
+/** The session's ⋯ on its title line: close it, ending everything it runs, without asking. */
 @Composable
-private fun SessionMenu(session: TerminalConnection, active: Boolean, tagPrefix: String,
-    onClose: (forget: Boolean) -> Unit) {
+private fun SessionMenu(session: TerminalConnection, tagPrefix: String, onClose: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
-    val forget = session.closeForgets(active)
     Box {
         IconButton(onClick = { menu = true }, modifier = Modifier.size(width = 44.dp, height = 28.dp)
             .testTag("$tagPrefix-menu-${session.id}")) {
@@ -156,8 +148,8 @@ private fun SessionMenu(session: TerminalConnection, active: Boolean, tagPrefix:
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(text = { Text(if (forget) tr("移除") else tr("关闭"), color = MaterialTheme.colorScheme.error) },
-                onClick = { menu = false; onClose(forget) },
+            DropdownMenuItem(text = { Text(tr("关闭"), color = MaterialTheme.colorScheme.error) },
+                onClick = { menu = false; onClose() },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null,
                     tint = MaterialTheme.colorScheme.error) },
                 modifier = Modifier.testTag("$tagPrefix-close-${session.id}"))

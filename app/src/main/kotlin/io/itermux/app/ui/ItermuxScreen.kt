@@ -218,10 +218,13 @@ fun ItermuxScreen(
         begin(ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect, startupCommand = startupCommand,
             agentHooks = agentHooks, agent = agent.takeIf { startupCommand != null }))
     }
-    /** Drops a disconnected tmux session's record; with [terminateRemote], logs in to kill it on the server first. */
-    fun forgetSession(session: TerminalConnection, terminateRemote: Boolean) {
-        if (!terminateRemote) service?.forget(session.id)
-        else begin(ConnectRequest(session.host, SessionMode.SHELL, terminateSessionId = session.id))
+    /**
+     * Ends a session and everything in it, without asking. A disconnected tmux session is killed over a fresh login;
+     * see [SessionService.close] for the rest.
+     */
+    fun closeSession(session: TerminalConnection) {
+        if (session.closeForgets(session.state.value.active)) begin(ConnectRequest(session.host, SessionMode.SHELL, terminateSessionId = session.id))
+        else service?.close(session.id)
     }
 
     val resumed by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
@@ -423,7 +426,7 @@ fun ItermuxScreen(
                                         contentPadding = PaddingValues(start = Spacing.Tight, end = Spacing.Tight, bottom = Spacing.Page)) {
                                         item(key = "sessions") {
                                             HomeSessionsList(matching, onOpen = { selected = it.id; page = "terminal" },
-                                                onClose = { service?.close(it.id) }, onForget = ::forgetSession)
+                                                onClose = ::closeSession)
                                         }
                                     }
                                 }
@@ -509,7 +512,7 @@ fun ItermuxScreen(
                             onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active },
                             // Closing ends the terminal page too: back to where it was opened from.
-                            onClose = { leaveTerminal(); service?.close(active.id) })
+                            onClose = { leaveTerminal(); closeSession(active) })
                     }
                 }
             }

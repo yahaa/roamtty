@@ -165,22 +165,28 @@ class FullScreenImageTest {
         }
     }
 
-    @Test fun closingTmuxKeepsItsRemoteIdentityForReconnect() = runBlocking {
+    @Test fun closingTmuxEndsItsRemoteSessionAndCard() = runBlocking {
         withFixture("grok") { session ->
             val context = InstrumentationRegistry.getInstrumentation().targetContext
             val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
-            withContext(Dispatchers.Main) { session.rename("Retained task"); service.close(session.id) }
-            val retained = service.sessions.value.single { it.id == session.id }
-            assertEquals(session.remoteSessionName, retained.remoteSessionName)
-            assertEquals("Retained task", retained.title.value)
-            assertEquals(Phase.DISCONNECTED, retained.state.value.phase)
-            val replacement = withContext(Dispatchers.Main) {
-                service.reconnect(retained.id, Credentials(privateKey = File(context.filesDir, "tmux_client_key").readBytes()))
+            // A second session on the same tmux server looks at its sessions.
+            val shell = withContext(Dispatchers.Main) {
+                service.open(session.host, SessionMode.TMUX, Credentials(privateKey = File(context.filesDir, "tmux_client_key").readBytes()))
             }
-            withTimeout(10_000) { replacement.state.first { it.phase == Phase.CONNECTED } }
-            awaitScreen(replacement, "CLI_LIVE")
-            assertEquals(session.remoteSessionName, replacement.remoteSessionName)
-            withContext(Dispatchers.Main) { replacement.write("\u0003") }
+            val trust = launch { shell.pending.collect { it?.answer?.complete(listOf("trust")) } }
+            suspend fun probe() = withContext(Dispatchers.Main) {
+                shell.write("tmux has-session -t =${Tmux.sanitizeSessionName(session.remoteSessionName)} 2>/dev/null && echo LIVE_$((6*7)) || echo GONE_$((6*7))\r")
+            }
+            try {
+                withTimeout(20_000) { shell.state.first { it.phase == Phase.CONNECTED } }
+                probe()
+                awaitScreen(shell, "LIVE_42")
+                withContext(Dispatchers.Main) { service.close(session.id) }
+                assertTrue(service.sessions.value.none { it.id == session.id })
+                withTimeout(10_000) { session.state.first { it.phase == Phase.DISCONNECTED } }
+                probe()
+                awaitScreen(shell, "GONE_42")
+            } finally { trust.cancel(); withContext(Dispatchers.Main) { service.close(shell.id) } }
         }
     }
 }

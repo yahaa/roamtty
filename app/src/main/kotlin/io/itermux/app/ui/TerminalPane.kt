@@ -101,7 +101,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var draft by remember { mutableStateOf(TextFieldValue(session.draft, TextRange(session.draft.length))) }
     var terminal by remember { mutableStateOf<TerminalView?>(null) }
     var confirmPaste by remember { mutableStateOf<String?>(null) }
-    var closeConfirm by remember { mutableStateOf(false) }
     var restartConfirm by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var sessionMenu by remember { mutableStateOf(false) }
@@ -368,7 +367,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 }
                 DropdownMenu(sessionMenu, ::dismissDockMenus) {
                     DropdownMenuItem(text = { Text(tr("返回主机详情")) }, onClick = { sessionMenu = false; onHostDetail() })
-                    DropdownMenuItem(text = { Text(tr("关闭当前会话")) }, onClick = { sessionMenu = false; if (state.active) closeConfirm = true else onClose() },
+                    DropdownMenuItem(text = { Text(tr("关闭当前会话")) }, onClick = { sessionMenu = false; onClose() },
                         modifier = Modifier.testTag("close-session"))
                     // A tmux pane restarts over the live connection; a plain shell restarts by reconnecting.
                     DropdownMenuItem(
@@ -662,7 +661,6 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         session.executeHistoryCommand(command)
     }, onDismiss = { commonCommandsOpen = false })
     confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text(tr("发送多行文本？")) }, text = { Text(tr("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。")) }, confirmButton = { TextButton(onClick = { sendPaste(text); confirmPaste = null }, enabled = state.phase == Phase.CONNECTED) { Text(tr("发送")) } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text(tr("取消")) } }) }
-    if (closeConfirm) AlertDialog(onDismissRequest = { closeConfirm = false }, title = { Text(tr("关闭当前会话？")) }, text = { Text(if (session.mode == SessionMode.TMUX) tr("远端 tmux 会话会继续运行，会话卡片保留，可稍后重连。") else tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")) }, confirmButton = { TextButton(onClick = { closeConfirm = false; onClose() }) { Text(tr("关闭")) } }, dismissButton = { TextButton(onClick = { closeConfirm = false }) { Text(tr("取消")) } })
     if (restartConfirm) AlertDialog(onDismissRequest = { restartConfirm = false }, title = { Text(tr("重启当前会话？")) },
         text = { Text(if (session.mode == SessionMode.TMUX) tr("正在运行的程序会被结束，然后在同一目录重新启动。") else tr("当前 shell 会结束并重新连接。")) },
         confirmButton = { TextButton(onClick = { restartConfirm = false; onRestart() }, modifier = Modifier.testTag("restart-session-confirm")) { Text(tr("重启")) } },
