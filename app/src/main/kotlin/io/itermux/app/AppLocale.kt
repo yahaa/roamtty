@@ -509,7 +509,6 @@ private object EnglishText {
         "删除 %s？" to "Delete %s?",
         "请先向服务器管理员确认新指纹。继续会移除此地址原有的信任记录，关闭该地址的连接，并在重连时重新展示指纹。\n\n%s" to "Confirm the new fingerprint with the server administrator first. Continuing removes the trusted record for this address, closes its connections, and shows the fingerprint again on reconnect.\n\n%s",
         "主机  %d" to "Hosts  %d",
-        "会话  %d" to "Sessions  %d",
         "认证输入 %d" to "Authentication input %d",
         "会话不存在" to "Session not found",
         "Roamtty · %d 个 SSH 会话" to "Roamtty · %d SSH sessions",

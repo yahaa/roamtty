@@ -194,7 +194,7 @@ private fun HostAction(label: String, icon: Int, tag: String, modifier: Modifier
 @Composable
 private fun HostSessionsSection(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
     onClose: (TerminalConnection) -> Unit, onForget: (TerminalConnection, Boolean) -> Unit) {
-    GroupedSection(header = trf("会话  %d", sessions.size), modifier = Modifier.testTag("host-sessions")) {
+    GroupedSection(header = tr("会话"), modifier = Modifier.testTag("host-sessions")) {
         if (sessions.isEmpty()) GroupedRow(tr("暂无会话"), subtitle = tr("点上方“AI 助手”或“终端”开启新会话"))
         else sessions.forEachIndexed { index, session ->
             if (index > 0) GroupedDivider()
