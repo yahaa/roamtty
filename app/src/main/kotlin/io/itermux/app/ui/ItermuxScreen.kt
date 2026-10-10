@@ -104,8 +104,6 @@ fun ItermuxScreen(
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     /** The home page's tabs: sessions first, then hosts. */
     val homePager = rememberPagerState { 2 }
-    /** Whether the open terminal came from a host's detail page, which back then returns to. */
-    var terminalFromHost by rememberSaveable { mutableStateOf(false) }
     /** Opens the detail page of the selected session's host; the host list when that host is gone. */
     fun showSessionHost() {
         val hostId = sessions.find { it.id == selected }?.host?.id
@@ -114,16 +112,10 @@ fun ItermuxScreen(
             page = "host"
         } else page = "hosts"
     }
-    /**
-     * Leaves the terminal or file browser: back to the host detail page it was opened from, otherwise the home page on
-     * its sessions tab.
-     */
+    /** Leaves the terminal or file browser for the home page on its sessions tab. */
     fun leaveTerminal() {
-        if (terminalFromHost) showSessionHost() else {
-            page = "hosts"
-            homePager.requestScrollToPage(0)
-        }
-        terminalFromHost = false
+        page = "hosts"
+        homePager.requestScrollToPage(0)
     }
     BackHandler(page == "terminal") { leaveTerminal() }
     LaunchedEffect(service, sessions, selected, page) {
@@ -428,11 +420,7 @@ fun ItermuxScreen(
                         val connected = sessions.any { it.host.id == detailHost.id && (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
                         HostDetailPage(detailHost,
                             hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
-                            sessions = sessionsByActivity.filter { it.host.id == detailHost.id },
                             onBack = { page = "hosts" },
-                            onOpenSession = { selected = it.id; terminalFromHost = true; page = "terminal" },
-                            onCloseSession = { service?.close(it.id) },
-                            onForgetSession = ::forgetSession,
                             onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
                             onBrowseFiles = { browseFiles(detailHost) },
                             onEdit = { editHostId = detailHost.id; editorOpen = true },
@@ -486,7 +474,7 @@ fun ItermuxScreen(
                         }
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
-                            onHostDetail = { terminalFromHost = false; showSessionHost() },
+                            onHostDetail = ::showSessionHost,
                             onReconnect = reconnect.takeUnless { autoReconnect && !autoTried },
                             onRestart = { restartSession(active) },
                             onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },

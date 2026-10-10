@@ -3,7 +3,6 @@ package io.itermux.app.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -22,7 +21,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,16 +34,13 @@ import io.itermux.app.data.Host
 import io.itermux.app.data.installedPlugins
 import io.itermux.app.data.multiplexer
 import io.itermux.app.session.AgentLaunch
-import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.HostMetrics
-import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.HostSystem
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
-import io.itermux.ssh.TerminalTransport
 import java.util.Locale
 
 /**
@@ -56,12 +51,7 @@ import java.util.Locale
 internal fun HostDetailPage(
     host: Host,
     reachability: HostReachability,
-    /** This host's sessions, most active first. */
-    sessions: List<TerminalConnection>,
     onBack: () -> Unit,
-    onOpenSession: (TerminalConnection) -> Unit,
-    onCloseSession: (TerminalConnection) -> Unit,
-    onForgetSession: (TerminalConnection, terminateRemote: Boolean) -> Unit,
     /** Opens a session in the folder picked on the launch sheet, starting [AgentLaunch] there when given. */
     onLaunch: (directory: String, agent: AgentLaunch?) -> Unit,
     onBrowseFiles: () -> Unit,
@@ -123,7 +113,6 @@ internal fun HostDetailPage(
                     HostAction(tr("文件"), R.drawable.ic_folder, tag = "host-detail-files", modifier = Modifier.weight(1f),
                         onClick = onBrowseFiles)
                 }
-                HostSessionsSection(sessions, onOpenSession, onCloseSession, onForgetSession)
                 if (monitor == null) MonitorLoginCard { askPassword = true }
                 else MonitorSection(monitor, onLogin = { if (host.needsTypedPassword || host.auth == "KEY") askPassword = true else monitor.start() })
                 HostInfoSection(host, metrics)
@@ -190,95 +179,6 @@ private fun HostAction(label: String, icon: Int, tag: String, modifier: Modifier
     val sized = modifier.height(40.dp).testTag(tag)
     if (primary) Button(onClick, sized, shape = shape, contentPadding = padding, content = content)
     else FilledTonalButton(onClick, sized, shape = shape, contentPadding = padding, content = content)
-}
-
-/** Every session the app holds for this host; a tap opens its terminal, and the row renames or closes it like a session card. */
-@Composable
-private fun HostSessionsSection(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
-    onClose: (TerminalConnection) -> Unit, onForget: (TerminalConnection, Boolean) -> Unit) {
-    GroupedSection(header = tr("会话"), modifier = Modifier.testTag("host-sessions")) {
-        if (sessions.isEmpty()) GroupedRow(tr("暂无会话"), subtitle = tr("点上方“AI 助手”或“终端”开启新会话"))
-        else sessions.forEachIndexed { index, session ->
-            if (index > 0) GroupedDivider()
-            key(session.id) {
-                HostSessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
-                    onForget = { onForget(session, it) })
-            }
-        }
-    }
-}
-
-/** One session: title, status and transport, with rename and close. [showHost] adds the host's icon and name, for lists across hosts. */
-@Composable
-internal fun HostSessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: (terminateRemote: Boolean) -> Unit,
-    showHost: Boolean = false, tagPrefix: String = "host-session") {
-    val state by session.state.collectAsStateWithLifecycle()
-    val title by session.title.collectAsStateWithLifecycle()
-    val transport by session.transport.collectAsStateWithLifecycle()
-    val multiplexer by session.multiplexer.collectAsStateWithLifecycle()
-    val agent by session.agentStatus.collectAsStateWithLifecycle()
-    val launched by session.launchedAgent.collectAsStateWithLifecycle()
-    var editTitle by remember { mutableStateOf(false) }
-    var confirmClose by remember { mutableStateOf(false) }
-    var confirmForget by remember { mutableStateOf(false) }
-    val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
-    // The default title already names the host; a custom one does not. The agent's mark tells the agent.
-    val meta = listOfNotNull(session.host.name.takeIf { showHost && title.isNotBlank() },
-        if (session.mode == SessionMode.TMUX) (multiplexer ?: session.host.multiplexer).id else "ssh",
-        "mosh".takeIf { transport == TerminalTransport.MOSH }).joinToString(" · ")
-    Row(Modifier.fillMaxWidth().clickable(onClickLabel = tr("打开终端"), role = Role.Button, onClick = onClick)
-        .heightIn(min = 56.dp).padding(start = Spacing.Row, end = 0.dp, top = 10.dp, bottom = 10.dp).testTag("$tagPrefix-${session.id}"),
-        verticalAlignment = Alignment.CenterVertically) {
-        if (showHost) {
-            // A session running an agent is told apart by the agent's mark rather than the host's system.
-            if (kind != null) AgentIcon(kind, 40.dp, agent?.state.takeIf { state.phase == Phase.CONNECTED })
-            else SessionSystemIcon(session, 40.dp)
-            Spacer(Modifier.width(Spacing.Row))
-        }
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title.ifBlank { session.defaultTitle }, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                SessionMenu(session, state.active, tagPrefix, onEdit = { editTitle = true },
-                    onClose = { forget -> if (forget) confirmForget = true else confirmClose = true })
-            }
-            // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
-            val status = agent
-            if (status != null && state.phase == Phase.CONNECTED) AgentStatusLine(status, Modifier.padding(end = Spacing.Row), meta = meta)
-            else Row(Modifier.padding(end = Spacing.Row), verticalAlignment = Alignment.CenterVertically) {
-                StatusLabel(state.phase, Modifier.weight(1f))
-                SessionMeta(meta, Modifier.padding(start = Spacing.Tight))
-            }
-        }
-    }
-    if (editTitle) SessionTitleDialog(session) { editTitle = false }
-    if (confirmClose) SessionCloseDialog(session, { confirmClose = false }, onClose)
-    if (confirmForget) SessionForgetDialog(session, { confirmForget = false }, onForget)
-}
-
-/** The session's ⋯ on its title line: rename it, or close it (remove it when closing would only forget it). */
-@Composable
-private fun SessionMenu(session: TerminalConnection, active: Boolean, tagPrefix: String, onEdit: () -> Unit,
-    onClose: (forget: Boolean) -> Unit) {
-    var menu by remember { mutableStateOf(false) }
-    val forget = session.closeForgets(active)
-    Box {
-        IconButton(onClick = { menu = true }, modifier = Modifier.size(width = 44.dp, height = 28.dp)
-            .testTag("$tagPrefix-menu-${session.id}")) {
-            Icon(painterResource(R.drawable.ic_more), contentDescription = tr("会话选项"), Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(text = { Text(tr("修改会话标题")) }, onClick = { menu = false; onEdit() },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_edit), contentDescription = null) },
-                modifier = Modifier.testTag("$tagPrefix-rename-${session.id}"))
-            DropdownMenuItem(text = { Text(if (forget) tr("移除") else tr("关闭"), color = MaterialTheme.colorScheme.error) },
-                onClick = { menu = false; onClose(forget) },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error) },
-                modifier = Modifier.testTag("$tagPrefix-close-${session.id}"))
-        }
-    }
 }
 
 @Composable

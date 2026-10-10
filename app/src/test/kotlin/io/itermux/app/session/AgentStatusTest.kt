@@ -49,4 +49,25 @@ class AgentStatusTest {
         assertNotNull(AgentHooks.script)
         assertTrue(AgentHooks.script.startsWith("#!/bin/sh"))
     }
+
+    @Test fun readsThePanesFolderBeforeTheClock() {
+        val status = AgentStatus.parse("claude|idle|1000|claude|||\n/home/v/roamtty\n1042\n")!!
+        assertEquals("/home/v/roamtty", status.directory)
+        assertEquals(42_000, status.elapsedMillis)
+        assertEquals("", AgentStatus.parse("claude|idle|1000|claude|||\n1042")!!.directory)
+    }
+
+    @Test fun listTitleIsTheTaskThenTheFolderThenTheTitleWithoutTheAgent() {
+        val working = AgentStatus.parse("claude|working|1|claude|||fix the bug\n/home/v/roamtty\n2")!!
+        assertEquals("fix the bug", sessionListTitle("Claude · roamtty", working, CodingAgent.CLAUDE, "v"))
+        val fresh = working.copy(task = "")
+        assertEquals("~/roamtty", sessionListTitle("Claude · roamtty", fresh, CodingAgent.CLAUDE, "v"))
+        assertEquals("~", sessionListTitle("", fresh.copy(directory = "/Users/v"), CodingAgent.CLAUDE, "v"))
+        assertEquals("/srv/web", sessionListTitle("", fresh.copy(directory = "/srv/web"), CodingAgent.CLAUDE, "v"))
+        assertEquals("~/x", sessionListTitle("", fresh.copy(directory = "/root/x"), CodingAgent.CLAUDE, "root"))
+        assertEquals("roamtty", sessionListTitle("Claude · roamtty", null, CodingAgent.CLAUDE, "v"))
+        assertEquals("roamtty", sessionListTitle("Claude Code · roamtty", null, CodingAgent.CLAUDE, "v"))
+        assertEquals("部署脚本", sessionListTitle("部署脚本", null, CodingAgent.CLAUDE, "v"))
+        assertEquals("Claude · roamtty", sessionListTitle("Claude · roamtty", null, null, "v"))
+    }
 }
