@@ -10,35 +10,78 @@ import java.net.ServerSocket
 import kotlin.concurrent.thread
 
 class HostReachabilityTest {
-    @Test fun probeTimesTheSshGreeting() {
-        serving("SSH-2.0-OpenSSH_9.9\r\n") { port -> assertNotNull(sshGreetingTime("127.0.0.1", port, 1_000)) }
-        serving("Welcome\r\nSSH-2.0-OpenSSH_for_Windows_9.5\r\n") { port -> assertNotNull(sshGreetingTime("127.0.0.1", port, 1_000)) }
+    @Test fun probeAcceptsSshIdentificationWithOptionalPreambleAndComments() {
+        serving("SSH-2.0-OpenSSH_9.9\r\n") { port -> assertNotNull(sshTcpConnectTime("127.0.0.1", port, 1_000)) }
+        serving("Welcome\r\nSSH-2.0-OpenSSH_for_Windows_9.5\r\n") { port -> assertNotNull(sshTcpConnectTime("127.0.0.1", port, 1_000)) }
+        serving("SSH-1.99-fixture compatibility mode\n") { port -> assertNotNull(sshTcpConnectTime("127.0.0.1", port, 1_000)) }
+    }
+
+    @Test fun tcpLatencyExcludesDelayedSshGreeting() {
+        serving("SSH-2.0-fixture\r\n", greetingDelayMs = 600) { port ->
+            val start = System.nanoTime()
+            val latency = sshTcpConnectTime("127.0.0.1", port, 2_000)
+            val elapsedMs = (System.nanoTime() - start) / 1_000_000
+            assertNotNull(latency)
+            assertTrue("Online status must wait for the greeting: $elapsedMs ms", elapsedMs >= 600)
+            assertTrue("TCP latency must exclude the delayed greeting: $latency ms", latency!! < 300)
+        }
+    }
+
+    @Test fun truncatedGreetingIsOfflineEvenWhenTheConnectionStaysOpen() {
+        serving("SSH-") { port -> assertNull(sshTcpConnectTime("127.0.0.1", port, 1_000)) }
+        serving("SSH-2.0-fixture", holdOpenMs = 500) { port ->
+            assertNull(sshTcpConnectTime("127.0.0.1", port, 200))
+        }
+    }
+
+    @Test fun malformedIdentificationIsOffline() {
+        listOf("SSH-\r\n", "SSH-2.0-\r\n", "SSH-2.0- fixture\r\n", "SSH-2.0-fixture\u0000\r\n",
+            "SSH-1.5-fixture\r\n", "SSH-2.0-fixture\rbroken\n").forEach { greeting ->
+            serving(greeting) { port -> assertNull(greeting, sshTcpConnectTime("127.0.0.1", port, 1_000)) }
+        }
+    }
+
+    @Test fun identificationLengthIsBounded() {
+        serving("SSH-2.0-" + "a".repeat(245) + "\r\n") { port ->
+            assertNotNull(sshTcpConnectTime("127.0.0.1", port, 1_000))
+        }
+        serving("SSH-2.0-" + "a".repeat(246) + "\r\n") { port ->
+            assertNull(sshTcpConnectTime("127.0.0.1", port, 1_000))
+        }
+    }
+
+    @Test fun greetingBeyondTheDeadlineIsOffline() {
+        serving("SSH-2.0-fixture\r\n", greetingDelayMs = 500) { port ->
+            assertNull(sshTcpConnectTime("127.0.0.1", port, 150))
+        }
     }
 
     /** A local proxy that accepts the connect for a machine that is off: silent, or hangs up. */
     @Test fun acceptedConnectWithoutGreetingIsOffline() {
-        serving(null) { port -> assertNull(sshGreetingTime("127.0.0.1", port, 300)) }
-        serving("") { port -> assertNull(sshGreetingTime("127.0.0.1", port, 1_000)) }
-        serving("HTTP/1.1 400 Bad Request\r\n") { port -> assertNull(sshGreetingTime("127.0.0.1", port, 1_000)) }
+        serving(null) { port -> assertNull(sshTcpConnectTime("127.0.0.1", port, 300)) }
+        serving("") { port -> assertNull(sshTcpConnectTime("127.0.0.1", port, 1_000)) }
+        serving("HTTP/1.1 400 Bad Request\r\n") { port -> assertNull(sshTcpConnectTime("127.0.0.1", port, 1_000)) }
     }
 
     @Test fun sshPortProbeFailsOnClosedPortOrUnknownHost() {
         val port = ServerSocket(0).use { it.localPort }
-        assertNull(sshGreetingTime("127.0.0.1", port, 1_000))
-        assertNull(sshGreetingTime("host.invalid", 22, 1_000))
+        assertNull(sshTcpConnectTime("127.0.0.1", port, 1_000))
+        assertNull(sshTcpConnectTime("host.invalid", 22, 1_000))
     }
 
     /** Accepts one connection and writes [greeting] then closes it, or holds it open silently when null. */
-    private fun serving(greeting: String?, probe: (Int) -> Unit) = ServerSocket(0).use { server ->
+    private fun serving(greeting: String?, greetingDelayMs: Long = 0, holdOpenMs: Long = 0, probe: (Int) -> Unit) = ServerSocket(0).use { server ->
+        server.soTimeout = 3_000
         val worker = thread {
             runCatching {
                 server.accept().use { client ->
+                    Thread.sleep(greetingDelayMs)
                     if (greeting == null) Thread.sleep(1_000) else client.getOutputStream().write(greeting.toByteArray())
+                    Thread.sleep(holdOpenMs)
                 }
             }
         }
-        probe(server.localPort)
-        worker.join()
+        try { probe(server.localPort) } finally { worker.join() }
     }
 
     @Test fun offlineHostsBackOffToFiveMinutes() {
@@ -70,7 +113,7 @@ class HostReachabilityTest {
     }
 
     @Test fun latencyLabels() {
-        assertEquals("<1 ms", latencyLabel(0))
-        assertEquals("42 ms", latencyLabel(42))
+        assertEquals("TCP <1 ms", latencyLabel(0))
+        assertEquals("TCP 42 ms", latencyLabel(42))
     }
 }
