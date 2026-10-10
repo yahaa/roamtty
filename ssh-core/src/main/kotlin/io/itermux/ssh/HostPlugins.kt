@@ -1,10 +1,20 @@
 package io.itermux.ssh
 
-/** Remote helpers Roamtty can use: tmux keeps sessions alive, mosh keeps the terminal alive over roaming UDP. */
-enum class HostPlugin(val id: String) {
-    TMUX("tmux"), MOSH("mosh");
+/**
+ * Remote helpers Roamtty can use: tmux keeps sessions alive, mosh keeps the terminal alive over
+ * roaming UDP. [windows] plugins are for hosts whose OpenSSH shell is cmd.exe or PowerShell, where
+ * psmux takes tmux's place; MSYS2 and Cygwin shells use the POSIX ones.
+ */
+enum class HostPlugin(val id: String, val windows: Boolean = false) {
+    TMUX("tmux"), MOSH("mosh"), PSMUX("psmux", windows = true);
+
+    /** Keeps remote work running across disconnects, so new sessions run inside it. */
+    val keepsSessions: Boolean get() = this == TMUX || this == PSMUX
 
     companion object {
+        /** The plugins that can be installed on a host with (or without) a native Windows shell. */
+        fun offered(nativeWindows: Boolean): List<HostPlugin> = entries.filter { it.windows == nativeWindows }
+
         /** Stored as a comma-separated list; null means "never probed". */
         fun decode(value: String?): Set<HostPlugin>? = value?.split(',')
             ?.mapNotNull { id -> entries.firstOrNull { it.id == id.trim() } }?.toSet()

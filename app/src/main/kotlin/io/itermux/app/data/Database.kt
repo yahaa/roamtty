@@ -27,7 +27,10 @@ data class Host(
 
 val Host.installedPlugins: Set<HostPlugin>? get() = HostPlugin.decode(plugins)
 /** New sessions use tmux when the host has it; before the first probe the saved mode applies. */
-val Host.newSessionMode: SessionMode get() = installedPlugins?.let { if (HostPlugin.TMUX in it) SessionMode.TMUX else SessionMode.SHELL }
+/** What keeps this host's resumable sessions: psmux on a native Windows shell, else tmux. */
+val Host.multiplexer: HostPlugin get() =
+    if (installedPlugins?.let { HostPlugin.PSMUX in it && HostPlugin.TMUX !in it } == true) HostPlugin.PSMUX else HostPlugin.TMUX
+val Host.newSessionMode: SessionMode get() = installedPlugins?.let { if (it.any(HostPlugin::keepsSessions)) SessionMode.TMUX else SessionMode.SHELL }
     ?: SessionMode.valueOf(mode)
 /** Terminals prefer mosh whenever the host has mosh-server. */
 val Host.prefersMosh: Boolean get() = installedPlugins?.contains(HostPlugin.MOSH) == true

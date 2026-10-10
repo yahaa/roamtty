@@ -23,6 +23,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.ItermuxApp
 import io.itermux.app.R
 import io.itermux.app.data.Host
+import io.itermux.app.data.installedPlugins
 import io.itermux.app.session.PendingPrompt
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
@@ -44,6 +45,8 @@ internal class HostPluginsController(private val app: ItermuxApp, private val ta
     val plugins = MutableStateFlow<Set<HostPlugin>?>(null)
     /** Picks the install hints shown for this host. */
     val system = MutableStateFlow<HostSystem?>(null)
+    /** cmd.exe or PowerShell answered instead of a POSIX shell: psmux replaces tmux and mosh. */
+    val nativeWindows = MutableStateFlow(host.installedPlugins?.contains(HostPlugin.PSMUX) == true)
     val probed = MutableStateFlow(false)
     val installing = MutableStateFlow<HostPlugin?>(null)
     val log = MutableStateFlow<List<String>>(emptyList())
@@ -82,7 +85,12 @@ internal class HostPluginsController(private val app: ItermuxApp, private val ta
                 val state = launch { ssh.state.collect { connection.value = it } }
                 ssh.administer { remote ->
                     system.value = ssh.detectedSystem.value
-                    save(remote.probePlugins())
+                    val found = remote.probePlugins()
+                    ssh.nativeWindows.value?.let { windows ->
+                        nativeWindows.value = windows
+                        if (windows) system.value = HostSystem.WINDOWS
+                    }
+                    save(found)
                     for ((plugin, sudo) in queue) install(remote, plugin, sudo)
                 }
                 state.cancel()
@@ -106,10 +114,12 @@ internal class HostPluginsController(private val app: ItermuxApp, private val ta
         result.value = null
         log.value = emptyList()
         val output = StringBuilder()
-        val status = remote.run(HostPluginInstaller.script(plugin, sudo ?: loginPassword), 15 * 60_000L) { line ->
+        val onLine: (String) -> Unit = { line ->
             output.appendLine(line)
             HostPluginInstaller.displayLine(line)?.let { shown -> log.value = (log.value + shown).takeLast(300) }
         }
+        val status = if (plugin.windows) remote.runCommand(Psmux.installCommand, 15 * 60_000L, onLine)
+            else remote.run(HostPluginInstaller.script(plugin, sudo ?: loginPassword), 15 * 60_000L, onLine)
         result.value = plugin to HostPluginInstaller.classify(status, output.toString())
         remote.probePlugins()?.let { save(it) }
         installing.value = null
@@ -135,6 +145,7 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
     val plugins by controller.plugins.collectAsStateWithLifecycle()
     val probed by controller.probed.collectAsStateWithLifecycle()
     val system by controller.system.collectAsStateWithLifecycle()
+    val nativeWindows by controller.nativeWindows.collectAsStateWithLifecycle()
     val installing by controller.installing.collectAsStateWithLifecycle()
     val log by controller.log.collectAsStateWithLifecycle()
     val result by controller.result.collectAsStateWithLifecycle()
@@ -158,17 +169,18 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
                     TextButton(onClick = controller::start, modifier = Modifier.testTag("host-plugins-retry")) { Text(tr("重新连接")) }
                 }
-                probed && plugins == null -> Text(if (system == HostSystem.WINDOWS) tr("Windows 的 cmd 和 PowerShell 无法运行 tmux 与 mosh。请把 OpenSSH 的默认 shell 设为 MSYS2 或 Cygwin 的 bash 后重试，或在 WSL 中开启 SSH 并单独添加为主机。")
-                    else tr("无法检测插件。目前支持 Linux、macOS、BSD，以及使用 MSYS2 或 Cygwin shell 的 Windows 主机。"),
+                probed && plugins == null -> Text(if (system == HostSystem.WINDOWS) tr("无法通过 PowerShell 检测插件。请确认主机可运行 powershell.exe，或把 OpenSSH 的默认 shell 设为 MSYS2 或 Cygwin 的 bash 后重试。")
+                    else tr("无法检测插件。目前支持 Linux、macOS、BSD 和 Windows 主机。"),
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = Spacing.Page))
             }
             GroupedSection(header = tr("插件"),
-                footer = trf("%s新建会话优先使用 mosh；装有 tmux 时在 tmux 中运行。", installHint(system))) {
-                HostPlugin.entries.forEachIndexed { index, plugin ->
+                footer = if (nativeWindows) tr("通过 winget 安装，无需管理员权限；没有 winget 时从 GitHub 下载。新建会话在 psmux 中运行，断网后可恢复。")
+                    else trf("%s新建会话优先使用 mosh；装有 tmux 时在 tmux 中运行。", installHint(system))) {
+                HostPlugin.offered(nativeWindows).forEachIndexed { index, plugin ->
                     if (index > 0) GroupedDivider()
                     GroupedRow(plugin.id, Modifier.testTag("plugin-${plugin.id}"), subtitle = pluginDescription(plugin),
                         leading = {
-                            Icon(painterResource(if (plugin == HostPlugin.TMUX) R.drawable.ic_sessions else R.drawable.ic_live),
+                            Icon(painterResource(if (plugin.keepsSessions) R.drawable.ic_sessions else R.drawable.ic_live),
                                 contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                         },
                         trailing = {
@@ -221,6 +233,7 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
 private fun pluginDescription(plugin: HostPlugin) = when (plugin) {
     HostPlugin.TMUX -> tr("会话保持：断网或关闭 App 后远端任务继续运行，重连即可恢复原会话。")
     HostPlugin.MOSH -> tr("移动网络优化：基于 UDP，切换网络或锁屏后自动恢复。需放行 UDP 60000–61000。")
+    HostPlugin.PSMUX -> tr("Windows 版 tmux：断网或关闭 App 后远端任务继续运行，重连即可恢复原会话。")
 }
 
 /** Which package manager installs plugins on this kind of host, and whether it needs sudo. */

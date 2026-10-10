@@ -1,6 +1,6 @@
 package io.itermux.app.session
 
-import java.util.Base64
+import io.itermux.ssh.PowerShell
 
 /** Native Windows paths and PowerShell commands, independent of the SSH server's default shell. */
 internal object WindowsShell {
@@ -17,15 +17,9 @@ internal object WindowsShell {
         return slashes.trimEnd('/').let { if (it.length == 2 && it[1] == ':') "$it/" else it }
     }
 
-    // Decode data inside PowerShell: neither the outer CMD/PowerShell parser nor smart quotes can expand a path.
-    fun literal(value: String): String = "([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" +
-        Base64.getEncoder().encodeToString(value.toByteArray(Charsets.UTF_8)) + "')))"
+    fun literal(value: String): String = PowerShell.literal(value)
 
-    fun command(script: String, interactive: Boolean = false): String {
-        val options = if (interactive) "-NoExit" else "-NoProfile -NonInteractive -OutputFormat Text"
-        return "powershell.exe -NoLogo $options -EncodedCommand " +
-            Base64.getEncoder().encodeToString(script.toByteArray(Charsets.UTF_16LE))
-    }
+    fun command(script: String, interactive: Boolean = false): String = PowerShell.command(script, interactive)
 
     fun launch(directory: String, after: String? = null): String = command(
         "try { Set-Location -LiteralPath ${literal(normalize(directory))} -ErrorAction Stop" +

@@ -152,7 +152,7 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
         }
     }
     val modeSection: @Composable () -> Unit = {
-        GroupedSection(header = tr("会话模式"), footer = if (mode == "TMUX") tr("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux。") else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。")) {
+        GroupedSection(header = tr("会话模式"), footer = if (mode == "TMUX") tr("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux（Windows 主机为 psmux）。") else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。")) {
             SegmentedControl(listOf(
                 Segment(tr("tmux · 推荐"), mode == "TMUX") { if (!busy) mode = "TMUX" },
                 Segment(tr("普通 SSH"), mode == "SHELL") { if (!busy) mode = "SHELL" },

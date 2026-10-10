@@ -1,8 +1,10 @@
 package io.itermux.app.ui
 
 import io.itermux.app.tr
+import io.itermux.app.trf
 
 import io.itermux.app.data.Host
+import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
 
@@ -28,7 +30,8 @@ internal fun authLabel(auth: String) = when (auth) {
     else -> tr("密码")
 }
 
-internal fun modeLabel(tmux: Boolean) = if (tmux) tr("tmux · 可恢复") else tr("SSH · 普通会话")
+internal fun modeLabel(tmux: Boolean, multiplexer: HostPlugin = HostPlugin.TMUX) =
+    if (tmux) trf("%s · 可恢复", multiplexer.id) else tr("SSH · 普通会话")
 
 /** Sort key for session lists: live, then connecting, then needing the user, then closed. */
 internal fun activityRank(phase: Phase) = when (phase) {
@@ -46,6 +49,6 @@ internal fun phaseLabel(phase: Phase) = when (phase) {
     Phase.DISCONNECTED -> tr("已断开")
     Phase.AUTH_FAILED -> tr("认证失败")
     Phase.HOST_KEY_CHANGED -> tr("指纹变化")
-    Phase.TMUX_MISSING -> tr("缺少 tmux")
+    Phase.TMUX_MISSING -> tr("缺少 tmux 或 psmux")
     Phase.FAILED -> tr("连接失败")
 }
