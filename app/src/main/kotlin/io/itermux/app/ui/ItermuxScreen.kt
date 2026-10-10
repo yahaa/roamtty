@@ -102,13 +102,28 @@ fun ItermuxScreen(
     BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
-    /** Leaves the terminal or file browser for its host's detail page; the host list when that host is gone. */
-    fun leaveTerminal() {
+    /** The home page's tabs: sessions first, then hosts. */
+    val homePager = rememberPagerState { 2 }
+    /** Whether the open terminal came from a host's detail page, which back then returns to. */
+    var terminalFromHost by rememberSaveable { mutableStateOf(false) }
+    /** Opens the detail page of the selected session's host; the host list when that host is gone. */
+    fun showSessionHost() {
         val hostId = sessions.find { it.id == selected }?.host?.id
         if (hostId != null && hosts.any { it.id == hostId }) {
             detailHostId = hostId
             page = "host"
         } else page = "hosts"
+    }
+    /**
+     * Leaves the terminal or file browser: back to the host detail page it was opened from, otherwise the home page on
+     * its sessions tab.
+     */
+    fun leaveTerminal() {
+        if (terminalFromHost) showSessionHost() else {
+            page = "hosts"
+            homePager.requestScrollToPage(0)
+        }
+        terminalFromHost = false
     }
     BackHandler(page == "terminal") { leaveTerminal() }
     LaunchedEffect(service, sessions, selected, page) {
@@ -119,8 +134,6 @@ fun ItermuxScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val hostGridState = rememberLazyGridState()
-    /** The home page's tabs: sessions first, then hosts. */
-    val homePager = rememberPagerState { 2 }
     BackHandler(page == "hosts" && homePager.currentPage != 0 && !searchExpanded && !drawerState.isOpen) {
         scope.launch { homePager.animateScrollToPage(0) }
     }
@@ -384,8 +397,9 @@ fun ItermuxScreen(
                                         Modifier.fillMaxSize().testTag("home-sessions-empty"),
                                         action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
                                     matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
+                                    // A little wider than the host cards: session rows carry more text.
                                     else -> LazyColumn(Modifier.fillMaxSize().testTag("home-sessions-list"),
-                                        contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
+                                        contentPadding = PaddingValues(start = Spacing.Tight, end = Spacing.Tight, bottom = Spacing.Page)) {
                                         item(key = "sessions") {
                                             HomeSessionsList(matching, onOpen = { selected = it.id; page = "terminal" },
                                                 onClose = { service?.close(it.id) }, onForget = ::forgetSession)
@@ -416,7 +430,7 @@ fun ItermuxScreen(
                             hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
                             sessions = sessionsByActivity.filter { it.host.id == detailHost.id },
                             onBack = { page = "hosts" },
-                            onOpenSession = { selected = it.id; page = "terminal" },
+                            onOpenSession = { selected = it.id; terminalFromHost = true; page = "terminal" },
                             onCloseSession = { service?.close(it.id) },
                             onForgetSession = ::forgetSession,
                             onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
@@ -472,12 +486,12 @@ fun ItermuxScreen(
                         }
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
-                            onHostDetail = ::leaveTerminal,
+                            onHostDetail = { terminalFromHost = false; showSessionHost() },
                             onReconnect = reconnect.takeUnless { autoReconnect && !autoTried },
                             onRestart = { restartSession(active) },
                             onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active },
-                            // Closing ends the terminal page too: back to the host the session belonged to.
+                            // Closing ends the terminal page too: back to where it was opened from.
                             onClose = { leaveTerminal(); service?.close(active.id) })
                     }
                 }

@@ -99,6 +99,20 @@ class HomePageTest {
             Espresso.pressBack()
             compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("home-tab-sessions") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("home-session-${session.id}").assertIsDisplayed()
+            // The row's details are one quiet line: the mode, no pills repeating what the mark already says.
+            compose.onNodeWithTag("home-session-${session.id}").assertTextContains("ssh", substring = true)
+
+            // A session opened from the list returns to the sessions tab, even after the hosts tab was last shown.
+            compose.onNodeWithTag("home-tab-hosts").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("home-tab-hosts") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("home-tab-sessions").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("home-tab-sessions") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("home-session-${session.id}").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("home-pager").fetchSemanticsNodes().isEmpty() }
+            Espresso.pressBack()
+            compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("home-tab-sessions") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("home-session-${session.id}").assertIsDisplayed()
+            capture("home-back-from-terminal")
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id); service.forget(session.id) }
             app.database.hosts().delete(host.id)
