@@ -15,10 +15,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
@@ -67,27 +69,51 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
     }
 }
 
-/** Picks the host for a new session: a plain terminal or an AI agent, each continuing on the launch sheet. */
+/**
+ * Picks the host for a new session: a plain terminal or an AI agent, each continuing on the launch sheet. Saved hosts
+ * are shortcuts; the last row fills in a new host on the spot, the only row while there is none.
+ */
 @Composable
-internal fun NewSessionSheet(hosts: List<Host>, onDismiss: () -> Unit, onPick: (host: Host, forAgent: Boolean) -> Unit) {
+internal fun NewSessionSheet(hosts: List<Host>, onDismiss: () -> Unit, onNewHost: (forAgent: Boolean) -> Unit,
+    onPick: (host: Host, forAgent: Boolean) -> Unit) {
     AppSheet(onDismiss = onDismiss, fillHeight = false) {
         LazyColumn(Modifier.weight(1f, fill = false).testTag("new-session-sheet")) {
-            item { SheetHeader(tr("新建会话"), tr("选择主机，打开终端或 AI 助手。"), onDismiss) }
+            item { SheetHeader(tr("新建会话"), tr(if (hosts.isEmpty()) "填写主机信息，打开终端或 AI 助手。"
+                else "选择已有主机，或填写新主机。"), onDismiss) }
             items(hosts, key = { it.id }) { host ->
-                Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 24.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
-                    .testTag("new-session-host-${host.id}"), verticalAlignment = Alignment.CenterVertically) {
-                    HostSystemIcon(host.os, 40.dp)
-                    Column(Modifier.weight(1f).padding(horizontal = Spacing.Row)) {
-                        Text(host.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${host.username}@${host.address}:${host.port}", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    TextButton(onClick = { onPick(host, false) }, contentPadding = PaddingValues(horizontal = Spacing.Row),
-                        modifier = Modifier.testTag("new-session-terminal-${host.id}")) { Text(tr("终端"), maxLines = 1, softWrap = false) }
-                    FilledTonalButton(onClick = { onPick(host, true) }, contentPadding = PaddingValues(horizontal = Spacing.Row),
-                        modifier = Modifier.testTag("new-session-agent-${host.id}")) { Text(tr("AI 助手"), maxLines = 1, softWrap = false) }
+                NewSessionRow(host.name, "${host.username}@${host.address}:${host.port}", "new-session-host-${host.id}",
+                    "new-session-terminal-${host.id}", "new-session-agent-${host.id}", leading = { HostSystemIcon(host.os, 40.dp) }) {
+                    onPick(host, it)
                 }
             }
+            item(key = "new-host") {
+                NewSessionRow(tr("新主机"), tr("填写地址和登录方式"), "new-session-new-host", "new-session-new-host-terminal",
+                    "new-session-new-host-agent", leading = {
+                        Box(Modifier.size(40.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center) {
+                            Icon(painterResource(R.drawable.ic_add), contentDescription = null, Modifier.size(22.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }, onPick = onNewHost)
+            }
         }
+    }
+}
+
+@Composable
+private fun NewSessionRow(title: String, subtitle: String, tag: String, terminalTag: String, agentTag: String,
+    leading: @Composable () -> Unit, onPick: (forAgent: Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 24.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
+        .testTag(tag), verticalAlignment = Alignment.CenterVertically) {
+        leading()
+        Column(Modifier.weight(1f).padding(horizontal = Spacing.Row)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        TextButton(onClick = { onPick(false) }, contentPadding = PaddingValues(horizontal = Spacing.Row),
+            modifier = Modifier.testTag(terminalTag)) { Text(tr("终端"), maxLines = 1, softWrap = false) }
+        FilledTonalButton(onClick = { onPick(true) }, contentPadding = PaddingValues(horizontal = Spacing.Row),
+            modifier = Modifier.testTag(agentTag)) { Text(tr("AI 助手"), maxLines = 1, softWrap = false) }
     }
 }

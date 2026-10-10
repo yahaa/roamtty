@@ -15,6 +15,8 @@ import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -95,6 +97,40 @@ class HomePageTest {
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id); service.forget(session.id) }
             app.database.hosts().delete(host.id)
+        }
+    }
+
+    @Test fun newSessionFillsInANewHost() = runBlocking<Unit> {
+        // Port 1 and no password: saving skips the system probe, so no server is needed.
+        val address = "new-session-${java.util.UUID.randomUUID().toString().take(6)}.invalid"
+        try {
+            compose.waitUntil(8_000) { compose.onAllNodesWithTag("add-session").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("add-session").performClick()
+            compose.onNodeWithTag("new-session-sheet").performScrollToNode(hasTestTag("new-session-new-host"))
+            capture("new-session-sheet")
+            compose.onNodeWithTag("new-session-new-host-agent").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("host-editor").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNode(hasText("新建会话") and hasAnyAncestor(hasTestTag("host-editor"))).assertIsDisplayed()
+            // A host filled in for a session keeps its password by default.
+            compose.onNodeWithTag("save-password").performScrollTo().assertIsOn()
+            compose.onNodeWithTag("save-password").performClick()
+            // The name may stay blank: the host takes its address.
+            compose.onNodeWithTag("host-address").performTextInput(address)
+            compose.onNodeWithTag("host-username").performTextInput("test")
+            compose.onNodeWithTag("host-port").performTextClearance()
+            compose.onNodeWithTag("host-port").performTextInput("1")
+            capture("new-session-host-editor")
+            compose.onNodeWithTag("save-host").assertTextEquals("下一步").performClick()
+            // The saved host continues straight to the launch sheet, for an AI agent.
+            compose.waitUntil(8_000) { compose.onAllNodesWithTag("host-editor").fetchSemanticsNodes().isEmpty() }
+            compose.waitUntil(8_000) { compose.onAllNodesWithText("用 AI 助手打开").fetchSemanticsNodes().isNotEmpty() }
+            Thread.sleep(800) // let the sheet finish sliding in for the screenshot
+            capture("new-session-launch")
+            val saved = app.database.hosts().observe().first().single { it.address == address }
+            assertEquals(address, saved.name)
+            Espresso.pressBack()
+        } finally {
+            app.database.hosts().observe().first().filter { it.address == address }.forEach { app.database.hosts().delete(it.id) }
         }
     }
 }
