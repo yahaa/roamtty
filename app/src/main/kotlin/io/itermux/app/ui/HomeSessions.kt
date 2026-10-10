@@ -132,14 +132,18 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.testTag("$tagPrefix-title-${session.id}"),
                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 // The line beneath always keeps its place, so the title stays put as commands come and go: the command
-                // the agent runs, a spinner while it works on without one, else nothing.
+                // the agent runs, a spinner while it works on without one, how long its last turn took once it stops.
                 Box(contentAlignment = Alignment.CenterStart) {
                     Text(activity.ifEmpty { " " }, if (activity.isEmpty()) Modifier else Modifier.testTag("$tagPrefix-activity-${session.id}"),
                         style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val worked = agent?.workedSeconds
                     if (activity.isEmpty() && connected && agent?.state == AgentStatus.State.WORKING)
                         WorkingSpinner(kind?.brand() ?: MaterialTheme.colorScheme.primary,
                             Modifier.testTag("$tagPrefix-working-${session.id}"))
+                    else if (activity.isEmpty() && connected && worked != null)
+                        TurnDone(worked, kind?.brand() ?: MaterialTheme.colorScheme.primary,
+                            Modifier.testTag("$tagPrefix-done-${session.id}"))
                 }
             }
             SessionMenu(session, tagPrefix, onClose)
@@ -180,6 +184,21 @@ private fun WorkingSpinner(color: Color, modifier: Modifier = Modifier) {
                     listOf(dim, color, dim))
             }
         }))
+    }
+}
+
+/** Claude Code's line after a turn: the resting star and how long the turn worked. */
+@Composable
+private fun TurnDone(seconds: Long, color: Color, modifier: Modifier = Modifier) {
+    val style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(14.dp).clearAndSetSemantics { }, contentAlignment = Alignment.Center) {
+            Text("✻", style = style, color = color, maxLines = 1)
+        }
+        Spacer(Modifier.width(4.dp))
+        // Not monospaced: its spaces would gape between Chinese words.
+        Text(trf("已完成 · 用时 %s", duration(seconds)), modifier, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

@@ -72,8 +72,8 @@ class AgentStatusTest {
 
     @Test fun activityShowsWhatTheAgentRuns() {
         val working = AgentStatus.parse("sh|working|1|codex|Bash|make test|t\n2")!!
-        assertEquals("$ make test", agentActivity(working))
-        assertEquals("$ sleep 6", agentActivity(working.copy(tool = "run_terminal_command", detail = "sleep 6")))
+        assertEquals("Running make test", agentActivity(working))
+        assertEquals("Running sleep 6", agentActivity(working.copy(tool = "run_terminal_command", detail = "sleep 6")))
         assertEquals("Read src/a.kt", agentActivity(working.copy(tool = "Read", detail = "src/a.kt")))
         assertEquals("WebSearch", agentActivity(working.copy(tool = "WebSearch", detail = "")))
         assertEquals("Claude needs your permission to use Bash",
@@ -92,10 +92,11 @@ class AgentStatusTest {
         val dir = Files.createTempDirectory("agent-hook").toFile()
         try {
             val script = File(dir, "agent-hook.sh").apply { writeText(AgentHooks.script) }
-            // A stand-in tmux keeping each option in a file: `show-options -qv -t P NAME`, `set-option -q -t P NAME VALUE`.
+            // A stand-in tmux keeping each option in a file: `show-options -qv -t P NAME`, `set-option -q -t P NAME VALUE`,
+            // `set-option -u -q -t P NAME`.
             File(dir, "tmux").apply {
                 writeText("#!/bin/sh\ncase \"\$1\" in\n  show-options) cat \"$dir/opt\$5\" 2>/dev/null ;;\n" +
-                    "  set-option) printf '%s' \"\$6\" > \"$dir/opt\$5\" ;;\nesac\n")
+                    "  set-option) if [ \"\$2\" = -u ]; then rm -f \"$dir/opt\$6\"; else printf '%s' \"\$6\" > \"$dir/opt\$5\"; fi ;;\nesac\n")
                 setExecutable(true)
             }
             fun hook(event: String, json: String = "{}") {
@@ -117,11 +118,31 @@ class AgentStatusTest {
             hook("tool", """{"tool_name":"Read","tool_input":{"file_path":"src/a.kt"}}""")
             hook("post")
             assertEquals("working|Read|src/a.kt", reported())
+            val worked = File(dir, "opt@roamtty_worked")
+            assertFalse("no turn has stopped yet", worked.exists())
             hook("stop")
             assertEquals("idle||", reported())
+            // The stopped turn leaves how long it worked, in seconds; the next prompt clears it.
+            assertTrue(worked.readText(), worked.readText().toLong() in 0L..60L)
+            hook("prompt", """{"prompt":"again"}""")
+            assertFalse(worked.exists())
+            hook("end")
+            assertFalse(File(dir, "opt@roamtty_turn").exists())
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    @Test fun aStoppedTurnSaysHowLongItWorked() {
+        val idle = AgentStatus.parse("claude|idle|1000|claude|||75|fix the bug\n/home/v\n1042\n")!!
+        assertEquals(75L, idle.workedSeconds)
+        assertEquals("fix the bug", idle.task)
+        assertEquals("/home/v", idle.directory)
+        // While a turn runs, or before any, there is nothing to say.
+        assertNull(AgentStatus.parse("claude|working|1000|claude|Bash|ls||fix the bug\n1042")!!.workedSeconds)
+        assertNull(AgentStatus.parse("claude|idle|1000|claude||||fix the bug\n1042")!!.workedSeconds)
+        // A report without the field still reads.
+        assertNull(AgentStatus.parse("claude|idle|1000|claude|||fix the bug\n1042")!!.workedSeconds)
     }
 
     @Test fun readsThePanesFolderBeforeTheClock() {

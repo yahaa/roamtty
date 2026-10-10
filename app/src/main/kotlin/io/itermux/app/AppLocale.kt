@@ -600,6 +600,8 @@ private object EnglishText {
         "运行中" to "Running",
         "等待确认" to "Needs approval",
         "空闲" to "Idle",
+        "思考中…" to "Thinking…",
+        "已完成 · 用时 %s" to "Worked for %s",
         "会话选项" to "Session options",
         "启动 %s" to "Start %s",
         "将在新会话中打开，主机支持时使用 tmux，断开后任务仍在运行。" to "Opens in a new session. With tmux on the host, the agent keeps running after you disconnect.",

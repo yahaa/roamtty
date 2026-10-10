@@ -57,7 +57,9 @@ class AgentStatusUiTest {
                 session.runWhenConnected("[ -x ~/.roamtty/codex ] && printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; " +
                     "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"make test\"}}' | $hook tool; sleep 20; " +
                     // Then a new prompt: working on, with no command yet.
-                    "printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; sleep 600",
+                    "printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; sleep 15; " +
+                    // Then the turn stops.
+                    "$hook stop </dev/null; sleep 600",
                     agentHooks = CodingAgent.CODEX)
             }
             val working = withTimeout(40_000) { session.agentStatus.first { it?.state == AgentStatus.State.WORKING } }!!
@@ -76,7 +78,7 @@ class AgentStatusUiTest {
             compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("refactor the parser")
             compose.onNodeWithTag("agent-icon-codex", useUnmergedTree = true).assertExists()
             // Between the title and the state, the command it runs.
-            compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("$ make test")
+            compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("Running make test")
             fun capture(name: String) = context.getExternalFilesDir(null)?.let { dir ->
                 java.io.FileOutputStream(java.io.File(dir, "$name.png")).use {
                     row.captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
@@ -93,6 +95,15 @@ class AgentStatusUiTest {
             assertEquals(titleTop, compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true)
                 .getUnclippedBoundsInRoot().top)
             capture("agent-row-working")
+            // Once the turn stops, the line says how long it worked, as Claude Code does; the title still stays put.
+            compose.waitUntil(30_000) {
+                compose.onAllNodesWithTag("home-session-done-${session.id}", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("home-session-done-${session.id}", useUnmergedTree = true)
+                .assertTextContains(tr("已完成 · 用时 %s").substringBefore("%s"), substring = true)
+            assertEquals(titleTop, compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true)
+                .getUnclippedBoundsInRoot().top)
+            capture("agent-row-done")
         } finally {
             session.write("\u0003exit\r")
             prompts.cancel()
