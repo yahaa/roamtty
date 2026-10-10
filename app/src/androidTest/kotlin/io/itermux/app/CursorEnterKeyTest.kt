@@ -164,6 +164,20 @@ class CursorEnterKeyTest {
             assertTrue("down just below the pet", abs(down.top - pet.bottom) <= 2f && abs(down.center.x - pet.center.x) <= 1f)
             val left = compose.onNodeWithTag("pet-arrow-left").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
             assertTrue("left just left of the pet", abs(left.right - pet.left) <= 2f && abs(left.center.y - pet.center.y) <= 2f)
+            // The cursor row's key never lies over the pet or its arrows, wherever the cursor is.
+            // Park the cursor on the pet's own row, where the arrows would cover its key.
+            withContext(Dispatchers.Main) {
+                val row = ((pet.center.y - viewTop) / view.lineHeight).toInt().coerceAtLeast(1) + 1
+                val seq = "\u001b[$row;1H".toByteArray()
+                session.getEmulator().append(seq, seq.size)
+                view.onScreenUpdated()
+                session.revision.value++
+            }
+            compose.waitUntil(3_000) { arrowKeysShown() }
+            compose.waitForIdle()
+            val cursorKey = compose.onNodeWithTag("cursor-enter").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            assertTrue("cursor key $cursorKey is on the arrows' rows", cursorKey.top < down.bottom && cursorKey.bottom > up.top)
+            listOf(pet, up, down, left).forEach { assertTrue("cursor key $cursorKey overlaps $it", !cursorKey.overlaps(it)) }
             compose.onNodeWithTag("pet-arrow-left").performTouchInput { click() }
             outputContains("KEY_44")
             compose.onNodeWithTag("pet-arrow-up").performTouchInput { click() }
