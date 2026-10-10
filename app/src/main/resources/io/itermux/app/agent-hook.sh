@@ -2,12 +2,14 @@
 # Roamtty: records what an AI coding agent is doing as options of its tmux session, which the app reads.
 # Usage: agent-hook.sh <agent> <event>, with the agent's hook JSON on stdin. Never fails the agent.
 # Claude Code and Codex pass the JSON keys this reads in snake_case, Grok in camelCase.
-[ -n "$TMUX_PANE" ] || exit 0
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin"
 agent=$1
 event=$2
 # Grok's hooks are global: only a Grok the app started (through ~/.roamtty/grok) reports.
 [ "$agent" != grok ] || [ "$ROAMTTY_AGENT" = grok ] || exit 0
+# A Claude Code session sent to the background (/bg) runs on outside tmux, as a new process that resumes the pane's
+# session: its hooks find the pane by that session, which the pane's hooks record.
+[ -n "$TMUX_PANE" ] || [ "$agent" = claude ] || exit 0
 input=$(cat 2>/dev/null)
 # A Grok subagent's events are not its session's.
 case "$agent:$input" in grok:*'"subagentType"'*) exit 0 ;; esac
@@ -20,6 +22,24 @@ field() {
 
 get() { tmux show-options -qv -t "$TMUX_PANE" "$1" 2>/dev/null; }
 put() { tmux set-option -q -t "$TMUX_PANE" "$1" "$2" 2>/dev/null; }
+
+if [ -n "$TMUX_PANE" ]; then
+  # Kept past the session's end: a background session that resumed it still reports by it.
+  [ "$agent" != claude ] || put @roamtty_session "$(field session_id 64)"
+else
+  # The session a background Claude Code resumed is in its command line ("--resume …/<id>.jsonl"); the hook may run
+  # under a shell or two below it.
+  pid=$PPID resumed=
+  for _ in 1 2 3 4; do
+    [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null || break
+    resumed=$(ps -ww -o args= -p "$pid" 2>/dev/null | sed -nE 's/.*--resume[= ]+([^ ]*\/)?([0-9a-fA-F-]{36})(\.jsonl)?( .*)?$/\2/p')
+    [ -z "$resumed" ] || break
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+  done
+  [ -n "$resumed" ] || exit 0
+  TMUX_PANE=$(tmux list-panes -a -F '#{pane_id} #{@roamtty_session}' 2>/dev/null | awk -v id="$resumed" '$2 == id { print $1; exit }')
+  [ -n "$TMUX_PANE" ] || exit 0
+fi
 
 # state|since|agent|tool|detail; "since" keeps the time the state began while it repeats.
 record() {
