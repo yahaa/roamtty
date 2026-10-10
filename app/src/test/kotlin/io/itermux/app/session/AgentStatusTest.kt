@@ -133,6 +133,55 @@ class AgentStatusTest {
         }
     }
 
+    @Test fun aSessionSentToTheBackgroundStillReportsToItsPane() {
+        val dir = Files.createTempDirectory("agent-hook").toFile()
+        try {
+            val script = File(dir, "agent-hook.sh").apply { writeText(AgentHooks.script) }
+            // The stand-in tmux of the test above, with one pane, %1, listed with its @roamtty_session.
+            File(dir, "tmux").apply {
+                writeText("#!/bin/sh\ncase \"\$1\" in\n  show-options) cat \"$dir/opt\$5\" 2>/dev/null ;;\n" +
+                    "  set-option) if [ \"\$2\" = -u ]; then rm -f \"$dir/opt\$6\"; else printf '%s' \"\$6\" > \"$dir/opt\$5\"; fi ;;\n" +
+                    "  list-panes) printf '%%1 %s\\n' \"\$(cat \"$dir/opt@roamtty_session\" 2>/dev/null)\" ;;\nesac\n")
+                setExecutable(true)
+            }
+            val id = "32c4597e-61a4-4ddd-ba0a-51f68f9d1148"
+            // In the pane, or (pane = null) under a process resuming the session, as Claude Code's background job runs.
+            fun hook(event: String, json: String, pane: String?, resumed: String = id) {
+                val command = if (pane != null) listOf("sh", script.path, "claude", event)
+                    else listOf("sh", "-c", "sh '${script.path}' claude $event; :", "--resume", "/p/$resumed.jsonl", "--reply-on-resume")
+                val process = ProcessBuilder(command).apply {
+                    environment()["PATH"] = "${dir.path}:${System.getenv("PATH")}"
+                    environment().remove("TMUX_PANE")
+                    if (pane != null) environment()["TMUX_PANE"] = pane
+                    // The job's narrow terminal must not cut its command line short.
+                    environment()["COLUMNS"] = "20"
+                }.start()
+                process.outputStream.use { it.write(json.toByteArray()) }
+                assertEquals(0, process.waitFor())
+            }
+            fun reported() = File(dir, "opt@roamtty_agent").readText().split('|').let { "${it[0]}|${it[3]}|${it[4]}" }
+
+            hook("tool", """{"session_id":"$id","tool_name":"Bash","tool_input":{"command":"make"}}""", "%1")
+            assertEquals(id, File(dir, "opt@roamtty_session").readText())
+            hook("post", """{"session_id":"forked"}""", null)
+            hook("stop", """{"session_id":"forked"}""", null)
+            assertEquals("idle||", reported())
+            hook("prompt", """{"session_id":"forked","prompt":"next"}""", null)
+            assertEquals("working||", reported())
+            assertEquals("next", File(dir, "opt@roamtty_task").readText())
+            // Its own session ids never replace the pane's, and its end leaves the pane's session for it to report by.
+            hook("end", """{"session_id":"forked"}""", null)
+            hook("start", """{"session_id":"cleared"}""", null)
+            assertEquals("idle||", reported())
+            assertEquals(id, File(dir, "opt@roamtty_session").readText())
+            // A background session resumed from no pane reports nowhere.
+            hook("prompt", """{"session_id":"other","prompt":"elsewhere"}""", null, resumed = "00000000-0000-0000-0000-000000000000")
+            assertEquals("idle||", reported())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun aStoppedTurnSaysHowLongItWorked() {
         val idle = AgentStatus.parse("claude|idle|1000|claude|||75|fix the bug\n/home/v\n1042\n")!!
         assertEquals(75L, idle.workedSeconds)
