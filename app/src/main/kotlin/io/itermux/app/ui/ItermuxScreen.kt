@@ -43,6 +43,7 @@ import io.itermux.app.trf
 import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.data.newSessionMode
+import io.itermux.app.data.multiplexer
 import io.itermux.app.data.prefersMosh
 import io.itermux.app.session.*
 import io.itermux.ssh.*
@@ -154,7 +155,7 @@ fun ItermuxScreen(
                     )
                 }
                 request.terminateSessionId?.let { id ->
-                    toast(tr("正在终止远端 tmux 会话…"))
+                    toast(trf("正在终止远端 %s 会话…", request.host.multiplexer.id))
                     val failure = bound.terminate(id, credentials) { prompt ->
                         val pending = PendingPrompt(prompt)
                         terminatePrompt = pending

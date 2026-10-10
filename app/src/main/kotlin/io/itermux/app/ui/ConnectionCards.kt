@@ -121,19 +121,20 @@ internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active
 
 @Composable internal fun SessionForgetDialog(session: TerminalConnection, onDismiss: () -> Unit, onForget: (terminateRemote: Boolean) -> Unit) {
     var terminateRemote by remember { mutableStateOf(false) }
+    val mux = session.host.multiplexer.id
     AlertDialog(onDismissRequest = onDismiss,
         title = { Text(tr("移除记录")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-                Text(if (terminateRemote) tr("将登录服务器结束远端 tmux 会话，其中运行的任务会一并终止，然后移除卡片。")
-                    else trf("移除后无法从此卡片重连。远端会话不会被终止，可通过 tmux attach -t %s 手动连接。", session.remoteSessionName))
+                Text(if (terminateRemote) trf("将登录服务器结束远端 %s 会话，其中运行的任务会一并终止，然后移除卡片。", mux)
+                    else trf("移除后无法从此卡片重连。远端会话不会被终止，可通过 %s attach -t %s 手动连接。", mux, session.remoteSessionName))
                 Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .toggleable(value = terminateRemote, role = Role.Checkbox, onValueChange = { terminateRemote = it })
                     .testTag("terminate-remote-${session.id}"),
                     verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = terminateRemote, onCheckedChange = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(tr("同时终止远端 tmux 会话及任务"), style = MaterialTheme.typography.bodyMedium)
+                    Text(trf("同时终止远端 %s 会话及任务", mux), style = MaterialTheme.typography.bodyMedium)
                 }
             }
         },
