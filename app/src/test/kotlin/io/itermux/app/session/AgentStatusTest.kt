@@ -6,6 +6,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 class AgentStatusTest {
     @Test fun readsTheStateTheToolAndTheTask() {
@@ -84,6 +86,42 @@ class AgentStatusTest {
     @Test fun theScriptShipsWithTheApp() {
         assertNotNull(AgentHooks.script)
         assertTrue(AgentHooks.script.startsWith("#!/bin/sh"))
+    }
+
+    @Test fun aFinishedToolStaysShownUntilTheNextOneOrTheTurnsEnd() {
+        val dir = Files.createTempDirectory("agent-hook").toFile()
+        try {
+            val script = File(dir, "agent-hook.sh").apply { writeText(AgentHooks.script) }
+            // A stand-in tmux keeping each option in a file: `show-options -qv -t P NAME`, `set-option -q -t P NAME VALUE`.
+            File(dir, "tmux").apply {
+                writeText("#!/bin/sh\ncase \"\$1\" in\n  show-options) cat \"$dir/opt\$5\" 2>/dev/null ;;\n" +
+                    "  set-option) printf '%s' \"\$6\" > \"$dir/opt\$5\" ;;\nesac\n")
+                setExecutable(true)
+            }
+            fun hook(event: String, json: String = "{}") {
+                val process = ProcessBuilder("sh", script.path, "claude", event).apply {
+                    environment()["PATH"] = "${dir.path}:${System.getenv("PATH")}"
+                    environment()["TMUX_PANE"] = "%1"
+                }.start()
+                process.outputStream.use { it.write(json.toByteArray()) }
+                assertEquals(0, process.waitFor())
+            }
+            fun reported() = File(dir, "opt@roamtty_agent").readText().split('|').let { "${it[0]}|${it[3]}|${it[4]}" }
+
+            hook("prompt", """{"prompt":"fix the bug"}""")
+            assertEquals("working||", reported())
+            hook("tool", """{"tool_name":"Bash","tool_input":{"command":"make test"}}""")
+            assertEquals("working|Bash|make test", reported())
+            hook("post")
+            assertEquals("working|Bash|make test", reported())
+            hook("tool", """{"tool_name":"Read","tool_input":{"file_path":"src/a.kt"}}""")
+            hook("post")
+            assertEquals("working|Read|src/a.kt", reported())
+            hook("stop")
+            assertEquals("idle||", reported())
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     @Test fun readsThePanesFolderBeforeTheClock() {
