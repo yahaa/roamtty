@@ -619,10 +619,11 @@ class JschSession(
     }
 
     /** Writes [content] to `~/.roamtty/[name]` on the host, replacing it; [name] is a plain file name. */
-    suspend fun writeHostFile(name: String, content: String): Boolean {
+    suspend fun writeHostFile(name: String, content: String, executable: Boolean = false): Boolean {
         require(name.all { it.isLetterOrDigit() || it in "-_." } && !name.startsWith("."))
+        val chmod = if (executable) " && chmod +x \"\$HOME/.roamtty/$name\"" else ""
         return auxiliarySession(interactive = false)?.let {
-            runCommand(it, "/bin/sh -c 'mkdir -p \"\$HOME/.roamtty\" && cat > \"\$HOME/.roamtty/$name\"'", content)
+            runCommand(it, "/bin/sh -c 'mkdir -p \"\$HOME/.roamtty\" && cat > \"\$HOME/.roamtty/$name\"$chmod'", content)
         } != null
     }
 

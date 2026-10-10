@@ -13,6 +13,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
 import io.itermux.app.data.Host
 import io.itermux.app.session.AgentStatus
+import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.SessionService
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.Phase
@@ -48,11 +49,12 @@ class AgentStatusUiTest {
         val prompts = CoroutineScope(Dispatchers.Main).launch { session.pending.collect { it?.answer?.complete(listOf("trust")) } }
         try {
             withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED } }
-            val hook = "sh ~/.roamtty/agent-hook.sh claude"
+            // Codex's hooks come with its launcher, which must arrive runnable.
+            val hook = "sh ~/.roamtty/agent-hook.sh codex"
             withContext(Dispatchers.Main) {
-                session.runWhenConnected("printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; " +
+                session.runWhenConnected("[ -x ~/.roamtty/codex ] && printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; " +
                     "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"make test\"}}' | $hook tool; sleep 600",
-                    withAgentHooks = true)
+                    agentHooks = CodingAgent.CODEX)
             }
             val working = withTimeout(40_000) { session.agentStatus.first { it?.state == AgentStatus.State.WORKING } }!!
             check(working.tool == "Bash" && working.detail == "make test" && working.task == "refactor the parser" &&
@@ -68,7 +70,7 @@ class AgentStatusUiTest {
                 .assertTextContains("Agent status · ", substring = true)
             // The task is the row's title, said once.
             compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("refactor the parser")
-            compose.onNodeWithTag("agent-icon-claude", useUnmergedTree = true).assertExists()
+            compose.onNodeWithTag("agent-icon-codex", useUnmergedTree = true).assertExists()
             context.getExternalFilesDir(null)?.let { dir ->
                 java.io.FileOutputStream(java.io.File(dir, "agent-row.png")).use {
                     row.captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
