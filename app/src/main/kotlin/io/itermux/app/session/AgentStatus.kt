@@ -48,16 +48,23 @@ data class AgentStatus(
 }
 
 /**
- * A session's name in the session list: the task its agent was given, else the folder the agent works in (the home as
- * `~`), else [title] without the agent's name ("Claude · roamtty" → "roamtty"). Empty when there is none of these.
+ * A session's name in the session list: the task its agent was given, else the name of the folder the agent works in
+ * (the home as `~`), else [title] without the agent's name ("Claude · roamtty" → "roamtty"). Empty when there is none
+ * of these. The whole folder is [sessionListPath].
  */
 fun sessionListTitle(title: String, status: AgentStatus?, agent: CodingAgent?, username: String): String {
     status?.task?.takeIf { it.isNotBlank() }?.let { return it }
-    status?.directory?.takeIf { it.isNotBlank() }?.let { return homeRelative(it, username) }
+    sessionListPath(status, username).takeIf { it.isNotEmpty() }?.let { path ->
+        return if (path == "~" || path == "/") path else path.trimEnd('/').substringAfterLast('/')
+    }
     if (agent == null) return title
     return listOf(agent.shortLabel, agent.label).firstNotNullOfOrNull { name -> title.removePrefix("$name · ").takeIf { it != title } }
         ?: title
 }
+
+/** The folder the session's agent works in, the home as `~`; empty when tmux did not say. */
+fun sessionListPath(status: AgentStatus?, username: String): String =
+    status?.directory?.takeIf { it.isNotBlank() }?.let { homeRelative(it, username) } ?: ""
 
 private fun homeRelative(path: String, username: String): String {
     val homes = if (username == "root") listOf("/root") else listOf("/home/$username", "/Users/$username")

@@ -61,9 +61,11 @@ class AgentStatusUiTest {
             // The row merges its texts into one node.
             val row = compose.onNodeWithTag("home-session-${session.id}")
             compose.waitUntil(10_000) {
-                runCatching { row.assertTextContains("Bash: make test", substring = true) }.isSuccess
+                runCatching { row.assertTextContains(tr("运行中"), substring = true) }.isSuccess
             }
-            row.assertTextContains(tr("运行中"), substring = true)
+            // Beneath it, the host and the folder the agent works in.
+            compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true)
+                .assertTextContains("Agent status · ", substring = true)
             // The task is the row's title, said once.
             compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("refactor the parser")
             compose.onNodeWithTag("agent-icon-claude", useUnmergedTree = true).assertExists()

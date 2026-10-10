@@ -43,14 +43,15 @@ private fun AgentStatus.State.color() = when (this) {
 internal fun AgentIcon(agent: CodingAgent, size: Dp, state: AgentStatus.State? = null) {
     val (brand, icon) = when (agent) {
         CodingAgent.CLAUDE -> Color(0xFFD97757) to R.drawable.ic_agent_claude
-        CodingAgent.CODEX -> Color(0xFF4F7CFF) to R.drawable.ic_agent_codex
-        CodingAgent.GROK -> Color(0xFF8A8A92) to R.drawable.ic_agent_grok
+        CodingAgent.CODEX -> Color(0xFF6F86FF) to R.drawable.ic_agent_codex
+        // Grok's mark is black on white or white on black: it takes the text colour.
+        CodingAgent.GROK -> MaterialTheme.colorScheme.onSurface to R.drawable.ic_agent_grok
     }
     Box(Modifier.size(size).testTag("agent-icon-${agent.command}")) {
-        Surface(color = brand.copy(alpha = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.14f else 0.24f),
+        Surface(color = brand.copy(alpha = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.12f else 0.18f),
             shape = RoundedCornerShape(size * 0.28f), modifier = Modifier.fillMaxSize()) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(painterResource(icon), contentDescription = agent.label, tint = brand, modifier = Modifier.size(size * 0.58f))
+                Icon(painterResource(icon), contentDescription = agent.label, tint = brand, modifier = Modifier.size(size * 0.55f))
             }
         }
         if (state != null) Box(Modifier.align(Alignment.BottomEnd).size(size * 0.34f).clip(CircleShape)
@@ -59,11 +60,11 @@ internal fun AgentIcon(agent: CodingAgent, size: Dp, state: AgentStatus.State? =
 }
 
 /**
- * What an agent in the session is doing: its state and how long that has lasted, and the tool behind it. [meta] sits
- * quietly at the end of the line. The task it was given is the session's title, so it is not repeated here.
+ * What an agent in the session is doing: its state and how long that has lasted. The task it was given is the
+ * session's title, so it is not repeated here.
  */
 @Composable
-internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier, meta: String = "") {
+internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val color = status.state.color()
     val label = when (status.state) {
@@ -74,11 +75,6 @@ internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier,
     val ticks by produceState(0L, status) { while (true) { value += 1; delay(10_000) } }
     // The status arrives with the time the state has lasted; the clock below only moves it on between polls.
     val elapsed = status.elapsedMillis + ticks * 10_000
-    val what = when (status.state) {
-        AgentStatus.State.IDLE -> ""
-        AgentStatus.State.WORKING -> listOf(status.tool, status.detail).filter { it.isNotEmpty() }.joinToString(": ")
-        AgentStatus.State.WAITING -> status.detail.ifEmpty { status.tool }
-    }
     Row(modifier.testTag("agent-status"), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(6.dp))
@@ -86,10 +82,6 @@ internal fun AgentStatusLine(status: AgentStatus, modifier: Modifier = Modifier,
             maxLines = 1, softWrap = false)
         Text(" · ${duration(elapsed / 1000)}", style = MaterialTheme.typography.labelMedium,
             color = colors.onSurfaceVariant, maxLines = 1, softWrap = false)
-        if (what.isNotEmpty()) Text(" · $what", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
-            color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        else Spacer(Modifier.weight(1f))
-        if (meta.isNotEmpty()) SessionMeta(meta, Modifier.padding(start = Spacing.Tight))
     }
 }
 
@@ -97,11 +89,4 @@ private fun duration(seconds: Long): String = when {
     seconds < 60 -> trf("%d 秒", seconds)
     seconds < 3600 -> trf("%d 分钟", seconds / 60)
     else -> trf("%d 小时 %d 分钟", seconds / 3600, seconds % 3600 / 60)
-}
-
-/** A session's quiet details, such as its host, multiplexer and transport, in one line of small text. */
-@Composable
-internal fun SessionMeta(text: String, modifier: Modifier = Modifier) {
-    Text(text, modifier.testTag("session-meta"), style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), maxLines = 1, softWrap = false)
 }
