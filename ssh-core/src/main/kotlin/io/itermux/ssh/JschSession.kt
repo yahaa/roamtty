@@ -631,6 +631,13 @@ class JschSession(
     suspend fun restartTmuxPane(): String? = runCommand(
         if (multiplexer.value == HostPlugin.PSMUX) Psmux.restartPaneCommand(tmuxName) else Tmux.restartPaneCommand(tmuxName))?.trim()
 
+    /** Ends this session's tmux (or psmux) session on the server over the live connection; false when it could not. */
+    suspend fun killTmuxSession(): Boolean {
+        val ssh = auxiliarySession() ?: return false
+        return if (multiplexer.value == HostPlugin.PSMUX) runCommand(ssh, Psmux.killSessionCommand(tmuxName)) != null
+            else runCommand(ssh, HostPluginProbe.command, Tmux.killSessionScript(tmuxName)) != null
+    }
+
     private fun connectedSession(): Session? =
         session?.takeIf { it.isConnected && !stopped.get() && state.value.phase == Phase.CONNECTED }
 

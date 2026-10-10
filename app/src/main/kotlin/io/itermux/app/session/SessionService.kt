@@ -137,13 +137,23 @@ class SessionService : Service() {
         return replacement
     }
 
+    /**
+     * Ends a session outright: a tmux session is killed on the server first, with everything running in it, and the
+     * card goes. A tmux session that cannot be reached keeps its card so it can still be ended later.
+     */
     fun close(id: String) {
-        stateWatchers.remove(id)?.cancel()
         val existing = mutableSessions.value.find { it.id == id } ?: return
-        existing.disconnect()
-        // Detach preserves the remote task. Keep its addressable identity for reconnect.
-        if (existing.mode != SessionMode.TMUX)
+        stateWatchers.remove(id)?.cancel()
+        if (existing.mode == SessionMode.TMUX && existing.state.value.phase == Phase.CONNECTED) {
             mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+            scope.launch {
+                if (!existing.killRemoteSession()) android.util.Log.w("RoamttyConn", "close $id: remote tmux not ended")
+                existing.disconnect()
+            }
+        } else {
+            existing.disconnect()
+            if (existing.mode != SessionMode.TMUX) mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+        }
         saveSessions()
         refreshNotification()
     }
