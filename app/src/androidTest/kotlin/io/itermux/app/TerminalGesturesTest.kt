@@ -147,6 +147,33 @@ class TerminalGesturesTest {
         }
     }
 
+    @Test fun eitherRowOfABareHardWrappedUrlOpensTheCompleteAddress() {
+        terminalContent()
+        monitorBrowser()
+        val cols = emulator.mColumns
+        val head = "https://github.com/yahaa/roamtty/pu"
+        val url = "$head" + "ll/135"
+        // Wrap like a TUI whose width is a few cells narrower than the terminal.
+        val pad = "x".repeat(cols - head.length - 3 - 6)
+        compose.runOnIdle {
+            feed("  $pad $head\r\n  ll/135\r\nnext line\r\n$ ")
+            assertFalse("The TUI inserts a hard line break", emulator.screen.getLineWrap(0))
+        }
+        val tapped = listOf((2 + pad.length + 1 + 8) to 0, 3 to 1)
+        for ((column, row) in tapped) {
+            val point = androidx.compose.ui.geometry.Offset((column + 0.5f) * terminal.mRenderer.fontWidth, rowY(row))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        val prose = androidx.compose.ui.geometry.Offset(2.5f * terminal.mRenderer.fontWidth, rowY(2))
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(prose) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle {
+            assertEquals(listOf(url, url), browserIntents.map { it.dataString })
+            assertEquals("", input.toString())
+        }
+    }
+
     @Test fun urlApostropheOpensTheWholeAddressButItsEnclosingQuoteDoesNot() {
         terminalContent()
         monitorBrowser()
