@@ -36,7 +36,8 @@ internal class HostEditorDraft : ViewModel() {
     private var detector: JschSession? = null
     private var savingJob: Job? = null
 
-    fun open(original: Host?) {
+    /** With [savePasswordByDefault], a new host keeps its password, as one filled in for a new session does. */
+    fun open(original: Host?, savePasswordByDefault: Boolean = false) {
         if (active && sourceId == original?.id) return
         close()
         sourceId = original?.id
@@ -48,7 +49,7 @@ internal class HostEditorDraft : ViewModel() {
         auth.value = original?.auth ?: "PASSWORD"
         mode.value = original?.mode ?: "TMUX"
         os.value = original?.os ?: "UNKNOWN"
-        savePassword.value = original?.encryptedPassword != null
+        savePassword.value = original?.encryptedPassword != null || (original == null && savePasswordByDefault)
         keyLabel.value = original?.keyLabel
         active = true
     }

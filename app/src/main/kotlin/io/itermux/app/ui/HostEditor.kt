@@ -50,7 +50,8 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
             .filterIsInstance<ComponentActivity>().first()
     }
     val draft = remember(activity) { ViewModelProvider(activity)[HostEditorDraft::class.java] }
-    draft.open(original)
+    // A session started from here would otherwise ask for the password again right after saving.
+    draft.open(original, savePasswordByDefault = forSession)
     var name by draft.name
     var address by draft.address
     var port by draft.port

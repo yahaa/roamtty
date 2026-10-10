@@ -111,6 +111,9 @@ class HomePageTest {
             compose.onNodeWithTag("new-session-new-host-agent").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("host-editor").fetchSemanticsNodes().isNotEmpty() }
             compose.onNode(hasText("新建会话") and hasAnyAncestor(hasTestTag("host-editor"))).assertIsDisplayed()
+            // A host filled in for a session keeps its password by default.
+            compose.onNodeWithTag("save-password").performScrollTo().assertIsOn()
+            compose.onNodeWithTag("save-password").performClick()
             // The name may stay blank: the host takes its address.
             compose.onNodeWithTag("host-address").performTextInput(address)
             compose.onNodeWithTag("host-username").performTextInput("test")
