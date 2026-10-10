@@ -421,14 +421,8 @@ fun ItermuxScreen(
                                         Modifier.fillMaxSize().testTag("home-sessions-empty"),
                                         action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
                                     matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
-                                    // A little wider than the host cards: session rows carry more text.
-                                    else -> LazyColumn(Modifier.fillMaxSize().testTag("home-sessions-list"),
-                                        contentPadding = PaddingValues(start = Spacing.Tight, end = Spacing.Tight, bottom = Spacing.Page)) {
-                                        item(key = "sessions") {
-                                            HomeSessionsList(matching, onOpen = { selected = it.id; page = "terminal" },
-                                                onClose = ::closeSession)
-                                        }
-                                    }
+                                    else -> HomeSessionsList(matching, onOpen = { selected = it.id; page = "terminal" },
+                                        onClose = ::closeSession)
                                 }
                             } else Column(Modifier.fillMaxSize()) {
                                 HomeListHeader(trf("主机 · %d", hosts.size), tr("添加主机"), "add-host") {

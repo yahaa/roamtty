@@ -2,12 +2,14 @@ package io.itermux.app.ui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -75,23 +77,22 @@ internal fun HomeListHeader(label: String, addDescription: String, addTag: Strin
     }
 }
 
-/** Every session the app holds, most active first; a tap opens its terminal. */
+/** Every session the app holds, most active first, as cards laid out like the host list; a tap opens its terminal. */
 @Composable
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
     onClose: (TerminalConnection) -> Unit) {
-    GroupedSection(modifier = Modifier.testTag("home-sessions")) {
-        sessions.forEachIndexed { index, session ->
-            if (index > 0) GroupedDivider()
-            key(session.id) {
-                SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) })
-            }
+    LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), modifier = Modifier.fillMaxSize().testTag("home-sessions-list"),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row),
+        contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
+        gridItems(sessions, key = { it.id }) { session ->
+            SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) })
         }
     }
 }
 
 /**
- * One session: the agent's mark (or the host's system), what it works on, its status and where it runs, with close in its
- * menu. The title is the agent's task, else its folder; see [sessionListTitle].
+ * One session card: the agent's mark (or the host's system), what it works on, its status and where it runs, with close
+ * in its menu. The title is the agent's task, else its folder; see [sessionListTitle].
  */
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit,
@@ -103,48 +104,43 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
     val shown = sessionListTitle(title, agent.takeIf { connected }, kind, session.host.username)
-    // Where it runs, under the title on the right: the host, and the agent's whole folder unless that is the title.
+    // Where it runs, on the status line's right: the host, and the agent's whole folder unless that is the title.
     val path = sessionListPath(agent.takeIf { connected }, session.host.username)
     val location = listOf(session.host.name, path).filter { it.isNotEmpty() && it != shown }.distinct().joinToString(" · ")
-    Row(Modifier.fillMaxWidth().clickable(onClickLabel = tr("打开终端"), role = Role.Button, onClick = onClick)
-        .heightIn(min = 56.dp).padding(start = Spacing.Row, end = 0.dp, top = 10.dp, bottom = 10.dp).testTag("$tagPrefix-${session.id}"),
-        verticalAlignment = Alignment.CenterVertically) {
-        // A session running an agent is told apart by the agent's mark rather than the host's system.
-        if (kind != null) AgentIcon(kind, 40.dp, agent?.state.takeIf { connected })
-        else SessionSystemIcon(session, 40.dp)
-        Spacer(Modifier.width(Spacing.Row))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"), style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                SessionMenu(session, tagPrefix, onClose)
+    // What an agent is running; no line while it runs nothing.
+    val activity = agentActivity(agent.takeIf { connected })
+    ListCard(onClick = onClick, onClickLabel = tr("打开终端"), modifier = Modifier.testTag("$tagPrefix-${session.id}")) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // A session running an agent is told apart by the agent's mark rather than the host's system.
+            if (kind != null) AgentIcon(kind, 44.dp, agent?.state.takeIf { connected })
+            else SessionSystemIcon(session, 44.dp)
+            Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
+                Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.testTag("$tagPrefix-title-${session.id}"),
+                    style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (activity.isNotEmpty()) Text(activity, Modifier.testTag("$tagPrefix-activity-${session.id}"),
+                    style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            // What an agent is running; no line while it runs nothing.
-            val activity = agentActivity(agent.takeIf { connected })
-            if (activity.isNotEmpty()) Text(activity, Modifier.padding(end = Spacing.Row)
-                .testTag("$tagPrefix-activity-${session.id}"), style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
-                overflow = TextOverflow.Ellipsis)
-            // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
-            val status = agent
-            Row(Modifier.padding(end = Spacing.Row), verticalAlignment = Alignment.CenterVertically) {
-                if (status != null && connected) AgentStatusLine(status) else StatusLabel(state.phase)
-                Text(location, Modifier.weight(1f).padding(start = Spacing.Tight).testTag("$tagPrefix-location-${session.id}"),
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
-            }
+            SessionMenu(session, tagPrefix, onClose)
+        }
+        // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
+        val status = agent
+        Row(Modifier.padding(top = Spacing.Row, end = Spacing.Page - 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (status != null && connected) AgentStatusLine(status) else StatusLabel(state.phase)
+            Text(location, Modifier.weight(1f).padding(start = Spacing.Tight).testTag("$tagPrefix-location-${session.id}"),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
         }
     }
 }
 
-/** The session's ⋯ on its title line: close it, ending everything it runs, without asking. */
+/** The session's ⋯ on its card: close it, ending everything it runs, without asking. */
 @Composable
 private fun SessionMenu(session: TerminalConnection, tagPrefix: String, onClose: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { menu = true }, modifier = Modifier.size(width = 44.dp, height = 28.dp)
-            .testTag("$tagPrefix-menu-${session.id}")) {
-            Icon(painterResource(R.drawable.ic_more), contentDescription = tr("会话选项"), Modifier.size(20.dp),
+        IconButton(onClick = { menu = true }, modifier = Modifier.testTag("$tagPrefix-menu-${session.id}")) {
+            Icon(painterResource(R.drawable.ic_more), contentDescription = tr("会话选项"),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         DropdownMenu(menu, { menu = false }) {
