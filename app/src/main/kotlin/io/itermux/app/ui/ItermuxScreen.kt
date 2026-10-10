@@ -36,6 +36,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.edit
 import io.itermux.app.ItermuxApp
@@ -157,7 +159,8 @@ fun ItermuxScreen(
     var pluginTarget by remember { mutableStateOf<PluginTarget?>(null) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     fun toast(message: String) { Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
-    fun start(request: ConnectRequest, password: String = "", passphrase: String = "") {
+    /** [open] shows the session once it connects; a reconnect from the session list stays on the list. */
+    fun start(request: ConnectRequest, password: String = "", passphrase: String = "", open: Boolean = true) {
         val bound = service ?: run { toast(tr("会话服务尚未就绪，请稍后重试")); return }
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             permission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -192,11 +195,13 @@ fun ItermuxScreen(
                 if (request.title.isNotBlank()) session.rename(request.title)
                 request.agent?.let { session.launchedAgent.value = it }
                 request.startupCommand?.let { session.runWhenConnected(it, request.agentHooks) }
+                if (!open) return@launch
                 selected = session.id
                 page = if (request.openFilesAfterConnect) "files" else "terminal"
             } catch (e: Exception) {
                 credentials?.clear()
                 if (e is CancellationException) throw e
+                if (!open) return@launch
                 // Session limits and missing entries are reported by check()/error() with localized text.
                 toast((e as? IllegalStateException)?.message ?: tr("无法读取凭据，请重新导入密钥或保存密码。"))
             }
@@ -219,6 +224,30 @@ fun ItermuxScreen(
         else begin(ConnectRequest(session.host, SessionMode.SHELL, terminateSessionId = session.id))
     }
 
+    val resumed by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+    val onSessionsTab = page == "hosts" && homePager.currentPage == 0 && resumed.isAtLeast(Lifecycle.State.RESUMED)
+    /** Sessions that already retried an unreachable host during this look at the session list. */
+    val retriedThisVisit = remember(onSessionsTab) { mutableSetOf<String>() }
+    // While the session list is on screen, sessions that dropped, came back from the journal or lost the network
+    // reconnect by themselves; only on hosts that need no typed password.
+    LaunchedEffect(onSessionsTab, service, sessions, hosts) {
+        if (!onSessionsTab || service == null) return@LaunchedEffect
+        service.awaitRestoration()
+        service.sessions.value.forEach { session ->
+            val host = hosts.firstOrNull { it.id == session.host.id } ?: return@forEach
+            if (host.auth != AuthMethod.KEY.name && (host.auth != AuthMethod.PASSWORD.name || host.encryptedPassword == null)) return@forEach
+            launch {
+                session.state.first { reconnectsFromList(it) && session.id !in retriedThisVisit }
+                autoReconnectedAt[session.id]?.let { delay(it + AUTO_RECONNECT_INTERVAL_MS - SystemClock.elapsedRealtime()) }
+                val state = session.state.value
+                if (!reconnectsFromList(state)) return@launch
+                // A host still out of reach is tried once per visit, not every few seconds.
+                if (!reconnectsOnOpen(state)) retriedThisVisit += session.id
+                autoReconnectedAt[session.id] = SystemClock.elapsedRealtime()
+                start(ConnectRequest(host, session.mode, session.title.value, reuseSessionId = session.id), open = false)
+            }
+        }
+    }
     /** tmux restarts the pane over the live connection; a plain shell gets a fresh one by reconnecting. */
     fun restartSession(session: TerminalConnection) {
         if (session.mode != SessionMode.TMUX) connect(session.host, session.mode, session.title.value, reuseSessionId = session.id)

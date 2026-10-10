@@ -38,6 +38,12 @@ internal const val DROPPED_MESSAGE = "SSH 已断开。未发送的输入已丢�
 internal fun reconnectsOnOpen(state: ConnectionState) =
     state.phase == Phase.DISCONNECTED && state.message in setOf(RESTORED_MESSAGE, DROPPED_MESSAGE)
 
+internal const val UNREACHABLE_MESSAGE = "网络不可达或连接被中断，请检查网络和 VPN 后重连。"
+
+/** The session list also reconnects a session that gave up on an unreachable host, which the network may be back for. */
+internal fun reconnectsFromList(state: ConnectionState) =
+    reconnectsOnOpen(state) || state.phase == Phase.FAILED && state.message == UNREACHABLE_MESSAGE
+
 /** At most one automatic reconnect per session within this window, so a host that drops at once cannot loop. */
 internal const val AUTO_RECONNECT_INTERVAL_MS = 10_000L
 
