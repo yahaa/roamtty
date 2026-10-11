@@ -1,6 +1,6 @@
 # Roamtty 隐私政策
 
-生效日期：2026-10-06
+生效日期：2026-10-11
 
 Roamtty 是一款开源的 SSH 终端客户端。我们（Roamtty 开发者）不运营任何服务器，不收集、不上传、不出售、也不与任何第三方共享你的个人数据。
 
@@ -21,6 +21,7 @@ Roamtty 是一款开源的 SSH 终端客户端。我们（Roamtty 开发者）�
 - 应用只会连接到你自己添加的服务器：SSH（TCP）、mosh（UDP）以及用于显示在线状态和延迟的 TCP 连通性检测。
 - SSH 与 mosh 连接均加密传输；应用禁止明文 HTTP 流量。
 - 连接时，应用会在远端执行只读操作：识别远端系统、检查 tmux / mosh 是否可用（结果保存在本机的主机信息中），以及读取远端 shell 历史文件作为“常用命令”。常用命令只缓存于会话的内存状态，断开后仍可能用于查看，不写入应用持久化存储，进程结束后不保留。其他远端操作只在你主动发起时执行，例如安装 tmux / mosh，或通过 SFTP 上传、下载文件。
+- 从应用启动 Claude Code、Codex 或 Grok 时（Windows 起始目录除外），应用会在远端写入用于显示 Agent 状态的 hook 文件：`~/.roamtty/agent-hook.sh`，以及 `~/.roamtty/claude-hooks.json`（Claude Code）或启动器 `~/.roamtty/codex`、`~/.roamtty/grok`。Codex 启动器会在 `${CODEX_HOME:-~/.codex}/config.toml` 末尾追加这些 hook 的信任记录（已有同名条目则不改动）；Grok 启动器会写入 `${GROK_HOME:-~/.grok}/hooks/roamtty.json`，其中的 hook 只对从应用启动的 Grok 生效。hook 把 Agent 的状态、正在执行的工具和命令，以及你最近一条提示词的前 200 个字符，保存为该 tmux 会话的选项，Agent 退出时清除；应用通过 SSH 读取这些选项，在会话列表显示，只保存在内存中，不写入手机存储，也不发往其他地方。这些文件留在服务器上，可随时删除 `~/.roamtty` 目录、`config.toml` 中追加的条目和 `roamtty.json`；下次从应用启动 Agent 时会重新写入。不从应用启动 Agent 时不会写入这些文件。
 - 应用不包含广告、统计分析、崩溃上报或任何第三方 SDK，不会向开发者或第三方发送任何数据。
 
 ## 权限
@@ -51,7 +52,7 @@ Roamtty 是一款开源的 SSH 终端客户端。我们（Roamtty 开发者）�
 
 # Roamtty Privacy Policy
 
-Effective date: 2026-10-06
+Effective date: 2026-10-11
 
 Roamtty is an open-source SSH terminal client. We, the Roamtty developers, run no servers and do not collect, upload, sell or share any of your personal data with anyone.
 
@@ -72,6 +73,7 @@ Terminal output, input and text drafts are kept in memory only and never written
 - The app connects only to servers you add: SSH (TCP), mosh (UDP), and TCP reachability checks that show whether a host is online and its latency.
 - SSH and mosh connections are encrypted; the app blocks cleartext HTTP traffic.
 - When connecting, the app performs read-only operations on the server: it identifies the system, checks whether tmux / mosh are available (stored in the host entry on your device), and reads the remote shell history file to suggest common commands. Common commands are cached only in the session's memory and may remain available to view after disconnecting. They are not written to persistent app storage and do not survive process termination. Everything else happens only when you ask for it, such as installing tmux / mosh or uploading and downloading files over SFTP.
+- When you start Claude Code, Codex or Grok from the app (except in a Windows start folder), the app writes hook files to the server so it can show the agent's status: `~/.roamtty/agent-hook.sh`, plus `~/.roamtty/claude-hooks.json` (Claude Code) or the launchers `~/.roamtty/codex` and `~/.roamtty/grok`. The Codex launcher appends trust entries for these hooks to the end of `${CODEX_HOME:-~/.codex}/config.toml` (an existing entry with the same name is left alone); the Grok launcher writes `${GROK_HOME:-~/.grok}/hooks/roamtty.json`, whose hooks act only for a Grok started from the app. The hooks store the agent's state, the tool and command it is running, and the first 200 characters of your latest prompt as options of that tmux session, cleared when the agent exits. The app reads them over SSH to show in the session list; they are kept in memory only, never written to the phone's storage or sent anywhere else. The files stay on the server; you can delete the `~/.roamtty` folder, the entries appended to `config.toml` and `roamtty.json` at any time, and the next agent started from the app writes them again. None of these files are written unless you start an agent from the app.
 - The app contains no ads, analytics, crash reporting or third-party SDKs, and sends no data to the developers or any third party.
 
 ## Permissions
