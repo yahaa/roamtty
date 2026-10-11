@@ -44,7 +44,21 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (signingFile.exists()) signingConfig = signingConfigs.getByName("localRelease")
         }
+        // End-to-end suite (scripts/e2e/run.sh): release code paths, not debuggable, so timings resemble a shipped
+        // build, but unshrunk so the androidTest APK can call into the app. Its own package keeps it apart from an
+        // installed Roamtty and its sessions.
+        create("e2e") {
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+            isShrinkResources = false
+            isDebuggable = false
+            applicationIdSuffix = ".e2e"
+            versionNameSuffix = "-e2e"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+        }
     }
+    testBuildType = providers.gradleProperty("itermuxTestBuildType").getOrElse("debug")
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
@@ -82,6 +96,7 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    "e2eImplementation"("androidx.compose.ui:ui-test-manifest")
 }
 
 /** Builds the in-app license text from the same files the repository ships, so it cannot drift. */

@@ -1,0 +1,231 @@
+{
+  "about": "Limits per metric; a profile key (emulator/device) overrides max/min for that device class. run.sh picks the profile from ro.hardware.",
+  "metrics": {
+    "unit_tests_failed": {
+      "max": 0,
+      "unit": "count",
+      "source": "host",
+      "about": "JVM unit tests of app, ssh-core, terminal-emulator, terminal-view",
+      "optional": true
+    },
+    "cold_start_p50_ms": {
+      "max": 1500,
+      "unit": "ms",
+      "source": "host",
+      "about": "am start -W TotalTime, median of 6 cold starts"
+    },
+    "cold_start_max_ms": {
+      "max": 2500,
+      "unit": "ms",
+      "source": "host",
+      "about": "slowest of the 6 cold starts"
+    },
+    "host_save_with_detection_ms": {
+      "max": 5000,
+      "unit": "ms",
+      "test": "E2eFeatureTest",
+      "about": "保存 → fingerprint trust → system + plugin detection done"
+    },
+    "host_probe_latency_ms": {
+      "max": 100,
+      "unit": "ms",
+      "test": "E2eFeatureTest",
+      "about": "card's DNS + TCP latency to the loopback fixture"
+    },
+    "ui_terminal_open_ms": {
+      "max": 3000,
+      "unit": "ms",
+      "test": "E2eFeatureTest",
+      "about": "打开 tap → terminal connected"
+    },
+    "tmux_reattach_ms": {
+      "max": 3000,
+      "unit": "ms",
+      "test": "E2eFeatureTest",
+      "about": "重新连接 tap → tmux session reattached"
+    },
+    "files_open_ms": {
+      "max": 3000,
+      "unit": "ms",
+      "test": "E2eFeatureTest",
+      "about": "查看文件 → home listing shown"
+    },
+    "files_list_1500_ms": {
+      "max": 2000,
+      "unit": "ms",
+      "test": "E2eFeatureTest",
+      "about": "open a 1,500-file directory"
+    },
+    "preview_large_log_ms": {
+      "max": 3000,
+      "unit": "ms",
+      "test": "E2eFeatureTest",
+      "about": "preview of a 60,000-line log"
+    },
+    "monitor_first_sample_ms": {
+      "max": 5000,
+      "unit": "ms",
+      "test": "E2eFeatureTest",
+      "about": "host page → first CPU/memory sample"
+    },
+    "plugin_detect_ms": {
+      "max": 5000,
+      "unit": "ms",
+      "test": "E2eFeatureTest",
+      "about": "安装插件 sheet → tmux/mosh detected"
+    },
+    "ssh_connect_p50_ms": {
+      "max": 1500,
+      "unit": "ms",
+      "test": "E2ePerfTest",
+      "about": "SSH login to shell, median of 5"
+    },
+    "ssh_connect_max_ms": {
+      "max": 3000,
+      "unit": "ms",
+      "test": "E2ePerfTest",
+      "about": "slowest of the 5 logins"
+    },
+    "echo_p50_ms": {
+      "max": 60,
+      "unit": "ms",
+      "test": "E2ePerfTest",
+      "about": "key commit → echoed on screen, median of 40"
+    },
+    "echo_p95_ms": {
+      "max": 120,
+      "unit": "ms",
+      "test": "E2ePerfTest",
+      "about": "key echo, 95th percentile"
+    },
+    "flood_seq200k_ms": {
+      "max": 8000,
+      "unit": "ms",
+      "test": "E2ePerfTest",
+      "about": "seq 1 200000 fully rendered"
+    },
+    "flood_wide_ms": {
+      "max": 4000,
+      "unit": "ms",
+      "test": "E2ePerfTest",
+      "about": "3,000 lines of 200 columns"
+    },
+    "flood_color_ms": {
+      "max": 6000,
+      "unit": "ms",
+      "test": "E2ePerfTest",
+      "about": "20,000 SGR-coloured lines"
+    },
+    "flood_seq200k_jank_pct": {
+      "max": 60,
+      "unit": "%",
+      "test": "E2ePerfTest",
+      "about": "janky frames while flooding",
+      "emulator": {
+        "max": 70
+      }
+    },
+    "scroll_jank_pct": {
+      "max": 20,
+      "unit": "%",
+      "test": "E2eFramesTest",
+      "about": "janky frames dragging through scrollback",
+      "emulator": {
+        "max": 80
+      }
+    },
+    "scroll_frame_p90_ms": {
+      "max": 24,
+      "unit": "ms",
+      "test": "E2eFramesTest",
+      "about": "90th percentile frame time in scrollback",
+      "emulator": {
+        "max": 40
+      }
+    },
+    "scroll_frames_drawn": {
+      "min": 30,
+      "unit": "frames",
+      "test": "E2eFramesTest",
+      "about": "frames drawn while dragging through scrollback (0 = the drag never redraws)"
+    },
+    "hostlist_jank_pct": {
+      "max": 40,
+      "unit": "%",
+      "test": "E2eFramesTest",
+      "about": "janky frames flinging 60 host cards",
+      "emulator": {
+        "max": 60
+      }
+    },
+    "idle_home_cpu_ms_per_10s": {
+      "max": 200,
+      "unit": "ms",
+      "test": "E2ePerfTest",
+      "about": "process CPU over 10 s on an idle home page"
+    },
+    "idle_home_frames_per_10s": {
+      "max": 30,
+      "unit": "frames",
+      "test": "E2ePerfTest",
+      "about": "frames drawn by an idle home page"
+    },
+    "idle_terminal_cpu_ms_per_10s": {
+      "max": 300,
+      "unit": "ms",
+      "test": "E2ePerfTest",
+      "about": "process CPU over 10 s on an idle terminal"
+    },
+    "idle_terminal_frames_per_10s": {
+      "max": 30,
+      "unit": "frames",
+      "test": "E2ePerfTest",
+      "about": "frames drawn by an idle terminal"
+    },
+    "pss_home_mb": {
+      "max": 150,
+      "unit": "MB",
+      "test": "E2ePerfTest",
+      "about": "PSS on the home page"
+    },
+    "pss_8_sessions_mb": {
+      "max": 300,
+      "unit": "MB",
+      "test": "E2ePerfTest",
+      "about": "PSS with 8 sessions × 20,000 lines"
+    },
+    "pss_after_close_mb": {
+      "max": 200,
+      "unit": "MB",
+      "test": "E2ePerfTest",
+      "about": "PSS after closing them"
+    },
+    "leaked_sessions": {
+      "max": 0,
+      "unit": "count",
+      "test": "E2ePerfTest",
+      "about": "closed sessions still reachable after GC"
+    },
+    "sftp_download_mbps": {
+      "min": 5,
+      "unit": "MiB/s",
+      "test": "E2ePerfTest",
+      "about": "16 MiB SFTP download over adb reverse"
+    },
+    "sftp_upload_mbps": {
+      "min": 2,
+      "unit": "MiB/s",
+      "test": "E2ePerfTest",
+      "about": "16 MiB SFTP upload over adb reverse"
+    },
+    "hostlist_frame_p90_ms": {
+      "max": 24,
+      "unit": "ms",
+      "test": "E2eFramesTest",
+      "about": "90th percentile frame time flinging the host list",
+      "emulator": {
+        "max": 40
+      }
+    }
+  }
+}
