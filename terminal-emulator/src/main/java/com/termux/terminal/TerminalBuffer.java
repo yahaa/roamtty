@@ -106,14 +106,6 @@ public final class TerminalBuffer {
         return getSelectedText(0, -getActiveTranscriptRows(), mColumns, mScreenRows).trim();
     }
 
-    public String getTranscriptTextWithoutJoinedLines() {
-        return getSelectedText(0, -getActiveTranscriptRows(), mColumns, mScreenRows, false).trim();
-    }
-
-    public String getTranscriptTextWithFullLinesJoined() {
-        return getSelectedText(0, -getActiveTranscriptRows(), mColumns, mScreenRows, true, true).trim();
-    }
-
     public String getSelectedText(int selX1, int selY1, int selX2, int selY2) {
         return getSelectedText(selX1, selY1, selX2, selY2, true);
     }

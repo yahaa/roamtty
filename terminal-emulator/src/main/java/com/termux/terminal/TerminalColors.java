@@ -1,7 +1,5 @@
 package com.termux.terminal;
 
-import android.graphics.Color;
-
 /** Current terminal colors (if different from default). */
 public final class TerminalColors {
 
@@ -20,12 +18,6 @@ public final class TerminalColors {
     /** Create a new instance with default colors from the theme. */
     public TerminalColors() {
         reset();
-    }
-
-    /** Freeze explicit colors for a captured cell, but keep theme defaults switchable. */
-    public int snapshotColor(int color) {
-        if (color < 0 || color >= mCurrentColors.length) return color; // Already true color.
-        return mCurrentColors[color] != mThemeColors[color] ? mCurrentColors[color] : color;
     }
 
     /** Switch the default palette for this session while keeping colors set by remote OSC sequences. */
@@ -95,23 +87,4 @@ public final class TerminalColors {
         int c = parse(textParameter);
         if (c != 0) mCurrentColors[intoIndex] = c;
     }
-
-    /**
-     * Get the perceived brightness of the color based on its RGB components.
-     *
-     * https://www.nbdtech.com/Blog/archive/2008/04/27/Calculating-the-Perceived-Brightness-of-a-Color.aspx
-     * http://alienryderflex.com/hsp.html
-     *
-     * @param color The color code int.
-     * @return Returns value between 0-255.
-     */
-    public static int getPerceivedBrightnessOfColor(int color) {
-        return (int)
-            Math.floor(Math.sqrt(
-                Math.pow(Color.red(color), 2) * 0.241 +
-                    Math.pow(Color.green(color), 2) * 0.691 +
-                    Math.pow(Color.blue(color), 2) * 0.068
-            ));
-    }
-
 }

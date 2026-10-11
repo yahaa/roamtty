@@ -400,18 +400,6 @@ public final class TerminalEmulator {
     private boolean mAboutToAutoWrap;
 
     /**
-     * If the cursor blinking is enabled. It requires cursor itself to be enabled, which is controlled
-     * byt whether {@link #DECSET_BIT_CURSOR_ENABLED} bit is set or not.
-     */
-    private boolean mCursorBlinkingEnabled;
-
-    /**
-     * If currently cursor should be in a visible state or not if {@link #mCursorBlinkingEnabled}
-     * is {@code true}.
-     */
-    private boolean mCursorBlinkState;
-
-    /**
      * Current foreground, background and underline colors. Can either be a color index in [0,259] or a truecolor (24-bit) value.
      * For a 24-bit value the top byte (0xff000000) is set.
      *
@@ -432,9 +420,6 @@ public final class TerminalEmulator {
 
     /** The cached value for this emulator for `TerminalView.mTopRow` as sessions/emulators may be switched.*/
     private int mTopRow;
-
-    /** If automatic scrolling of terminal is disabled */
-    private boolean mAutoScrollDisabled;
 
     private byte mUtf8ToFollow, mUtf8Index;
     private final byte[] mUtf8InputBuffer = new byte[4];
@@ -507,12 +492,6 @@ public final class TerminalEmulator {
         mCellHeightPixels = cellHeightPixels;
         mTabStop = new boolean[mColumns];
         reset();
-    }
-
-    public void updateTerminalSessionClient(TerminalSessionClient client) {
-        mClient = client;
-        setCursorStyle();
-        setCursorBlinkState(true);
     }
 
 
@@ -654,18 +633,7 @@ public final class TerminalEmulator {
         return isDecsetInternalBitSet(DECSET_BIT_CURSOR_ENABLED);
     }
     public boolean shouldCursorBeVisible() {
-        if (!isCursorEnabled())
-            return false;
-        else
-            return mCursorBlinkingEnabled ? mCursorBlinkState : true;
-    }
-
-    public void setCursorBlinkingEnabled(boolean cursorBlinkingEnabled) {
-        this.mCursorBlinkingEnabled = cursorBlinkingEnabled;
-    }
-
-    public void setCursorBlinkState(boolean cursorBlinkState) {
-        this.mCursorBlinkState = cursorBlinkState;
+        return isCursorEnabled();
     }
 
 
@@ -3477,14 +3445,6 @@ public final class TerminalEmulator {
 
     public void clearScrollCounter() {
         mScrollCounter = 0;
-    }
-
-    public boolean isAutoScrollDisabled() {
-        return mAutoScrollDisabled;
-    }
-
-    public void toggleAutoScrollDisabled() {
-        mAutoScrollDisabled = !mAutoScrollDisabled;
     }
 
 

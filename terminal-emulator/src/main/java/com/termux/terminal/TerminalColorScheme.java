@@ -1,10 +1,7 @@
 package com.termux.terminal;
 
-import java.util.Map;
-import java.util.Properties;
-
 /**
- * Base terminal colors, optionally customized through properties. Session-specific OSC
+ * Base terminal colors in a dark and a light variant. Session-specific OSC
  * overrides are managed by {@link TerminalColors}.
  *
  * @see TerminalColors
@@ -86,59 +83,4 @@ public final class TerminalColorScheme {
             destination[TextStyle.COLOR_INDEX_CURSOR] = 0xff9e462c;
         }
     }
-
-    public void updateWith(Properties props) {
-        reset();
-        boolean cursorPropExists = false;
-        for (Map.Entry<Object, Object> entries : props.entrySet()) {
-            String key = (String) entries.getKey();
-            String value = (String) entries.getValue();
-            int colorIndex;
-
-            if (key.equals("foreground")) {
-                colorIndex = TextStyle.COLOR_INDEX_FOREGROUND;
-            } else if (key.equals("background")) {
-                colorIndex = TextStyle.COLOR_INDEX_BACKGROUND;
-            } else if (key.equals("cursor")) {
-                colorIndex = TextStyle.COLOR_INDEX_CURSOR;
-                cursorPropExists = true;
-            } else if (key.startsWith("color")) {
-                try {
-                    colorIndex = Integer.parseInt(key.substring(5));
-                } catch (NumberFormatException e) {
-                    throw new IllegalArgumentException("Invalid property: '" + key + "'");
-                }
-            } else {
-                throw new IllegalArgumentException("Invalid property: '" + key + "'");
-            }
-
-            int colorValue = TerminalColors.parse(value);
-            if (colorValue == 0)
-                throw new IllegalArgumentException("Property '" + key + "' has invalid color: '" + value + "'");
-
-            mDefaultColors[colorIndex] = colorValue;
-        }
-
-        if (!cursorPropExists)
-            setCursorColorForBackground();
-    }
-
-    /**
-     * If the "cursor" color is not set by user, we need to decide on the appropriate color that will
-     * be visible on the current terminal background. White will not be visible on light backgrounds
-     * and black won't be visible on dark backgrounds. So we find the perceived brightness of the
-     * background color and if its below the threshold (too dark), we use white cursor and if its
-     * above (too bright), we use black cursor.
-     */
-    public void setCursorColorForBackground() {
-        int backgroundColor = mDefaultColors[TextStyle.COLOR_INDEX_BACKGROUND];
-        int brightness = TerminalColors.getPerceivedBrightnessOfColor(backgroundColor);
-        if (brightness > 0) {
-            if (brightness < 130)
-                mDefaultColors[TextStyle.COLOR_INDEX_CURSOR] = 0xffffffff;
-            else
-                mDefaultColors[TextStyle.COLOR_INDEX_CURSOR] = 0xff000000;
-        }
-    }
-
 }
