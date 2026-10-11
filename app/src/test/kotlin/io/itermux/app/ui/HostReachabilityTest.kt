@@ -2,6 +2,7 @@ package io.itermux.app.ui
 
 import io.itermux.app.data.Host
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -110,6 +111,35 @@ class HostReachabilityTest {
         val edited = host.copy(port = 2222)
         assertEquals(HostReachability.Checking, tracker.statusOf(edited))
         assertTrue(tracker.dueAt(edited) <= now)
+    }
+
+    @Test fun requestedProbeIsDueAtOnceAndKeepsTheLastResult() {
+        var now = 1_000L
+        val tracker = HostReachabilityTracker { now }
+        val host = Host(id = "a", name = "a", address = "10.0.0.1", username = "root")
+        tracker.requestProbe(host)
+        assertEquals(null, tracker.checkedAt(host))
+
+        tracker.record(host, HostReachability.Offline)
+        tracker.record(host, HostReachability.Offline)
+        assertEquals(1_000L, tracker.checkedAt(host))
+        now += 5_000L
+        tracker.requestProbe(host)
+        assertEquals(now, tracker.dueAt(host))
+        assertEquals(HostReachability.Offline, tracker.statusOf(host))
+        assertEquals(1_000L, tracker.checkedAt(host))
+        // The back-off count survives the request: a third failure waits two minutes.
+        tracker.record(host, HostReachability.Offline)
+        assertEquals(now + 120_000L, tracker.dueAt(host))
+    }
+
+    @Test fun listWaitsForAProbeAfterTheDropThatFindsTheHost() {
+        assertFalse(hostBackSince(HostReachability.Offline, 2_000L, since = 1_000L))
+        assertFalse(hostBackSince(HostReachability.Checking, null, since = 1_000L))
+        // An online result from before the drop says nothing about now.
+        assertFalse(hostBackSince(HostReachability.Online(12), 500L, since = 1_000L))
+        assertTrue(hostBackSince(HostReachability.Online(12), 1_000L, since = 1_000L))
+        assertTrue(hostBackSince(HostReachability.Online(null), 3_000L, since = 1_000L))
     }
 
     @Test fun latencyLabels() {

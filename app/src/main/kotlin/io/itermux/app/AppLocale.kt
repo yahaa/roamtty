@@ -75,6 +75,7 @@ private object EnglishText {
         "在线" to "Online",
         "在线 · %s" to "Online · %s",
         "离线" to "Offline",
+        "主机离线" to "Host offline",
         "检测中" to "Checking",
         "保存时自动检测系统。未填写凭据或暂时无法连接时，将在下次连接成功后更新。" to "Detect the system when saving. If credentials are missing or the host is unavailable, update it after the next successful connection.",
         "密码用于检测系统；仅勾选后才会在本机保存。留空可在连接时输入。" to "Use the password to detect the system. It is saved only when enabled. Leave it blank to enter it when connecting.",

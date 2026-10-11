@@ -14,7 +14,6 @@ import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -55,10 +54,10 @@ class HomeSessionsReconnectTest {
             // The server ends the login, as a dropped network would: a plain shell then stays disconnected.
             withContext(Dispatchers.Main) { session.write("kill -9 \$PPID\r") }
             withTimeout(20_000) { session.state.first { it.phase == Phase.DISCONNECTED } }
-            // The list reconnects the same entry over a new connection.
-            withTimeout(30_000) {
-                service.sessions.mapNotNull { all -> all.firstOrNull { it.id == session.id && it !== session } }.first()
-                    .state.first { it.phase == Phase.CONNECTED }
+            // The list reconnects the same entry over a new connection, once its host answers a probe. The list's waits
+            // follow the compose clock, which only moves while the test waits on compose.
+            compose.waitUntil(30_000) {
+                service.sessions.value.any { it.id == session.id && it !== session && it.state.value.phase == Phase.CONNECTED }
             }
         } finally {
             trust.cancel()
