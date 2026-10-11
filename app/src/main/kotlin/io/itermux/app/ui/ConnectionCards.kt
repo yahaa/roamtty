@@ -56,7 +56,7 @@ import io.itermux.ssh.TerminalTransport
                     DropdownMenuItem(text = { Text(tr("打开终端")) }, onClick = { menu = false; openTerminal() },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_sessions), contentDescription = null) },
                         modifier = Modifier.testTag("host-open-terminal-${host.id}"))
-                    DropdownMenuItem(text = { Text(tr("AI 助手")) }, onClick = { menu = false; launchAgent() },
+                    DropdownMenuItem(text = { Text(tr("AI Agent")) }, onClick = { menu = false; launchAgent() },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_agent), contentDescription = null) },
                         modifier = Modifier.testTag("host-open-agent-${host.id}"))
                     HorizontalDivider()

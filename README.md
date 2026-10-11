@@ -15,7 +15,7 @@
 
 主机延时取最近一次成功探测从开始 DNS 解析到 TCP 连接成功的总时间，以毫秒显示；使用 IP 地址或命中 DNS 缓存时，解析耗时通常很小。通过 Tailscale 连接时沿实际隧道路径测量；它是建连耗时，不是持续采样的已连接会话 RTT。SSH 欢迎消息单独用于确认在线，等待时间不计入延时。已有活跃会话时暂停额外探测，因此数值可能保留至下次检测。如果使用会终止 TCP 的代理或用户态子网路由，建连时间可能只反映到代理的这一段。
 
-Windows 原生 OpenSSH 主机的起始文件夹通过 PowerShell 读取；选择子目录会在该目录打开 Windows PowerShell，退出后回到外层登录 shell。直接打开主目录保留服务器默认 shell，目录读取失败也可打开主目录或重试。通过 `.cmd` 启动的 AI 助手需使用盘符路径；网络共享目录请先映射为盘符，避免 CMD 在错误目录运行。
+Windows 原生 OpenSSH 主机的起始文件夹通过 PowerShell 读取；选择子目录会在该目录打开 Windows PowerShell，退出后回到外层登录 shell。直接打开主目录保留服务器默认 shell，目录读取失败也可打开主目录或重试。通过 `.cmd` 启动的 AI Agent需使用盘符路径；网络共享目录请先映射为盘符，避免 CMD 在错误目录运行。
 
 Windows 主机监控使用系统自带的 PowerShell 5.1 和本地 CIM 查询，显示 CPU、内存、分页文件、固定磁盘、网络流量及占用最高的进程；安装 `nvidia-smi.exe` 时还可读取 NVIDIA GPU。可选计数器不可用时保留其余数据，采集失败会显示错误并允许重试。
 
@@ -52,9 +52,9 @@ Windows 上可用 `scripts/bootstrap.ps1`、`scripts/install-sdk.ps1` 在项目�
 
 ### 端到端测试
 
-`scripts/e2e/run.sh -s <设备序列号>` 一条命令完成系统性回归：JVM 单元测试；通过真实界面逐项操作全部功能（添加主机与指纹核验、普通 SSH 与 tmux 会话、断线重连、操作栏与快捷手势、常用命令、私钥与交互式认证、错误密码与指纹变化拦截、文件浏览/预览/重命名/删除、上传、系统分享图片、下载、主机监控与插件、AI 助手启动、设置、横屏与重建、会话上限、删除主机）；再采集冷启动、SSH 建连、按键回显、输出洪泛、滚动帧、空闲 CPU、内存与泄漏、SFTP 吞吐等性能数据，按 `scripts/e2e/budgets.json` 判定（模拟器与真机分档）。报告与截图写入 `docs/test-results/e2e-<时间>-<设备>/report.md`，任一用例失败或超出预算即返回非零。
+`scripts/e2e/run.sh -s <设备序列号>` 一条命令完成系统性回归：JVM 单元测试；通过真实界面逐项操作全部功能（添加主机与指纹核验、普通 SSH 与 tmux 会话、断线重连、操作栏与快捷手势、常用命令、私钥与交互式认证、错误密码与指纹变化拦截、文件浏览/预览/重命名/删除、上传、系统分享图片、下载、主机监控与插件、AI Agent启动、设置、横屏与重建、会话上限、删除主机）；再采集冷启动、SSH 建连、按键回显、输出洪泛、滚动帧、空闲 CPU、内存与泄漏、SFTP 吞吐等性能数据，按 `scripts/e2e/budgets.json` 判定（模拟器与真机分档）。报告与截图写入 `docs/test-results/e2e-<时间>-<设备>/report.md`，任一用例失败或超出预算即返回非零。
 
-脚本先用 `scripts/e2e/fixture.sh`（需 sudo）在回环端口 22258 启动专用账号 `roamtty_e2e` 的 OpenSSH + SFTP 夹具，含 tmux、模拟 AI 助手和测试文件；mosh 依赖 UDP，`adb reverse` 无法转发，因此夹具隐藏了 mosh-server。被测包是独立的 `e2e` 构建类型（`com.roamtty.app.e2e`：release 代码、不可调试、未混淆），不会覆盖或卸载已安装的 Roamtty 及其会话，可在个人手机上运行；运行期间手机需保持解锁，约占用屏幕十分钟。`--only E2eFeatureTest#f03_plainSshTerminalRunsCommands` 可单跑用例，`--no-unit`、`--no-build` 跳过对应步骤。
+脚本先用 `scripts/e2e/fixture.sh`（需 sudo）在回环端口 22258 启动专用账号 `roamtty_e2e` 的 OpenSSH + SFTP 夹具，含 tmux、模拟 AI Agent和测试文件；mosh 依赖 UDP，`adb reverse` 无法转发，因此夹具隐藏了 mosh-server。被测包是独立的 `e2e` 构建类型（`com.roamtty.app.e2e`：release 代码、不可调试、未混淆），不会覆盖或卸载已安装的 Roamtty 及其会话，可在个人手机上运行；运行期间手机需保持解锁，约占用屏幕十分钟。`--only E2eFeatureTest#f03_plainSshTerminalRunsCommands` 可单跑用例，`--no-unit`、`--no-build` 跳过对应步骤。
 
 Windows 目录和监控命令测试使用 `ROAMTTY_PWSH=/path/to/pwsh ./gradlew :app:testDebugUnitTest --tests '*WindowsShellTest' --tests '*WindowsHostMetricsTest'`。页面回归可启动 `scripts/windows-launch-fixture.py`（需 Paramiko 和 `ROAMTTY_PWSH`），执行 `adb reverse tcp:22248 tcp:22248` 后，以 `windowsLaunchFixture=true` 运行 `WindowsLaunchSheetTest`、`WindowsHostMonitorTest`。该夹具运行真实 PowerShell 并模拟 Windows 路径和 CIM 数据，不替代 Windows 真机验证。
 

@@ -105,7 +105,7 @@ internal fun HostDetailPage(
                 val metrics = monitor?.metrics?.collectAsStateWithLifecycle()?.value
                 HostHeader(host, reachability, metrics)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-                    HostAction(tr("AI 助手"), R.drawable.ic_agent, primary = true, tag = "host-detail-agent",
+                    HostAction(tr("AI Agent"), R.drawable.ic_agent, primary = true, tag = "host-detail-agent",
                         modifier = Modifier.weight(1f)) { launching = true }
                     HostAction(tr("终端"), R.drawable.ic_sessions, tag = "host-detail-terminal", modifier = Modifier.weight(1f)) {
                         launching = false
