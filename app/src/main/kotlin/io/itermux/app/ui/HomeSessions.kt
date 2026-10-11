@@ -163,11 +163,11 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             // A session the list waits to reconnect says why it is not trying: its host does not answer.
             else StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"), hostOffline = hostOffline && !state.active)
             // On the right, the command the agent runs, a spinner while it works on without one, how long its last turn
-            // took once it stops; otherwise what keeps and carries the session, tagged as on a host card.
+            // took once it stops; otherwise what keeps and carries the session, tagged as on a host card but held to the right.
             Box(Modifier.weight(1f).padding(start = Spacing.Row), contentAlignment = Alignment.CenterEnd) {
                 if (activity.isEmpty() && !working && !done)
                     Row(Modifier.fillMaxWidth().testTag("$tagPrefix-tags-${session.id}"),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                         sessionTransportTags(session.mode, multiplexer, session.host.multiplexer, transport.takeIf { connected })
                             .forEach { MetaTag(it, Modifier.testTag("$tagPrefix-tag-$it-${session.id}")) }
                     }

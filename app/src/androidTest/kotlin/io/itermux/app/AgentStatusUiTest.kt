@@ -6,6 +6,8 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -76,7 +78,9 @@ class AgentStatusUiTest {
                 .assertTextContains("Agent status · ", substring = true)
             // The task is the row's title, said once.
             compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("refactor the parser")
-            compose.onNodeWithTag("agent-icon-codex", useUnmergedTree = true).assertExists()
+            // The row's own tile; the closed drawer lists the session with the same tile.
+            compose.onNode(hasTestTag("agent-icon-codex") and hasAnyAncestor(hasTestTag("home-session-${session.id}")),
+                useUnmergedTree = true).assertExists()
             // Between the title and the state, the command it runs.
             compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("Running make test")
             fun capture(name: String) = context.getExternalFilesDir(null)?.let { dir ->
