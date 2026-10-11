@@ -647,7 +647,7 @@ class E2eFeatureTest {
         E2e.waitTag(compose, "home-pager")
     }
 
-    /** AI 助手: the launch sheet starts the chosen agent (a stand-in on the fixture) in a new session titled after it. */
+    /** AI Agent: the launch sheet starts the chosen agent (a stand-in on the fixture) in a new session titled after it. */
     @Test fun f16_agentLaunch() = runBlocking<Unit> {
         val host = E2e.save(E2e.host("助手", mode = SessionMode.TMUX))
         hostsTab()

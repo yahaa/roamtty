@@ -248,7 +248,7 @@ internal fun NewSessionSheet(hosts: List<Host>, onDismiss: () -> Unit, onNewHost
     AppSheet(onDismiss = onDismiss, fillHeight = false, onBack = { close -> if (picked != null) picked = null else close() }) {
         LazyColumn(Modifier.weight(1f, fill = false).testTag("new-session-sheet")) {
             if (picked == null) {
-                item { SheetHeader(tr("新建会话"), tr("选择要运行的 AI 助手，或打开终端。"), onDismiss) }
+                item { SheetHeader(tr("新建会话"), tr("选择要运行的 AI Agent，或打开终端。"), onDismiss) }
                 items(CodingAgent.entries, key = { it.name }) { option ->
                     NewSessionRow(option.label, option.command, "new-session-pick-${option.command}",
                         leading = { AgentIcon(option, 40.dp) }) { picked = option.name }

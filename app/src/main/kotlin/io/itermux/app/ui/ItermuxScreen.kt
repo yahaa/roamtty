@@ -433,7 +433,7 @@ fun ItermuxScreen(
                                         Modifier.fillMaxSize().testTag("home-sessions-empty"),
                                         artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
                                         action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
-                                    sessionsByActivity.isEmpty() -> EmptyState(tr("暂无会话"), tr("选择主机，打开终端或 AI 助手。"),
+                                    sessionsByActivity.isEmpty() -> EmptyState(tr("暂无会话"), tr("选择主机，打开终端或 AI Agent。"),
                                         Modifier.fillMaxSize().testTag("home-sessions-empty"),
                                         action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
                                     matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())

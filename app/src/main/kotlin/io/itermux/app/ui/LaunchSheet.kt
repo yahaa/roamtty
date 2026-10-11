@@ -121,7 +121,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
 
     val colors = MaterialTheme.colorScheme
     AppSheet(onDismiss, fullScreen = true) {
-        if (!typing) SheetHeader(if (forAgent) tr("用 AI 助手打开") else tr("打开终端"), null, onDismiss)
+        if (!typing) SheetHeader(if (forAgent) tr("用 AI Agent打开") else tr("打开终端"), null, onDismiss)
         Column(Modifier.weight(1f).testTag("launch-sheet")) {
             if (recent.isNotEmpty() && !typing) RecentFolders(recent, current, onPick = { current = it }, onForget = { dir ->
                 recent = recent - dir
@@ -406,7 +406,7 @@ internal fun modeLabel(mode: AgentMode, agent: CodingAgent = CodingAgent.CODEX) 
 internal fun modeHint(mode: AgentMode, agent: CodingAgent = CodingAgent.CODEX) = when (mode) {
     AgentMode.READ_ONLY -> tr(when (agent) {
         CodingAgent.CLAUDE -> "先分析并制定计划，批准后开始修改"
-        CodingAgent.CODEX -> "以只读沙箱启动，可在助手中调整权限"
+        CodingAgent.CODEX -> "以只读沙箱启动，可在 Agent 中调整权限"
         CodingAgent.GROK -> "只读沙箱；状态与临时目录仍可写"
     })
     AgentMode.STANDARD -> tr("改文件或运行命令前先问你")
