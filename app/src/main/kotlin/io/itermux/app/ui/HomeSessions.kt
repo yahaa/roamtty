@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
@@ -37,7 +38,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.itermux.app.R
@@ -107,8 +107,8 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
 }
 
 /**
- * One session card: the agent's mark (or the host's system), what it works on, its status and where it runs, with close
- * in its menu. The title is the agent's task, else the agent and its folder ("Claude · roamtty"); see [sessionListTitle].
+ * One session card: the agent's mark (or the host's system) beside what it works on and where it runs, then its status
+ * and what the agent is doing, with close in its menu. The title is the agent's task, else the agent and its folder ("Claude · roamtty"); see [sessionListTitle].
  */
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit,
@@ -132,17 +132,32 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val working = activity.isEmpty() && connected && agent?.state == AgentStatus.State.WORKING
     val done = activity.isEmpty() && connected && worked != null
     ListCard(onClick = onClick, onClickLabel = tr("打开终端"), modifier = Modifier.testTag("$tagPrefix-${session.id}")) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.Top) {
             // A session running an agent is told apart by the agent's mark rather than the host's system.
             if (kind != null) AgentIcon(kind, 44.dp, agent?.state.takeIf { connected })
             else SessionSystemIcon(session, 44.dp)
-            // A gap before the menu, so a cut-off title's … never runs into its dots. As tall as the mark, the title
-            // centred on it alone and with the line beneath, so a card with nothing to show leaves no empty row.
-            Column(Modifier.weight(1f).heightIn(min = 44.dp).padding(start = Spacing.Row, end = Spacing.Tight),
-                verticalArrangement = Arrangement.Center) {
-                Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.testTag("$tagPrefix-title-${session.id}"),
-                    style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // The command the agent runs, a spinner while it works on without one, how long its last turn took once it stops.
+            // The title on top and where it runs beneath, so the line under the title is never empty. A gap before the
+            // menu keeps a long title clear of its dots.
+            Column(Modifier.weight(1f).padding(start = Spacing.Row, end = Spacing.Tight)) {
+                // A title too long for its line scrolls through a few times, like a subtitle, and then rests.
+                Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) },
+                    Modifier.testTag("$tagPrefix-title-${session.id}").basicMarquee(),
+                    style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Text(location, Modifier.padding(top = 2.dp).testTag("$tagPrefix-location-${session.id}"),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+            }
+            SessionMenu(session, tagPrefix, onClose)
+        }
+        // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
+        val status = agent
+        Row(Modifier.padding(top = Spacing.Row, end = Spacing.Page - 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (status != null && connected) AgentStatusLine(status)
+            // A session the list waits to reconnect says why it is not trying: its host does not answer.
+            else StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"), hostOffline = hostOffline && !state.active)
+            // On the right, the command the agent runs, a spinner while it works on without one, how long its last turn
+            // took once it stops; nothing otherwise.
+            Box(Modifier.weight(1f).padding(start = Spacing.Row), contentAlignment = Alignment.CenterEnd) {
                 if (activity.isNotEmpty())
                     Text(activity, Modifier.testTag("$tagPrefix-activity-${session.id}"),
                         style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
@@ -154,17 +169,6 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                     TurnDone(worked, kind?.brand() ?: MaterialTheme.colorScheme.primary,
                         Modifier.testTag("$tagPrefix-done-${session.id}"))
             }
-            SessionMenu(session, tagPrefix, onClose)
-        }
-        // While connected, the agent's state stands in for "connected"; otherwise the connection comes first.
-        val status = agent
-        Row(Modifier.padding(top = Spacing.Row, end = Spacing.Page - 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (status != null && connected) AgentStatusLine(status)
-            // A session the list waits to reconnect says why it is not trying: its host does not answer.
-            else StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"), hostOffline = hostOffline && !state.active)
-            Text(location, Modifier.weight(1f).padding(start = Spacing.Tight).testTag("$tagPrefix-location-${session.id}"),
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
         }
     }
 }
