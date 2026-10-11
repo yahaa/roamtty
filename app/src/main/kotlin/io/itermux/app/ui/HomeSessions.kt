@@ -26,6 +26,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.LinearGradientShader
@@ -139,10 +145,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             // The title on top and where it runs beneath, so the line under the title is never empty. A gap before the
             // menu keeps a long title clear of its dots.
             Column(Modifier.weight(1f).padding(start = Spacing.Row, end = Spacing.Tight)) {
-                // A title too long for its line scrolls through a few times, like a subtitle, and then rests.
-                Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) },
-                    Modifier.testTag("$tagPrefix-title-${session.id}").basicMarquee(),
-                    style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                MarqueeTitle(shown.ifBlank { trf("会话 %d", session.sessionNumber) },
+                    Modifier.testTag("$tagPrefix-title-${session.id}"))
                 Text(location, Modifier.padding(top = 2.dp).testTag("$tagPrefix-location-${session.id}"),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
@@ -171,6 +175,25 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             }
         }
     }
+}
+
+/**
+ * A card title on one line that, when too long for it, keeps scrolling like a subtitle (rests 1.2 s, then 30 dp/s with a
+ * third of the line between copies) and fades out at the right edge; a title that fits stays still and unfaded.
+ */
+@Composable
+internal fun MarqueeTitle(text: String, modifier: Modifier = Modifier) {
+    // The marquee lays the text out at its full width; more than the line gets means it scrolls.
+    var full by remember { mutableIntStateOf(0) }
+    var line by remember { mutableIntStateOf(0) }
+    val fade = if (full > line) Modifier.graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen).drawWithContent {
+        drawContent()
+        val edge = 18.dp.toPx()
+        drawRect(Brush.horizontalGradient(0f to Color.Black, 1f to Color.Transparent, startX = size.width - edge,
+            endX = size.width), blendMode = BlendMode.DstIn)
+    } else Modifier
+    Text(text, modifier.onSizeChanged { line = it.width }.then(fade).basicMarquee(iterations = Int.MAX_VALUE),
+        style = MaterialTheme.typography.titleMedium, maxLines = 1, onTextLayout = { full = it.size.width })
 }
 
 /**
