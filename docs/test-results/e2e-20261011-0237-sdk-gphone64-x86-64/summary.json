@@ -1,0 +1,724 @@
+{
+  "passed": false,
+  "profile": "emulator",
+  "tests": [
+    {
+      "class": "E2eFeatureTest",
+      "test": "f01_addHostThroughEditorTrustsFingerprintAndDetectsSystem",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f02_searchAndEditHost",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f03_plainSshTerminalRunsCommands",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f04_newSessionFromSessionsTab",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f05_dockFontEditorAndCommonCommands",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f06_petShortcutsAndGestures",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f07_tmuxSessionSurvivesDisconnectAndRestarts",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f08_sessionsListDrawerSwitchAndClose",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f09_keyAndInteractiveAuthentication",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f10_wrongPasswordFailsAuthentication",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f11_changedHostKeyIsBlockedUntilReverified",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f12_fileBrowserAndPreviews",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f13_fileOperations",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f14_uploadShareImageAndDownload",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f15_hostDetailMonitorAndPlugins",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f16_agentLaunch",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f17_settingsLanguageThemeFont",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f18_guidePrivacyAndLicenses",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f19_rotationAndRecreationKeepTheSession",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f20_sessionLimitPerHost",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFeatureTest",
+      "test": "f21_deleteHostClosesItsSessions",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p01_sshConnect",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p02_keystrokeEchoLatency",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p03_outputFlood",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p05_idleScreens",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p06_memoryAndLeaks",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p07_sftpThroughput",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFramesTest",
+      "test": "r01_scrollbackScrolling",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFramesTest",
+      "test": "r02_hostListScrolling",
+      "status": "passed",
+      "message": ""
+    }
+  ],
+  "budgets": [
+    {
+      "name": "unit_tests_failed",
+      "value": 0,
+      "unit": "count",
+      "limit": {
+        "max": 0
+      },
+      "status": "ok",
+      "about": "JVM unit tests of app, ssh-core, terminal-emulator, terminal-view"
+    },
+    {
+      "name": "cold_start_p50_ms",
+      "value": 885,
+      "unit": "ms",
+      "limit": {
+        "max": 1500
+      },
+      "status": "ok",
+      "about": "am start -W TotalTime, median of 6 cold starts"
+    },
+    {
+      "name": "cold_start_max_ms",
+      "value": 917,
+      "unit": "ms",
+      "limit": {
+        "max": 2500
+      },
+      "status": "ok",
+      "about": "slowest of the 6 cold starts"
+    },
+    {
+      "name": "host_save_with_detection_ms",
+      "value": 1082,
+      "unit": "ms",
+      "limit": {
+        "max": 5000
+      },
+      "status": "ok",
+      "about": "保存 → fingerprint trust → system + plugin detection done"
+    },
+    {
+      "name": "host_probe_latency_ms",
+      "value": 1,
+      "unit": "ms",
+      "limit": {
+        "max": 100
+      },
+      "status": "ok",
+      "about": "card's DNS + TCP latency to the loopback fixture"
+    },
+    {
+      "name": "ui_terminal_open_ms",
+      "value": 332,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "ok",
+      "about": "打开 tap → terminal connected"
+    },
+    {
+      "name": "tmux_reattach_ms",
+      "value": 701,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "ok",
+      "about": "重新连接 tap → tmux session reattached"
+    },
+    {
+      "name": "files_open_ms",
+      "value": 680,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "ok",
+      "about": "查看文件 → home listing shown"
+    },
+    {
+      "name": "files_list_1500_ms",
+      "value": 212,
+      "unit": "ms",
+      "limit": {
+        "max": 2000
+      },
+      "status": "ok",
+      "about": "open a 1,500-file directory"
+    },
+    {
+      "name": "preview_large_log_ms",
+      "value": 1065,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "ok",
+      "about": "preview of a 60,000-line log"
+    },
+    {
+      "name": "monitor_first_sample_ms",
+      "value": 844,
+      "unit": "ms",
+      "limit": {
+        "max": 5000
+      },
+      "status": "ok",
+      "about": "host page → first CPU/memory sample"
+    },
+    {
+      "name": "plugin_detect_ms",
+      "value": 437,
+      "unit": "ms",
+      "limit": {
+        "max": 5000
+      },
+      "status": "ok",
+      "about": "安装插件 sheet → tmux/mosh detected"
+    },
+    {
+      "name": "ssh_connect_p50_ms",
+      "value": 155,
+      "unit": "ms",
+      "limit": {
+        "max": 1500
+      },
+      "status": "ok",
+      "about": "SSH login to shell, median of 5"
+    },
+    {
+      "name": "ssh_connect_max_ms",
+      "value": 407,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "ok",
+      "about": "slowest of the 5 logins"
+    },
+    {
+      "name": "echo_p50_ms",
+      "value": 27,
+      "unit": "ms",
+      "limit": {
+        "max": 60
+      },
+      "status": "ok",
+      "about": "key commit → echoed on screen, median of 40"
+    },
+    {
+      "name": "echo_p95_ms",
+      "value": 33,
+      "unit": "ms",
+      "limit": {
+        "max": 120
+      },
+      "status": "ok",
+      "about": "key echo, 95th percentile"
+    },
+    {
+      "name": "flood_seq200k_ms",
+      "value": 993,
+      "unit": "ms",
+      "limit": {
+        "max": 8000
+      },
+      "status": "ok",
+      "about": "seq 1 200000 fully rendered"
+    },
+    {
+      "name": "flood_wide_ms",
+      "value": 246,
+      "unit": "ms",
+      "limit": {
+        "max": 4000
+      },
+      "status": "ok",
+      "about": "3,000 lines of 200 columns"
+    },
+    {
+      "name": "flood_color_ms",
+      "value": 486,
+      "unit": "ms",
+      "limit": {
+        "max": 6000
+      },
+      "status": "ok",
+      "about": "20,000 SGR-coloured lines"
+    },
+    {
+      "name": "flood_seq200k_jank_pct",
+      "value": 13.72549019607843,
+      "unit": "%",
+      "limit": {
+        "max": 70
+      },
+      "status": "ok",
+      "about": "janky frames while flooding"
+    },
+    {
+      "name": "scroll_jank_pct",
+      "value": 0,
+      "unit": "%",
+      "limit": {
+        "max": 80
+      },
+      "status": "ok",
+      "about": "janky frames dragging through scrollback"
+    },
+    {
+      "name": "scroll_frame_p90_ms",
+      "value": 4950,
+      "unit": "ms",
+      "limit": {
+        "max": 40
+      },
+      "status": "over budget",
+      "about": "90th percentile frame time in scrollback"
+    },
+    {
+      "name": "scroll_frames_drawn",
+      "value": 0,
+      "unit": "frames",
+      "limit": {
+        "min": 30
+      },
+      "status": "over budget",
+      "about": "frames drawn while dragging through scrollback (0 = the drag never redraws)"
+    },
+    {
+      "name": "hostlist_jank_pct",
+      "value": 21.69811320754717,
+      "unit": "%",
+      "limit": {
+        "max": 60
+      },
+      "status": "ok",
+      "about": "janky frames flinging 60 host cards"
+    },
+    {
+      "name": "idle_home_cpu_ms_per_10s",
+      "value": 0,
+      "unit": "ms",
+      "limit": {
+        "max": 200
+      },
+      "status": "ok",
+      "about": "process CPU over 10 s on an idle home page"
+    },
+    {
+      "name": "idle_home_frames_per_10s",
+      "value": 0,
+      "unit": "frames",
+      "limit": {
+        "max": 30
+      },
+      "status": "ok",
+      "about": "frames drawn by an idle home page"
+    },
+    {
+      "name": "idle_terminal_cpu_ms_per_10s",
+      "value": 20,
+      "unit": "ms",
+      "limit": {
+        "max": 300
+      },
+      "status": "ok",
+      "about": "process CPU over 10 s on an idle terminal"
+    },
+    {
+      "name": "idle_terminal_frames_per_10s",
+      "value": 0,
+      "unit": "frames",
+      "limit": {
+        "max": 30
+      },
+      "status": "ok",
+      "about": "frames drawn by an idle terminal"
+    },
+    {
+      "name": "pss_home_mb",
+      "value": 104.8818359375,
+      "unit": "MB",
+      "limit": {
+        "max": 150
+      },
+      "status": "ok",
+      "about": "PSS on the home page"
+    },
+    {
+      "name": "pss_8_sessions_mb",
+      "value": 171.0517578125,
+      "unit": "MB",
+      "limit": {
+        "max": 300
+      },
+      "status": "ok",
+      "about": "PSS with 8 sessions × 20,000 lines"
+    },
+    {
+      "name": "pss_after_close_mb",
+      "value": 99.1728515625,
+      "unit": "MB",
+      "limit": {
+        "max": 200
+      },
+      "status": "ok",
+      "about": "PSS after closing them"
+    },
+    {
+      "name": "leaked_sessions",
+      "value": 0,
+      "unit": "count",
+      "limit": {
+        "max": 0
+      },
+      "status": "ok",
+      "about": "closed sessions still reachable after GC"
+    },
+    {
+      "name": "sftp_download_mbps",
+      "value": 76.23742610175255,
+      "unit": "MiB/s",
+      "limit": {
+        "min": 5
+      },
+      "status": "ok",
+      "about": "16 MiB SFTP download over adb reverse"
+    },
+    {
+      "name": "sftp_upload_mbps",
+      "value": 23.56457638500809,
+      "unit": "MiB/s",
+      "limit": {
+        "min": 2
+      },
+      "status": "ok",
+      "about": "16 MiB SFTP upload over adb reverse"
+    },
+    {
+      "name": "hostlist_frame_p90_ms",
+      "value": 29,
+      "unit": "ms",
+      "limit": {
+        "max": 40
+      },
+      "status": "ok",
+      "about": "90th percentile frame time flinging the host list"
+    }
+  ],
+  "metrics": {
+    "unit_tests_failed": {
+      "name": "unit_tests_failed",
+      "value": 0,
+      "unit": "count"
+    },
+    "cold_start_p50_ms": {
+      "name": "cold_start_p50_ms",
+      "value": 885,
+      "unit": "ms"
+    },
+    "cold_start_max_ms": {
+      "name": "cold_start_max_ms",
+      "value": 917,
+      "unit": "ms"
+    },
+    "host_save_with_detection_ms": {
+      "name": "host_save_with_detection_ms",
+      "value": 1082,
+      "unit": "ms"
+    },
+    "host_probe_latency_ms": {
+      "name": "host_probe_latency_ms",
+      "value": 1,
+      "unit": "ms"
+    },
+    "ui_terminal_open_ms": {
+      "name": "ui_terminal_open_ms",
+      "value": 332,
+      "unit": "ms"
+    },
+    "tmux_reattach_ms": {
+      "name": "tmux_reattach_ms",
+      "value": 701,
+      "unit": "ms"
+    },
+    "files_open_ms": {
+      "name": "files_open_ms",
+      "value": 680,
+      "unit": "ms"
+    },
+    "preview_large_log_ms": {
+      "name": "preview_large_log_ms",
+      "value": 1065,
+      "unit": "ms"
+    },
+    "files_list_1500_ms": {
+      "name": "files_list_1500_ms",
+      "value": 212,
+      "unit": "ms"
+    },
+    "monitor_first_sample_ms": {
+      "name": "monitor_first_sample_ms",
+      "value": 844,
+      "unit": "ms"
+    },
+    "plugin_detect_ms": {
+      "name": "plugin_detect_ms",
+      "value": 437,
+      "unit": "ms"
+    },
+    "ssh_connect_p50_ms": {
+      "name": "ssh_connect_p50_ms",
+      "value": 155,
+      "unit": "ms"
+    },
+    "ssh_connect_max_ms": {
+      "name": "ssh_connect_max_ms",
+      "value": 407,
+      "unit": "ms"
+    },
+    "echo_p50_ms": {
+      "name": "echo_p50_ms",
+      "value": 27,
+      "unit": "ms"
+    },
+    "echo_p95_ms": {
+      "name": "echo_p95_ms",
+      "value": 33,
+      "unit": "ms"
+    },
+    "flood_seq200k_ms": {
+      "name": "flood_seq200k_ms",
+      "value": 993,
+      "unit": "ms"
+    },
+    "flood_seq200k_jank_pct": {
+      "name": "flood_seq200k_jank_pct",
+      "value": 13.72549019607843,
+      "unit": "%"
+    },
+    "flood_wide_ms": {
+      "name": "flood_wide_ms",
+      "value": 246,
+      "unit": "ms"
+    },
+    "flood_wide_jank_pct": {
+      "name": "flood_wide_jank_pct",
+      "value": 16.666666666666668,
+      "unit": "%"
+    },
+    "flood_color_ms": {
+      "name": "flood_color_ms",
+      "value": 486,
+      "unit": "ms"
+    },
+    "flood_color_jank_pct": {
+      "name": "flood_color_jank_pct",
+      "value": 26.08695652173913,
+      "unit": "%"
+    },
+    "idle_home_cpu_ms_per_10s": {
+      "name": "idle_home_cpu_ms_per_10s",
+      "value": 0,
+      "unit": "ms"
+    },
+    "idle_home_frames_per_10s": {
+      "name": "idle_home_frames_per_10s",
+      "value": 0,
+      "unit": "frames"
+    },
+    "idle_terminal_cpu_ms_per_10s": {
+      "name": "idle_terminal_cpu_ms_per_10s",
+      "value": 20,
+      "unit": "ms"
+    },
+    "idle_terminal_frames_per_10s": {
+      "name": "idle_terminal_frames_per_10s",
+      "value": 0,
+      "unit": "frames"
+    },
+    "pss_home_mb": {
+      "name": "pss_home_mb",
+      "value": 104.8818359375,
+      "unit": "MB"
+    },
+    "pss_8_sessions_mb": {
+      "name": "pss_8_sessions_mb",
+      "value": 171.0517578125,
+      "unit": "MB"
+    },
+    "java_heap_8_sessions_mb": {
+      "name": "java_heap_8_sessions_mb",
+      "value": 82.49467468261719,
+      "unit": "MB"
+    },
+    "leaked_sessions": {
+      "name": "leaked_sessions",
+      "value": 0,
+      "unit": "count"
+    },
+    "pss_after_close_mb": {
+      "name": "pss_after_close_mb",
+      "value": 99.1728515625,
+      "unit": "MB"
+    },
+    "sftp_download_mbps": {
+      "name": "sftp_download_mbps",
+      "value": 76.23742610175255,
+      "unit": "MiB/s"
+    },
+    "sftp_upload_mbps": {
+      "name": "sftp_upload_mbps",
+      "value": 23.56457638500809,
+      "unit": "MiB/s"
+    },
+    "scroll_frames_drawn": {
+      "name": "scroll_frames_drawn",
+      "value": 0,
+      "unit": "frames"
+    },
+    "scroll_jank_pct": {
+      "name": "scroll_jank_pct",
+      "value": 0,
+      "unit": "%"
+    },
+    "scroll_frame_p90_ms": {
+      "name": "scroll_frame_p90_ms",
+      "value": 4950,
+      "unit": "ms"
+    },
+    "hostlist_jank_pct": {
+      "name": "hostlist_jank_pct",
+      "value": 21.69811320754717,
+      "unit": "%"
+    },
+    "hostlist_frame_p90_ms": {
+      "name": "hostlist_frame_p90_ms",
+      "value": 29,
+      "unit": "ms"
+    }
+  }
+}

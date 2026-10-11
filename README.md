@@ -50,6 +50,12 @@ Windows 上可用 `scripts/bootstrap.ps1`、`scripts/install-sdk.ps1` 在项目�
 ./gradlew :app:connectedDebugAndroidTest   # 需要模拟器或设备
 ```
 
+### 端到端测试
+
+`scripts/e2e/run.sh -s <设备序列号>` 一条命令完成系统性回归：JVM 单元测试；通过真实界面逐项操作全部功能（添加主机与指纹核验、普通 SSH 与 tmux 会话、断线重连、操作栏与快捷手势、常用命令、私钥与交互式认证、错误密码与指纹变化拦截、文件浏览/预览/重命名/删除、上传、系统分享图片、下载、主机监控与插件、AI 助手启动、设置、横屏与重建、会话上限、删除主机）；再采集冷启动、SSH 建连、按键回显、输出洪泛、滚动帧、空闲 CPU、内存与泄漏、SFTP 吞吐等性能数据，按 `scripts/e2e/budgets.json` 判定（模拟器与真机分档）。报告与截图写入 `docs/test-results/e2e-<时间>-<设备>/report.md`，任一用例失败或超出预算即返回非零。
+
+脚本先用 `scripts/e2e/fixture.sh`（需 sudo）在回环端口 22258 启动专用账号 `roamtty_e2e` 的 OpenSSH + SFTP 夹具，含 tmux、模拟 AI 助手和测试文件；mosh 依赖 UDP，`adb reverse` 无法转发，因此夹具隐藏了 mosh-server。被测包是独立的 `e2e` 构建类型（`com.roamtty.app.e2e`：release 代码、不可调试、未混淆），不会覆盖或卸载已安装的 Roamtty 及其会话，可在个人手机上运行；运行期间手机需保持解锁，约占用屏幕十分钟。`--only E2eFeatureTest#f03_plainSshTerminalRunsCommands` 可单跑用例，`--no-unit`、`--no-build` 跳过对应步骤。
+
 Windows 目录和监控命令测试使用 `ROAMTTY_PWSH=/path/to/pwsh ./gradlew :app:testDebugUnitTest --tests '*WindowsShellTest' --tests '*WindowsHostMetricsTest'`。页面回归可启动 `scripts/windows-launch-fixture.py`（需 Paramiko 和 `ROAMTTY_PWSH`），执行 `adb reverse tcp:22248 tcp:22248` 后，以 `windowsLaunchFixture=true` 运行 `WindowsLaunchSheetTest`、`WindowsHostMonitorTest`。该夹具运行真实 PowerShell 并模拟 Windows 路径和 CIM 数据，不替代 Windows 真机验证。
 
 原生 Windows 监控集成测试 `WindowsHostMetricsIntegrationTest` 通过真实 SSH 运行生产采集器。使用一次性测试主机，设置 `ROAMTTY_WINDOWS_PASSWORD_FILE` 指向本地密码文件，以及 `ROAMTTY_WINDOWS_HOST`、`ROAMTTY_WINDOWS_PORT`、`ROAMTTY_WINDOWS_USER`（默认 `127.0.0.1:22249`、`vagrant`）。Android 的原生 Windows 监控用例需反向转发端口 22249、参数 `windowsNativeMonitor=true`，以及有 CIM 权限的管理员测试账号 `roamtty_admin` 和无 CIM 权限的普通测试账号 `roamtty_monitor`，密码均为 `Fixture-only-123!`；该公开密码只可用于隔离测试环境。
