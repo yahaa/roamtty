@@ -201,6 +201,16 @@ class AgentStatusTest {
         assertEquals("", AgentStatus.parse("claude|idle|1000|claude|||\n1042")!!.directory)
     }
 
+    @Test fun readsThePanesFolderWithoutAnAgent() {
+        // A shell, or an agent whose hooks have not reported yet: no status, but the folder is still known.
+        assertNull(AgentStatus.parse("bash||||||\n/home/v/work\n1042"))
+        assertEquals("/home/v/work", AgentStatus.directory("bash||||||\n/home/v/work\n1042"))
+        assertEquals("~/work", sessionListPath("/home/v/work", "v"))
+        assertEquals("", AgentStatus.directory("bash||||||\n1042"))
+        assertEquals("", AgentStatus.directory(null))
+        assertEquals("", sessionListPath("", "v"))
+    }
+
     @Test fun listTitleIsTheTaskThenTheAgentAndFolderThenTheTitle() {
         val working = AgentStatus.parse("claude|working|1|claude|||fix the bug\n/home/v/roamtty\n2")!!
         assertEquals("fix the bug", sessionListTitle("Claude · roamtty", working, CodingAgent.CLAUDE, "v"))

@@ -42,10 +42,16 @@ data class AgentStatus(
             }
             val since = fields[2].toLongOrNull()
             val now = lines.drop(1).lastOrNull()?.trim()?.toLongOrNull()
-            val directory = if (lines.size >= 3) lines[1].trim() else ""
+            val directory = directory(output)
             val elapsed = if (since != null && now != null) ((now - since) * 1000).coerceAtLeast(0) else 0
             return AgentStatus(state, fields[3], fields[4].trim(), fields[5].trim(), clean(fields.last()), elapsed, directory,
                 worked.takeIf { state == State.IDLE })
+        }
+
+        /** The folder the pane is in, from the same poll [parse] reads; known with or without an agent, empty when not. */
+        fun directory(output: String?): String {
+            val lines = output?.lines()?.filter { it.isNotBlank() } ?: return ""
+            return if (lines.size >= 3) lines[1].trim() else ""
         }
 
         /** A byte-limited hook value may end in half a character. */
@@ -87,8 +93,11 @@ fun sessionListTitle(title: String, status: AgentStatus?, agent: CodingAgent?, u
 }
 
 /** The folder the session's agent works in, the home as `~`; empty when tmux did not say. */
-fun sessionListPath(status: AgentStatus?, username: String): String =
-    status?.directory?.takeIf { it.isNotBlank() }?.let { homeRelative(it, username) } ?: ""
+fun sessionListPath(status: AgentStatus?, username: String): String = sessionListPath(status?.directory.orEmpty(), username)
+
+/** [directory] as the session list shows it, the home as `~`; empty for none. */
+fun sessionListPath(directory: String, username: String): String =
+    directory.takeIf { it.isNotBlank() }?.let { homeRelative(it, username) } ?: ""
 
 private fun homeRelative(path: String, username: String): String {
     val homes = if (username == "root") listOf("/root") else listOf("/home/$username", "/Users/$username")

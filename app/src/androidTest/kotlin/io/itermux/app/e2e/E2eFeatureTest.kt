@@ -15,6 +15,7 @@ import io.itermux.app.e2e.E2e.isOn
 import io.itermux.app.e2e.E2e.text
 import io.itermux.app.session.SessionService
 import io.itermux.app.session.TerminalConnection
+import io.itermux.app.session.sessionListPath
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
@@ -669,6 +670,14 @@ class E2eFeatureTest {
         E2e.run(compose, "hello-agent")
         E2e.waitOutput(compose, session, "agent got: hello-agent")
         E2e.capture(compose, "f16-agent-running")
+        // Its card says where it runs before the agent's hooks ever report, like a session whose hooks do.
+        backToHome()
+        sessionsTab()
+        E2e.waitTag(compose, "home-session-${session.id}")
+        compose.waitUntil(20_000) { session.directory.value.isNotEmpty() }
+        compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true)
+            .assertTextEquals("${host.name} · ${sessionListPath(session.directory.value, host.username)}")
+        E2e.capture(compose, "f16-agent-card")
     }
 
     // ---- app-wide ------------------------------------------------------------------------------------------

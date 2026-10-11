@@ -117,37 +117,42 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val title by session.title.collectAsStateWithLifecycle()
     val agent by session.agentStatus.collectAsStateWithLifecycle()
     val launched by session.launchedAgent.collectAsStateWithLifecycle()
+    val directory by session.directory.collectAsStateWithLifecycle()
     val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
     val shown = sessionListTitle(title, agent.takeIf { connected }, kind, session.host.username)
-    // Where it runs, on the status line's right: the host, and the agent's whole folder (the title names only its last part).
+    // Where it runs, on the status line's right: the host, and the whole folder (the title names only its last part).
+    // The agent's folder while it reports, else the pane's, so a session without hooks or agent says it too.
     val path = sessionListPath(agent.takeIf { connected }, session.host.username)
+        .ifEmpty { sessionListPath(directory, session.host.username) }
     val location = listOf(session.host.name, path).filter { it.isNotEmpty() && it != shown }.distinct().joinToString(" · ")
     // What an agent is running; no line while it runs nothing.
     val activity = agentActivity(agent.takeIf { connected })
+    val worked = agent?.workedSeconds
+    val working = activity.isEmpty() && connected && agent?.state == AgentStatus.State.WORKING
+    val done = activity.isEmpty() && connected && worked != null
     ListCard(onClick = onClick, onClickLabel = tr("打开终端"), modifier = Modifier.testTag("$tagPrefix-${session.id}")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // A session running an agent is told apart by the agent's mark rather than the host's system.
             if (kind != null) AgentIcon(kind, 44.dp, agent?.state.takeIf { connected })
             else SessionSystemIcon(session, 44.dp)
-            // A gap before the menu, so a cut-off title's … never runs into its dots.
-            Column(Modifier.weight(1f).padding(start = Spacing.Row, end = Spacing.Tight)) {
+            // A gap before the menu, so a cut-off title's … never runs into its dots. As tall as the mark, the title
+            // centred on it alone and with the line beneath, so a card with nothing to show leaves no empty row.
+            Column(Modifier.weight(1f).heightIn(min = 44.dp).padding(start = Spacing.Row, end = Spacing.Tight),
+                verticalArrangement = Arrangement.Center) {
                 Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.testTag("$tagPrefix-title-${session.id}"),
                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // The line beneath always keeps its place, so the title stays put as commands come and go: the command
-                // the agent runs, a spinner while it works on without one, how long its last turn took once it stops.
-                Box(contentAlignment = Alignment.CenterStart) {
-                    Text(activity.ifEmpty { " " }, if (activity.isEmpty()) Modifier else Modifier.testTag("$tagPrefix-activity-${session.id}"),
+                // The command the agent runs, a spinner while it works on without one, how long its last turn took once it stops.
+                if (activity.isNotEmpty())
+                    Text(activity, Modifier.testTag("$tagPrefix-activity-${session.id}"),
                         style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    val worked = agent?.workedSeconds
-                    if (activity.isEmpty() && connected && agent?.state == AgentStatus.State.WORKING)
-                        WorkingSpinner(kind?.brand() ?: MaterialTheme.colorScheme.primary,
-                            Modifier.testTag("$tagPrefix-working-${session.id}"))
-                    else if (activity.isEmpty() && connected && worked != null)
-                        TurnDone(worked, kind?.brand() ?: MaterialTheme.colorScheme.primary,
-                            Modifier.testTag("$tagPrefix-done-${session.id}"))
-                }
+                else if (working)
+                    WorkingSpinner(kind?.brand() ?: MaterialTheme.colorScheme.primary,
+                        Modifier.testTag("$tagPrefix-working-${session.id}"))
+                else if (done && worked != null)
+                    TurnDone(worked, kind?.brand() ?: MaterialTheme.colorScheme.primary,
+                        Modifier.testTag("$tagPrefix-done-${session.id}"))
             }
             SessionMenu(session, tagPrefix, onClose)
         }
