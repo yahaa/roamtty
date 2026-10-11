@@ -961,6 +961,8 @@ public final class TerminalView extends View {
                 setTopRow(Math.min(0, Math.max(-(mEmulator.getScreen().getActiveTranscriptRows()), mTopRow + (up ? -1 : 1))));
             }
         }
+        // Moving through local history changes only mTopRow; nothing else asks for the scrolled rows to be drawn.
+        if (amount > 0) invalidate();
     }
 
     /** Overriding {@link View#onGenericMotionEvent(MotionEvent)}. */
