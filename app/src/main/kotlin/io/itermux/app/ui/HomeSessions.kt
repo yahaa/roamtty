@@ -140,9 +140,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val done = activity.isEmpty() && connected && worked != null
     ListCard(onClick = onClick, onClickLabel = tr("打开终端"), modifier = Modifier.testTag("$tagPrefix-${session.id}")) {
         Row(verticalAlignment = Alignment.Top) {
-            // The same tile it was created from: the agent's mark, else the plain terminal's (the host is named beneath).
-            if (kind != null) AgentIcon(kind, 44.dp, agent?.state.takeIf { connected })
-            else TerminalTile(44.dp)
+            // The tile it was created from (the host is named beneath).
+            SessionIcon(session, 44.dp, agent?.state.takeIf { connected })
             // The title on top and where it runs beneath, so the line under the title is never empty. A gap before the
             // menu keeps a long title clear of its dots.
             Column(Modifier.weight(1f).padding(start = Spacing.Row, end = Spacing.Tight)) {

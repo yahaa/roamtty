@@ -28,6 +28,8 @@ import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.data.installedPlugins
 import io.itermux.app.data.multiplexer
+import io.itermux.app.session.AgentStatus
+import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.SessionMode
 import io.itermux.ssh.HostSystem
@@ -119,9 +121,15 @@ internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active
     }
 }
 
-@Composable internal fun SessionSystemIcon(session: TerminalConnection, size: Dp = 44.dp) {
-    val detectedSystem by session.detectedSystem.collectAsStateWithLifecycle()
-    HostSystemIcon(detectedSystem?.name ?: session.host.os, size)
+/**
+ * A session's tile, the one it was created from: the agent's mark while one runs or was launched, else the plain
+ * terminal's. [state] puts the agent's status dot in its corner.
+ */
+@Composable internal fun SessionIcon(session: TerminalConnection, size: Dp = 44.dp, state: AgentStatus.State? = null) {
+    val agent by session.agentStatus.collectAsStateWithLifecycle()
+    val launched by session.launchedAgent.collectAsStateWithLifecycle()
+    val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
+    if (kind != null) AgentIcon(kind, size, state) else TerminalTile(size)
 }
 
 /**

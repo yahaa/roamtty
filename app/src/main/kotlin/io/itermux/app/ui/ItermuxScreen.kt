@@ -594,7 +594,7 @@ fun ItermuxScreen(
                             Modifier.padding(horizontal = Spacing.Tight).clip(MaterialTheme.shapes.small)
                                 .testTag("share-session-${session.id}"),
                             subtitle = "${session.host.username}@${session.host.address}:${session.host.port}",
-                            leading = { SessionSystemIcon(session, 40.dp) },
+                            leading = { SessionIcon(session, 40.dp) },
                             trailing = { Chevron() },
                             enabled = state.phase == Phase.CONNECTED,
                             onClick = {
