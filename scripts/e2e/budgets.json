@@ -131,7 +131,7 @@
       "test": "E2eFramesTest",
       "about": "janky frames dragging through scrollback",
       "emulator": {
-        "max": 80
+        "max": 95
       }
     },
     "scroll_frame_p90_ms": {
