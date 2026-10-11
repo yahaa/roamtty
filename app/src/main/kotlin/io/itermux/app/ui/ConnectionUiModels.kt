@@ -9,6 +9,7 @@ import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
+import io.itermux.ssh.TerminalTransport
 
 internal data class ConnectRequest(
     val host: Host,
@@ -66,6 +67,15 @@ internal fun authLabel(auth: String) = when (auth) {
 
 internal fun modeLabel(tmux: Boolean, multiplexer: HostPlugin = HostPlugin.TMUX) =
     if (tmux) trf("%s · 可恢复", multiplexer.id) else tr("SSH · 普通会话")
+
+/**
+ * The tags a session card shows beside its status, like a host card's: the multiplexer that keeps it (tmux or psmux;
+ * the one it attached to, else the host's) and mosh while mosh carries it. A plain SSH shell has none.
+ */
+internal fun sessionTransportTags(mode: SessionMode, attached: HostPlugin?, hostMultiplexer: HostPlugin,
+    transport: TerminalTransport?): List<String> = listOfNotNull(
+    (attached ?: hostMultiplexer).id.takeIf { mode == SessionMode.TMUX },
+    HostPlugin.MOSH.id.takeIf { transport == TerminalTransport.MOSH })
 
 /** Sort key for session lists: live, then connecting, then needing the user, then closed. */
 internal fun activityRank(phase: Phase) = when (phase) {

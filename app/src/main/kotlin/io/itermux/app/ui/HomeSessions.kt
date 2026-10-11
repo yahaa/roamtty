@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.itermux.app.R
 import io.itermux.app.data.Host
+import io.itermux.app.data.multiplexer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.session.AgentStatus
 import io.itermux.app.session.CodingAgent
@@ -125,6 +126,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val agent by session.agentStatus.collectAsStateWithLifecycle()
     val launched by session.launchedAgent.collectAsStateWithLifecycle()
     val directory by session.directory.collectAsStateWithLifecycle()
+    val multiplexer by session.multiplexer.collectAsStateWithLifecycle()
+    val transport by session.transport.collectAsStateWithLifecycle()
     val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
     val shown = sessionListTitle(title, agent.takeIf { connected }, kind, session.host.username)
@@ -160,9 +163,15 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             // A session the list waits to reconnect says why it is not trying: its host does not answer.
             else StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"), hostOffline = hostOffline && !state.active)
             // On the right, the command the agent runs, a spinner while it works on without one, how long its last turn
-            // took once it stops; nothing otherwise.
+            // took once it stops; otherwise what keeps and carries the session, tagged as on a host card.
             Box(Modifier.weight(1f).padding(start = Spacing.Row), contentAlignment = Alignment.CenterEnd) {
-                if (activity.isNotEmpty())
+                if (activity.isEmpty() && !working && !done)
+                    Row(Modifier.fillMaxWidth().testTag("$tagPrefix-tags-${session.id}"),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        sessionTransportTags(session.mode, multiplexer, session.host.multiplexer, transport.takeIf { connected })
+                            .forEach { MetaTag(it, Modifier.testTag("$tagPrefix-tag-$it-${session.id}")) }
+                    }
+                else if (activity.isNotEmpty())
                     Text(activity, Modifier.testTag("$tagPrefix-activity-${session.id}"),
                         style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
