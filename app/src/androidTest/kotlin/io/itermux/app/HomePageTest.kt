@@ -73,8 +73,18 @@ class HomePageTest {
             assertTrue("add at the list's right", abs((add.right - searchToggle.right).value) < 1f)
             assertTrue("add below the toolbar", add.top >= searchToggle.bottom)
             compose.onNodeWithTag("add-session").performClick()
+            // What runs comes first, then the host; Back from the hosts returns to that first step.
+            compose.onNodeWithTag("new-session-pick-claude").assertIsDisplayed()
+            compose.onNodeWithTag("new-session-host-${host.id}").assertDoesNotExist()
+            capture("new-session-agents")
+            compose.onNodeWithTag("new-session-pick-terminal").performClick()
             compose.onNodeWithTag("new-session-sheet").performScrollToNode(hasTestTag("new-session-host-${host.id}"))
-            compose.onNodeWithTag("new-session-terminal-${host.id}").performClick()
+            capture("new-session-hosts")
+            Espresso.pressBack()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("new-session-pick-terminal").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("new-session-pick-terminal").performClick()
+            compose.onNodeWithTag("new-session-sheet").performScrollToNode(hasTestTag("new-session-host-${host.id}"))
+            compose.onNodeWithTag("new-session-host-${host.id}").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("new-session-sheet").fetchSemanticsNodes().isEmpty() }
             compose.onNodeWithText("打开终端").assertIsDisplayed()
             Espresso.pressBack()
@@ -125,9 +135,10 @@ class HomePageTest {
         try {
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("add-session").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("add-session").performClick()
+            compose.onNodeWithTag("new-session-pick-claude").performClick()
             compose.onNodeWithTag("new-session-sheet").performScrollToNode(hasTestTag("new-session-new-host"))
             capture("new-session-sheet")
-            compose.onNodeWithTag("new-session-new-host-agent").performClick()
+            compose.onNodeWithTag("new-session-new-host").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("host-editor").fetchSemanticsNodes().isNotEmpty() }
             compose.onNode(hasText("新建会话") and hasAnyAncestor(hasTestTag("host-editor"))).assertIsDisplayed()
             // A host filled in for a session keeps its password by default.
@@ -145,6 +156,9 @@ class HomePageTest {
             compose.waitUntil(8_000) { compose.onAllNodesWithText("用 AI 助手打开").fetchSemanticsNodes().isNotEmpty() }
             Thread.sleep(800) // let the sheet finish sliding in for the screenshot
             capture("new-session-launch")
+            // The agent picked first is the one the launch sheet starts.
+            compose.onNodeWithTag("agent-picker").assertTextContains("Claude", substring = true)
+            compose.onNodeWithTag("launch-open").assertTextContains("Claude", substring = true)
             val saved = app.database.hosts().observe().first().single { it.address == address }
             assertEquals(address, saved.name)
             Espresso.pressBack()

@@ -56,12 +56,13 @@ import kotlinx.coroutines.CancellationException
  * One sheet to open a terminal or, with [forAgent], start Claude Code, Codex or Grok on [host]. The folder is
  * picked by tapping through the host's folders (no typing); leaving it untouched starts in home. Folders come from
  * [monitor] when the host page already has a login, else from a short-lived login of the sheet's own.
+ * [initialAgent] is the agent already picked (the new-session sheet asks for it first); otherwise the last one used.
  * [onLaunch] gets the folder and, for an agent, what to run there.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, onDismiss: () -> Unit,
-    onLaunch: (directory: String, agent: AgentLaunch?) -> Unit) {
+    initialAgent: CodingAgent? = null, onLaunch: (directory: String, agent: AgentLaunch?) -> Unit) {
     val context = LocalContext.current.applicationContext
     val app = context as ItermuxApp
     val scope = rememberCoroutineScope()
@@ -69,7 +70,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     var recent by remember(host.id) { mutableStateOf(preferences.recentStartDirectories(host.id)) }
     var current by remember { mutableStateOf(StartDirectory.HOME) }
     val unsupported = !StartDirectory.isSupported(current)
-    var agent by remember { mutableStateOf(CodingAgent.from(preferences.getString(AGENT_KEY, null))) }
+    var agent by remember { mutableStateOf(initialAgent ?: CodingAgent.from(preferences.getString(AGENT_KEY, null))) }
     var mode by remember { mutableStateOf(preferences.agentMode()) }
     val yolo = forAgent && mode == AgentMode.YOLO
 

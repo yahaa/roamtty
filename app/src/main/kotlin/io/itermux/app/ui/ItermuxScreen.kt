@@ -142,14 +142,14 @@ fun ItermuxScreen(
     var editorOpen by rememberSaveable { mutableStateOf(false) }
     var editHostId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteHost by remember { mutableStateOf<Host?>(null) }
-    /** A host-menu launch: the host, and whether it starts an AI agent rather than a plain terminal. */
-    var launchRequest by remember { mutableStateOf<Pair<Host, Boolean>?>(null) }
+    /** A launch on a host: from its menu (the agent chosen on the launch sheet) or from 新建会话 (the agent picked first). */
+    var launchRequest by remember { mutableStateOf<LaunchRequest?>(null) }
     /** The home page's "new session" sheet, which picks the host before the launch sheet. */
     var newSessionOpen by rememberSaveable { mutableStateOf(false) }
-    /** Set while the host editor fills in a new host for a new session: whether that session starts an AI agent. */
-    var newHostForAgent by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    /** A host just saved for a new session, waiting for the host list to carry it: its id, and whether it starts an agent. */
-    var savedForSession by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    /** Set while the host editor fills in a new host for a new session: the agent it starts, or "" for a terminal. */
+    var newHostFor by rememberSaveable { mutableStateOf<String?>(null) }
+    /** A host just saved for a new session, waiting for the host list to carry it: its id, and the agent it starts. */
+    var savedForSession by remember { mutableStateOf<Pair<String, CodingAgent?>?>(null) }
     var connectRequest by remember { mutableStateOf<ConnectRequest?>(null) }
     /** Session id → when it last reconnected by itself on open; see [AUTO_RECONNECT_INTERVAL_MS]. */
     val autoReconnectedAt = remember { mutableMapOf<String, Long>() }
@@ -454,7 +454,7 @@ fun ItermuxScreen(
                                     items(filtered, key = { it.id }) { host -> HostCard(host, { detailHostId = host.id; page = "host" }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
                                         hostReachability.statusOf(host).let { probed ->
                                             if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
-                                        }, openTerminal = { launchRequest = host to false }, launchAgent = { launchRequest = host to true }) }
+                                        }, openTerminal = { launchRequest = LaunchRequest(host, false) }, launchAgent = { launchRequest = LaunchRequest(host, true) }) }
                                 }
                             }
                         }
@@ -537,22 +537,23 @@ fun ItermuxScreen(
                 onDismiss = { editorOpen = false; editHostId = null },
                 onSaved = { editorOpen = false; editHostId = null })
         }
-        newHostForAgent?.let { forAgent ->
-            HostEditor(app, null, forSession = true, onDismiss = { newHostForAgent = null },
-                onSaved = { id -> newHostForAgent = null; savedForSession = id to forAgent })
+        newHostFor?.let { name ->
+            val agent = CodingAgent.entries.firstOrNull { it.name == name }
+            HostEditor(app, null, forSession = true, onDismiss = { newHostFor = null },
+                onSaved = { id -> newHostFor = null; savedForSession = id to agent })
         }
-        savedForSession?.let { (id, forAgent) ->
+        savedForSession?.let { (id, agent) ->
             LaunchedEffect(hosts, id) {
-                hosts.firstOrNull { it.id == id }?.let { savedForSession = null; launchRequest = it to forAgent }
+                hosts.firstOrNull { it.id == id }?.let { savedForSession = null; launchRequest = LaunchRequest(it, agent != null, agent) }
             }
         }
         if (newSessionOpen) NewSessionSheet(hosts, onDismiss = { newSessionOpen = false },
-            onNewHost = { newSessionOpen = false; newHostForAgent = it }) { host, forAgent ->
+            onNewHost = { newSessionOpen = false; newHostFor = it?.name.orEmpty() }) { host, agent ->
             newSessionOpen = false
-            launchRequest = host to forAgent
+            launchRequest = LaunchRequest(host, agent != null, agent)
         }
-        launchRequest?.let { (host, forAgent) ->
-            LaunchSheet(host, forAgent, monitor = null, onDismiss = { launchRequest = null }) { directory, agent ->
+        launchRequest?.let { (host, forAgent, initialAgent) ->
+            LaunchSheet(host, forAgent, monitor = null, onDismiss = { launchRequest = null }, initialAgent = initialAgent) { directory, agent ->
                 launchRequest = null
                 launchOn(host, directory, agent)
             }
@@ -607,3 +608,6 @@ fun ItermuxScreen(
         if (showAbout) AboutDialog(context) { showAbout = false }
     }
 }
+
+/** A launch sheet to open: on [host], for an agent or a terminal, with [agent] already picked when there is one. */
+private data class LaunchRequest(val host: Host, val forAgent: Boolean, val agent: CodingAgent? = null)

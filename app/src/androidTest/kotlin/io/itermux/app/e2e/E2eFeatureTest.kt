@@ -236,14 +236,15 @@ class E2eFeatureTest {
         E2e.capture(compose, "f03-terminal")
     }
 
-    /** 新建会话 on the sessions tab: pick a host, then 打开终端. */
+    /** 新建会话 on the sessions tab: pick 终端, then a host, then 打开终端. */
     @Test fun f04_newSessionFromSessionsTab() = runBlocking<Unit> {
         val host = E2e.save(E2e.host("新建会话"))
         sessionsTab()
         val before = service.sessions.value.map { it.id }.toSet()
         click("add-session")
+        click("new-session-pick-terminal")
         compose.onNodeWithTag("new-session-sheet").performScrollToNode(hasTestTag("new-session-host-${host.id}"))
-        click("new-session-terminal-${host.id}")
+        click("new-session-host-${host.id}")
         val session = launchFromSheet(before)
         shellReady(session)
         backToHome()
