@@ -544,16 +544,17 @@ fun ItermuxScreen(
         }
         savedForSession?.let { (id, agent) ->
             LaunchedEffect(hosts, id) {
-                hosts.firstOrNull { it.id == id }?.let { savedForSession = null; launchRequest = LaunchRequest(it, agent != null, agent) }
+                hosts.firstOrNull { it.id == id }?.let { savedForSession = null; launchRequest = LaunchRequest(it, agent != null, agent, newSession = true) }
             }
         }
         if (newSessionOpen) NewSessionSheet(hosts, onDismiss = { newSessionOpen = false },
             onNewHost = { newSessionOpen = false; newHostFor = it?.name.orEmpty() }) { host, agent ->
             newSessionOpen = false
-            launchRequest = LaunchRequest(host, agent != null, agent)
+            launchRequest = LaunchRequest(host, agent != null, agent, newSession = true)
         }
-        launchRequest?.let { (host, forAgent, initialAgent) ->
-            LaunchSheet(host, forAgent, monitor = null, onDismiss = { launchRequest = null }, initialAgent = initialAgent) { directory, agent ->
+        launchRequest?.let { (host, forAgent, initialAgent, newSession) ->
+            LaunchSheet(host, forAgent, monitor = null, onDismiss = { launchRequest = null }, initialAgent = initialAgent,
+                title = if (newSession) tr("选择工作目录") else null) { directory, agent ->
                 launchRequest = null
                 launchOn(host, directory, agent)
             }
@@ -610,4 +611,5 @@ fun ItermuxScreen(
 }
 
 /** A launch sheet to open: on [host], for an agent or a terminal, with [agent] already picked when there is one. */
-private data class LaunchRequest(val host: Host, val forAgent: Boolean, val agent: CodingAgent? = null)
+/** [newSession]: the last step of a new session from the sessions tab, after what runs and the host were picked. */
+private data class LaunchRequest(val host: Host, val forAgent: Boolean, val agent: CodingAgent? = null, val newSession: Boolean = false)

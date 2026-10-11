@@ -86,9 +86,12 @@ class HomePageTest {
             compose.onNodeWithTag("new-session-sheet").performScrollToNode(hasTestTag("new-session-host-${host.id}"))
             compose.onNodeWithTag("new-session-host-${host.id}").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("new-session-sheet").fetchSemanticsNodes().isEmpty() }
-            compose.onNodeWithText("打开终端").assertIsDisplayed()
+            // The third step names what it asks for: the folder to work in.
+            compose.onNodeWithText("选择工作目录").assertIsDisplayed()
+            compose.onNodeWithText("打开终端").assertDoesNotExist()
+            capture("new-session-folder")
             Espresso.pressBack()
-            compose.waitUntil(5_000) { compose.onAllNodesWithText("打开终端").fetchSemanticsNodes().isEmpty() }
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("选择工作目录").fetchSemanticsNodes().isEmpty() }
 
             // A tap on 主机 shows the hosts, and the + adds a host there.
             compose.onNodeWithTag("home-tab-hosts").performClick()
@@ -111,6 +114,9 @@ class HomePageTest {
             compose.onNodeWithTag("home-session-${session.id}").assertIsDisplayed()
             // The card's details are one quiet line: its state and the host it runs on.
             compose.onNodeWithTag("home-session-${session.id}").assertTextContains(host.name, substring = true)
+            // A plain terminal wears the terminal tile it was created from, not its host's system.
+            compose.onNode(hasTestTag("terminal-icon") and hasAnyAncestor(hasTestTag("home-session-${session.id}")),
+                useUnmergedTree = true).assertExists()
 
             // A session opened from the list returns to the sessions tab, even after the hosts tab was last shown.
             compose.onNodeWithTag("home-tab-hosts").performClick()
@@ -153,7 +159,7 @@ class HomePageTest {
             compose.onNodeWithTag("save-host").assertTextEquals("下一步").performClick()
             // The saved host continues straight to the launch sheet, for an AI agent.
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("host-editor").fetchSemanticsNodes().isEmpty() }
-            compose.waitUntil(8_000) { compose.onAllNodesWithText("用 AI Agent打开").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(8_000) { compose.onAllNodesWithText("选择工作目录").fetchSemanticsNodes().isNotEmpty() }
             Thread.sleep(800) // let the sheet finish sliding in for the screenshot
             capture("new-session-launch")
             // The agent picked first is the one the launch sheet starts.
