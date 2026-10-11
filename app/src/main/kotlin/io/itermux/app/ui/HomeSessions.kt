@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
@@ -25,6 +26,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.LinearGradientShader
@@ -37,7 +44,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.itermux.app.R
@@ -107,8 +113,8 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
 }
 
 /**
- * One session card: the agent's mark (or the host's system), what it works on, its status and where it runs, with close
- * in its menu. The title is the agent's task, else the agent and its folder ("Claude · roamtty"); see [sessionListTitle].
+ * One session card: the agent's mark (or the host's system) beside what it works on and where it runs, then its status
+ * and what the agent is doing, with close in its menu. The title is the agent's task, else the agent and its folder ("Claude · roamtty"); see [sessionListTitle].
  */
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit,
@@ -117,37 +123,33 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val title by session.title.collectAsStateWithLifecycle()
     val agent by session.agentStatus.collectAsStateWithLifecycle()
     val launched by session.launchedAgent.collectAsStateWithLifecycle()
+    val directory by session.directory.collectAsStateWithLifecycle()
     val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
     val shown = sessionListTitle(title, agent.takeIf { connected }, kind, session.host.username)
-    // Where it runs, on the status line's right: the host, and the agent's whole folder (the title names only its last part).
+    // Where it runs, on the status line's right: the host, and the whole folder (the title names only its last part).
+    // The agent's folder while it reports, else the pane's, so a session without hooks or agent says it too.
     val path = sessionListPath(agent.takeIf { connected }, session.host.username)
+        .ifEmpty { sessionListPath(directory, session.host.username) }
     val location = listOf(session.host.name, path).filter { it.isNotEmpty() && it != shown }.distinct().joinToString(" · ")
     // What an agent is running; no line while it runs nothing.
     val activity = agentActivity(agent.takeIf { connected })
+    val worked = agent?.workedSeconds
+    val working = activity.isEmpty() && connected && agent?.state == AgentStatus.State.WORKING
+    val done = activity.isEmpty() && connected && worked != null
     ListCard(onClick = onClick, onClickLabel = tr("打开终端"), modifier = Modifier.testTag("$tagPrefix-${session.id}")) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.Top) {
             // A session running an agent is told apart by the agent's mark rather than the host's system.
             if (kind != null) AgentIcon(kind, 44.dp, agent?.state.takeIf { connected })
             else SessionSystemIcon(session, 44.dp)
-            // A gap before the menu, so a cut-off title's … never runs into its dots.
+            // The title on top and where it runs beneath, so the line under the title is never empty. A gap before the
+            // menu keeps a long title clear of its dots.
             Column(Modifier.weight(1f).padding(start = Spacing.Row, end = Spacing.Tight)) {
-                Text(shown.ifBlank { trf("会话 %d", session.sessionNumber) }, Modifier.testTag("$tagPrefix-title-${session.id}"),
-                    style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // The line beneath always keeps its place, so the title stays put as commands come and go: the command
-                // the agent runs, a spinner while it works on without one, how long its last turn took once it stops.
-                Box(contentAlignment = Alignment.CenterStart) {
-                    Text(activity.ifEmpty { " " }, if (activity.isEmpty()) Modifier else Modifier.testTag("$tagPrefix-activity-${session.id}"),
-                        style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    val worked = agent?.workedSeconds
-                    if (activity.isEmpty() && connected && agent?.state == AgentStatus.State.WORKING)
-                        WorkingSpinner(kind?.brand() ?: MaterialTheme.colorScheme.primary,
-                            Modifier.testTag("$tagPrefix-working-${session.id}"))
-                    else if (activity.isEmpty() && connected && worked != null)
-                        TurnDone(worked, kind?.brand() ?: MaterialTheme.colorScheme.primary,
-                            Modifier.testTag("$tagPrefix-done-${session.id}"))
-                }
+                MarqueeTitle(shown.ifBlank { trf("会话 %d", session.sessionNumber) },
+                    Modifier.testTag("$tagPrefix-title-${session.id}"))
+                Text(location, Modifier.padding(top = 2.dp).testTag("$tagPrefix-location-${session.id}"),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
             }
             SessionMenu(session, tagPrefix, onClose)
         }
@@ -157,11 +159,41 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             if (status != null && connected) AgentStatusLine(status)
             // A session the list waits to reconnect says why it is not trying: its host does not answer.
             else StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"), hostOffline = hostOffline && !state.active)
-            Text(location, Modifier.weight(1f).padding(start = Spacing.Tight).testTag("$tagPrefix-location-${session.id}"),
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+            // On the right, the command the agent runs, a spinner while it works on without one, how long its last turn
+            // took once it stops; nothing otherwise.
+            Box(Modifier.weight(1f).padding(start = Spacing.Row), contentAlignment = Alignment.CenterEnd) {
+                if (activity.isNotEmpty())
+                    Text(activity, Modifier.testTag("$tagPrefix-activity-${session.id}"),
+                        style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                else if (working)
+                    WorkingSpinner(kind?.brand() ?: MaterialTheme.colorScheme.primary,
+                        Modifier.testTag("$tagPrefix-working-${session.id}"))
+                else if (done && worked != null)
+                    TurnDone(worked, kind?.brand() ?: MaterialTheme.colorScheme.primary,
+                        Modifier.testTag("$tagPrefix-done-${session.id}"))
+            }
         }
     }
+}
+
+/**
+ * A card title on one line that, when too long for it, keeps scrolling like a subtitle (rests 1.2 s, then 30 dp/s with a
+ * third of the line between copies) and fades out at the right edge; a title that fits stays still and unfaded.
+ */
+@Composable
+internal fun MarqueeTitle(text: String, modifier: Modifier = Modifier) {
+    // The marquee lays the text out at its full width; more than the line gets means it scrolls.
+    var full by remember { mutableIntStateOf(0) }
+    var line by remember { mutableIntStateOf(0) }
+    val fade = if (full > line) Modifier.graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen).drawWithContent {
+        drawContent()
+        val edge = 18.dp.toPx()
+        drawRect(Brush.horizontalGradient(0f to Color.Black, 1f to Color.Transparent, startX = size.width - edge,
+            endX = size.width), blendMode = BlendMode.DstIn)
+    } else Modifier
+    Text(text, modifier.onSizeChanged { line = it.width }.then(fade).basicMarquee(iterations = Int.MAX_VALUE),
+        style = MaterialTheme.typography.titleMedium, maxLines = 1, onTextLayout = { full = it.size.width })
 }
 
 /**

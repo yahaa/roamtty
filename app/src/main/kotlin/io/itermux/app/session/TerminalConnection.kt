@@ -102,6 +102,12 @@ class TerminalConnection(
     private val mutableAgentStatus = MutableStateFlow<AgentStatus?>(null)
     /** What an agent started with hooks reports in this tmux session; null for none, or while the host is out of reach. */
     val agentStatus = mutableAgentStatus.asStateFlow()
+    private val mutableDirectory = MutableStateFlow("")
+    /**
+     * The folder the tmux pane was last seen in, agent or not, so every session can say where it runs; kept while the
+     * host is out of reach, as the tmux session stays where it was. Empty until the first poll answers.
+     */
+    val directory = mutableDirectory.asStateFlow()
     private val agentStatusWatcher = if (credentials == null || mode != SessionMode.TMUX) null else scope.launch {
         ssh.state.map { it.phase == Phase.CONNECTED }.distinctUntilChanged().collectLatest { connected ->
             if (!connected) { mutableAgentStatus.value = null; return@collectLatest }
@@ -110,6 +116,7 @@ class TerminalConnection(
                 // A poll that got no answer keeps what was shown; only an answer without an agent clears it.
                 val status = if (output == null) mutableAgentStatus.value else AgentStatus.parse(output)
                 mutableAgentStatus.value = status
+                AgentStatus.directory(output).takeIf { it.isNotEmpty() }?.let { mutableDirectory.value = it }
                 // An agent shows up within seconds of starting; without one the poll can be lazy.
                 delay(if (status != null) 3_000 else 10_000)
             }
