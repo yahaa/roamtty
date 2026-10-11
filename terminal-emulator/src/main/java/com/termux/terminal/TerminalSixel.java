@@ -114,22 +114,6 @@ public class TerminalSixel {
     }
 
 
-    public int getCurX() {
-        return mCurX;
-    }
-
-    public int getCurY() {
-        return mCurY;
-    }
-
-
-    public int[] getColorMap() {
-        return mColorMap;
-    }
-
-    public int getColor() {
-        return mColor;
-    }
 
 
 

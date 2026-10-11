@@ -330,10 +330,6 @@ public class TextSelectionHandleView extends View {
         return mHandleHeight;
     }
 
-    public int getHandleWidth() {
-        return mHandleWidth;
-    }
-
     public boolean isShowing() {
         if (mHandle != null)
             return mHandle.isShowing();
@@ -343,10 +339,6 @@ public class TextSelectionHandleView extends View {
 
     public boolean isParentNull() {
         return this.getParent() == null;
-    }
-
-    public boolean isDragging() {
-        return mIsDragging;
     }
 
 }

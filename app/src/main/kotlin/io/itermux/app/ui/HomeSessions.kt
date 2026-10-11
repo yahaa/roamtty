@@ -169,7 +169,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 else if (working)
                     WorkingSpinner(kind?.brand() ?: MaterialTheme.colorScheme.primary,
                         Modifier.testTag("$tagPrefix-working-${session.id}"))
-                else if (done && worked != null)
+                else if (done)
                     TurnDone(worked, kind?.brand() ?: MaterialTheme.colorScheme.primary,
                         Modifier.testTag("$tagPrefix-done-${session.id}"))
             }

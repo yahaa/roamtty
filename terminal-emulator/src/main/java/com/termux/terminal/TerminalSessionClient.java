@@ -10,12 +10,6 @@ import androidx.annotation.Nullable;
  */
 public interface TerminalSessionClient {
 
-    void onTextChanged(@NonNull TerminalSession changedSession);
-
-    void onTitleChanged(@NonNull TerminalSession changedSession);
-
-    void onSessionFinished(@NonNull TerminalSession finishedSession);
-
     void onCopyTextToClipboard(@NonNull TerminalSession session, String text);
 
     void onPasteTextFromClipboard(@Nullable TerminalSession session);
@@ -26,13 +20,7 @@ public interface TerminalSessionClient {
 
     void onTerminalCursorStateChange(boolean state);
 
-    void setTerminalShellPid(@NonNull TerminalSession session, int pid);
-
-
-
     Integer getTerminalCursorStyle();
-
-
 
     void logError(String tag, String message);
 

@@ -91,7 +91,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     var retry by remember { mutableIntStateOf(0) }
     LaunchedEffect(current, ready, retry) {
         failed = false
-        if (!ready || browser == null) return@LaunchedEffect
+        if (!ready) return@LaunchedEffect
         loading = true
         try {
             val result = browser.listFolders(current)

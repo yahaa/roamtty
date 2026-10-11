@@ -175,10 +175,6 @@ final class TerminalUrl {
         return null;
     }
 
-    private static String firstToken(TerminalEmulator emulator, int y) {
-        return rowToken(emulator, y, true, new int[2]);
-    }
-
     private static String lastToken(TerminalEmulator emulator, int y) {
         TerminalRow line = rowAt(emulator, y);
         String text = new String(line.mText, 0, contentLength(line));

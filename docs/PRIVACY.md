@@ -14,7 +14,7 @@ Roamtty 是一款开源的 SSH 终端客户端。我们（Roamtty 开发者）�
 - **会话记录**：每台主机最多 8 条会话的 ID、对应主机、模式、标题、远端 tmux 会话名和会话序号，用于应用重启后恢复会话列表。不包含终端内容。
 - **偏好设置**：语言、字体、字号、操作栏和下载目录等设置。
 
-终端输出、输入内容、编辑草稿和全屏程序的输出记录只存在于内存中，不写入磁盘。应用已关闭系统备份与设备迁移，上述数据不会进入 Google 云端备份。删除主机会删除该主机配置、已保存的凭据和会话记录；服务器信任记录独立保留，可通过“重新核验”移除。清除应用数据或卸载应用会删除应用保存的全部本地数据。
+终端输出、输入内容和编辑草稿只存在于内存中，不写入磁盘。应用已关闭系统备份与设备迁移，上述数据不会进入 Google 云端备份。删除主机会删除该主机配置、已保存的凭据和会话记录；服务器信任记录独立保留，可通过“重新核验”移除。清除应用数据或卸载应用会删除应用保存的全部本地数据。
 
 ## 网络连接
 
@@ -65,7 +65,7 @@ The following data stays on your device and is used only by the app itself:
 - **Session list**: the ID, host, mode, title, remote tmux session name and session number of up to 8 sessions per host, used to restore the session list after the app restarts. It contains no terminal content.
 - **Preferences**: language, font, font size, control bar and download folder settings.
 
-Terminal output, input, text drafts and full-screen program output records are kept in memory only and never written to disk. System backup and device transfer are disabled, so none of this data goes into Google cloud backups. Deleting a host removes its configuration, saved credentials and session records. Server trust records remain stored separately and can be removed by reverifying. Clearing app data or uninstalling the app deletes all local data stored by the app.
+Terminal output, input and text drafts are kept in memory only and never written to disk. System backup and device transfer are disabled, so none of this data goes into Google cloud backups. Deleting a host removes its configuration, saved credentials and session records. Server trust records remain stored separately and can be removed by reverifying. Clearing app data or uninstalling the app deletes all local data stored by the app.
 
 ## Network connections
 

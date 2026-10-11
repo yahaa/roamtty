@@ -391,32 +391,16 @@ public class TerminalBitmap {
     }
 
 
-    public int getBitmapNum() {
-        return mBitmapNum;
-    }
-
     public Bitmap getBitmap() {
         return mBitmap;
     }
 
-
-    public int getCellWidth() {
-        return mCellWidth;
-    }
-
-    public int getCellHeight() {
-        return mCellHeight;
-    }
 
 
     public int getScrollLines() {
         return mScrollLines;
     }
 
-
-    public int[] getCursorDelta() {
-        return mCursorDelta;
-    }
 
     public void setCursorDelta(int[] cursorDelta) {
         mCursorDelta = cursorDelta;

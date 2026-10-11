@@ -79,10 +79,6 @@ public class ITermImage {
     }
 
 
-    public boolean isMultipart() {
-        return mIsMultipart;
-    }
-
 
     public int getWidth() {
         return mWidth;
@@ -103,22 +99,10 @@ public class ITermImage {
     }
 
 
-    public String getEncodedImage() {
-        return mEncodedImage.toString();
-    }
-
     public byte[] getDecodedImage() {
         return mDecodedImage;
     }
 
-
-    public synchronized ImageState getCurrentState() {
-        return mCurrentState;
-    }
-
-    public synchronized ImageState getPreviousState() {
-        return mPreviousState;
-    }
 
 
     protected synchronized boolean setState(ImageState newState) {
@@ -163,18 +147,6 @@ public class ITermImage {
         return true;
     }
 
-
-    public synchronized boolean isArgumentsRead() {
-        return mCurrentState == ImageState.ARGUMENTS_READ;
-    }
-
-    public synchronized boolean isImageReading() {
-        return mCurrentState == ImageState.IMAGE_READING;
-    }
-
-    public synchronized boolean isImageRead() {
-        return mCurrentState == ImageState.IMAGE_READ;
-    }
 
     public synchronized boolean isImageDecoded() {
         return mCurrentState == ImageState.IMAGE_DECODED;
