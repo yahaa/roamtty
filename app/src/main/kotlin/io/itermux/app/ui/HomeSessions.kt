@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Shader
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -113,7 +114,7 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
 }
 
 /**
- * One session card: the agent's mark (or the host's system) beside what it works on and where it runs, then its status
+ * One session card: the agent's mark (or the terminal's) beside what it works on and where it runs, then its status
  * and what the agent is doing, with close in its menu. The title is the agent's task, else the agent and its folder ("Claude · roamtty"); see [sessionListTitle].
  */
 @Composable
@@ -139,9 +140,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val done = activity.isEmpty() && connected && worked != null
     ListCard(onClick = onClick, onClickLabel = tr("打开终端"), modifier = Modifier.testTag("$tagPrefix-${session.id}")) {
         Row(verticalAlignment = Alignment.Top) {
-            // A session running an agent is told apart by the agent's mark rather than the host's system.
-            if (kind != null) AgentIcon(kind, 44.dp, agent?.state.takeIf { connected })
-            else SessionSystemIcon(session, 44.dp)
+            // The tile it was created from (the host is named beneath).
+            SessionIcon(session, 44.dp, agent?.state.takeIf { connected })
             // The title on top and where it runs beneath, so the line under the title is never empty. A gap before the
             // menu keeps a long title clear of its dots.
             Column(Modifier.weight(1f).padding(start = Spacing.Row, end = Spacing.Tight)) {
@@ -317,10 +317,12 @@ private const val TERMINAL = "terminal"
 
 /** A plain terminal's tile, beside the agents' own. */
 @Composable
-private fun TerminalTile(size: androidx.compose.ui.unit.Dp) {
+internal fun TerminalTile(size: androidx.compose.ui.unit.Dp) {
     val colors = MaterialTheme.colorScheme
-    Box(Modifier.size(size).clip(androidx.compose.foundation.shape.RoundedCornerShape(size * 0.28f)).background(colors.surfaceVariant),
-        contentAlignment = Alignment.Center) {
+    // A wash of the text colour, like the agents' brand washes, so the tile shows on a card as well as on the sheet.
+    val wash = colors.onSurface.copy(alpha = if (colors.background.luminance() > 0.5f) 0.08f else 0.12f)
+    Box(Modifier.size(size).clip(androidx.compose.foundation.shape.RoundedCornerShape(size * 0.28f)).background(wash)
+        .testTag("terminal-icon"), contentAlignment = Alignment.Center) {
         Text("\$_", color = colors.onSurfaceVariant, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.titleSmall)
     }

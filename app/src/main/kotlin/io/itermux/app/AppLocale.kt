@@ -382,6 +382,7 @@ private object EnglishText {
         "没有匹配的会话" to "No matching sessions",
         "试试其他标题或主机信息" to "Try a different title or host detail",
         "选择主机" to "Choose a host",
+        "选择工作目录" to "Choose a working folder",
         "终端已就绪" to "Terminal ready",
         "连接一台主机，开始远端工作。" to "Connect to a host to start working remotely.",
         "将删除这台主机及保存的凭据，并关闭它的连接。服务器信任记录会独立保留，可通过重新核验移除。远端 tmux 任务不受影响。" to "Deletes this host and its saved credentials and closes its connections. Server trust records remain stored separately and can be removed by reverifying. Remote tmux tasks are unaffected.",
