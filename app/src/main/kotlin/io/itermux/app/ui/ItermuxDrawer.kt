@@ -46,9 +46,17 @@ internal fun ItermuxDrawer(
                 ToolbarIcon(R.drawable.ic_close, tr("关闭"), tint = MaterialTheme.colorScheme.onSurfaceVariant, onClick = onClose)
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                NavigationDrawerItem(label = { Text(tr("主机")) }, selected = page == "hosts", onClick = onHosts,
+                // Hosts is the home page, so a selected pill would sit lit almost every time the drawer opens:
+                // keep it a plain row like Settings and carry the count in a small muted chip.
+                NavigationDrawerItem(label = { Text(tr("主机")) }, selected = false, onClick = onHosts,
                     icon = { Icon(painterResource(R.drawable.ic_hosts), contentDescription = null) },
-                    badge = { Text("$hostCount", style = MaterialTheme.typography.labelLarge) },
+                    badge = {
+                        Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant) {
+                            Text("$hostCount", style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                        }
+                    },
                     modifier = Modifier.padding(horizontal = 12.dp).testTag("drawer-hosts"))
                 HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
                 Text(tr("当前会话"), style = MaterialTheme.typography.sectionHeader,

@@ -75,6 +75,8 @@ class NavigationThemeTest {
             // Hosts show their count like sessions do.
             val hostCount = app.database.hosts().observe().first().size
             compose.onNodeWithTag("drawer-hosts").assert(hasText("$hostCount"))
+            // Hosts is the home page, yet its row stays a plain item rather than a lit selected pill.
+            compose.onNodeWithTag("drawer-hosts").assertIsNotSelected()
             capture("navigation-drawer")
             compose.onNodeWithTag("drawer-sessions").assertDoesNotExist()
             compose.onNodeWithTag("drawer-hosts").performClick()
