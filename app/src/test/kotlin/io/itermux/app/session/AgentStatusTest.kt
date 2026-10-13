@@ -133,6 +133,57 @@ class AgentStatusTest {
         }
     }
 
+    @Test fun aStoppedTurnLeavesTheStartOfItsAnswerUntilTheNextPrompt() {
+        val dir = Files.createTempDirectory("agent-hook").toFile()
+        try {
+            val script = File(dir, "agent-hook.sh").apply { writeText(AgentHooks.script) }
+            File(dir, "tmux").apply {
+                writeText("#!/bin/sh\ncase \"\$1\" in\n  show-options) cat \"$dir/opt\$5\" 2>/dev/null ;;\n" +
+                    "  set-option) if [ \"\$2\" = -u ]; then rm -f \"$dir/opt\$6\"; else printf '%s' \"\$6\" > \"$dir/opt\$5\"; fi ;;\nesac\n")
+                setExecutable(true)
+            }
+            fun hook(agent: String, event: String, json: String = "{}") {
+                val process = ProcessBuilder("sh", script.path, agent, event).apply {
+                    environment()["PATH"] = "${dir.path}:${System.getenv("PATH")}"
+                    environment()["TMUX_PANE"] = "%1"
+                    environment()["ROAMTTY_AGENT"] = "grok"
+                }.start()
+                process.outputStream.use { it.write(json.toByteArray()) }
+                assertEquals(0, process.waitFor())
+            }
+            val reply = File(dir, "opt@roamtty_reply")
+            hook("claude", "prompt", """{"prompt":"fix the bug"}""")
+            // Claude Code and Codex name it in snake_case, its lines joined and any "|" kept out of the report.
+            hook("claude", "stop", """{"stop_hook_active":false,"last_assistant_message":"**Fixed** it.\nTests pass | 3/3"}""")
+            assertEquals("**Fixed** it. Tests pass / 3/3", reply.readText())
+            hook("claude", "prompt", """{"prompt":"again"}""")
+            assertFalse(reply.exists())
+            // Grok in camelCase.
+            hook("grok", "stop", """{"stopHookActive":false,"lastAssistantMessage":"Done."}""")
+            assertEquals("Done.", reply.readText())
+            hook("grok", "end")
+            assertFalse(reply.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test fun readsTheReplyOfAnIdleAgentOnly() {
+        val idle = AgentStatus.parse("claude|idle|1000|claude|||75|fix the bug|All fixed.\n/home/v\n1042\n")!!
+        assertEquals("fix the bug", idle.task)
+        assertEquals("All fixed.", idle.reply)
+        assertEquals(75L, idle.workedSeconds)
+        assertEquals("", AgentStatus.parse("claude|working|1000|claude|Bash|ls||fix the bug|old\n1042")!!.reply)
+        assertEquals("fix the bug", AgentStatus.parse("claude|working|1000|claude|Bash|ls||fix the bug|old\n1042")!!.task)
+    }
+
+    @Test fun aReplyReadsAsPlainText() {
+        assertEquals("Fixed the parser in AgentStatus.kt, see docs; ready to merge.",
+            replyPreview("## Fixed **the parser** in `AgentStatus.kt`, see [docs](https://x.y/z); ready   to merge."))
+        assertEquals("Two branches - both fine", replyPreview("- Two branches - both fine"))
+        assertEquals("__init__.py updated", replyPreview("__init__.py updated"))
+    }
+
     @Test fun aSessionSentToTheBackgroundStillReportsToItsPane() {
         val dir = Files.createTempDirectory("agent-hook").toFile()
         try {

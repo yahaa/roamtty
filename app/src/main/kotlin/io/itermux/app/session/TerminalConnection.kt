@@ -112,15 +112,46 @@ class TerminalConnection(
         ssh.state.map { it.phase == Phase.CONNECTED }.distinctUntilChanged().collectLatest { connected ->
             if (!connected) { mutableAgentStatus.value = null; return@collectLatest }
             while (true) {
-                val output = ssh.agentStatus()
-                // A poll that got no answer keeps what was shown; only an answer without an agent clears it.
-                val status = if (output == null) mutableAgentStatus.value else AgentStatus.parse(output)
-                mutableAgentStatus.value = status
-                AgentStatus.directory(output).takeIf { it.isNotEmpty() }?.let { mutableDirectory.value = it }
+                val status = pollAgentStatus()
                 // An agent shows up within seconds of starting; without one the poll can be lazy.
                 delay(if (status != null) 3_000 else 10_000)
             }
         }
+    }
+    /** Asks the host what the agent is doing now and shows it; a poll that got no answer keeps what was shown. */
+    private suspend fun pollAgentStatus(): AgentStatus? {
+        val output = ssh.agentStatus()
+        // Only an answer without an agent clears it.
+        val status = if (output == null) mutableAgentStatus.value else AgentStatus.parse(output)
+        mutableAgentStatus.value = status
+        AgentStatus.directory(output).takeIf { it.isNotEmpty() }?.let { mutableDirectory.value = it }
+        return status
+    }
+
+    /**
+     * Answers the agent's request for permission with its default choice (Enter: "Yes" in Claude Code, Codex and Grok)
+     * from the session list. Asks the host first, so a request already answered on another screen gets no stray Enter;
+     * false when the agent no longer waits or the key could not be sent.
+     */
+    suspend fun approveAgent(): Boolean {
+        if (state.value.phase != Phase.CONNECTED || pollAgentStatus()?.state != AgentStatus.State.WAITING) return false
+        return ssh.write("\r".toByteArray())
+    }
+
+    /**
+     * Sends [text] to an agent that finished its turn, as if typed at its prompt and submitted, from the session list.
+     * Asks the host first: only an idle agent takes a new prompt. The text goes as a paste when the agent accepts one,
+     * so its characters are not read as keys, and Enter follows a moment later: sent together, the agents take it as
+     * part of the paste. False when the agent was not idle or the text could not be sent.
+     */
+    suspend fun followUpAgent(text: String): Boolean {
+        val line = text.replace(Regex("\\s+"), " ").trim()
+        if (line.isEmpty() || state.value.phase != Phase.CONNECTED) return false
+        if (pollAgentStatus()?.state != AgentStatus.State.IDLE) return false
+        val input = if (parser.isBracketedPasteEnabled) "\u001b[200~$line\u001b[201~" else line
+        if (!ssh.write(input.toByteArray(Charsets.UTF_8))) return false
+        delay(150)
+        return ssh.write("\r".toByteArray())
     }
     private val mutableCommonCommands = MutableStateFlow<CommonCommandsState>(CommonCommandsState.Idle)
     val commonCommands = mutableCommonCommands.asStateFlow()

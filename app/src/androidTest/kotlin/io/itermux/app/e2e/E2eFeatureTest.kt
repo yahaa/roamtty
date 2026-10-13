@@ -382,7 +382,7 @@ class E2eFeatureTest {
         backToHome()
         sessionsTab()
         E2e.waitTag(compose, "home-session-${a.id}")
-        click("home-session-menu-${a.id}")
+        compose.onNodeWithTag("home-session-${a.id}").performTouchInput { longClick() }
         click("home-session-close-${a.id}")
         E2e.waitGone(compose, hasTestTag("home-session-${a.id}"))
         assertTrue(service.sessions.value.none { it.id == a.id })

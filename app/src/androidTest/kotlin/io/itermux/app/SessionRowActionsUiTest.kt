@@ -6,7 +6,10 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
@@ -27,7 +30,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** A session row shows its agent and host, and its menu closes the session without asking. */
+/** A session row shows its agent and host, and its long-press menu closes the session without asking. */
 @RunWith(AndroidJUnit4::class)
 class SessionRowActionsUiTest {
     @get:Rule val compose = createComposeRule()
@@ -46,12 +49,12 @@ class SessionRowActionsUiTest {
                     SessionRow(session, onClick = {}, onClose = { closed += session })
                 }
             }
-            // An agent's session shows the agent's mark, the agent and its folder as the title and its host beneath; not the transport.
+            // An agent's session shows the agent's mark and badge, its folder as the title and its host beneath; not the transport.
             compose.onNodeWithTag("agent-icon-grok", useUnmergedTree = true).assertExists()
-            compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("Grok · roamtty")
+            compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("roamtty")
             compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true).assertTextEquals("详情主机")
 
-            compose.onNodeWithTag("home-session-menu-${session.id}").performClick()
+            compose.onNodeWithTag("home-session-${session.id}").performTouchInput { longClick() }
             compose.onNodeWithTag("home-session-rename-${session.id}").assertDoesNotExist()
             compose.onNodeWithTag("home-session-close-${session.id}").performClick()
             assertEquals(listOf(session), closed)
@@ -61,8 +64,8 @@ class SessionRowActionsUiTest {
         Unit
     }
 
-    /** A long title is cut off short of the menu, with room between its … and the menu's dots. */
-    @Test fun aLongTitleStopsShortOfTheMenu() = runBlocking {
+    /** A long title stays inside its row, short of the row's edge. */
+    @Test fun aLongTitleStaysInsideTheRow() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
         val host = Host(name = "详情主机", address = "127.0.0.1", port = 1, username = "test")
@@ -77,8 +80,8 @@ class SessionRowActionsUiTest {
                 }
             }
             val title = compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).getBoundsInRoot()
-            val menu = compose.onNodeWithTag("home-session-menu-${session.id}").getBoundsInRoot()
-            assertTrue("title ${title.right} runs into menu ${menu.left}", title.right < menu.left)
+            val row = compose.onNodeWithTag("home-session-${session.id}").getBoundsInRoot()
+            assertTrue("title ${title.right} runs past the row's padding ${row.right}", title.right < row.right - 8.dp)
             compose.waitForIdle()
             Thread.sleep(600)
             val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
