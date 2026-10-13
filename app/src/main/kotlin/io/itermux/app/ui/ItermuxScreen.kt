@@ -207,10 +207,10 @@ fun ItermuxScreen(
             }
         }
     }
-    /** Asks for an unsaved password or key passphrase first. */
+    /** Asks for an unsaved password, or an encrypted key's passphrase, first. */
     fun begin(request: ConnectRequest) {
         val host = request.host
-        if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null)) connectRequest = request
+        if (host.needsTypedSecret(app)) connectRequest = request
         else start(request)
     }
     fun connect(host: Host, mode: SessionMode = host.newSessionMode, title: String = "", reuseSessionId: String? = null,
@@ -285,7 +285,7 @@ fun ItermuxScreen(
     }
 
     fun managePlugins(host: Host) {
-        if (host.auth == AuthMethod.KEY.name || (host.auth == AuthMethod.PASSWORD.name && host.encryptedPassword == null))
+        if (host.needsTypedSecret(app))
             connectRequest = ConnectRequest(host, host.newSessionMode, plugins = true)
         else pluginTarget = PluginTarget(host)
     }

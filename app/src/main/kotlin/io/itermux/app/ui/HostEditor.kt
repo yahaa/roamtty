@@ -140,14 +140,16 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                     modifier = Modifier.testTag("host-password"), visualTransformation = PasswordVisualTransformation(), enabled = !busy)
             } else if (auth == "KEY") {
                 GroupedDivider()
-                GroupedRow(keyLabel ?: tr("尚未导入私钥"), subtitle = if (keyLabel == null) null else tr("已导入私钥"),
+                // The trailing action stays one short word, so the title keeps its width in any language.
+                GroupedRow(keyLabel ?: tr("尚未导入私钥"), Modifier.testTag("host-key"),
+                    subtitle = if (keyLabel == null) tr("支持 Ed25519 / RSA 私钥") else tr("已导入私钥"),
                     leading = { Icon(painterResource(R.drawable.ic_keys), contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp)) },
                     trailing = {
                         TextButton(onClick = { keyPicker.launch(arrayOf("*/*")) }, enabled = !busy) {
-                            Text(if (keyLabel == null) tr("导入 Ed25519 / RSA 私钥") else tr("更换私钥"))
+                            Text(if (keyLabel == null) tr("导入") else tr("更换"), maxLines = 1)
                         }
-                    })
+                    }, enabled = !busy, onClick = { keyPicker.launch(arrayOf("*/*")) })
                 GroupedDivider()
                 FormField(passphrase, { passphrase = it }, tr("私钥口令（仅用于检测，可留空）"),
                     visualTransformation = PasswordVisualTransformation(), modifier = Modifier.testTag("host-passphrase"), enabled = !busy)

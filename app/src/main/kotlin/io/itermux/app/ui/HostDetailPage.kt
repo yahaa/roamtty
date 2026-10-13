@@ -114,7 +114,7 @@ internal fun HostDetailPage(
                         onClick = onBrowseFiles)
                 }
                 if (monitor == null) MonitorLoginCard { askPassword = true }
-                else MonitorSection(monitor, onLogin = { if (host.needsTypedPassword || host.auth == "KEY") askPassword = true else monitor.start() })
+                else MonitorSection(monitor, onLogin = { if (host.needsTypedSecret(app)) askPassword = true else monitor.start() })
                 HostInfoSection(host, metrics)
                 Spacer(Modifier.height(Spacing.Page))
             }
