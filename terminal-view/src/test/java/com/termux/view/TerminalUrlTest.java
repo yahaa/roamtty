@@ -203,6 +203,14 @@ public class TerminalUrlTest {
             assertEquals("https://github.com/yahaa/roamtty/pull/171", TerminalUrl.at(t, row == 0 ? 20 : 2, row));
     }
 
+    @Test public void hardWrappedUrlGluedToALabelIsWholeFromEitherRow() {
+        // "PR：" ends in a full-width colon, so no space separates the label from the URL.
+        TerminalEmulator t = terminal(45, 4, "  PR\uff1ahttps://github.com/yahaa/roamtty/pull/1\033[2;1H  71\033[K\r\n");
+        assertEquals("https://github.com/yahaa/roamtty/pull/171", TerminalUrl.at(t, 20, 0));
+        assertEquals("https://github.com/yahaa/roamtty/pull/171", TerminalUrl.at(t, 2, 1));
+        assertNull(TerminalUrl.at(t, 2, 0));
+    }
+
     @Test public void hardWrappedUrlIgnoresBlankCellsAfterItsFirstFragment() {
         TerminalEmulator t = terminal(40, 5, "  PR: https://github.com/yahaa/\r\n  roamtty/pull/135\r\n");
         assertNull(TerminalUrl.at(t, 35, 0));

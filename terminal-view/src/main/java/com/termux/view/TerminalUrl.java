@@ -171,8 +171,8 @@ final class TerminalUrl {
         int[] range = new int[2];
         // Rows whose trailing token may continue below; find the row where the URL starts.
         for (int top = row; top >= Math.max(minimum, row - MAX_LINK_ROWS); top--) {
-            String token = lastToken(emulator, top);
-            if (token != null && hasWebScheme(token) && continues(emulator, top)) {
+            String token = schemeTail(lastToken(emulator, top));
+            if (token != null && continues(emulator, top)) {
                 Match match = joinFrom(emulator, top, token, column, row, range);
                 if (match != null) return match;
             }
@@ -187,31 +187,42 @@ final class TerminalUrl {
         return text.isEmpty() ? null : text.substring(text.lastIndexOf(' ') + 1);
     }
 
+    /** The URL inside a token, which a label can precede without a space, as in "PR：https://…". */
+    private static String schemeTail(String token) {
+        if (token == null) return null;
+        for (int i = 0; i + 7 <= token.length(); i++)
+            if (hasWebScheme(token.substring(i))) return token.substring(i);
+        return null;
+    }
+
     private static Match joinFrom(TerminalEmulator emulator, int top, String first, int column, int row,
                                   int[] range) {
         TerminalRow topLine = rowAt(emulator, top);
         int topStart = contentLength(topLine) - first.length();
         StringBuilder url = new StringBuilder(first);
-        boolean tapped = false, hardWrapped = false;
+        // Index of the tapped character in the joined URL, or -1.
+        int tapped = -1;
+        boolean hardWrapped = false;
         if (top == row) {
             int offset = topLine.findStartOfColumn(column);
-            tapped = offset >= topStart && offset < contentLength(topLine);
+            if (offset >= topStart && offset < contentLength(topLine)) tapped = offset - topStart;
         }
         for (int y = top; y + 1 < emulator.mRows && y - top < MAX_LINK_ROWS && continues(emulator, y); y++) {
             String next = rowToken(emulator, y + 1, !emulator.getScreen().getLineWrap(y), range);
             if (!emulator.getScreen().getLineWrap(y)) hardWrapped = true;
             if (y + 1 == row) {
                 int offset = rowAt(emulator, row).findStartOfColumn(column);
-                if (offset >= range[0] && offset < range[1]) tapped = true;
+                if (offset >= range[0] && offset < range[1]) tapped = url.length() + offset - range[0];
             }
             url.append(next);
-            if (url.length() > MAX_LINK_LENGTH) return tapped ? new Match(null) : null;
+            if (url.length() > MAX_LINK_LENGTH) return tapped >= 0 ? new Match(null) : null;
             if (range[1] < contentLength(rowAt(emulator, y + 1))) break;
         }
         // Plain terminal soft wraps are read by the ordinary matcher.
-        if (!hardWrapped || !tapped) return null;
+        if (!hardWrapped || tapped < 0) return null;
         String result = url.toString();
         int end = trimEnd(result, 0, result.length());
+        if (tapped >= end) return null; // Trailing punctuation such as a closing parenthesis.
         String valid = validatedUrl(result.substring(0, end));
         return valid == null ? null : new Match(valid);
     }

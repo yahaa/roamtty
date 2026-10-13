@@ -217,6 +217,24 @@ class TerminalGesturesTest {
         }
     }
 
+    @Test fun hardWrappedUrlGluedToAFullWidthColonOpensWhole() {
+        terminalContent()
+        monitorBrowser()
+        val cols = emulator.mColumns
+        // "PR：" has no space before the URL; "PR：" + ".../pull/1" fills the row and "71" goes below.
+        val url = "https://github.com/" + "y".repeat(cols - 32) + "/pull/171"
+        compose.runOnIdle { feed("\r\n  PR\uff1a${url.dropLast(2)}\u001b[3;1H  71\u001b[K\r\n$ ") }
+        for ((row, column) in listOf(1 to 10, 2 to 2)) {
+            val point = androidx.compose.ui.geometry.Offset((column + 0.5f) * terminal.mRenderer.fontWidth, rowY(row))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        compose.runOnIdle {
+            assertEquals(listOf(url, url), browserIntents.map { it.dataString })
+            assertEquals("", input.toString())
+        }
+    }
+
     @Test fun urlApostropheOpensTheWholeAddressButItsEnclosingQuoteDoesNot() {
         terminalContent()
         monitorBrowser()
