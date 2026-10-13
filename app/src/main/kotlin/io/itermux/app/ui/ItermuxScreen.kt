@@ -183,7 +183,7 @@ fun ItermuxScreen(
                         terminatePrompt = pending
                         try { pending.answer.await() } finally { if (terminatePrompt === pending) terminatePrompt = null }
                     }
-                    toast(failure?.let { trf("未能终止远端会话：%s", it) } ?: tr("远端 tmux 会话已终止，卡片已移除"))
+                    toast(failure?.let { trf("未能终止远端会话：%s。长按卡片可强制删除", it) } ?: tr("远端 tmux 会话已终止，卡片已移除"))
                     return@launch
                 }
                 val session = if (request.reuseSessionId != null) {
@@ -438,7 +438,9 @@ fun ItermuxScreen(
                                         action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
                                     matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
                                     else -> HomeSessionsList(matching, onOpen = { selected = it.id; page = "terminal" },
-                                        onClose = ::closeSession, hostOffline = { session ->
+                                        onClose = ::closeSession, onForget = { session ->
+                                            if (!session.state.value.active) service?.forget(session.id)
+                                        }, hostOffline = { session ->
                                             hosts.firstOrNull { it.id == session.host.id }
                                                 ?.let { !hostConnected(it) && hostReachability.statusOf(it) == HostReachability.Offline } == true
                                         })

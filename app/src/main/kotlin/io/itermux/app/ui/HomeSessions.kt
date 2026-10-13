@@ -161,7 +161,8 @@ private fun SessionGroup.color() = when (this) {
  */
 @Composable
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
-    onClose: (TerminalConnection) -> Unit, hostOffline: (TerminalConnection) -> Boolean = { false }) {
+    onClose: (TerminalConnection) -> Unit, hostOffline: (TerminalConnection) -> Boolean = { false },
+    onForget: (TerminalConnection) -> Unit = {}) {
     // Each session's group, and whether it runs an agent at all, kept current as their agents report.
     fun place(session: TerminalConnection, phase: Phase, status: AgentStatus?, launched: CodingAgent?) =
         sessionGroup(phase == Phase.CONNECTED, status) to (status != null || launched != null)
@@ -207,7 +208,7 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
                         else -> RectangleShape
                     }
                     SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
-                        hostOffline = hostOffline(session), shape = shape, divider = joined && index > 0,
+                        onForget = { onForget(session) }, hostOffline = hostOffline(session), shape = shape, divider = joined && index > 0,
                         modifier = if (joined) Modifier else Modifier.padding(bottom = Spacing.Row))
                 }
             }
@@ -274,7 +275,7 @@ private fun SessionGroupHeader(group: SessionGroup, count: Int, plainOnly: Boole
  * others by [sessionListTitle].
  */
 @Composable
-internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit,
+internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {},
     tagPrefix: String = "home-session", hostOffline: Boolean = false, shape: Shape = RoundedCornerShape(18.dp),
     divider: Boolean = false, modifier: Modifier = Modifier) {
     val state by session.state.collectAsStateWithLifecycle()
@@ -307,6 +308,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
 
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
+    var forgetting by remember { mutableStateOf(false) }
     var replying by rememberSaveable(session.id) { mutableStateOf(false) }
     var draft by rememberSaveable(session.id) { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
@@ -405,7 +407,21 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 onClick = { menu = false; onClose() },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null, tint = colors.error) },
                 modifier = Modifier.testTag("$tagPrefix-close-${session.id}"))
+            // Closing a disconnected tmux session logs in to end it, which an offline host never allows.
+            if (session.closeForgets(state.active)) DropdownMenuItem(text = { Text(tr("强制删除"), color = colors.error) },
+                onClick = { menu = false; forgetting = true },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null, tint = colors.error) },
+                modifier = Modifier.testTag("$tagPrefix-forget-${session.id}"))
         }
+        if (forgetting) AlertDialog(onDismissRequest = { forgetting = false },
+            title = { Text(tr("强制删除会话？")) },
+            text = { Text(trf("只移除本机的会话卡片，不登录主机；远端 %s 会话若仍在运行，会继续保留。", session.host.multiplexer.id)) },
+            confirmButton = {
+                TextButton(onClick = { forgetting = false; onForget() }, Modifier.testTag("$tagPrefix-forget-confirm-${session.id}")) {
+                    Text(tr("删除"), color = colors.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { forgetting = false }) { Text(tr("取消")) } })
     }
 }
 

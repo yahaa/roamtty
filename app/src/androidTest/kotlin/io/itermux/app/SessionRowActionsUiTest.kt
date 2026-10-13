@@ -22,6 +22,8 @@ import io.itermux.app.ui.SessionRow
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
@@ -58,6 +60,53 @@ class SessionRowActionsUiTest {
             compose.onNodeWithTag("home-session-rename-${session.id}").assertDoesNotExist()
             compose.onNodeWithTag("home-session-close-${session.id}").performClick()
             assertEquals(listOf(session), closed)
+        } finally {
+            withContext(Dispatchers.Main) { service.close(session.id) }
+        }
+        Unit
+    }
+
+    /**
+     * A tmux session whose host cannot be reached cannot be closed (closing logs in to end it), so its menu also
+     * offers to force delete it: after a confirmation the card goes without a login.
+     */
+    @Test fun forceDeletesATmuxSessionThatCannotBeReached() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val host = Host(name = "离线主机", address = "127.0.0.1", port = 1, username = "test")
+        val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.TMUX, Credentials("test-only".toByteArray())) }
+        try {
+            withTimeout(20_000) { session.state.first { !it.active } }
+            assertTrue(service.sessions.value.any { it.id == session.id })
+            compose.setContent {
+                MaterialTheme(colorScheme = DarkColors) {
+                    SessionRow(session, onClick = {}, onClose = {}, onForget = { service.forget(session.id) }, hostOffline = true)
+                }
+            }
+            compose.onNodeWithTag("home-session-${session.id}").performTouchInput { longClick() }
+            compose.onNodeWithTag("home-session-close-${session.id}").assertExists()
+            compose.onNodeWithTag("home-session-forget-${session.id}").performClick()
+            assertTrue(service.sessions.value.any { it.id == session.id })
+            compose.onNodeWithTag("home-session-forget-confirm-${session.id}").performClick()
+            compose.waitForIdle()
+            assertTrue(service.sessions.value.none { it.id == session.id })
+        } finally {
+            withContext(Dispatchers.Main) { if (service.sessions.value.any { it.id == session.id }) service.close(session.id); service.forget(session.id) }
+        }
+        Unit
+    }
+
+    /** A connected-looking plain session offers no force delete. */
+    @Test fun aShellSessionHasNoForceDelete() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val host = Host(name = "详情主机", address = "127.0.0.1", port = 1, username = "test")
+        val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials("test-only".toByteArray())) }
+        try {
+            compose.setContent { MaterialTheme(colorScheme = DarkColors) { SessionRow(session, onClick = {}, onClose = {}) } }
+            compose.onNodeWithTag("home-session-${session.id}").performTouchInput { longClick() }
+            compose.onNodeWithTag("home-session-close-${session.id}").assertExists()
+            compose.onNodeWithTag("home-session-forget-${session.id}").assertDoesNotExist()
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id) }
         }
