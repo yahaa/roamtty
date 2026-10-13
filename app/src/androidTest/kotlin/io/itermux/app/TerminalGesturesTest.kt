@@ -174,6 +174,26 @@ class TerminalGesturesTest {
         }
     }
 
+    @Test fun agyLoginUrlOpensWithoutTheRuleLineBelowIt() {
+        terminalContent()
+        monitorBrowser()
+        val cols = emulator.mColumns
+        val url = "https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&state=WB2HSL6uETB0Q72wThjkCQ"
+        val rows = url.chunked(cols - 1)
+        compose.runOnIdle {
+            feed("\r\n" + rows.joinToString("") { "\u001b[4m$it\u001b[0m\r\n" } + "\u2500".repeat(cols - 1) + "\r\n$ ")
+        }
+        for (row in listOf(1, rows.size)) {
+            val point = androidx.compose.ui.geometry.Offset(2.5f * terminal.mRenderer.fontWidth, rowY(row))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        compose.runOnIdle {
+            assertEquals(listOf(url, url), browserIntents.map { it.dataString })
+            assertEquals("", input.toString())
+        }
+    }
+
     @Test fun urlApostropheOpensTheWholeAddressButItsEnclosingQuoteDoesNot() {
         terminalContent()
         monitorBrowser()
