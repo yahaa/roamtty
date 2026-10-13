@@ -155,6 +155,44 @@ public class TerminalUrlTest {
         }
     }
 
+    @Test public void tuiIndentedUnderlinedUrlIsWholeFromEveryRow() {
+        // Captured from `agy` login at 44 columns: every row is indented one cell and underlined.
+        String[] rows = {
+            "https://accounts.google.com/o/oauth2/auth?",
+            "access_type=offline&client_id=107100606059",
+            "1-tmhssin2h21lcre235vtolojh4g403ep.apps.go",
+            "ogleusercontent.com&code_challenge=5h3QeZa",
+            "lJ95XrRbFJvWmYgE63kAuG-gHDursxB9rAB4&code_",
+            "challenge_method=S256&prompt=consent&redir",
+            "ect_uri=https%3A%2F%2Fantigravity.google%2",
+            "Foauth-callback&response_type=code&scope=h",
+            "ttps%3A%2F%2Fwww.googleapis.com%2Fauth%2Fc",
+            "loud-platform+https%3A%2F%2Fwww.googleapis",
+            ".com%2Fauth%2Fuserinfo.email+https%3A%2F%2",
+            "Fwww.googleapis.com%2Fauth%2Fuserinfo.prof",
+            "ile+https%3A%2F%2Fwww.googleapis.com%2Faut",
+            "h%2Fcclog+https%3A%2F%2Fwww.googleapis.com",
+            "%2Fauth%2Fexperimentsandconfigs+https%3A%2",
+            "F%2Fwww.googleapis.com%2Fauth%2Faicode+ope",
+            "nid&state=jyiNUdcGeMnVnfmq9LF7Zg"};
+        StringBuilder sb = new StringBuilder("\r\n Your browser should open automatically.\r\n\r\n");
+        for (String row : rows) sb.append(" \033[4m\033[34m").append(row).append("\033[0m\033[39m\033[49m\r\n");
+        sb.append("\r\n If you aren't automatically redirected,\r\n");
+        TerminalEmulator t = terminal(44, 40, sb.toString());
+        String url = String.join("", rows);
+        for (int r = 0; r < rows.length; r++)
+            for (int col : new int[] {1, 10, rows[r].length()})
+                assertEquals("row " + r + " col " + col, url, TerminalUrl.at(t, col, r + 3));
+    }
+
+    @Test public void hardWrappedUrlStopsAtTuiRuleBelowIt() {
+        String rule = "\u2500".repeat(44);
+        TerminalEmulator t = terminal(44, 8,
+            "\033[4mhttps://accounts.google.com/o/oauth2/auth?a\033[0m\r\n\033[4mccess_type=offline&state=abc\033[0m\r\n" + rule + "\r\n");
+        for (int row = 0; row < 2; row++)
+            assertEquals("https://accounts.google.com/o/oauth2/auth?access_type=offline&state=abc", TerminalUrl.at(t, 3, row));
+    }
+
     @Test public void hardWrappedUrlIgnoresBlankCellsAfterItsFirstFragment() {
         TerminalEmulator t = terminal(40, 5, "  PR: https://github.com/yahaa/\r\n  roamtty/pull/135\r\n");
         assertNull(TerminalUrl.at(t, 35, 0));
