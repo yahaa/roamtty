@@ -50,7 +50,7 @@ record() {
 
 case "$event" in
   start)
-    tmux set-option -u -q -t "$TMUX_PANE" @roamtty_worked 2>/dev/null
+    for option in @roamtty_worked @roamtty_reply; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
     record idle "" "" ;;
   prompt)
     # Claude Code also submits "<task-notification>…" itself when a background task ends: that is no task of the user's.
@@ -58,7 +58,7 @@ case "$event" in
     case "$task" in "<"*) ;; *) put @roamtty_task "$task" ;; esac
     # A turn starts: the time it began, for how long it worked once it stops.
     put @roamtty_turn "$(date +%s)"
-    tmux set-option -u -q -t "$TMUX_PANE" @roamtty_worked 2>/dev/null
+    for option in @roamtty_worked @roamtty_reply; do tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null; done
     record working "" "" ;;
   tool)
     tool=$(field 'tool_name|toolName' 40)
@@ -100,9 +100,12 @@ case "$event" in
     # How long the turn worked, in seconds; Claude Code shows it as "Worked for …".
     turn=$(get @roamtty_turn)
     case "$turn" in ''|*[!0-9]*) ;; *) put @roamtty_worked "$(( $(date +%s) - turn ))" ;; esac
+    # The start of the turn's answer, for the session list; all three agents pass it to their Stop hook.
+    reply=$(field 'last_assistant_message|lastAssistantMessage' 400)
+    [ -z "$reply" ] || put @roamtty_reply "$reply"
     record idle "" "" ;;
   end)
-    for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked; do
+    for option in @roamtty_agent @roamtty_task @roamtty_turn @roamtty_worked @roamtty_reply; do
       tmux set-option -u -q -t "$TMUX_PANE" "$option" 2>/dev/null
     done ;;
 esac

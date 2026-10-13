@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RoamTTY 会话列表</title>
+<style>
+:root {
+  --bg: #252628; --group: #2f2f2c; --row-hover: #383833; --line: rgba(255,255,255,.07);
+  --fg: #ecebe6; --fg2: #a9a79e; --fg3: #77756d;
+  --claude: #D97757; --codex: #6F86FF; --grok: #ecebe6;
+  --work: #6F86FF; --wait: #F2B84B; --done: #7FD19B; --off: #E07A6B;
+  --chip: rgba(255,255,255,.07); --frame: #111;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+:root[data-theme="light"] {
+  --bg: #f4f3ef; --group: #ffffff; --row-hover: #f0efea; --line: rgba(0,0,0,.07);
+  --fg: #1d1d1b; --fg2: #66645d; --fg3: #9a978e; --grok: #1d1d1b;
+  --work: #4f63e0; --wait: #c98a10; --done: #2f9d5a; --off: #c8503f;
+  --chip: rgba(0,0,0,.05); --frame: #d8d6cf;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html, body { background: #18191a; color: var(--fg); font-family: -apple-system, "PingFang SC", "Noto Sans SC", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+:root[data-theme="light"] body { background: #e4e2dc; }
+.stage { display: flex; gap: 32px; justify-content: center; align-items: flex-start; padding: 24px 16px 48px; flex-wrap: wrap; }
+.notes { max-width: 360px; min-width: 0; color: #bdbbb3; font-size: 14px; line-height: 1.65; }
+:root[data-theme="light"] .notes { color: #4a4843; }
+.notes h1 { font-size: 20px; margin-bottom: 4px; color: inherit; }
+.notes h2 { font-size: 14px; margin: 18px 0 6px; opacity: .9; }
+.notes ul { padding-left: 18px; }
+.notes code { font-family: var(--mono); font-size: 12px; background: rgba(127,127,127,.15); padding: 1px 4px; border-radius: 4px; }
+.ctrl { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.ctrl button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(127,127,127,.35); background: transparent; color: inherit; cursor: pointer; }
+.ctrl button.on { background: rgba(127,127,127,.25); }
+
+/* phone */
+.phone { width: 400px; max-width: 100%; min-width: 0; height: 860px; background: var(--bg); border-radius: 36px; border: 8px solid var(--frame); overflow: hidden; display: flex; flex-direction: column; position: relative; }
+@media (max-width: 520px) {
+  .stage { padding: 0; }
+  .phone { width: 100%; height: 100dvh; border: 0; border-radius: 0; }
+  .notes { padding: 16px; }
+}
+.status { height: 30px; flex: none; display: flex; justify-content: space-between; align-items: center; padding: 0 22px; font-size: 13px; color: var(--fg); }
+.top { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 0; }
+.icon-btn { width: 44px; height: 44px; display: grid; place-items: center; color: var(--fg); background: none; border: 0; border-radius: 50%; cursor: pointer; }
+.icon-btn svg { width: 22px; height: 22px; }
+.tabs { display: flex; gap: 6px; }
+.tab { padding: 6px 12px 4px; font-size: 21px; color: var(--fg3); display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.tab.on { color: var(--fg); font-weight: 600; }
+.tab::after { content: ""; width: 18px; height: 3px; border-radius: 3px; background: transparent; }
+.tab.on::after { background: var(--fg); }
+
+/* summary filters */
+.filters { flex: none; display: flex; gap: 6px; padding: 10px 16px 6px; overflow-x: auto; scrollbar-width: none; }
+.filters::-webkit-scrollbar { display: none; }
+.filter { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 999px; background: var(--chip); color: var(--fg2); font-size: 13px; cursor: pointer; border: 1px solid transparent; user-select: none; }
+.filter b { font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+.filter.on { border-color: color-mix(in srgb, var(--fg) 30%, transparent); color: var(--fg); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+.scroll { flex: 1; overflow-y: auto; padding: 4px 12px 96px; scrollbar-width: none; }
+.scroll::-webkit-scrollbar { display: none; }
+
+/* group */
+.ghead { display: flex; align-items: center; gap: 8px; padding: 14px 6px 8px; font-size: 13px; color: var(--fg2); }
+.ghead .ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; }
+.ghead .ring.fill { background: currentColor; }
+.ghead .n { font-variant-numeric: tabular-nums; }
+.ghead .more { margin-left: auto; color: var(--fg3); font-size: 12px; }
+.group { background: var(--group); border-radius: 18px; overflow: hidden; }
+
+/* row */
+.row { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 12px; align-items: center; padding: 12px 14px; cursor: pointer; transition: background .15s; }
+.row + .row::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; height: 1px; background: var(--line); }
+.row:active, .row:hover { background: var(--row-hover); }
+.row.waiting { box-shadow: inset 3px 0 0 var(--wait); }
+.row.offline { opacity: .55; }
+
+.tile { position: relative; width: 40px; height: 40px; flex: none; border-radius: 11px; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.tile.claude { background: color-mix(in srgb, var(--claude) 20%, transparent); color: var(--claude); }
+.tile.codex { background: color-mix(in srgb, var(--codex) 20%, transparent); color: var(--codex); }
+.tile.grok { background: color-mix(in srgb, var(--grok) 12%, transparent); color: var(--grok); }
+.tile.term { background: var(--chip); color: var(--fg2); font-family: var(--mono); font-size: 13px; }
+.tile svg { width: 22px; height: 22px; display: block; }
+.tile .sd { position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid var(--group); }
+.sd.work { background: var(--work); animation: pulse 1.6s ease-in-out infinite; }
+.sd.wait { background: var(--wait); }
+.sd.done { background: var(--done); }
+.sd.off { background: var(--off); }
+.sd.conn { background: var(--done); }
+@keyframes pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--work) 25%, transparent); } }
+
+.body { display: contents; }
+/* The tile sits beside the title and the prompt; what follows takes the row's whole width, under the tile too. */
+.tile { grid-row: 1 / span 2; align-self: center; }
+.l1, .l2 { grid-column: 2; min-width: 0; }
+.l3, .meta, .reply { grid-column: 1 / -1; min-width: 0; }
+.l3 { margin-top: 8px; }
+.l3.clamp { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.l1 { display: flex; align-items: center; gap: 6px; min-width: 0; height: 22px; }
+.badge { flex: none; white-space: nowrap; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 5px; line-height: 16px; }
+.badge.claude { color: var(--claude); background: color-mix(in srgb, var(--claude) 14%, transparent); }
+.badge.codex { color: var(--codex); background: color-mix(in srgb, var(--codex) 14%, transparent); }
+.badge.grok { color: var(--grok); background: var(--chip); }
+.title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title .dir { color: var(--fg2); font-weight: 500; }
+.time { flex: none; white-space: nowrap; font-size: 12px; color: var(--fg3); font-variant-numeric: tabular-nums; }
+.l2, .l3 { font-size: 13px; line-height: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.l2 { color: var(--fg2); margin-top: 2px; }
+.l2 .you { color: var(--fg3); }
+.l3 { color: var(--fg3); }
+.l3.mono { font-family: var(--mono); font-size: 12px; }
+.meta { display: flex; align-items: center; gap: 6px; margin-top: 8px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.meta > * { white-space: nowrap; }
+.tag { flex: none; font-size: 11px; color: var(--fg2); background: var(--chip); padding: 1px 6px; border-radius: 5px; line-height: 16px; }
+.host { flex: 0 1 auto; font-size: 12px; color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.spacer { flex: 1; }
+.act { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 500; border: 0; cursor: pointer; background: var(--chip); color: var(--fg); font-family: inherit; }
+.act svg { width: 13px; height: 13px; }
+.act.primary { background: var(--wait); color: #1d1a12; }
+.act.ghost { background: transparent; color: var(--fg2); padding: 0 6px; }
+
+.state { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 500; }
+.state.work { color: var(--work); }
+.state.wait { color: var(--wait); }
+.state.done { color: var(--done); }
+.state.off { color: var(--off); }
+.spin { font-family: var(--mono); width: 12px; display: inline-block; text-align: center; }
+.shimmer { background: linear-gradient(90deg, color-mix(in srgb, currentColor 55%, transparent) 0%, currentColor 50%, color-mix(in srgb, currentColor 55%, transparent) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: sh 2s linear infinite; }
+.state.work .shimmer { background-image: linear-gradient(90deg, color-mix(in srgb, var(--work) 50%, transparent), var(--work), color-mix(in srgb, var(--work) 50%, transparent)); }
+@keyframes sh { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* quick reply */
+.reply { display: none; margin-top: 10px; align-items: center; gap: 8px; }
+.row.replying .reply { display: flex; }
+.reply input { flex: 1; min-width: 0; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 0 10px; font: inherit; font-size: 13px; outline: none; }
+.reply input:focus { border-color: color-mix(in srgb, var(--codex) 60%, transparent); }
+.reply .send { width: 34px; height: 34px; border-radius: 10px; border: 0; background: var(--fg); color: var(--bg); display: grid; place-items: center; cursor: pointer; }
+.reply .send svg { width: 16px; height: 16px; }
+
+.fab { position: absolute; right: 18px; bottom: 26px; height: 52px; padding: 0 20px 0 16px; border-radius: 18px; border: 0; background: var(--fg); color: var(--bg); font: inherit; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); cursor: pointer; }
+.fab svg { width: 20px; height: 20px; }
+.toast { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(20px); opacity: 0; background: var(--fg); color: var(--bg); font-size: 13px; padding: 8px 14px; border-radius: 10px; transition: .2s; pointer-events: none; white-space: nowrap; }
+.toast.show { opacity: 1; transform: translateX(-50%); }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+    <div class="top">
+      <button class="icon-btn" aria-label="菜单"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h16"/></svg></button>
+      <div class="tabs"><div class="tab on">会话</div><div class="tab">主机</div></div>
+      <button class="icon-btn" aria-label="搜索"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+    </div>
+    <div class="filters" id="filters"></div>
+    <div class="scroll" id="list"></div>
+    <button class="fab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>新建会话</button>
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <div class="notes">
+    <h1>会话列表 · 新设计预览</h1>
+    <div>参考你给的那张 Codex 浮窗：一行就是一次对话，把“你问了什么 / 它答了什么 / 现在在干嘛”直接摆出来，按状态分组，最需要你的放最上面。</div>
+    <div class="ctrl">
+      <button id="themeBtn">切换浅色</button>
+      <button id="tickBtn">模拟状态变化</button>
+    </div>
+    <h2>和现在的区别</h2>
+    <ul>
+      <li><b>按状态分组</b>：待确认 → 运行中 → 已完成 → 终端，顶部筛选条带计数（可点）。</li>
+      <li><b>三行内容</b>：标题行（Agent 徽标 · 目录 · 任务 · 时长）、<code>你:</code> 最后一次提问、Agent 最后回复或正在跑的命令。</li>
+      <li><b>就地操作</b>：等待确认的直接给「允许 / 查看」；已完成的给「追问」，点开是行内输入框，不用进终端。</li>
+      <li><b>更密</b>：去掉大卡片和 ⋮，改成分组圆角容器 + 细分隔线，一屏能放 7–8 个会话（现在约 4 个）。关闭放到长按/左滑。</li>
+      <li>状态点留在图标右下角；运行中会呼吸，待确认的行左侧有琥珀色竖条。</li>
+    </ul>
+    <h2>数据对接</h2>
+    <ul>
+      <li>标题、目录、时长、tmux/mosh 标签、状态：现有 <code>AgentStatus</code> 已有。</li>
+      <li><code>你:</code> 行 ≈ 现有 <code>task</code>。</li>
+      <li>Agent 最后回复摘要：需要 hook 额外上报一段 <code>last_reply</code>（Stop hook 里取最后一条 assistant 消息前 200 字）。</li>
+      <li>行内「追问 / 允许」：往 tmux pane <code>send-keys</code>。</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const ICON = {
+  claude: '<svg viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M4.709 15.955l4.72 -2.647 .08 -.23 -.08 -.128H9.2l-.79 -.048 -2.698 -.073 -2.339 -.097 -2.266 -.122 -.571 -.121L0 11.784l.055 -.352 .48 -.321 .686 .06 1.52 .103 2.278 .158 1.652 .097 2.449 .255h.389l.055 -.157 -.134 -.098 -.103 -.097 -2.358 -1.596 -2.552 -1.688 -1.336 -.972 -.724 -.491 -.364 -.462 -.158 -1.008 .656 -.722 .881 .06 .225 .061 .893 .686 1.908 1.476 2.491 1.833 .365 .304 .145 -.103 .019 -.073 -.164 -.274 -1.355 -2.446 -1.446 -2.49 -.644 -1.032 -.17 -.619a2.97 2.97 0 0 1 -.104 -.729L6.283 .134 6.696 0l.996 .134 .42 .364 .62 1.414 1.002 2.229 1.555 3.03 .456 .898 .243 .832 .091 .255h.158V9.01l.128 -1.706 .237 -2.095 .23 -2.695 .08 -.76 .376 -.91 .747 -.492 .584 .28 .48 .685 -.067 .444 -.286 1.851 -.559 2.903 -.364 1.942h.212l.243 -.242 .985 -1.306 1.652 -2.064 .73 -.82 .85 -.904 .547 -.431h1.033l.76 1.129 -.34 1.166 -1.064 1.347 -.881 1.142 -1.264 1.7 -.79 1.36 .073 .11 .188 -.02 2.856 -.606 1.543 -.28 1.841 -.315 .833 .388 .091 .395 -.328 .807 -1.969 .486 -2.309 .462 -3.439 .813 -.042 .03 .049 .061 1.549 .146 .662 .036h1.622l3.02 .225 .79 .522 .474 .638 -.079 .485 -1.215 .62 -1.64 -.389 -3.829 -.91 -1.312 -.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33 .127 .578 -.322 .455 -.34 -.049 -2.205 -1.657 -.851 -.747 -1.926 -1.62h-.128v.17l.444 .649 2.345 3.521 .122 1.08 -.17 .353 -.608 .213 -.668 -.122 -1.374 -1.925 -1.415 -2.167 -1.143 -1.943 -.14 .08 -.674 7.254 -.316 .37 -.729 .28 -.607 -.461 -.322 -.747 .322 -1.476 .389 -1.924 .315 -1.53 .286 -1.9 .17 -.632 -.012 -.042 -.14 .018 -1.434 1.967 -2.18 2.945 -1.726 1.845 -.414 .164 -.717 -.37 .067 -.662 .401 -.589 2.388 -3.036 1.44 -1.882 .93 -1.086 -.006 -.158h-.055L4.132 18.56l-1.13 .146 -.487 -.456 .061 -.746 .231 -.243 1.908 -1.312 -.006 .006z"/></svg>',
+  codex: '<svg viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M8.086 .457a6.105 6.105 0 0 1 3.046 -.415c1.333 .153 2.521 .72 3.564 1.7a.117 .117 0 0 0 .107 .029c1.408 -.346 2.762 -.224 4.061 .366l.063 .03 .154 .076c1.357 .703 2.33 1.77 2.918 3.198 .278 .679 .418 1.388 .421 2.126a5.655 5.655 0 0 1 -.18 1.631 .167 .167 0 0 0 .04 .155 5.982 5.982 0 0 1 1.578 2.891c.385 1.901 -.01 3.615 -1.183 5.14l-.182 .22a6.063 6.063 0 0 1 -2.934 1.851 .162 .162 0 0 0 -.108 .102c-.255 .736 -.511 1.364 -.987 1.992 -1.199 1.582 -2.962 2.462 -4.948 2.451 -1.583 -.008 -2.986 -.587 -4.21 -1.736a.145 .145 0 0 0 -.14 -.032c-.518 .167 -1.04 .191 -1.604 .185a5.924 5.924 0 0 1 -2.595 -.622 6.058 6.058 0 0 1 -2.146 -1.781c-.203 -.269 -.404 -.522 -.551 -.821a7.74 7.74 0 0 1 -.495 -1.283 6.11 6.11 0 0 1 -.017 -3.064 .166 .166 0 0 0 .008 -.074 .115 .115 0 0 0 -.037 -.064 5.958 5.958 0 0 1 -1.38 -2.202 5.196 5.196 0 0 1 -.333 -1.589 6.915 6.915 0 0 1 .188 -2.132c.45 -1.484 1.309 -2.648 2.577 -3.493 .282 -.188 .55 -.334 .802 -.438 .286 -.12 .573 -.22 .861 -.304a.129 .129 0 0 0 .087 -.087A6.016 6.016 0 0 1 5.635 2.31C6.315 1.464 7.132 .846 8.086 .457zm-.804 7.85a.848 .848 0 0 0 -1.473 .842l1.694 2.965 -1.688 2.848a.849 .849 0 0 0 1.46 .864l1.94 -3.272a.849 .849 0 0 0 .007 -.854l-1.94 -3.393zm5.446 6.24a.849 .849 0 0 0 0 1.695h4.848a.849 .849 0 0 0 0 -1.696h-4.848z"/></svg>',
+  grok: '<svg viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M9.27 15.29l7.978 -5.897c.391 -.29 .95 -.177 1.137 .272 .98 2.369 .542 5.215 -1.41 7.169 -1.951 1.954 -4.667 2.382 -7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562 -.953 2.341 -2.344 3.066 -5.539 2.388 -8.42l.006 .007c-.983 -4.232 .242 -5.924 2.75 -9.383 .06 -.082 .12 -.164 .179 -.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792 -2.67 -2.31 -6.801 .071 -9.184 1.761 -1.763 4.647 -2.483 7.166 -1.425l2.705 -1.25a7.808 7.808 0 0 0 -1.829 -1A8.975 8.975 0 0 0 5.984 5.83c-2.533 2.536 -3.33 6.436 -1.962 9.764 1.022 2.487 -.653 4.246 -2.34 6.022 -.599 .63 -1.199 1.259 -1.682 1.925l7.62 -6.815"/></svg>',
+  term: '$_'
+};
+const LABEL = { claude: 'Claude', codex: 'Codex', grok: 'Grok' };
+const S = {
+  wait: { name: '待确认', cls: 'wait', ring: 'fill' },
+  work: { name: '运行中', cls: 'work', ring: '' },
+  done: { name: '已完成', cls: 'done', ring: '' },
+  term: { name: '终端', cls: 'conn', ring: '' },
+};
+let sessions = [
+  { id: 1, agent: 'claude', state: 'wait', dir: 'roamtty', title: '会话列表改成分组 + 三行摘要', you: '把会话列表按状态分组，参考这张图', last: 'Edit app/src/main/kotlin/…/HomeSessions.kt  (+86 −41)', time: '12s', host: 'dev', tags: ['tmux'] },
+  { id: 2, agent: 'codex', state: 'work', dir: 'work', title: 'aip_vproxy 和 cv_proxy feat/enable-cache 分支代码对齐', you: '对比两个分支的缓存开关实现，列出差异', last: 'go test ./internal/cache/... -run TestEnable', time: '4m20s', host: 'macbook', tags: ['tmux'] },
+  { id: 3, agent: 'claude', state: 'work', dir: 'ssh-core', title: 'mosh 断线重连后光标错位', you: '复现一下 mosh 重连后光标跑到第一行的问题', last: '', time: '1m05s', host: 'dev', tags: ['mosh'] },
+  { id: 4, agent: 'codex', state: 'done', dir: 'work', title: '确认 algo-proxy-cp feat/algo-cp-enable-cache 上线顺序', you: '帮我确认下 algo-proxy-cp feat/algo-cp-enable-cache 和 cv_proxy feat/enable-vcache 分支', last: '按你说的“线上尚未有能力启用缓存”，这两个分支没有强制上线顺序，先发任意一边都兼容。', time: '2m54s', ago: '3分钟前', host: 'macbook', tags: ['tmux'] },
+  { id: 5, agent: 'grok', state: 'done', dir: 'go-dev', title: '升级依赖到 master 最新提交', you: '把 go-dev 升到 master 最新', last: '已更新到 go-dev/master 最新提交 c60e8a4cbf42，版本为 v0.0.6-0.20261013070936-c60e8a4cbf42', time: '48s', ago: '21分钟前', host: 'dev', tags: ['tmux'] },
+  { id: 6, agent: 'claude', state: 'done', dir: 'roamtty', title: '抽屉主机入口改成普通行', you: '抽屉里主机那项太突兀了，改成和其它项一样', last: 'PR #165 已创建，APK roamtty-1012-drawer.apk 已放到 dist/', time: '6m12s', ago: '1小时前', host: 'dev', tags: ['tmux'] },
+  { id: 7, agent: 'term', state: 'term', dir: '~/work/roamtty', title: '会话 3', you: '', last: 'tail -f build/outputs/logs/manifest-merger.txt', time: '', host: 'dev', tags: ['tmux'] },
+  { id: 8, agent: 'term', state: 'off', dir: '~', title: '会话 4', you: '', last: '', time: '', host: 'nas', tags: ['psmux'] },
+];
+let filter = 'all';
+let replying = null;
+const FR = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
+let frame = 0;
+
+function esc(s) { return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function row(s) {
+  const isAgent = s.agent !== 'term';
+  const sd = { wait: 'wait', work: 'work', done: 'done', term: 'conn', off: 'off' }[s.state];
+  const tile = `<div class="tile ${s.agent}">${ICON[s.agent]}<span class="sd ${sd}"></span></div>`;
+  const title = isAgent
+    ? `<span class="badge ${s.agent}">${LABEL[s.agent]}</span><span class="title">${esc(s.title)}</span>`
+    : `<span class="title">${esc(s.title)} <span class="dir">· ${esc(s.dir)}</span></span>`;
+  const time = s.state === 'done' ? (s.ago || '') : s.time;
+  let l2 = '', l3 = '', meta = '';
+  const where = `<span class="host">${esc(isAgent ? s.dir + ' · ' + s.host : s.host)}</span>${s.tags.map(t => `<span class="tag">${t}</span>`).join('')}`;
+  if (s.state === 'wait') {
+    l2 = `<div class="l2"><span class="you">你: </span>${esc(s.you)}</div>`;
+    l3 = `<div class="l3 mono">${esc(s.last)}</div>`;
+    meta = `<span class="state wait">● 等待确认</span><span class="spacer"></span>
+      <button class="act ghost" data-a="view">查看</button><button class="act primary" data-a="allow">允许</button>`;
+  } else if (s.state === 'work') {
+    l2 = `<div class="l2"><span class="you">你: </span>${esc(s.you)}</div>`;
+    l3 = s.last ? `<div class="l3 mono">$ ${esc(s.last)}</div>` : '';
+    meta = `<span class="state work"><span class="spin">${FR[frame % FR.length]}</span><span class="shimmer">${s.last ? '运行命令' : '思考中…'}</span></span>
+      <span class="spacer"></span>${where}`;
+  } else if (s.state === 'done') {
+    l2 = `<div class="l2"><span class="you">你: </span>${esc(s.you)}</div>`;
+    l3 = `<div class="l3 clamp">${esc(s.last)}</div>`;
+    meta = `<span class="state done">✻ ${esc(s.time)}</span><span class="spacer"></span>${where}
+      <button class="act" data-a="reply"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>追问</button>`;
+  } else if (s.state === 'term') {
+    l2 = `<div class="l2 mono" style="font-family:var(--mono);font-size:12px">$ ${esc(s.last || '')}</div>`;
+    meta = `<span class="state done">● 已连接</span><span class="spacer"></span>${where}`;
+  } else {
+    l2 = `<div class="l2">上次连接 2 小时前</div>`;
+    meta = `<span class="state off">● 主机无响应</span><span class="spacer"></span>${where}<button class="act" data-a="retry">重连</button>`;
+  }
+  const cls = ['row', s.state === 'wait' ? 'waiting' : '', s.state === 'off' ? 'offline' : '', replying === s.id ? 'replying' : ''].join(' ');
+  return `<div class="${cls}" data-id="${s.id}">${tile}<div class="body">
+    <div class="l1">${title}<span class="time">${esc(time)}</span></div>${l2}${l3}
+    <div class="meta">${meta}</div>
+    <div class="reply"><input placeholder="继续问 ${isAgent ? LABEL[s.agent] : ''}…"><button class="send" data-a="send" aria-label="发送"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
+  </div></div>`;
+}
+
+function groupOf(s) { return s.state === 'off' ? 'term' : s.state; }
+
+function render() {
+  const counts = { all: sessions.length, wait: 0, work: 0, done: 0, term: 0 };
+  sessions.forEach(s => counts[groupOf(s)]++);
+  const fs = [['all', '全部', ''], ['wait', '待确认', 'var(--wait)'], ['work', '运行中', 'var(--work)'], ['done', '已完成', 'var(--done)'], ['term', '终端', 'var(--fg3)']];
+  document.getElementById('filters').innerHTML = fs.filter(([k]) => k === 'all' || counts[k]).map(([k, n, c]) =>
+    `<span class="filter ${filter === k ? 'on' : ''}" data-f="${k}">${c ? `<span class="dot" style="background:${c}"></span>` : ''}${n} <b>${counts[k]}</b></span>`).join('');
+  let html = '';
+  for (const g of ['wait', 'work', 'done', 'term']) {
+    if (filter !== 'all' && filter !== g) continue;
+    const items = sessions.filter(s => groupOf(s) === g);
+    if (!items.length) continue;
+    const color = { wait: 'var(--wait)', work: 'var(--work)', done: 'var(--done)', term: 'var(--fg3)' }[g];
+    html += `<div class="ghead" style="color:${color}"><span class="ring ${S[g].ring}"></span><span>${S[g].name}</span><span class="n">${items.length}</span>
+      ${g === 'done' ? '<span class="more">全部清除</span>' : ''}</div><div class="group">${items.map(row).join('')}</div>`;
+  }
+  document.getElementById('list').innerHTML = html;
+}
+
+function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 1600); }
+
+document.getElementById('filters').addEventListener('click', e => { const f = e.target.closest('[data-f]'); if (f) { filter = f.dataset.f; render(); } });
+document.getElementById('list').addEventListener('click', e => {
+  const r = e.target.closest('.row'); if (!r) return;
+  const id = +r.dataset.id, s = sessions.find(x => x.id === id);
+  const a = e.target.closest('[data-a]')?.dataset.a;
+  if (e.target.closest('.more')) { sessions = sessions.filter(x => x.state !== 'done'); render(); return toast('已清除完成的会话'); }
+  if (e.target.tagName === 'INPUT') return;
+  if (a === 'reply') { replying = replying === id ? null : id; render(); r.parentNode && document.querySelector(`.row[data-id="${id}"] input`)?.focus(); return; }
+  if (a === 'send') { const v = document.querySelector(`.row[data-id="${id}"] input`).value.trim() || '继续'; Object.assign(s, { state: 'work', you: v, last: '', time: '0s' }); replying = null; render(); return toast('已发送到 ' + LABEL[s.agent]); }
+  if (a === 'allow') { Object.assign(s, { state: 'work', last: '', time: '0s' }); render(); return toast('已允许，继续运行'); }
+  if (a === 'retry') { s.state = 'term'; render(); return toast('已重连 ' + s.host); }
+  toast('打开终端：' + s.title);
+});
+document.getElementById('list').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.target.closest('.reply').querySelector('.send').click(); });
+
+const themeBtn = document.getElementById('themeBtn');
+themeBtn.onclick = () => { const r = document.documentElement; const l = r.dataset.theme === 'light'; r.dataset.theme = l ? 'dark' : 'light'; themeBtn.textContent = l ? '切换浅色' : '切换深色'; };
+document.getElementById('tickBtn').onclick = () => {
+  const w = sessions.find(s => s.state === 'work');
+  if (w) { Object.assign(w, { state: 'done', ago: '刚刚', last: '完成：已定位原因并提交修复，测试全部通过。' }); render(); toast(LABEL[w.agent] + ' 完成了一轮'); }
+};
+setInterval(() => { frame++; document.querySelectorAll('.state.work .spin').forEach(el => el.textContent = FR[frame % FR.length]); }, 120);
+render();
+</script>
+</body>
+</html>

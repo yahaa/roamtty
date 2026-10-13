@@ -16,6 +16,8 @@ data class AgentStatus(
     val directory: String = "",
     /** Seconds the last turn worked, once it stopped; null while one runs, or before the first. */
     val workedSeconds: Long? = null,
+    /** The start of the agent's last answer, on one line; empty while a turn runs, or when it gave none. */
+    val reply: String = "",
 ) {
     enum class State { WORKING, WAITING, IDLE }
 
@@ -24,15 +26,17 @@ data class AgentStatus(
         private val shells = setOf("bash", "zsh", "fish", "dash", "ash", "ksh", "csh", "tcsh", "nu", "pwsh", "login")
 
         /**
-         * Output of the status command: `pane_command|state|since|agent|tool|detail|worked|task` (`worked` missing in
-         * older reports), the pane's path, then the
+         * Output of the status command: `pane_command|state|since|agent|tool|detail|worked|task|reply` (`worked` and
+         * `reply` missing in older reports), the pane's path, then the
          * host's time. The state counts only while the pane still runs a program: an agent killed before it could report
          * leaves its last state behind, but the pane is back at a shell.
          */
         fun parse(output: String?): AgentStatus? {
             val lines = output?.lines()?.filter { it.isNotBlank() } ?: return null
-            val fields = lines.firstOrNull()?.split('|', limit = 8)?.takeIf { it.size >= 7 } ?: return null
-            val worked = if (fields.size == 8) fields[6].trim().toLongOrNull() else null
+            val fields = lines.firstOrNull()?.split('|', limit = 9)?.takeIf { it.size >= 7 } ?: return null
+            val worked = if (fields.size >= 8) fields[6].trim().toLongOrNull() else null
+            val task = if (fields.size >= 8) fields[7] else fields[6]
+            val reply = if (fields.size == 9) clean(fields[8]) else ""
             if (fields[0].trimStart('-') in shells) return null
             val state = when (fields[1]) {
                 "working" -> State.WORKING
@@ -44,8 +48,8 @@ data class AgentStatus(
             val now = lines.drop(1).lastOrNull()?.trim()?.toLongOrNull()
             val directory = directory(output)
             val elapsed = if (since != null && now != null) ((now - since) * 1000).coerceAtLeast(0) else 0
-            return AgentStatus(state, fields[3], fields[4].trim(), fields[5].trim(), clean(fields.last()), elapsed, directory,
-                worked.takeIf { state == State.IDLE })
+            return AgentStatus(state, fields[3], fields[4].trim(), fields[5].trim(), clean(task), elapsed, directory,
+                worked.takeIf { state == State.IDLE }, reply.takeIf { state == State.IDLE }.orEmpty())
         }
 
         /** The folder the pane is in, from the same poll [parse] reads; known with or without an agent, empty when not. */
@@ -58,6 +62,19 @@ data class AgentStatus(
         private fun clean(value: String) = value.trim().trimEnd('�')
     }
 }
+
+/**
+ * An agent's [AgentStatus.reply] as the session list shows it: the Markdown it answers in read as plain text (no
+ * emphasis, code ticks, heading marks, a leading list mark, links as their text), on one line.
+ */
+fun replyPreview(reply: String): String = reply
+    .replace(Regex("""\[([^\]]+)]\([^)]*\)"""), "$1")
+    .replace(Regex("""\*\*|`+"""), "")
+    .replace(Regex("""(^|\s)#{1,6}\s+"""), "$1")
+    // The hook joins the lines, so only the first line's list or quote mark is known for one; a dash further on may be text.
+    .replace(Regex("""^\s*([-*+>]|\d+\.)\s+"""), "")
+    .replace(Regex("""\s+"""), " ")
+    .trim()
 
 /** The tools agents run shell commands with. */
 private val shellTools = setOf("Bash", "PowerShell", "run_terminal_command", "shell", "exec_command", "local_shell")

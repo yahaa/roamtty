@@ -11,6 +11,8 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
@@ -60,54 +62,70 @@ class AgentStatusUiTest {
                     "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"make test\"}}' | $hook tool; sleep 20; " +
                     // Then a new prompt: working on, with no command yet.
                     "printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; sleep 15; " +
-                    // Then the turn stops.
-                    "$hook stop </dev/null; sleep 600",
+                    // Then the turn stops with its answer.
+                    "printf '{\"last_assistant_message\":\"## Parser **refactored**, tests pass.\"}' | $hook stop; " +
+                    // The follow-up typed on the row arrives as the next prompt; a program reads it, as the agent would (the
+                    // shell's own read, or one in a subshell, leaves the pane at the shell: the agent gone).
+                    "head -n 1 > /tmp/roamtty-follow-up-\$\$; printf '{\"prompt\":\"%s\"}' \"\$(cat /tmp/roamtty-follow-up-\$\$)\" | $hook prompt; " +
+                    // Which asks for permission, granted with Enter from the row.
+                    "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"rm -rf build\"}}' | $hook ask; " +
+                    "head -n 1 >/dev/null; rm -f /tmp/roamtty-follow-up-\$\$; $hook post </dev/null; sleep 600",
                     agentHooks = CodingAgent.CODEX)
             }
             val working = withTimeout(40_000) { session.agentStatus.first { it?.state == AgentStatus.State.WORKING } }!!
             check(working.tool == "Bash" && working.detail == "make test" && working.task == "refactor the parser" &&
                 working.directory.isNotEmpty()) { "$working" }
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("home-session-${session.id}").fetchSemanticsNodes().isNotEmpty() }
-            // The row merges its texts into one node.
+            fun exists(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
             val row = compose.onNodeWithTag("home-session-${session.id}")
-            compose.waitUntil(10_000) {
-                runCatching { row.assertTextContains(tr("运行中"), substring = true) }.isSuccess
-            }
-            // Beneath it, the host and the folder the agent works in.
+            // Under 运行中, named by its folder, the prompt beneath, the command across the row, the host on the status line.
+            compose.waitUntil(10_000) { exists("home-session-group-working") && exists("home-session-working-${session.id}") }
+            val folder = working.directory.trimEnd('/').substringAfterLast('/')
+            compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals(folder)
+            compose.onNodeWithTag("home-session-prompt-${session.id}", useUnmergedTree = true)
+                .assertTextEquals(tr("你: ") + "refactor the parser")
             compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true)
                 .assertTextContains("Agent status · ", substring = true)
-            // The task is the row's title, said once.
-            compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals("refactor the parser")
-            // The row's own tile; the closed drawer lists the session with the same tile.
             compose.onNode(hasTestTag("agent-icon-codex") and hasAnyAncestor(hasTestTag("home-session-${session.id}")),
                 useUnmergedTree = true).assertExists()
-            // Between the title and the state, the command it runs.
             compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("Running make test")
             fun capture(name: String) = context.getExternalFilesDir(null)?.let { dir ->
                 java.io.FileOutputStream(java.io.File(dir, "$name.png")).use {
-                    row.captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                    compose.onNodeWithTag("home-sessions-list").captureToImage().asAndroidBitmap()
+                        .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
                 }
             }
             capture("agent-row")
             val titleTop = compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true)
                 .getUnclippedBoundsInRoot().top
-            // Working on without a command, the line beneath holds dots, and the title stays where it was.
-            compose.waitUntil(30_000) {
-                compose.onAllNodesWithTag("home-session-working-${session.id}", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertDoesNotExist()
+            // Working on without a command: no command line, and the name stays where it was.
+            compose.waitUntil(30_000) { !exists("home-session-activity-${session.id}") }
             assertEquals(titleTop, compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true)
                 .getUnclippedBoundsInRoot().top)
             capture("agent-row-working")
-            // Once the turn stops, the line says how long it worked, as Claude Code does; the title still stays put.
-            compose.waitUntil(30_000) {
-                compose.onAllNodesWithTag("home-session-done-${session.id}", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithTag("home-session-done-${session.id}", useUnmergedTree = true)
-                .assertTextContains(tr("已完成 · 用时 %s").substringBefore("%s"), substring = true)
+            // Once the turn stops: under 已完成, how long it worked, and the start of its answer read as plain text.
+            compose.waitUntil(30_000) { exists("home-session-done-${session.id}") && exists("home-session-group-done") }
+            compose.onNodeWithTag("home-session-reply-${session.id}", useUnmergedTree = true)
+                .assertTextEquals("Parser refactored, tests pass.")
             assertEquals(titleTop, compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true)
                 .getUnclippedBoundsInRoot().top)
             capture("agent-row-done")
+            // A follow-up typed on the row reaches the agent as its next prompt.
+            compose.onNodeWithTag("home-session-follow-up-${session.id}", useUnmergedTree = true).performClick()
+            compose.onNodeWithTag("home-session-follow-up-input-${session.id}", useUnmergedTree = true).performTextInput("next step")
+            capture("agent-row-follow-up")
+            compose.onNodeWithTag("home-session-follow-up-send-${session.id}", useUnmergedTree = true).performClick()
+            // Waited for in the compose clock: the send pauses between the text and Enter on the row's scope.
+            compose.waitUntil(30_000) { session.agentStatus.value?.state == AgentStatus.State.WAITING }
+            assertEquals("next step", session.agentStatus.value?.task)
+            // Waiting for permission: first in the list, and 允许 answers it.
+            compose.waitUntil(10_000) { exists("home-session-approve-${session.id}") && exists("home-session-group-waiting") }
+            compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("Running rm -rf build")
+            capture("agent-row-waiting")
+            compose.onNodeWithTag("home-session-approve-${session.id}", useUnmergedTree = true).performClick()
+            compose.waitUntil(30_000) { session.agentStatus.value?.state == AgentStatus.State.WORKING }
+            compose.waitUntil(10_000) { exists("home-session-group-working") }
+            row.assertExists()
         } finally {
             session.write("\u0003exit\r")
             prompts.cancel()
