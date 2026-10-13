@@ -151,8 +151,14 @@ final class TerminalUrl {
         if (y + 1 >= emulator.mRows || lastToken(emulator, y) == null) return false;
         boolean soft = emulator.getScreen().getLineWrap(y);
         String next = rowToken(emulator, y + 1, !soft, new int[2]);
-        if (next.isEmpty() || hasWebScheme(next)) return false;
+        if (next.isEmpty() || hasWebScheme(next) || hasBoxDrawing(next)) return false;
         return soft || freeCells(emulator, y) <= cellWidth(next);
+    }
+
+    /** TUI borders and rules sit below a link; they are chrome, never part of it. */
+    private static boolean hasBoxDrawing(String text) {
+        for (int i = 0; i < text.length(); i++) if (text.charAt(i) >= '\u2500' && text.charAt(i) <= '\u259f') return true;
+        return false;
     }
 
     /**
