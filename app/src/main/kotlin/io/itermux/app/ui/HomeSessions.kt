@@ -603,7 +603,7 @@ internal fun NewSessionSheet(hosts: List<Host>, onDismiss: () -> Unit, onNewHost
             if (picked == null) {
                 item { SheetHeader(tr("新建会话"), tr("选择要运行的 AI Agent，或打开终端。"), onDismiss) }
                 items(CodingAgent.entries, key = { it.name }) { option ->
-                    NewSessionRow(option.label, option.command, "new-session-pick-${option.command}",
+                    NewSessionRow(option.shortLabel, option.command, "new-session-pick-${option.command}",
                         leading = { AgentIcon(option, 40.dp) }) { picked = option.name }
                 }
                 item(key = "terminal") {
@@ -613,7 +613,7 @@ internal fun NewSessionSheet(hosts: List<Host>, onDismiss: () -> Unit, onNewHost
                 }
             } else {
                 item {
-                    SheetHeader(tr("选择主机"), trf("在哪台主机上运行 %s？", agent?.label ?: tr("终端")), onDismiss,
+                    SheetHeader(tr("选择主机"), trf("在哪台主机上运行 %s？", agent?.shortLabel ?: tr("终端")), onDismiss,
                         onBack = { picked = null })
                 }
                 items(hosts, key = { it.id }) { host ->

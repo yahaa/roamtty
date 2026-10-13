@@ -98,7 +98,7 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
                     .heightIn(min = 52.dp).testTag("agent-launch")) {
                 Icon(painterResource(R.drawable.ic_agent), contentDescription = null, Modifier.size(18.dp))
                 Spacer(Modifier.width(Spacing.Tight))
-                Text(trf("启动 %s", agent.label), style = MaterialTheme.typography.labelLarge)
+                Text(trf("启动 %s", agent.shortLabel), style = MaterialTheme.typography.labelLarge)
             }
             Text(tr("将在新会话中打开，主机支持时使用 tmux，断开后任务仍在运行。"),
                 Modifier.fillMaxWidth().padding(horizontal = Spacing.Section).padding(bottom = Spacing.Page),
