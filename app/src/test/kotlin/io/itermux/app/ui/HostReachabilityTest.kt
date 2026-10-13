@@ -17,6 +17,24 @@ class HostReachabilityTest {
         serving("SSH-1.99-fixture compatibility mode\n") { port -> assertNotNull(sshTcpConnectTime("127.0.0.1", port, 1_000)) }
     }
 
+    @Test fun probeSpeaksFirstForProxiesThatWaitForClientBytes() {
+        // A sniffing transparent proxy dials sshd only after the client's first bytes arrive.
+        ServerSocket(0).use { server ->
+            server.soTimeout = 3_000
+            var sent = ""
+            val worker = thread {
+                runCatching {
+                    server.accept().use { client ->
+                        sent = client.getInputStream().bufferedReader().readLine()
+                        client.getOutputStream().write("SSH-2.0-OpenSSH_9.3\r\n".toByteArray())
+                    }
+                }
+            }
+            try { assertNotNull(sshTcpConnectTime("127.0.0.1", server.localPort, 1_000)) } finally { worker.join() }
+            assertTrue(sent, sent.startsWith("SSH-2.0-"))
+        }
+    }
+
     @Test fun tcpLatencyExcludesDelayedSshGreeting() {
         serving("SSH-2.0-fixture\r\n", greetingDelayMs = 600) { port ->
             val start = System.nanoTime()
