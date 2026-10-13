@@ -3410,6 +3410,10 @@ public final class TerminalEmulator {
         // TODO: Check if there are thread synchronization issues with mCursorCol and mCursorRow, possibly causing others bugs too.
         if (column < 0) column = 0;
         mScreen.setChar(column, mCursorRow, codePoint, getStyle());
+        // Rewriting the last cell starts a new row ending: it is soft-wrapped only if the next
+        // character wraps. tmux redraws full rows without an erase, so a stale flag would otherwise
+        // join the row with the next one.
+        if (displayWidth > 0 && column + displayWidth == mColumns) mScreen.clearLineWrap(mCursorRow);
 
         if (autoWrap && displayWidth > 0)
             mAboutToAutoWrap = (mCursorCol == mRightMargin - displayWidth);

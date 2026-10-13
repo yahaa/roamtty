@@ -193,6 +193,24 @@ public class TerminalUrlTest {
             assertEquals("https://accounts.google.com/o/oauth2/auth?access_type=offline&state=abc", TerminalUrl.at(t, 3, row));
     }
 
+    @Test public void fullWidthUrlRowJoinsAShortIndentedContinuation() {
+        // tmux redraws a Claude Code reply at 45 columns: the URL row fills every cell, so no erase
+        // follows it, then a cursor move places the "71" of ".../pull/171" on the next row. The row
+        // held soft-wrapped text before (an earlier frame), which must not mark the new row wrapped.
+        TerminalEmulator t = terminal(45, 6, "x".repeat(50) + "\033[H" +
+            "\u25cf\033[1X\033[CPR:\033[1X\033[Chttps://github.com/yahaa/roamtty/pull/1\033[2;1H \033[1X\033[C71\033[K\r\n\r\n* Brewed");
+        for (int row = 0; row < 2; row++)
+            assertEquals("https://github.com/yahaa/roamtty/pull/171", TerminalUrl.at(t, row == 0 ? 20 : 2, row));
+    }
+
+    @Test public void hardWrappedUrlGluedToALabelIsWholeFromEitherRow() {
+        // "PR：" ends in a full-width colon, so no space separates the label from the URL.
+        TerminalEmulator t = terminal(45, 4, "  PR\uff1ahttps://github.com/yahaa/roamtty/pull/1\033[2;1H  71\033[K\r\n");
+        assertEquals("https://github.com/yahaa/roamtty/pull/171", TerminalUrl.at(t, 20, 0));
+        assertEquals("https://github.com/yahaa/roamtty/pull/171", TerminalUrl.at(t, 2, 1));
+        assertNull(TerminalUrl.at(t, 2, 0));
+    }
+
     @Test public void hardWrappedUrlIgnoresBlankCellsAfterItsFirstFragment() {
         TerminalEmulator t = terminal(40, 5, "  PR: https://github.com/yahaa/\r\n  roamtty/pull/135\r\n");
         assertNull(TerminalUrl.at(t, 35, 0));

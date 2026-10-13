@@ -342,6 +342,19 @@ public class TerminalTest extends TerminalTestCase {
 		withTerminalSized(3, 3).enterString("abc\r ").assertLinesAre(" bc", "   ", "   ").assertCursorAt(0, 1);
 	}
 
+	public void testRewritingTheLastColumnClearsAStaleSoftWrap() {
+		withTerminalSized(3, 3).enterString("abcd");
+		assertTrue(mTerminal.getScreen().getLineWrap(0));
+		// A full-row redraw has no erase; the row only wraps again if the next character does.
+		enterString("\033[Hxyz\033[2;1Hq").assertLinesAre("xyz", "q  ", "   ");
+		assertFalse(mTerminal.getScreen().getLineWrap(0));
+		enterString("\033[Hxyz!");
+		assertTrue(mTerminal.getScreen().getLineWrap(0));
+		// A wide glyph ending in the last column counts too.
+		enterString("\033[Hx\u4e2d\033[2;1H");
+		assertFalse(mTerminal.getScreen().getLineWrap(0));
+	}
+
 	public void testTab() {
 		withTerminalSized(11, 2).enterString("01234567890\r\tXX").assertLinesAre("01234567XX0", "           ");
 		withTerminalSized(11, 2).enterString("01234567890\033[44m\r\tXX").assertLinesAre("01234567XX0", "           ");
