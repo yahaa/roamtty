@@ -37,6 +37,8 @@ internal suspend fun probeHost(host: Host, timeoutMs: Int = PROBE_TIMEOUT_MS): H
  * After resolution, TCP connect and a valid SSH identification share the same [timeoutMs] budget:
  * a local proxy accepting a connection for an offline host must not make it appear online. Waiting for sshd's
  * greeting is deliberately excluded from the latency, as are key exchange and authentication.
+ * Our own identification goes out first, as ssh and JSch do (RFC 4253 lets both sides send at once): a transparent
+ * proxy that sniffs the first client bytes before dialing out never relays sshd's greeting to a silent client.
  */
 internal fun sshTcpConnectTime(address: String, port: Int, timeoutMs: Int): Long? = runCatching {
     Socket().use { socket ->
@@ -45,6 +47,7 @@ internal fun sshTcpConnectTime(address: String, port: Int, timeoutMs: Int): Long
         val deadline = System.nanoTime() + timeoutMs * 1_000_000L
         socket.connect(target, timeoutMs)
         val connectMs = (System.nanoTime() - start) / 1_000_000
+        socket.getOutputStream().apply { write(PROBE_IDENTIFICATION); flush() }
         val input = socket.getInputStream()
         // RFC 4253 lets a server send other lines before its version line, so skip those (bounded).
         val line = StringBuilder()
@@ -68,6 +71,7 @@ internal fun sshTcpConnectTime(address: String, port: Int, timeoutMs: Int): Long
 }.getOrNull()
 
 private const val MAX_GREETING_BYTES = 8_192
+private val PROBE_IDENTIFICATION = "SSH-2.0-Roamtty_probe\r\n".toByteArray()
 // RFC 4253: printable ASCII software name without spaces or '-', optional comments, and a complete line.
 private val SSH_IDENTIFICATION = Regex("""SSH-(?:2\.0|1\.99)-[\x21-\x2C\x2E-\x7E]+(?: [^\x00\r\n]*)?\r?""")
 

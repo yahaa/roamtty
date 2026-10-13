@@ -75,7 +75,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     val yolo = forAgent && mode == AgentMode.YOLO
 
     // Borrow the host page's login; otherwise open one just for browsing while the sheet is up.
-    var login by remember(host.id) { mutableStateOf(if (monitor == null && !host.needsTypedPassword) PluginTarget(host) else null) }
+    var login by remember(host.loginKey) { mutableStateOf(if (monitor == null && !host.needsTypedPassword) PluginTarget(host) else null) }
     var askPassword by remember { mutableStateOf(false) }
     val own = if (monitor == null) login?.let { target ->
         remember(target) { HostMonitor(app, target, scope, sampleMetrics = false).also { it.start() } }

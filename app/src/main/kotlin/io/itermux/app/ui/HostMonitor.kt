@@ -15,6 +15,12 @@ import kotlinx.coroutines.flow.first
 
 /** Whether opening the host page can log in by itself, or needs a password typed first. */
 internal val Host.needsTypedPassword: Boolean get() = auth == AuthMethod.PASSWORD.name && encryptedPassword == null
+/**
+ * What a login to this host is made of. Pages keep their login while this stays the same, so editing the
+ * address, user or credentials logs in again, while a plugin probe or OS detection saving the host does not.
+ */
+internal val Host.loginKey: List<Any?> get() =
+    listOf(id, address, port, username, auth, encryptedPassword?.contentHashCode(), encryptedKey?.contentHashCode())
 
 /**
  * A private SSH login that samples [HostMetrics] every few seconds while the host page is visible (unless

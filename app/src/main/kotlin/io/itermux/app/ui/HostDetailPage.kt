@@ -63,8 +63,8 @@ internal fun HostDetailPage(
     BackHandler(onBack = onBack)
     val app = LocalContext.current.applicationContext as ItermuxApp
     val scope = rememberCoroutineScope()
-    var login by remember(host.id) { mutableStateOf(if (host.needsTypedPassword) null else PluginTarget(host)) }
-    var askPassword by remember(host.id) { mutableStateOf(false) }
+    var login by remember(host.loginKey) { mutableStateOf(if (host.needsTypedPassword) null else PluginTarget(host)) }
+    var askPassword by remember(host.loginKey) { mutableStateOf(false) }
     /** null, or whether the launch sheet starts an AI agent. */
     var launching by remember(host.id) { mutableStateOf<Boolean?>(null) }
     val monitor = login?.let { target ->
