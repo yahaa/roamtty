@@ -66,7 +66,6 @@ Windows 目录和监控命令测试使用 `ROAMTTY_PWSH=/path/to/pwsh ./gradlew 
 ## 文档
 
 - [架构与设计约束](docs/ARCHITECTURE.md)
-- [Termius 功能对照](docs/TERMIUS_COMPARISON.md)
 - [Google Play 上架清单](docs/GOOGLE_PLAY_RELEASE.md)
 - [隐私政策](docs/PRIVACY.md)
 - [Logo 设计预览](docs/previews/logo-redesign.html)
