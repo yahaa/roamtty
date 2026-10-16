@@ -17,7 +17,9 @@ internal class SessionJournal(context: Context) {
         val title: String,
         /** Remote tmux session name; legacy entries without the field keep [Tmux.LEGACY_SESSION]. */
         val remoteSessionName: String = Tmux.LEGACY_SESSION,
-        val sessionNumber: Int = 0
+        val sessionNumber: Int = 0,
+        /** What its agent reported last, for the session list to show until the host answers again. */
+        val agentStatus: AgentStatus? = null
     )
 
     fun read(): List<Entry> = runCatching {
@@ -32,7 +34,8 @@ internal class SessionJournal(context: Context) {
                     SessionMode.valueOf(item.getString("mode")),
                     clipSessionTitle(shortenLegacyAgentTitle(item.optString("title"))),
                     Tmux.sanitizeSessionName(remote),
-                    item.optInt("sessionNumber", 0).coerceAtLeast(0)
+                    item.optInt("sessionNumber", 0).coerceAtLeast(0),
+                    item.optJSONObject("agentStatus")?.let(::decodeAgentStatus)
                 )
             }.getOrNull()
         }.distinctBy { it.id }.let { entries ->
@@ -53,12 +56,24 @@ internal class SessionJournal(context: Context) {
                     .put("title", session.title.value)
                     .put("remoteSessionName", session.remoteSessionName)
                     .put("sessionNumber", session.sessionNumber)
+                    .put("agentStatus", session.lastAgentStatus.value?.let(::encodeAgentStatus))
             )
         }
         // apply updates memory immediately and Android flushes pending writes at lifecycle boundaries.
         preferences.edit { putString("sessions", array.toString()) }
     }
 }
+
+private fun encodeAgentStatus(status: AgentStatus) = JSONObject()
+    .put("state", status.state.name).put("agent", status.agent).put("tool", status.tool).put("detail", status.detail)
+    .put("task", status.task).put("elapsedMillis", status.elapsedMillis).put("directory", status.directory)
+    .put("workedSeconds", status.workedSeconds).put("reply", status.reply)
+
+private fun decodeAgentStatus(item: JSONObject): AgentStatus? = runCatching {
+    AgentStatus(AgentStatus.State.valueOf(item.getString("state")), item.optString("agent"), item.optString("tool"),
+        item.optString("detail"), item.optString("task"), item.optLong("elapsedMillis"), item.optString("directory"),
+        if (item.has("workedSeconds")) item.getLong("workedSeconds") else null, item.optString("reply"))
+}.getOrNull()
 
 /** Agent sessions used to be titled "Claude Code · folder"; they now carry the short agent name. */
 internal fun shortenLegacyAgentTitle(title: String): String =

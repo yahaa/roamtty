@@ -13,6 +13,8 @@ internal sealed interface FileIconSpec {
     data class Badge(val label: String, override val color: Long, val labelColor: Long = 0xFFFFFFFF) : FileIconSpec
     data class Glyph(val kind: RemoteFileKind, override val color: Long) : FileIconSpec
     data class Folder(override val color: Long) : FileIconSpec
+    /** The Android robot, for app packages. */
+    data class Android(override val color: Long = 0xFF3DDC84) : FileIconSpec
 }
 
 private fun badge(label: String, color: Long, labelColor: Long = 0xFFFFFFFF) = FileIconSpec.Badge(label, color, labelColor)
@@ -29,6 +31,7 @@ private val git = badge("GIT", 0xFFF14E32)
 private val docker = badge("DKR", 0xFF2496ED)
 private val key = badge("KEY", 0xFFC49A00, DARK_LABEL)
 private val font = badge("Aa", 0xFFE53935)
+private val android = FileIconSpec.Android()
 
 private val byName = mapOf(
     "dockerfile" to docker, "containerfile" to docker, ".dockerignore" to docker,
@@ -95,7 +98,8 @@ private val byExtension = mapOf(
     "pem" to key, "key" to key, "crt" to key, "cer" to key, "pub" to key, "p12" to key, "gpg" to key, "asc" to key,
     "ttf" to font, "otf" to font, "woff" to font, "woff2" to font,
     "wasm" to badge("WA", 0xFF654FF0), "so" to badge("BIN", 0xFF607D8B), "o" to badge("BIN", 0xFF607D8B),
-    "bin" to badge("BIN", 0xFF607D8B), "log" to FileIconSpec.Glyph(RemoteFileKind.TEXT, 0xFFAFB42B)
+    "bin" to badge("BIN", 0xFF607D8B), "log" to FileIconSpec.Glyph(RemoteFileKind.TEXT, 0xFFAFB42B),
+    "apk" to android, "aab" to android, "apks" to android, "xapk" to android, "apkm" to android
 )
 
 private val folderColors = mapOf(

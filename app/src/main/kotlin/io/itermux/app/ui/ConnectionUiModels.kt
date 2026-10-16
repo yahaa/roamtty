@@ -77,11 +77,13 @@ internal fun sessionTransportTags(mode: SessionMode, attached: HostPlugin?, host
     (attached ?: hostMultiplexer).id.takeIf { mode == SessionMode.TMUX },
     HostPlugin.MOSH.id.takeIf { transport == TerminalTransport.MOSH })
 
-/** Sort key for session lists: live, then connecting, then needing the user, then closed. */
-internal fun activityRank(phase: Phase) = when (phase) {
-    Phase.CONNECTED -> 0
-    Phase.CONNECTING, Phase.VERIFYING, Phase.AUTHENTICATING -> 1
-    Phase.DISCONNECTED -> 3
+/**
+ * Sort key for session lists: live or coming back, then needing the user, then closed. A session restored from the
+ * journal keeps its place among the live ones, so cards do not reorder while the app reconnects them one by one.
+ */
+internal fun activityRank(state: ConnectionState) = when {
+    state.active || reconnectsOnOpen(state) -> 0
+    state.phase == Phase.DISCONNECTED -> 3
     else -> 2
 }
 

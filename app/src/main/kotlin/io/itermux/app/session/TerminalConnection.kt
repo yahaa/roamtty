@@ -41,7 +41,11 @@ class TerminalConnection(
     private val onHostSystemDetected: suspend (HostSystem) -> Unit = {},
     /** Carry the terminal over mosh when the host has it; SSH remains for files. */
     preferMosh: Boolean = false,
-    private val onPluginsDetected: suspend (Set<HostPlugin>) -> Unit = {}
+    private val onPluginsDetected: suspend (Set<HostPlugin>) -> Unit = {},
+    /** What the agent reported last time, from the journal. */
+    lastAgentStatus: AgentStatus? = null,
+    /** The agent reported something new, which the journal keeps. */
+    private val onAgentReport: () -> Unit = {}
 ) : TerminalOutput(), TerminalSession {
     val pending = MutableStateFlow<PendingPrompt?>(null)
     val inputWarning = MutableStateFlow<String?>(null)
@@ -102,6 +106,15 @@ class TerminalConnection(
     private val mutableAgentStatus = MutableStateFlow<AgentStatus?>(null)
     /** What an agent started with hooks reports in this tmux session; null for none, or while the host is out of reach. */
     val agentStatus = mutableAgentStatus.asStateFlow()
+    private val mutableLastAgentStatus = MutableStateFlow(lastAgentStatus)
+    /**
+     * What the agent reported last, kept across connections and launches: the session list shows it while the session
+     * comes back, until the host answers again.
+     */
+    val lastAgentStatus = mutableLastAgentStatus.asStateFlow()
+    private val mutableAgentPolled = MutableStateFlow(false)
+    /** Whether the host has answered a status poll since the connection came up. */
+    val agentPolled = mutableAgentPolled.asStateFlow()
     private val mutableDirectory = MutableStateFlow("")
     /**
      * The folder the tmux pane was last seen in, agent or not, so every session can say where it runs; kept while the
@@ -110,7 +123,7 @@ class TerminalConnection(
     val directory = mutableDirectory.asStateFlow()
     private val agentStatusWatcher = if (credentials == null || mode != SessionMode.TMUX) null else scope.launch {
         ssh.state.map { it.phase == Phase.CONNECTED }.distinctUntilChanged().collectLatest { connected ->
-            if (!connected) { mutableAgentStatus.value = null; return@collectLatest }
+            if (!connected) { mutableAgentStatus.value = null; mutableAgentPolled.value = false; return@collectLatest }
             while (true) {
                 val status = pollAgentStatus()
                 // An agent shows up within seconds of starting; without one the poll can be lazy.
@@ -124,6 +137,14 @@ class TerminalConnection(
         // Only an answer without an agent clears it.
         val status = if (output == null) mutableAgentStatus.value else AgentStatus.parse(output)
         mutableAgentStatus.value = status
+        if (output != null) {
+            // Its age moves on with every poll; only a new report is worth writing down.
+            if (status?.copy(elapsedMillis = 0) != mutableLastAgentStatus.value?.copy(elapsedMillis = 0)) {
+                mutableLastAgentStatus.value = status
+                onAgentReport()
+            }
+            mutableAgentPolled.value = true
+        }
         AgentStatus.directory(output).takeIf { it.isNotEmpty() }?.let { mutableDirectory.value = it }
         return status
     }

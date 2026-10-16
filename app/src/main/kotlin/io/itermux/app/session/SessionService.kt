@@ -55,7 +55,9 @@ class SessionService : Service() {
                         host, entry.mode, null, app.pins, scope, entry.id, entry.title,
                         sessionNumber = number,
                         remoteSessionName = entry.remoteSessionName,
-                        onRename = ::saveSessions
+                        onRename = ::saveSessions,
+                        lastAgentStatus = entry.agentStatus,
+                        onAgentReport = ::saveSessions
                     )
                 }
             }
@@ -82,7 +84,8 @@ class SessionService : Service() {
             onRename = ::saveSessions,
             onHostSystemDetected = { updateHostSystem(host, it) },
             preferMosh = preferMosh,
-            onPluginsDetected = { updatePlugins(host, it) }
+            onPluginsDetected = { updatePlugins(host, it) },
+            onAgentReport = ::saveSessions
         )
         mutableSessions.value += connection
         track(connection)
@@ -130,7 +133,9 @@ class SessionService : Service() {
             onRename = ::saveSessions,
             onHostSystemDetected = { updateHostSystem(host, it) },
             preferMosh = current.prefersMosh,
-            onPluginsDetected = { updatePlugins(host, it) }
+            onPluginsDetected = { updatePlugins(host, it) },
+            lastAgentStatus = existing.lastAgentStatus.value,
+            onAgentReport = ::saveSessions
         )
         mutableSessions.value = mutableSessions.value.map { if (it.id == id) replacement else it }
         track(replacement)

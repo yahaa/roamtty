@@ -1,6 +1,8 @@
 package io.itermux.app.ui
 
 import io.itermux.app.session.AgentStatus
+import io.itermux.ssh.ConnectionState
+import io.itermux.ssh.Phase
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -14,6 +16,31 @@ class SessionGroupsTest {
         // No agent, or a status left from before the connection dropped: with the rest.
         assertEquals(SessionGroup.OTHER, sessionGroup(true, null))
         assertEquals(SessionGroup.OTHER, sessionGroup(false, status(AgentStatus.State.WAITING)))
+    }
+
+    @Test fun sessionsComingBackKeepWhatTheirAgentReportedLast() {
+        val live = status(AgentStatus.State.IDLE)
+        val last = status(AgentStatus.State.WORKING)
+        val connected = ConnectionState(Phase.CONNECTED)
+        // Live once the host has answered, even with no agent.
+        assertEquals(live to true, listedAgentStatus(connected, true, live, last, hostOffline = false))
+        assertEquals(null to true, listedAgentStatus(connected, true, null, last, hostOffline = false))
+        // Connected, connecting or restored from the journal before the host answers: the last report.
+        assertEquals(last to false, listedAgentStatus(connected, false, null, last, hostOffline = false))
+        assertEquals(last to false, listedAgentStatus(ConnectionState(Phase.CONNECTING), false, null, last, hostOffline = false))
+        assertEquals(last to false, listedAgentStatus(ConnectionState(Phase.DISCONNECTED, RESTORED_MESSAGE), false, null, last,
+            hostOffline = false))
+        // Not while its host is offline, nor once it failed.
+        assertEquals(null to false, listedAgentStatus(ConnectionState(Phase.DISCONNECTED, RESTORED_MESSAGE), false, null, last,
+            hostOffline = true))
+        assertEquals(null to false, listedAgentStatus(ConnectionState(Phase.FAILED), false, null, last, hostOffline = false))
+    }
+
+    @Test fun restoredSessionsSortWithTheLiveOnes() {
+        assertEquals(0, activityRank(ConnectionState(Phase.CONNECTED)))
+        assertEquals(0, activityRank(ConnectionState(Phase.CONNECTING)))
+        assertEquals(0, activityRank(ConnectionState(Phase.DISCONNECTED, RESTORED_MESSAGE)))
+        assertEquals(3, activityRank(ConnectionState(Phase.DISCONNECTED)))
     }
 
     @Test fun durationsStayShortAndUnbroken() {
