@@ -151,12 +151,9 @@ def write(out: pathlib.Path, path: str, content: str) -> None:
 
 
 def build(out: pathlib.Path) -> None:
-    """Fills `out`, which must not exist yet, be empty, or be a checkout of the site repository (replaced wholesale)."""
-    children = [child for child in out.iterdir() if child.name != ".git"] if out.exists() else []
-    if children and not (out / ".git").exists() and not (out / "CNAME").exists():
-        raise SystemExit(f"{out} is not empty and not a site checkout; refusing to overwrite it")
-    for child in children:
-        shutil.rmtree(child) if child.is_dir() else child.unlink()
+    """Fills `out`, which must not exist yet or be empty: building never deletes anything."""
+    if out.exists() and any(out.iterdir()):
+        raise SystemExit(f"{out} is not empty; pass a new or empty directory")
     out.mkdir(parents=True, exist_ok=True)
     shutil.copytree(SITE / "assets", out / "assets")
     urls = []
@@ -201,7 +198,14 @@ def publish() -> None:
     with tempfile.TemporaryDirectory() as temp:
         site = pathlib.Path(temp) / "site"
         subprocess.run(["gh", "repo", "clone", SITE_REPO, str(site), "--", "--quiet"], check=True)
-        build(site)
+        # The site repository is generated wholesale: build next to the fresh clone, then swap its tree in.
+        built = pathlib.Path(temp) / "built"
+        build(built)
+        for child in site.iterdir():
+            if child.name != ".git":
+                shutil.rmtree(child) if child.is_dir() else child.unlink()
+        for child in built.iterdir():
+            shutil.move(str(child), site / child.name)
         git = ["git", "-C", str(site)]
         subprocess.run(git + ["add", "-A"], check=True)
         if subprocess.run(git + ["diff", "--cached", "--quiet"]).returncode == 0:

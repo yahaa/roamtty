@@ -32,7 +32,7 @@ App Store 的“App 隐私”问卷选择“不收集数据”；iOS 的 `ITSApp
 ## 构建与发布
 
 ```sh
-scripts/site.py --out /tmp/roamtty-site        # 仅构建
+scripts/site.py --out /tmp/roamtty-site        # 仅构建（目录须不存在或为空，脚本不会删除任何文件）
 python3 -m http.server 8000 -d /tmp/roamtty-site # 本地预览 http://127.0.0.1:8000/
 scripts/site.py                                 # 构建并推送到 yahaa/roamtty-site
 ```
