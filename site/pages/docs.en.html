@@ -179,7 +179,7 @@ sudo headscale preauthkeys create --user 1 --reusable --expiration 24h</code></p
     - https://controlplane.tailscale.com/derpmap/default   # keep official relays as a fallback
   paths: []</code></pre>
 <p>Open <strong>UDP 3478</strong> and restart Headscale; <code>tailscale netcheck</code> on the server should list your relay with the lowest latency.</p>
-<p>With Tailscale's own service, run the official <code>derper</code> on another server and add a <code>derpMap</code> to your policy file; see <a href="https://tailscale.com/kb/1118/custom-derp-servers">Tailscale's custom DERP guide</a>. Open the ports in both the cloud security group and the server firewall.</p>
+<p>With Tailscale's hosted service, with a relay on another server, or with a server in mainland China, deploy the official <code>derper</code> as described in the blog post <a href="/en/blog/self-hosted-derp/">Self-hosting a DERP relay for Tailscale and Headscale</a>.</p>
 </details>
 
 <h2 id="troubleshooting">Common errors</h2>
