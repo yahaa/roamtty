@@ -60,3 +60,5 @@ scripts/site.py                                 # 构建并推送到 yahaa/roamt
 `support@roamtty.com` 写在网站、隐私政策和 `security.txt` 中，商店审核会用它联系开发者。域名目前没有 MX 记录，需在 Cloudflare **Email → Email Routing** 中启用：Cloudflare 自动添加 MX 与 SPF 记录，再创建自定义地址 `support@roamtty.com` 转发到开发者的个人邮箱，并在该邮箱中确认验证邮件。启用后发一封测试邮件确认能收到。
 
 使用文档中 Headscale 的版本号与命令按写作时的最新版（0.29.5）核对过；Headscale 升级改动 CLI 或配置项时，同步更新两种语言的文档。应用界面文字变化时，文档里引用的按钮名称和错误提示也要随之更新（中文以 `tr()` 原文为准，英文以 `AppLocale.kt` 的译文为准）。
+
+首页截图在 `site/assets/screens/`，是 Android 应用连接演示服务器时的实际界面；重新截图的方法见 `scripts/site-demo/README.md`。应用界面有明显变化时同步更新截图。
