@@ -25,9 +25,11 @@ enum class ScreenApp(val label: String) {
                 anyRow { geminiModel.containsMatchIn(it) || "Type your message" in it } -> GEMINI
                 anyRow { codexContext.containsMatchIn(it) } -> CODEX
                 anyRow { it.trimEnd().endsWith("─╯") && ("Grok" in it || "always-approve" in it) || "Ctrl+x:shortcuts" in it } -> GROK
+                // Codex's prompt; its footer also says "? for shortcuts" and "esc to interrupt", and a phone-wide screen
+                // cuts "Context … left" off.
+                rows[cursor].trimStart().startsWith("› ") -> CODEX
                 anyRow { line -> listOf("shift+tab to cycle", "⏵⏵", "⏸ plan mode", "? for shortcuts", "esc to interrupt").any { it in line } } ||
                     claudePrompt(rows, cursor) -> CLAUDE
-                rows[cursor].trimStart().startsWith("› ") -> CODEX
                 else -> SHELL
             }
         }
