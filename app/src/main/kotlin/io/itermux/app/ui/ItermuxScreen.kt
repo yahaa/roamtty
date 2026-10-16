@@ -78,17 +78,17 @@ fun ItermuxScreen(
     val hosts = loadedHosts.orEmpty()
     val sessionFlow = remember(service) { service?.sessions ?: MutableStateFlow(emptyList()) }
     val sessions by sessionFlow.collectAsStateWithLifecycle()
-    val sessionPhases by remember(sessions) {
+    val sessionStates by remember(sessions) {
         if (sessions.isEmpty()) flowOf(emptyMap())
-        else combine(sessions.map { session -> session.state.map { session.id to it.phase } }) { it.toMap() }
+        else combine(sessions.map { session -> session.state.map { session.id to it } }) { it.toMap() }
     }.collectAsStateWithLifecycle(emptyMap())
     // The terminal and file previews draw with the terminal font: load it while a session connects, not on its first frame.
     val anySession = sessions.isNotEmpty()
     LaunchedEffect(anySession) { if (anySession) TerminalFonts.preload(context) }
     val hostReachability = remember { HostReachabilityTracker() }
     // The session list and drawer show live sessions first; terminal tabs keep their open order.
-    val sessionsByActivity = remember(sessions, sessionPhases) {
-        sessions.sortedBy { activityRank(sessionPhases[it.id] ?: it.state.value.phase) }
+    val sessionsByActivity = remember(sessions, sessionStates) {
+        sessions.sortedBy { activityRank(sessionStates[it.id] ?: it.state.value) }
     }
     var page by rememberSaveable { mutableStateOf("hosts") }
     val configuration = LocalConfiguration.current
@@ -406,7 +406,7 @@ fun ItermuxScreen(
                         }
                         // A live connection already proves the host is up, whatever the last probe said. Sessions keep
                         // the endpoint they were opened with, so one still on an edited host's old address does not count.
-                        val connectedEndpoints = sessions.filter { (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
+                        val connectedEndpoints = sessions.filter { (sessionStates[it.id]?.phase ?: it.state.value.phase) == Phase.CONNECTED }
                             .map { Triple(it.host.id, it.host.address, it.host.port) }.toSet()
                         ProbeHostReachability(hostReachability, hosts,
                             connected = hosts.filter { Triple(it.id, it.address, it.port) in connectedEndpoints }.map { it.id }.toSet())
@@ -438,7 +438,7 @@ fun ItermuxScreen(
                 } else if (page == "host") {
                     val detailHost = hosts.firstOrNull { it.id == detailHostId }
                     if (detailHost != null) key(detailHost.id) {
-                        val connected = sessions.any { it.host.id == detailHost.id && (sessionPhases[it.id] ?: it.state.value.phase) == Phase.CONNECTED }
+                        val connected = sessions.any { it.host.id == detailHost.id && (sessionStates[it.id]?.phase ?: it.state.value.phase) == Phase.CONNECTED }
                         HostDetailPage(detailHost,
                             hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
                             onBack = { page = "hosts" },

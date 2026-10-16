@@ -15,6 +15,8 @@ class FileBrowserModelTest {
         assertEquals("DKR", (fileIconSpec("Dockerfile.dev") as FileIconSpec.Badge).label)
         assertEquals("ENV", (fileIconSpec(".env.production") as FileIconSpec.Badge).label)
         assertEquals(RemoteFileKind.IMAGE, (fileIconSpec("photo.png") as FileIconSpec.Glyph).kind)
+        assertEquals(FileIconSpec.Android(), fileIconSpec("Roamtty-release.APK"))
+        assertEquals(FileIconSpec.Android(), fileIconSpec("bundle.aab"))
         assertEquals(RemoteFileKind.EXECUTABLE, (fileIconSpec("runner", permissions = "-rwxr-xr-x") as FileIconSpec.Glyph).kind)
         assertEquals(RemoteFileKind.FILE, (fileIconSpec("current", permissions = "lrwxrwxrwx") as FileIconSpec.Glyph).kind)
         assertEquals(RemoteFileKind.FILE, (fileIconSpec("unknown.zzz") as FileIconSpec.Glyph).kind)

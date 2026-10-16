@@ -60,6 +60,8 @@ internal fun RemoteFileIcon(name: String, directory: Boolean = false, permission
             }
             is FileIconSpec.Glyph -> Icon(painterResource(glyphIcon(spec.kind)), contentDescription = null,
                 tint = Color(spec.color), modifier = Modifier.size(size))
+            is FileIconSpec.Android -> Icon(painterResource(R.drawable.ic_file_android), contentDescription = null,
+                tint = Color(spec.color), modifier = Modifier.size(size))
         }
         if (permissions.startsWith('l')) Canvas(Modifier.size(size)) { drawLinkMark(linkBackground) }
     }

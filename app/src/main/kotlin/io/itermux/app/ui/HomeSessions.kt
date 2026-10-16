@@ -58,6 +58,7 @@ import io.itermux.app.session.sessionListPath
 import io.itermux.app.session.sessionListTitle
 import io.itermux.app.tr
 import io.itermux.app.trf
+import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.Phase
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -137,6 +138,22 @@ internal fun sessionGroup(connected: Boolean, status: AgentStatus?): SessionGrou
     else -> SessionGroup.DONE
 }
 
+/**
+ * What the list shows of a session's agent, and whether it is live: what it reports now, or, while the session comes
+ * back and before its host has answered, what it reported last ([last]), so opening the app does not move every card
+ * to "其它" and back. A session that failed to connect, or whose host is offline, shows none.
+ */
+internal fun listedAgentStatus(state: ConnectionState, polled: Boolean, live: AgentStatus?, last: AgentStatus?,
+    hostOffline: Boolean): Pair<AgentStatus?, Boolean> = when {
+    state.phase == Phase.CONNECTED && polled -> live to true
+    (state.active || reconnectsOnOpen(state)) && !hostOffline -> last to false
+    else -> null to false
+}
+
+/** What the list reads of a session to place it, kept current as its agent reports. */
+private data class SessionPlace(val state: ConnectionState, val polled: Boolean, val live: AgentStatus?,
+    val last: AgentStatus?, val launched: CodingAgent?)
+
 @Composable
 private fun SessionGroup.label(plainOnly: Boolean) = when (this) {
     SessionGroup.WAITING -> tr("待确认")
@@ -163,19 +180,24 @@ private fun SessionGroup.color() = when (this) {
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
     onClose: (TerminalConnection) -> Unit, hostOffline: (TerminalConnection) -> Boolean = { false },
     onForget: (TerminalConnection) -> Unit = {}) {
-    // Each session's group, and whether it runs an agent at all, kept current as their agents report.
-    fun place(session: TerminalConnection, phase: Phase, status: AgentStatus?, launched: CodingAgent?) =
-        sessionGroup(phase == Phase.CONNECTED, status) to (status != null || launched != null)
-    val places by remember(sessions) {
+    // Each session's group, and whether it runs an agent at all; a session coming back stays in the group its agent
+    // was last seen in.
+    fun place(session: TerminalConnection) =
+        SessionPlace(session.state.value, session.agentPolled.value, session.agentStatus.value, session.lastAgentStatus.value,
+            session.launchedAgent.value)
+    val placeOf by remember(sessions) {
         if (sessions.isEmpty()) flowOf(emptyMap())
         else combine(sessions.map { session ->
-            combine(session.state, session.agentStatus, session.launchedAgent) { state, status, launched ->
-                session.id to place(session, state.phase, status, launched)
+            combine(session.state, session.agentPolled, session.agentStatus, session.lastAgentStatus, session.launchedAgent) {
+                state, polled, live, last, launched -> session.id to SessionPlace(state, polled, live, last, launched)
             }
         }) { it.toMap() }
-    }.collectAsStateWithLifecycle(remember(sessions) {
-        sessions.associate { it.id to place(it, it.state.value.phase, it.agentStatus.value, it.launchedAgent.value) }
-    })
+    }.collectAsStateWithLifecycle(remember(sessions) { sessions.associate { it.id to place(it) } })
+    val places = sessions.associate { session ->
+        val place = placeOf[session.id] ?: place(session)
+        val status = listedAgentStatus(place.state, place.polled, place.live, place.last, hostOffline(session)).first
+        session.id to (sessionGroup(true, status) to (status != null || place.launched != null))
+    }
     val groups = SessionGroup.entries.mapNotNull { group ->
         sessions.filter { (places[it.id]?.first ?: SessionGroup.OTHER) == group }.takeIf { it.isNotEmpty() }?.let { group to it }
     }
@@ -281,13 +303,16 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val agent by session.agentStatus.collectAsStateWithLifecycle()
+    val polled by session.agentPolled.collectAsStateWithLifecycle()
+    val last by session.lastAgentStatus.collectAsStateWithLifecycle()
     val launched by session.launchedAgent.collectAsStateWithLifecycle()
     val directory by session.directory.collectAsStateWithLifecycle()
     val multiplexer by session.multiplexer.collectAsStateWithLifecycle()
     val transport by session.transport.collectAsStateWithLifecycle()
-    val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
+    val kind = CodingAgent.fromCommand((agent ?: last)?.agent) ?: launched
     val connected = state.phase == Phase.CONNECTED
-    val status = agent.takeIf { connected }
+    // While it reconnects, what the agent reported last; nothing it offers can be done until it answers again.
+    val (status, live) = listedAgentStatus(state, polled, agent, last, hostOffline)
     val colors = MaterialTheme.colorScheme
     val username = session.host.username
     // The agent's folder while it reports, else the pane's, so a session without hooks or agent says it too.
@@ -342,7 +367,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                             Spacer(Modifier.width(6.dp))
                         }
                         MarqueeTitle(name, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"))
-                        if (status != null) Text(if (idle) ago(elapsed) else shortDuration(elapsed),
+                        if (status != null && live) Text(if (idle) ago(elapsed) else shortDuration(elapsed),
                             Modifier.padding(start = Spacing.Tight).testTag("$tagPrefix-time-${session.id}"),
                             style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant.copy(alpha = 0.8f),
                             maxLines = 1, softWrap = false)
@@ -366,7 +391,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(Modifier.padding(top = Spacing.Tight).heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically) {
                 when {
-                    status == null -> StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"),
+                    status == null || !live -> StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"),
                         hostOffline = hostOffline && !state.active)
                     waiting -> AgentStateLabel(status.state, tr("等待确认"), Modifier.testTag("$tagPrefix-status-${session.id}"))
                     !idle -> WorkingSpinner(kind?.brand() ?: colors.primary, if (activity.isEmpty()) tr("思考中…") else tr("运行中"),
@@ -386,12 +411,12 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                         sessionTransportTags(session.mode, multiplexer, session.host.multiplexer, transport.takeIf { connected })
                             .forEach { MetaTag(it, Modifier.testTag("$tagPrefix-tag-$it-${session.id}")) }
                     }
-                    if (waiting) {
+                    if (waiting && live) {
                         RowAction(tr("查看"), "$tagPrefix-view-${session.id}", plain = true, onClick = onClick)
                         RowAction(tr("允许"), "$tagPrefix-approve-${session.id}", fill = StatusColors.warning) {
                             scope.launch { if (!session.approveAgent()) failure = tr("未发送：Agent 已不在等待确认") }
                         }
-                    } else if (idle) RowAction(tr("追问"), "$tagPrefix-follow-up-${session.id}", icon = R.drawable.ic_reply) {
+                    } else if (idle && live) RowAction(tr("追问"), "$tagPrefix-follow-up-${session.id}", icon = R.drawable.ic_reply) {
                         replying = !replying
                     }
                 }
