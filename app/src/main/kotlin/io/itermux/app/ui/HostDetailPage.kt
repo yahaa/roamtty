@@ -145,23 +145,8 @@ private fun HostHeader(host: Host, reachability: HostReachability, metrics: Host
             Text(metrics?.os ?: tr(HostSystem.fromStored(host.os).label), style = MaterialTheme.typography.bodyMedium,
                 color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(6.dp))
-            ReachabilityDot(reachability)
+            HostReachabilityLabel(reachability, Modifier.testTag("host-detail-status"))
         }
-    }
-}
-
-@Composable
-private fun ReachabilityDot(reachability: HostReachability) {
-    val (color, label) = when (reachability) {
-        is HostReachability.Online -> StatusColors.success to (reachability.latencyMs?.let { trf("在线 · %s", latencyLabel(it)) } ?: tr("在线"))
-        HostReachability.Offline -> StatusColors.danger to tr("离线")
-        HostReachability.Checking -> StatusColors.idle to tr("检测中")
-    }
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("host-detail-status")) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(color))
-        Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium,
-            color = if (reachability is HostReachability.Online) color else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -291,15 +276,7 @@ private fun MonitorSection(monitor: HostMonitor, onLogin: () -> Unit) {
             GroupedSection(header = tr("GPU 进程（按显存排序）")) {
                 processes.take(5).forEachIndexed { index, process ->
                     if (index > 0) GroupedDivider()
-                    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = Spacing.Page, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Text(process.name, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text("PID ${process.pid}", style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 84.dp))
-                        Text(trf("显存 %s", process.memBytes?.let(::bytes) ?: "—"), style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 84.dp))
-                    }
+                    ProcessRow(process.name, "PID ${process.pid}", trf("显存 %s", process.memBytes?.let(::bytes) ?: "—"))
                 }
             }
         }
@@ -308,18 +285,25 @@ private fun MonitorSection(monitor: HostMonitor, onLogin: () -> Unit) {
             GroupedSection(header = tr("进程（按 CPU 排序）")) {
                 processes.forEachIndexed { index, process ->
                     if (index > 0) GroupedDivider()
-                    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = Spacing.Page, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Text(process.name, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text("CPU ${percent(process.cpuPercent)}", style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 84.dp))
-                        Text(trf("内存 %s", percent(process.memPercent)), style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 84.dp))
-                    }
+                    ProcessRow(process.name, "CPU ${percent(process.cpuPercent)}", trf("内存 %s", percent(process.memPercent)))
                 }
             }
         }
+    }
+}
+
+/** A process: its name, then two figures in columns of their own. */
+@Composable
+private fun ProcessRow(name: String, first: String, second: String) {
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = Spacing.Page, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(name, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text(first, style = MaterialTheme.typography.bodySmall,
+            color = colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 84.dp))
+        Text(second, style = MaterialTheme.typography.bodySmall,
+            color = colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 84.dp))
     }
 }
 

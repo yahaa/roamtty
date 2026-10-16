@@ -19,6 +19,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.edit
 import io.itermux.app.ItermuxApp
 import io.itermux.app.AppLocale
+import io.itermux.app.TerminalFonts
 import io.itermux.app.trf
 import io.itermux.app.R
 import io.itermux.app.data.Host
@@ -80,6 +82,9 @@ fun ItermuxScreen(
         if (sessions.isEmpty()) flowOf(emptyMap())
         else combine(sessions.map { session -> session.state.map { session.id to it.phase } }) { it.toMap() }
     }.collectAsStateWithLifecycle(emptyMap())
+    // The terminal and file previews draw with the terminal font: load it while a session connects, not on its first frame.
+    val anySession = sessions.isNotEmpty()
+    LaunchedEffect(anySession) { if (anySession) TerminalFonts.preload(context) }
     val hostReachability = remember { HostReachabilityTracker() }
     // The session list and drawer show live sessions first; terminal tabs keep their open order.
     val sessionsByActivity = remember(sessions, sessionPhases) {
@@ -168,14 +173,7 @@ fun ItermuxScreen(
         scope.launch {
             var credentials: Credentials? = null
             try {
-                credentials = withContext(Dispatchers.IO) {
-                    val host = request.host
-                    Credentials(
-                        password = if (host.auth == AuthMethod.PASSWORD.name) host.encryptedPassword?.let { app.vault.decrypt(it, "${host.id}:password") } ?: password.toByteArray() else null,
-                        privateKey = host.encryptedKey?.takeIf { host.auth == AuthMethod.KEY.name }?.let { app.vault.decrypt(it, "${host.id}:key") },
-                        passphrase = passphrase.takeIf { it.isNotEmpty() }?.toByteArray()
-                    )
-                }
+                credentials = withContext(Dispatchers.IO) { app.credentialsFor(request.host, password, passphrase) }
                 request.terminateSessionId?.let { id ->
                     toast(trf("正在终止远端 %s 会话…", request.host.multiplexer.id))
                     val failure = bound.terminate(id, credentials) { prompt ->
@@ -412,53 +410,29 @@ fun ItermuxScreen(
                             .map { Triple(it.host.id, it.host.address, it.host.port) }.toSet()
                         ProbeHostReachability(hostReachability, hosts,
                             connected = hosts.filter { Triple(it.id, it.address, it.port) in connectedEndpoints }.map { it.id }.toSet())
-                        val firstHost = @Composable { modifier: Modifier ->
-                            EmptyState(tr("从第一台主机开始"), tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
-                                modifier,
-                                artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
-                                action = { Button(onClick = { editHostId = null; editorOpen = true }) { Text(tr("添加主机")) } })
-                        }
                         HorizontalPager(homePager, Modifier.weight(1f).testTag("home-pager"), key = { HOME_TAB_TAGS[it] }) { tab ->
-                            if (tab == 0) Column(Modifier.fillMaxSize()) {
-                                HomeListHeader(trf("会话 · %d", sessionsByActivity.size), tr("新建会话"), "add-session") {
-                                    newSessionOpen = true
-                                }
-                                val matching = sessionsByActivity.filter {
-                                    "${it.displayTitle} ${it.host.name} ${it.host.address} ${it.host.username}".contains(search, true)
-                                }
-                                when {
-                                    // No host is needed first: the new-session sheet fills one in on the way.
-                                    hosts.isEmpty() && sessionsByActivity.isEmpty() -> EmptyState(tr("从第一个会话开始"),
-                                        tr("填写远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
-                                        Modifier.fillMaxSize().testTag("home-sessions-empty"),
-                                        artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
-                                        action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
-                                    sessionsByActivity.isEmpty() -> EmptyState(tr("暂无会话"), tr("选择主机，打开终端或 AI Agent。"),
-                                        Modifier.fillMaxSize().testTag("home-sessions-empty"),
-                                        action = { Button(onClick = { newSessionOpen = true }) { Text(tr("新建会话")) } })
-                                    matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
-                                    else -> HomeSessionsList(matching, onOpen = { selected = it.id; page = "terminal" },
-                                        onClose = ::closeSession, onForget = { session ->
-                                            if (!session.state.value.active) service?.forget(session.id)
-                                        }, hostOffline = { session ->
-                                            hosts.firstOrNull { it.id == session.host.id }
-                                                ?.let { !hostConnected(it) && hostReachability.statusOf(it) == HostReachability.Offline } == true
-                                        })
-                                }
-                            } else Column(Modifier.fillMaxSize()) {
-                                HomeListHeader(trf("主机 · %d", hosts.size), tr("添加主机"), "add-host") {
-                                    editHostId = null; editorOpen = true
-                                }
-                                val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
-                                if (hosts.isEmpty()) firstHost(Modifier.fillMaxSize())
-                                else if (filtered.isEmpty()) EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.fillMaxSize())
-                                else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = hostGridState, modifier = Modifier.fillMaxSize().testTag("host-grid"), horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row), contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
-                                    items(filtered, key = { it.id }) { host -> HostCard(host, { detailHostId = host.id; page = "host" }, { editHostId = host.id; editorOpen = true }, { deleteHost = host }, { browseFiles(host) }, { managePlugins(host) },
-                                        hostReachability.statusOf(host).let { probed ->
-                                            if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
-                                        }, openTerminal = { launchRequest = LaunchRequest(host, false) }, launchAgent = { launchRequest = LaunchRequest(host, true) }) }
-                                }
-                            }
+                            if (tab == 0) HomeSessionsTab(sessionsByActivity, hosts.isNotEmpty(), search,
+                                onNewSession = { newSessionOpen = true },
+                                onOpen = { selected = it.id; page = "terminal" },
+                                onClose = ::closeSession,
+                                onForget = { session -> if (!session.state.value.active) service?.forget(session.id) },
+                                hostOffline = { session ->
+                                    hosts.firstOrNull { it.id == session.host.id }
+                                        ?.let { !hostConnected(it) && hostReachability.statusOf(it) == HostReachability.Offline } == true
+                                })
+                            else HomeHostsTab(hosts, search, hostGridState,
+                                reachability = { host ->
+                                    hostReachability.statusOf(host).let { probed ->
+                                        if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
+                                    }
+                                },
+                                onAdd = { editHostId = null; editorOpen = true },
+                                onOpen = { host -> detailHostId = host.id; page = "host" },
+                                onEdit = { host -> editHostId = host.id; editorOpen = true },
+                                onDelete = { host -> deleteHost = host },
+                                onBrowseFiles = ::browseFiles,
+                                onManagePlugins = ::managePlugins,
+                                onLaunch = { host, forAgent -> launchRequest = LaunchRequest(host, forAgent) })
                         }
                     }
                 } else if (page == "host") {
@@ -583,32 +557,87 @@ fun ItermuxScreen(
                 connect(session.host, session.mode, session.title.value, reuseSessionId = session.id.takeIf { session.mode == SessionMode.TMUX })
             } }) { Text(tr("移除旧记录并重连")) } }, dismissButton = { TextButton(onClick = { reverify = null }) { Text(tr("取消")) } }) }
         if (shareUrisPending.isNotEmpty()) {
-            val choices = sessions.filter { it.state.value.phase == Phase.CONNECTED }
             fun dismissShare() { service?.pendingSharedImages?.value = emptyList() }
-            AppSheet(onDismiss = ::dismissShare) {
-                androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f)) {
-                    item { SheetHeader(tr("选择会话以上传图片"), tr("选择接收图片的主机和会话。"), ::dismissShare) }
-                    items(choices.size, key = { choices[it].id }) { index ->
-                        val session = choices[index]
-                        val title by session.title.collectAsStateWithLifecycle()
-                        val state by session.state.collectAsStateWithLifecycle()
-                        GroupedRow(session.titleForDisplay(title),
-                            Modifier.padding(horizontal = Spacing.Tight).clip(MaterialTheme.shapes.small)
-                                .testTag("share-session-${session.id}"),
-                            subtitle = "${session.host.username}@${session.host.address}:${session.host.port}",
-                            leading = { SessionIcon(session, 40.dp) },
-                            trailing = { Chevron() },
-                            enabled = state.phase == Phase.CONNECTED,
-                            onClick = {
-                                val uris = shareUrisPending
-                                dismissShare()
-                                uploadSharedImages(session, uris)
-                            })
-                    }
-                }
+            ShareTargetSheet(sessions.filter { it.state.value.phase == Phase.CONNECTED }, ::dismissShare) { session ->
+                val uris = shareUrisPending
+                dismissShare()
+                uploadSharedImages(session, uris)
             }
         }
         if (showAbout) AboutDialog(context) { showAbout = false }
+    }
+}
+
+/** Picks the connected session that receives images shared to the app while several are connected. */
+@Composable
+private fun ShareTargetSheet(choices: List<TerminalConnection>, onDismiss: () -> Unit, onPick: (TerminalConnection) -> Unit) {
+    AppSheet(onDismiss = onDismiss) {
+        LazyColumn(Modifier.weight(1f)) {
+            item { SheetHeader(tr("选择会话以上传图片"), tr("选择接收图片的主机和会话。"), onDismiss) }
+            items(choices.size, key = { choices[it].id }) { index ->
+                val session = choices[index]
+                val title by session.title.collectAsStateWithLifecycle()
+                val state by session.state.collectAsStateWithLifecycle()
+                GroupedRow(session.titleForDisplay(title),
+                    Modifier.padding(horizontal = Spacing.Tight).clip(MaterialTheme.shapes.small)
+                        .testTag("share-session-${session.id}"),
+                    subtitle = "${session.host.username}@${session.host.address}:${session.host.port}",
+                    leading = { SessionIcon(session, 40.dp) },
+                    trailing = { Chevron() },
+                    enabled = state.phase == Phase.CONNECTED,
+                    onClick = { onPick(session) })
+            }
+        }
+    }
+}
+
+/** The home page's sessions tab: its header, then the sessions matching [search], or why there are none. */
+@Composable
+private fun HomeSessionsTab(sessions: List<TerminalConnection>, hasHosts: Boolean, search: String, onNewSession: () -> Unit,
+    onOpen: (TerminalConnection) -> Unit, onClose: (TerminalConnection) -> Unit, onForget: (TerminalConnection) -> Unit,
+    hostOffline: (TerminalConnection) -> Boolean) {
+    Column(Modifier.fillMaxSize()) {
+        HomeListHeader(trf("会话 · %d", sessions.size), tr("新建会话"), "add-session", onNewSession)
+        val matching = sessions.filter {
+            "${it.displayTitle} ${it.host.name} ${it.host.address} ${it.host.username}".contains(search, true)
+        }
+        when {
+            // No host is needed first: the new-session sheet fills one in on the way.
+            !hasHosts && sessions.isEmpty() -> EmptyState(tr("从第一个会话开始"),
+                tr("填写远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
+                Modifier.fillMaxSize().testTag("home-sessions-empty"),
+                artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
+                action = { Button(onClick = onNewSession) { Text(tr("新建会话")) } })
+            sessions.isEmpty() -> EmptyState(tr("暂无会话"), tr("选择主机，打开终端或 AI Agent。"),
+                Modifier.fillMaxSize().testTag("home-sessions-empty"),
+                action = { Button(onClick = onNewSession) { Text(tr("新建会话")) } })
+            matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
+            else -> HomeSessionsList(matching, onOpen = onOpen, onClose = onClose, onForget = onForget, hostOffline = hostOffline)
+        }
+    }
+}
+
+/** The home page's hosts tab: its header, then the hosts matching [search] as cards, or why there are none. */
+@Composable
+private fun HomeHostsTab(hosts: List<Host>, search: String, gridState: LazyGridState, reachability: (Host) -> HostReachability,
+    onAdd: () -> Unit, onOpen: (Host) -> Unit, onEdit: (Host) -> Unit, onDelete: (Host) -> Unit, onBrowseFiles: (Host) -> Unit,
+    onManagePlugins: (Host) -> Unit, onLaunch: (host: Host, forAgent: Boolean) -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        HomeListHeader(trf("主机 · %d", hosts.size), tr("添加主机"), "add-host", onAdd)
+        val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
+        if (hosts.isEmpty()) EmptyState(tr("从第一台主机开始"), tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
+            Modifier.fillMaxSize(),
+            artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
+            action = { Button(onClick = onAdd) { Text(tr("添加主机")) } })
+        else if (filtered.isEmpty()) EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.fillMaxSize())
+        else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = gridState, modifier = Modifier.fillMaxSize().testTag("host-grid"),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row),
+            contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
+            items(filtered, key = { it.id }) { host ->
+                HostCard(host, { onOpen(host) }, { onEdit(host) }, { onDelete(host) }, { onBrowseFiles(host) }, { onManagePlugins(host) },
+                    reachability(host), openTerminal = { onLaunch(host, false) }, launchAgent = { onLaunch(host, true) })
+            }
+        }
     }
 }
 

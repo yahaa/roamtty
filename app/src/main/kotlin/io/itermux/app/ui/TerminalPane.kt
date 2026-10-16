@@ -88,8 +88,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val pending by session.pending.collectAsStateWithLifecycle()
     val warning by session.inputWarning.collectAsStateWithLifecycle()
     val sessionTitle by session.title.collectAsStateWithLifecycle()
-    // Read only while drawing: output redraws the background without recomposing the pane.
     val outputRevision = session.revision.collectAsStateWithLifecycle()
+    // The renderer's fill colour, re-read on each output but read only while drawing, so the workspace (and the
+    // screen around it) is redrawn when the colour changes (OSC 11, reverse video, theme), not on every output frame.
+    val background = remember(session, outputRevision, lightTheme) {
+        derivedStateOf { checkNotNull(outputRevision.value); terminalBackground(session) }
+    }
     val context = LocalContext.current
     val inputScope = rememberCoroutineScope()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -239,6 +243,12 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         terminal?.sendInputControlKey(keyCode)
         ctrlArmed = false
         shiftArmed = false
+    }
+    /** An arrow key beside the pet: keeps the arrows up a while longer and sends the key at the live screen. */
+    fun petArrow(keyCode: Int) {
+        petArrowTouches++
+        terminal?.scrollToBottom()
+        terminalKey(keyCode)
     }
     fun sendPetShortcut(shortcut: PetShortcut) {
         when (val action = shortcut.action) {
@@ -424,7 +434,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     // made opening and closing the keyboard stutter. The background still fills the area the
     // keyboard slides over.
     BoxWithConstraints(modifier.fillMaxWidth().testTag("terminal-workspace")
-        .drawBehind { drawRect(terminalBackground(session, outputRevision.value)) }
+        .drawBehind { drawRect(background.value) }
         .windowInsetsPadding(WindowInsets.imeAnimationTarget)
         .onGloballyPositioned { workspaceOrigin = it.positionInRoot() }.then(workspaceTouch)) {
         val workspaceHeight = maxHeight
@@ -510,9 +520,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     .testTag("status-bar-scrim").drawBehind {
                         val statusBar = statusBars.getTop(this).toFloat()
                         if (statusBar <= 0f) return@drawBehind
-                        val background = terminalBackground(session, outputRevision.value)
-                        drawRect(Brush.verticalGradient(0f to background.copy(alpha = 0.85f),
-                            statusBar / size.height to background.copy(alpha = 0.55f), 1f to Color.Transparent))
+                        val color = background.value
+                        drawRect(Brush.verticalGradient(0f to color.copy(alpha = 0.85f),
+                            statusBar / size.height to color.copy(alpha = 0.55f), 1f to Color.Transparent))
                     })
                 if (pending == null) {
                     if (state.phase != Phase.CONNECTED) TerminalNoticeOverlay {
@@ -584,12 +594,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 // Up above the pet, Down below it and Left to its left; the pet stays put between them.
                 TerminalDockPlacement { Column(Modifier.onGloballyPositioned { petArrowBounds = it.boundsInRoot() },
                     horizontalAlignment = Alignment.CenterHorizontally) {
-                    androidx.compose.animation.AnimatedVisibility(petArrowsShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
-                        CursorKey(R.drawable.ic_expand_up, tr("发送上方向键"), "pet-arrow-up") {
-                            petArrowTouches++
-                            terminal?.scrollToBottom()
-                            terminalKey(KeyEvent.KEYCODE_DPAD_UP)
-                        }
+                    PetArrowKey(petArrowsShown, R.drawable.ic_expand_up, tr("发送上方向键"), "pet-arrow-up") {
+                        petArrow(KeyEvent.KEYCODE_DPAD_UP)
                     }
                     Box(contentAlignment = Alignment.CenterStart) {
                         ToolboxPet(tr("显示操作栏"), onHoldStart = { center ->
@@ -629,21 +635,13 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             val key = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
                             layout(0, 0) { key.placeRelative(-key.width, -key.height / 2) }
                         }) {
-                            androidx.compose.animation.AnimatedVisibility(petArrowsShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
-                                CursorKey(R.drawable.ic_expand_left, tr("发送左方向键"), "pet-arrow-left") {
-                                    petArrowTouches++
-                                    terminal?.scrollToBottom()
-                                    terminalKey(KeyEvent.KEYCODE_DPAD_LEFT)
-                                }
+                            PetArrowKey(petArrowsShown, R.drawable.ic_expand_left, tr("发送左方向键"), "pet-arrow-left") {
+                                petArrow(KeyEvent.KEYCODE_DPAD_LEFT)
                             }
                         }
                     }
-                    androidx.compose.animation.AnimatedVisibility(petArrowsShown, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
-                        CursorKey(R.drawable.ic_expand_down, tr("发送下方向键"), "pet-arrow-down") {
-                            petArrowTouches++
-                            terminal?.scrollToBottom()
-                            terminalKey(KeyEvent.KEYCODE_DPAD_DOWN)
-                        }
+                    PetArrowKey(petArrowsShown, R.drawable.ic_expand_down, tr("发送下方向键"), "pet-arrow-down") {
+                        petArrow(KeyEvent.KEYCODE_DPAD_DOWN)
                     }
                 } }
             }
@@ -684,21 +682,33 @@ internal object TerminalToolbox {
 @Composable
 private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewportHeight: Int, height: Dp,
     avoid: Rect? = null, keys: @Composable () -> Unit) {
-    // Output moves the cursor: follow it on every screen revision.
-    checkNotNull(outputRevision.value)
-    val rowTop = view.getCursorRowTop()
-    if (rowTop < 0) return
-    val density = LocalDensity.current
-    // The terminal view sits 6dp below the viewport top; centre the keys on the cursor row.
-    val keyTop = with(density) {
-        val top = 6.dp.roundToPx() + rowTop + view.lineHeight / 2 - height.roundToPx() / 2
-        top.coerceIn(0, (viewportHeight - height.roundToPx()).coerceAtLeast(0))
+    // Output moves the cursor: follow it on every screen revision. Only whether the row is on screen recomposes;
+    // the position is read while placing, so a stream of output moves the keys without recomposing them.
+    val onScreen by remember(view, outputRevision) {
+        derivedStateOf { checkNotNull(outputRevision.value); view.getCursorRowTop() >= 0 }
     }
-    // The pet's Up/Down/Left keys sit at the same right edge: when the row falls within their span, slide left of them.
+    if (!onScreen) return
+    // Where the keys' box sits before its offset, in root coordinates.
     var containerTop by remember { mutableFloatStateOf(0f) }
-    val keyShift = if (avoid != null && containerTop + keyTop < avoid.bottom && containerTop + keyTop + with(density) { height.roundToPx() } > avoid.top)
-        with(density) { (avoid.width + 8.dp.toPx() + 40.dp.toPx()).roundToInt() } else 0
-    Box(Modifier.offset { IntOffset(-keyShift, keyTop) }.onGloballyPositioned { containerTop = it.positionInRoot().y - keyTop }) { keys() }
+    Box(Modifier.onGloballyPositioned { containerTop = it.positionInRoot().y }.offset {
+        checkNotNull(outputRevision.value)
+        // The terminal view sits 6dp below the viewport top; centre the keys on the cursor row.
+        val keyHeight = height.roundToPx()
+        val keyTop = (6.dp.roundToPx() + view.getCursorRowTop() + view.lineHeight / 2 - keyHeight / 2)
+            .coerceIn(0, (viewportHeight - keyHeight).coerceAtLeast(0))
+        // The pet's Up/Down/Left keys sit at the same right edge: when the row falls within their span, slide left of them.
+        val keyShift = if (avoid != null && containerTop + keyTop < avoid.bottom && containerTop + keyTop + keyHeight > avoid.top)
+            (avoid.width + 8.dp.toPx() + 40.dp.toPx()).roundToInt() else 0
+        IntOffset(-keyShift, keyTop)
+    }) { keys() }
+}
+
+/** One of the Up, Down and Left keys around the pet, fading in and out with the others. */
+@Composable
+private fun PetArrowKey(visible: Boolean, icon: Int, description: String, tag: String, onClick: () -> Unit) {
+    androidx.compose.animation.AnimatedVisibility(visible, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
+        CursorKey(icon, description, tag, onClick = onClick)
+    }
 }
 
 private val CursorKeyHeight = 32.dp
@@ -726,7 +736,7 @@ private fun CursorKey(icon: Int?, description: String, tag: String, label: Strin
 }
 
 /** The colour the terminal renderer fills its canvas with, so the status bar area matches it. */
-private fun terminalBackground(session: TerminalConnection, @Suppress("UNUSED_PARAMETER") revision: Long): Color {
+private fun terminalBackground(session: TerminalConnection): Color {
     val emulator = session.getEmulator()
     return Color(emulator.mColors.mCurrentColors[if (emulator.isReverseVideo) TextStyle.COLOR_INDEX_FOREGROUND
         else TextStyle.COLOR_INDEX_BACKGROUND])

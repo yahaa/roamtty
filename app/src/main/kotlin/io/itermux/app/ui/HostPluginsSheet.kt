@@ -68,19 +68,9 @@ internal class HostPluginsController(private val app: ItermuxApp, private val ta
         job = scope.launch {
             var credentials: Credentials? = null
             try {
-                credentials = withContext(Dispatchers.IO) {
-                    Credentials(
-                        password = if (host.auth == AuthMethod.PASSWORD.name) host.encryptedPassword?.let { app.vault.decrypt(it, "${host.id}:password") } ?: target.password.toByteArray() else null,
-                        privateKey = host.encryptedKey?.takeIf { host.auth == AuthMethod.KEY.name }?.let { app.vault.decrypt(it, "${host.id}:key") },
-                        passphrase = target.passphrase.takeIf { it.isNotEmpty() }?.toByteArray())
-                }
+                credentials = withContext(Dispatchers.IO) { app.credentialsFor(host, target.password, target.passphrase) }
                 loginPassword = credentials.password?.toString(Charsets.UTF_8)?.takeIf { it.isNotEmpty() }
-                val ssh = JschSession(host.target(SessionMode.SHELL), credentials, app.pins, interaction = { prompt ->
-                    val request = PendingPrompt(prompt)
-                    withContext(Dispatchers.Main.immediate) { pending.value = request }
-                    try { request.answer.await() }
-                    finally { withContext(NonCancellable + Dispatchers.Main.immediate) { pending.compareAndSet(request, null) } }
-                }, connectTimeoutMs = 15_000)
+                val ssh = app.pageLogin(host, credentials, pending)
                 session = ssh
                 val state = launch { ssh.state.collect { connection.value = it } }
                 ssh.administer { remote ->

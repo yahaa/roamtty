@@ -151,6 +151,55 @@ class E2eFramesTest {
         report("scroll")
     }
 
+    /** CPU time of the main thread (it parses and draws terminal output), in ms, from /proc. */
+    private fun mainThreadCpuMs(): Long {
+        val stat = java.io.File("/proc/self/task/${android.os.Process.myPid()}/stat").readText()
+        val fields = stat.substringAfterLast(')').trim().split(' ')
+        return (fields[11].toLong() + fields[12].toLong()) * 1000 / 100
+    }
+
+    /** The visible screen only: reading the whole transcript on every poll would cost the main thread more than it measures. */
+    private fun screenText(session: TerminalConnection): String {
+        var text = ""
+        E2e.instrumentation.runOnMainSync {
+            val emulator = session.getEmulator()
+            text = emulator.screen.getSelectedText(0, 0, emulator.mColumns, emulator.mRows - 1)
+        }
+        return text
+    }
+
+    /**
+     * Output floods drawn at the real frame rate (the Compose test clock in E2ePerfTest skews the main thread): how much
+     * main-thread time parsing and drawing them takes, and how smooth the frames stay.
+     */
+    @Test fun r03_outputFloodMainThread() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("洪泛"))
+        val session: TerminalConnection = withContext(Dispatchers.Main) {
+            service.open(host, SessionMode.SHELL, Credentials(E2e.password.toByteArray()))
+        }
+        assertEquals(Phase.CONNECTED, E2e.connected(session))
+        tap("打开导航")
+        tap(session.displayTitle)
+        for ((label, command) in listOf(
+            "seq200k" to "seq 1 200000",
+            "color" to "for i in \$(seq 1 20000); do printf '\\033[3%dm%06d \\033[1;4%dmcolor\\033[0m\\n' \$((i%8)) \$i \$((i%8)); done",
+        )) {
+            withContext(Dispatchers.Main) { session.write("clear\r") }
+            Thread.sleep(1_000)
+            E2e.resetFrames()
+            val cpu = mainThreadCpuMs()
+            withContext(Dispatchers.Main) { session.write("$command; echo MAIN_${label}_\$((5+5))\r") }
+            val deadline = System.currentTimeMillis() + 120_000
+            while ("MAIN_${label}_10" !in screenText(session) && System.currentTimeMillis() < deadline) Thread.sleep(100)
+            Thread.sleep(500)
+            val used = mainThreadCpuMs() - cpu
+            val frames = E2e.frames()
+            E2e.log("flood main $label cpu=${used}ms $frames")
+            E2e.metric("flood_${label}_main_cpu_ms", used, "ms")
+            E2e.metric("flood_${label}_frame_p90_ms", frames.p90, "ms")
+        }
+    }
+
     /** Flinging a list of 60 host cards (Compose LazyVerticalGrid). */
     @Test fun r02_hostListScrolling() = runBlocking<Unit> {
         repeat(60) { E2e.save(E2e.host("列表 %02d".format(it))) }

@@ -34,6 +34,7 @@ class SessionService : Service() {
     private lateinit var wakeLock: PowerManager.WakeLock
     private val stateWatchers = mutableMapOf<String, Job>()
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val app get() = application as ItermuxApp
     inner class LocalBinder : Binder() { val service get() = this@SessionService }
     override fun onBind(intent: Intent?) = binder
     override fun onCreate() {
@@ -44,7 +45,6 @@ class SessionService : Service() {
         refreshLanguage()
         watchNetwork()
         restoration = scope.launch {
-            val app = application as ItermuxApp
             val usedNumbers = mutableMapOf<String, MutableSet<Int>>()
             mutableSessions.value = journal.read().mapNotNull { entry ->
                 app.database.hosts().find(entry.hostId)?.let { host ->
@@ -77,7 +77,7 @@ class SessionService : Service() {
             trf("每台主机最多保留 %d 个会话，请先关闭这台主机的旧会话", MAX_SESSIONS_PER_HOST)
         }
         val connection = TerminalConnection(
-            host, mode, credentials, (application as ItermuxApp).pins, scope,
+            host, mode, credentials, app.pins, scope,
             sessionNumber = nextSessionNumber(mutableSessions.value.filter { it.host.id == host.id }.map { it.sessionNumber }),
             onRename = ::saveSessions,
             onHostSystemDetected = { updateHostSystem(host, it) },
@@ -90,12 +90,12 @@ class SessionService : Service() {
     }
 
     private suspend fun updateHostSystem(host: Host, system: HostSystem) {
-        (application as ItermuxApp).database.hosts().updateSystem(
+        app.database.hosts().updateSystem(
             host.id, host.address, host.port, host.username, system.name)
     }
 
     private suspend fun updatePlugins(host: Host, plugins: Set<HostPlugin>) {
-        (application as ItermuxApp).database.hosts().updatePlugins(
+        app.database.hosts().updatePlugins(
             host.id, host.address, host.port, host.username, HostPlugin.encode(plugins))
     }
 
@@ -117,12 +117,12 @@ class SessionService : Service() {
         stateWatchers.remove(id)?.cancel()
         existing.disconnect()
         // Plugins may have been installed since this entry was created; keep the entry's mode.
-        val current = (application as ItermuxApp).database.hosts().find(existing.host.id) ?: existing.host
+        val current = app.database.hosts().find(existing.host.id) ?: existing.host
         // Callbacks capture the host, never `existing`: each replacement would otherwise keep the connection it
         // replaced (and its terminal buffer) alive, chaining every reconnect of the session.
         val host = existing.host
         val replacement = TerminalConnection(
-            host, existing.mode, credentials, (application as ItermuxApp).pins, scope,
+            host, existing.mode, credentials, app.pins, scope,
             id = existing.id,
             initialTitle = existing.title.value,
             sessionNumber = existing.sessionNumber,
@@ -171,7 +171,7 @@ class SessionService : Service() {
     suspend fun terminate(id: String, credentials: Credentials, interaction: suspend (Prompt) -> List<String>?): String? {
         val existing = mutableSessions.value.find { it.id == id } ?: return null
         check(!existing.state.value.active)
-        val ssh = JschSession(existing.host.target(SessionMode.SHELL), credentials, (application as ItermuxApp).pins,
+        val ssh = JschSession(existing.host.target(SessionMode.SHELL), credentials, app.pins,
             interaction = interaction, connectTimeoutMs = 15_000)
         var status: Int? = null
         try {
