@@ -37,7 +37,7 @@ python3 -m http.server 8000 -d /tmp/roamtty-site # 本地预览 http://127.0.0.1
 scripts/site.py                                 # 构建并推送到 yahaa/roamtty-site
 ```
 
-需要已登录的 `gh`（隐私政策的 Markdown 通过 GitHub API 渲染，发布时克隆并推送站点仓库）。站点仓库的内容整体由脚本生成，不要手工修改。推送后 GitHub Pages 通常一分钟内完成部署。
+需要已登录的 `gh`（隐私政策的 Markdown 通过 GitHub API 渲染，发布时克隆并推送站点仓库）。站点仓库的内容整体由脚本生成，不要手工修改。本机未配置 git 身份时，用 `GIT_AUTHOR_NAME`、`GIT_AUTHOR_EMAIL`、`GIT_COMMITTER_NAME`、`GIT_COMMITTER_EMAIL` 环境变量提供。推送后 GitHub Pages 通常一分钟内完成部署。
 
 ## GitHub Pages 与 Cloudflare 配置
 
