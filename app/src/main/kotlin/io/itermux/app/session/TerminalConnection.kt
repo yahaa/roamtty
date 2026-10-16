@@ -37,6 +37,8 @@ class TerminalConnection(
     val sessionNumber: Int = 1,
     /** Unique remote tmux session for this local entry; legacy restorations use [Tmux.LEGACY_SESSION]. */
     val remoteSessionName: String = if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION,
+    /** [remoteSessionName] was already on the server: the app attaches to it beside its other clients and never ends it. */
+    val external: Boolean = false,
     private val onRename: () -> Unit = {},
     private val onHostSystemDetected: suspend (HostSystem) -> Unit = {},
     /** Carry the terminal over mosh when the host has it; SSH remains for files. */
@@ -72,6 +74,7 @@ class TerminalConnection(
             try { request.answer.await() } finally { pending.compareAndSet(request, null) }
         },
         remoteSessionName = remoteSessionName,
+        attachExisting = external,
         preferMosh = preferMosh,
         elapsedMillis = SystemClock::elapsedRealtime,
         log = { android.util.Log.i("RoamttyConn", "${host.name}#$sessionNumber $it") }

@@ -109,8 +109,11 @@ import io.itermux.ssh.TerminalTransport
 
 internal fun latencyLabel(ms: Long): String = if (ms < 1) "<1 ms" else "$ms ms"
 
-/** Whether closing [session] would only drop its record: a disconnected tmux session, still running remotely. */
-internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active && mode == SessionMode.TMUX
+/**
+ * Whether closing [session] would log in to end it: a disconnected tmux session the app created, still running
+ * remotely. One that was already on the server is only detached.
+ */
+internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active && mode == SessionMode.TMUX && !external
 
 /** The card used by the host and session lists: one shape, one surface, whole-card tap target. */
 @Composable internal fun ListCard(onClick: () -> Unit, onClickLabel: String, modifier: Modifier = Modifier,

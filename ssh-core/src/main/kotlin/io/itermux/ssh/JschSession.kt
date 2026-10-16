@@ -26,6 +26,8 @@ class JschSession(
     private val connectTimeoutMs: Int = 20_000,
     /** Remote tmux session name; ignored for SHELL mode. Legacy journal entries use [Tmux.LEGACY_SESSION]. */
     val remoteSessionName: String = Tmux.LEGACY_SESSION,
+    /** [remoteSessionName] was already on the server: attach it as it is, beside its other clients. */
+    private val attachExisting: Boolean = false,
     /** Run the terminal over mosh (UDP) when the host has mosh-server; falls back to the SSH PTY. */
     private val preferMosh: Boolean = false,
     /**
@@ -263,7 +265,7 @@ class JschSession(
             }
             val terminal: com.jcraft.jsch.Channel = if (target.mode == SessionMode.TMUX) {
                 (ssh.openChannel("exec") as ChannelExec).apply {
-                    setCommand(if (mux == HostPlugin.PSMUX) Psmux.attachCommand(tmuxName) else Tmux.attachCommand(tmuxName))
+                    setCommand(if (mux == HostPlugin.PSMUX) Psmux.attachCommand(tmuxName) else Tmux.attachCommand(tmuxName, attachExisting))
                     setPty(true)
                     val d = dimensions
                     setPtyType("xterm-256color", d[0], d[1], d[2], d[3])
@@ -428,7 +430,7 @@ class JschSession(
     private fun moshStartScript(locale: String): String {
         // Without a client mosh-server waits forever; tmux keeps the work, so its server may expire sooner.
         val timeout = moshServerTimeoutSeconds(target.mode)
-        val command = if (target.mode == SessionMode.TMUX) " -- ${Tmux.attachShellCommand(tmuxName)}" else ""
+        val command = if (target.mode == SessionMode.TMUX) " -- ${Tmux.attachShellCommand(tmuxName, attachExisting)}" else ""
         return """
             exec 2>&1
             ${HostPluginProbe.moshLookup}

@@ -28,7 +28,9 @@ internal data class ConnectRequest(
     /** The agent the startup command starts. */
     val agent: CodingAgent? = null,
     /** Credentials end this closed entry's remote tmux session instead of opening a terminal. */
-    val terminateSessionId: String? = null
+    val terminateSessionId: String? = null,
+    /** Attach this tmux session already on the server instead of creating one. */
+    val attach: String? = null
 )
 
 /** Messages of a connection that dropped or was restored from the journal, not one the user or the server ended. */

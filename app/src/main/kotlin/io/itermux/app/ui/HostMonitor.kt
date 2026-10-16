@@ -164,6 +164,17 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
         }
     }
 
+    /** The tmux sessions on the server, most recently used first; [TmuxListing.Failed] when the login is not up. */
+    suspend fun listTmuxSessions(): TmuxListing {
+        val remote = remote ?: return TmuxListing.Failed
+        val lines = mutableListOf<String>()
+        return when (remote.run(Tmux.LIST_SESSIONS_SCRIPT, 10_000) { lines += it }) {
+            0 -> TmuxListing.Sessions(TmuxSessionInfo.parse(lines))
+            127 -> TmuxListing.Missing
+            else -> TmuxListing.Failed
+        }
+    }
+
     /** Subfolders of [directory] (`~`, `~/x` or absolute), or null when it cannot be read or the login is not up. */
     suspend fun listFolders(directory: String): RemoteFolders? = remote?.let { RemoteFolders.load(it, directory) }
 
@@ -183,6 +194,12 @@ internal fun monitorRetryDelayMs(ended: ConnectionState, retry: Int, interactive
     if (interactive || retry > MONITOR_RETRIES) return null
     val retryable = ended.phase == Phase.FAILED || (ended.phase == Phase.DISCONNECTED && ended.message == "连接已关闭")
     return if (retryable) (1_000L shl retry).coerceAtMost(30_000L) else null
+}
+
+internal sealed interface TmuxListing {
+    data class Sessions(val sessions: List<TmuxSessionInfo>) : TmuxListing
+    data object Missing : TmuxListing
+    data object Failed : TmuxListing
 }
 
 private const val MONITOR_RETRIES = 5

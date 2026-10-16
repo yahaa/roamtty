@@ -54,6 +54,10 @@ internal fun HostDetailPage(
     onBack: () -> Unit,
     /** Opens a session in the folder picked on the launch sheet, starting [AgentLaunch] there when given. */
     onLaunch: (directory: String, agent: AgentLaunch?) -> Unit,
+    /** The tmux sessions on the host that already have a card. */
+    openTmux: Set<String>,
+    /** Attaches a tmux session already on the server, picked on the launch sheet. */
+    onAttach: (name: String) -> Unit,
     onBrowseFiles: () -> Unit,
     onEdit: () -> Unit,
     onManagePlugins: () -> Unit,
@@ -127,7 +131,8 @@ internal fun HostDetailPage(
     monitor?.pending?.collectAsStateWithLifecycle()?.value?.let { PromptDialog(it) }
     launching?.let { forAgent ->
         // The page's own login lists folders, so the sheet opens straight onto them.
-        LaunchSheet(host, forAgent, monitor, onDismiss = { launching = null }) { directory, agent ->
+        LaunchSheet(host, forAgent, monitor, onDismiss = { launching = null }, openTmux = openTmux,
+            onAttach = { launching = null; onAttach(it) }) { directory, agent ->
             launching = null
             onLaunch(directory, agent)
         }

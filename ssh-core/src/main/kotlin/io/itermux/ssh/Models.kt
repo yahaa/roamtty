@@ -119,8 +119,9 @@ object Tmux {
      * Attaches [sessionName], creating it with [BOTTOM_PROMPT_PANE] when missing. tmux before 3.0
      * joins a multi-word command into one string for the default shell, so it keeps a plain pane.
      */
-    fun attachShellCommand(sessionName: String): String {
+    fun attachShellCommand(sessionName: String, existing: Boolean = false): String {
         val name = sanitizeSessionName(sessionName)
+        if (existing) return attachExistingShellCommand(name)
         val pane = BOTTOM_PROMPT_PANE.replace("\"", "\\\"").replace("$", "\\$")
         // A lost client leaves pane copy-mode and, with mosh, its old tmux attachment behind.
         // Reconcile the app's own session before accepting keys; -D detaches clients, not the task.
@@ -135,7 +136,21 @@ object Tmux {
             "exec tmux new-session -A -D -s $name /bin/sh -c \"$pane\" $options'"
     }
 
-    fun attachCommand(sessionName: String): String = "exec " + attachShellCommand(sessionName)
+    fun attachCommand(sessionName: String, existing: Boolean = false): String = "exec " + attachShellCommand(sessionName, existing)
+
+    /**
+     * A session that was already on the server, attached as it is: never created, its other clients stay attached and
+     * its status line stays; only mouse mode goes on, so swipes scroll its history.
+     */
+    private fun attachExistingShellCommand(name: String): String =
+        "/bin/sh -c '$PATH_SETUP; exec tmux attach-session -t =$name \\; set-option -t $name mouse on'"
+
+    /**
+     * POSIX script printing one line per tmux session on the server (see [TmuxSessionInfo.parse]); nothing when no
+     * tmux server runs, and exit status 127 without tmux.
+     */
+    const val LIST_SESSIONS_SCRIPT = "$PATH_SETUP\ncommand -v tmux >/dev/null 2>&1 || exit 127\n" +
+        "tmux -u list-sessions -F '#{session_windows}\t#{session_attached}\t#{session_activity}\t#{session_name}\t#{pane_current_path}' 2>/dev/null\nexit 0\n"
 
     /**
      * Restarts [sessionName]'s pane in the folder it is in, ending whatever runs there. Prints the
@@ -159,6 +174,32 @@ object Tmux {
     fun killSessionScript(sessionName: String): String {
         val name = sanitizeSessionName(sessionName)
         return "$PATH_SETUP\ntmux has-session -t =$name 2>/dev/null || exit 0\nexec tmux kill-session -t =$name\n"
+    }
+}
+
+/** A tmux session already on the server, as the new-session sheet lists it to attach. */
+data class TmuxSessionInfo(
+    val name: String,
+    val windows: Int,
+    val attached: Int,
+    /** Last activity, in seconds since the epoch on the host's clock. */
+    val activity: Long?,
+    /** The folder of its active pane. */
+    val directory: String,
+) {
+    /** The app's tmux commands take only names [Tmux.sanitizeSessionName] keeps as they are. */
+    val attachable: Boolean get() = Tmux.sanitizeSessionName(name) == name
+
+    companion object {
+        /** [Tmux.LIST_SESSIONS_SCRIPT] output lines, most recently used first. */
+        fun parse(lines: List<String>): List<TmuxSessionInfo> = lines.mapNotNull { line ->
+            val fields = line.split('\t', limit = 5)
+            val windows = fields.getOrNull(0)?.toIntOrNull()
+            val attached = fields.getOrNull(1)?.toIntOrNull()
+            val name = fields.getOrNull(3)
+            if (windows == null || attached == null || name.isNullOrEmpty()) null
+            else TmuxSessionInfo(name, windows, attached, fields[2].toLongOrNull(), fields.getOrNull(4).orEmpty())
+        }.sortedByDescending { it.activity ?: Long.MIN_VALUE }
     }
 }
 

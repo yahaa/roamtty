@@ -188,7 +188,8 @@ fun ItermuxScreen(
                     bound.reconnect(request.reuseSessionId, credentials)
                 } else {
                     // File browsing needs only SFTP, so it never starts a mosh server.
-                    bound.open(request.host, request.mode, credentials, preferMosh = request.host.prefersMosh && !request.openFilesAfterConnect)
+                    bound.open(request.host, request.mode, credentials, preferMosh = request.host.prefersMosh && !request.openFilesAfterConnect,
+                        attach = request.attach)
                 }
                 if (request.title.isNotBlank()) session.rename(request.title)
                 request.agent?.let { session.launchedAgent.value = it }
@@ -281,6 +282,18 @@ fun ItermuxScreen(
             agent = agent.agent)
         else connect(host, startupCommand = StartDirectory.command(directory))
     }
+
+    /** Attaches a tmux session already on the server; one the app already holds opens its card instead. */
+    fun attachOn(host: Host, name: String) {
+        sessions.firstOrNull { it.host.id == host.id && it.mode == SessionMode.TMUX && it.remoteSessionName == name }?.let {
+            selected = it.id
+            page = "terminal"
+            return
+        }
+        begin(ConnectRequest(host, SessionMode.TMUX, attach = name))
+    }
+    /** The tmux sessions of [host] that already have a card, which the launch sheet marks as open. */
+    fun openTmux(host: Host) = sessions.filter { it.host.id == host.id && it.mode == SessionMode.TMUX }.map { it.remoteSessionName }.toSet()
 
     fun managePlugins(host: Host) {
         if (host.needsTypedSecret(app))
@@ -443,6 +456,8 @@ fun ItermuxScreen(
                             hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
                             onBack = { page = "hosts" },
                             onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
+                            openTmux = openTmux(detailHost),
+                            onAttach = { attachOn(detailHost, it) },
                             onBrowseFiles = { browseFiles(detailHost) },
                             onEdit = { editHostId = detailHost.id; editorOpen = true },
                             onManagePlugins = { managePlugins(detailHost) },
@@ -530,7 +545,8 @@ fun ItermuxScreen(
         }
         launchRequest?.let { (host, forAgent, initialAgent, newSession) ->
             LaunchSheet(host, forAgent, monitor = null, onDismiss = { launchRequest = null }, initialAgent = initialAgent,
-                title = if (newSession) tr("选择工作目录") else null) { directory, agent ->
+                title = if (newSession) tr(if (forAgent) "选择工作目录" else "新建会话") else null, openTmux = openTmux(host),
+                onAttach = { launchRequest = null; attachOn(host, it) }) { directory, agent ->
                 launchRequest = null
                 launchOn(host, directory, agent)
             }

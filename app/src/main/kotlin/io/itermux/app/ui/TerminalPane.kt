@@ -377,7 +377,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 }
                 DropdownMenu(sessionMenu, ::dismissDockMenus) {
                     DropdownMenuItem(text = { Text(tr("返回主机详情")) }, onClick = { sessionMenu = false; onHostDetail() })
-                    DropdownMenuItem(text = { Text(tr("关闭当前会话")) }, onClick = { sessionMenu = false; onClose() },
+                    DropdownMenuItem(text = { Text(tr(if (session.external) "断开当前会话" else "关闭当前会话")) }, onClick = { sessionMenu = false; onClose() },
                         modifier = Modifier.testTag("close-session"))
                     // A tmux pane restarts over the live connection; a plain shell restarts by reconnecting.
                     DropdownMenuItem(

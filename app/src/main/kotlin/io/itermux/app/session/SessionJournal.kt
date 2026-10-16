@@ -18,6 +18,8 @@ internal class SessionJournal(context: Context) {
         /** Remote tmux session name; legacy entries without the field keep [Tmux.LEGACY_SESSION]. */
         val remoteSessionName: String = Tmux.LEGACY_SESSION,
         val sessionNumber: Int = 0,
+        /** A tmux session that was already on the server, which the app attached to and never ends. */
+        val external: Boolean = false,
         /** What its agent reported last, for the session list to show until the host answers again. */
         val agentStatus: AgentStatus? = null
     )
@@ -35,6 +37,7 @@ internal class SessionJournal(context: Context) {
                     clipSessionTitle(shortenLegacyAgentTitle(item.optString("title"))),
                     Tmux.sanitizeSessionName(remote),
                     item.optInt("sessionNumber", 0).coerceAtLeast(0),
+                    item.optBoolean("external", false),
                     item.optJSONObject("agentStatus")?.let(::decodeAgentStatus)
                 )
             }.getOrNull()
@@ -56,6 +59,7 @@ internal class SessionJournal(context: Context) {
                     .put("title", session.title.value)
                     .put("remoteSessionName", session.remoteSessionName)
                     .put("sessionNumber", session.sessionNumber)
+                    .put("external", session.external)
                     .put("agentStatus", session.lastAgentStatus.value?.let(::encodeAgentStatus))
             )
         }
