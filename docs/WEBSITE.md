@@ -56,4 +56,6 @@ scripts/site.py                                 # 构建并推送到 yahaa/roamt
 
 ## 支持邮箱
 
-`support@roamtty.com` 写在网站、隐私政策和 `security.txt` 中，商店审核会用它联系开发者。域名目前没有 MX 记录，需在 Cloudflare **Email → Email Routing** 中启用：Cloudflare 自动添加 MX 与 SPF 记录，再创建自定义地址 `support@roamtty.com` 转发到开发者的个人邮箱，并在该邮箱中确认验证邮件。启用后发一封测试邮件确认能收到。
+`support@roamtty.com` 写在网站、隐私政策和 `security.txt` 中，商店审核会用它联系开发者。已于 2026-10-16 启用 Cloudflare **Email Routing**：MX、SPF（`v=spf1 include:_spf.mx.cloudflare.net ~all`）与 DKIM 记录由 Cloudflare 添加，规则 `support@roamtty.com` → `roamtty@gmail.com`（目标地址已验证），其余地址丢弃。
+
+Cloudflare 只转发收信、不提供发信。要以 support@ 身份回信，在 Gmail「用这个地址发送邮件」中添加该地址并使用 `smtp.gmail.com`（应用专用密码），同时把 SPF 改为 `v=spf1 include:_spf.mx.cloudflare.net include:_spf.google.com ~all`。
