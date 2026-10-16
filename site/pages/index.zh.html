@@ -1,0 +1,85 @@
+<!-- title: Roamtty：随身的远程 AI 编程终端 -->
+<!-- description: Roamtty 是面向远程 AI 编程的 SSH 客户端，支持 Android 与 iPhone：tmux 会话保持、mosh 漫游、SFTP 文件管理与 AI Agent 会话状态。无账号、无广告、无遥测。 -->
+<section class="hero">
+<div class="wrap">
+<div>
+<span class="eyebrow">Android · iPhone · 一次买断</span>
+<h1>在手机上<em>继续</em>你的远程 AI 编程</h1>
+<p class="lede">Roamtty 是为触屏设计的 SSH 终端。用 tmux 保持会话、用 mosh 穿越网络切换，在通勤路上查看 Agent 进度、回答它的提问、审阅它改过的文件。</p>
+{{stores}}
+<p class="hero-note">Android 8.0 及以上 · iOS 16 及以上 · 无账号、无广告、无遥测</p>
+</div>
+<div class="phone" role="img" aria-label="Roamtty 会话列表示意：三个 AI Agent 会话分别处于运行中、等待确认和空闲状态，下方是终端">
+<div class="bar"><b>会话</b><span>主机</span></div>
+<div class="label">会话 · 3</div>
+<div class="card"><span class="ic" style="background:#3a2a22;color:#f0a27e">✳</span><span class="t">重构登录模块并补充测试</span><span class="s">Claude Code · ~/app</span><span class="st"><i class="dot run"></i>运行中 · npm test</span></div>
+<div class="card"><span class="ic" style="background:#26304a;color:#9db4ff">◎</span><span class="t">修复 CI 中的构建缓存</span><span class="s">Codex · ~/infra</span><span class="st"><i class="dot ask"></i>等待确认</span></div>
+<div class="card"><span class="ic" style="background:#2b3a2f;color:#8fd6a5">❯</span><span class="t">tmux · deploy</span><span class="s">ubuntu · ~/</span><span class="st"><i class="dot idle"></i>空闲 · 上一轮 4 分钟</span></div>
+<div class="term"><span class="d">$ tmux attach -t roamtty-1</span><br><span class="g">✓</span> 42 passed <span class="d">(3.1s)</span><br><span class="p">❯</span> 运行完整测试<br><span class="d">  ⎿ 正在编辑 src/auth/session.ts</span><br><br><span class="p">●</span> 需要运行 <span class="g">git push</span>，是否允许？<br><span class="d">  1. 允许　2. 本次会话都允许　3. 拒绝</span><br><span class="p">❯</span> <span class="cur"></span><img class="pet" src="/assets/icon-512.png" alt=""></div>
+</div>
+</div>
+</section>
+
+<section class="block alt" id="features">
+<div class="wrap">
+<div class="section-head">
+<h2>为手机上的远程开发而做</h2>
+<p>AI 工具运行在你的服务器上，Roamtty 让你在手机上随时接上它们。</p>
+</div>
+<div class="grid">
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><path d="M12 3l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L4.8 8.3l5-.7z"/></svg></span>
+<h3>AI Agent 会话</h3><p>选择 Agent、主机和起始文件夹即可开工，可选只读、普通或完全放行权限。会话卡片显示当前任务、运行中 / 等待确认 / 空闲状态和正在执行的命令。</p></div>
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 20V9"/></svg></span>
+<h3>tmux 会话保持</h3><p>每个会话对应独立的远端 tmux 会话。断网、锁屏或关闭应用后任务继续运行，回来时自动重新附着。</p></div>
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M2 9a14.5 14.5 0 0 1 20 0"/><circle cx="12" cy="19.5" r="1"/></svg></span>
+<h3>mosh 漫游</h3><p>主机装有 mosh 时优先走 UDP，在 Wi-Fi 和蜂窝网络之间切换也不断线；没有回应时自动回退到 SSH。</p></div>
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><path d="M9 11V6a3 3 0 0 1 6 0v8"/><path d="M15 11.5a2 2 0 0 1 4 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-5.2-3L5 15a1.8 1.8 0 0 1 3-2l1 1.5"/></svg></span>
+<h3>为触屏设计的终端</h3><p>双击发送 Tab，左右滑动发送方向键，按住小幽灵拖向快捷键环发送 Esc、Ctrl、F1–F12 等按键；双指缩放字号，长按选择复制或拖动光标。</p></div>
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><path d="M4 5h6l2 2h8v12H4z"/><path d="M12 11v5M9.5 13.5L12 16l2.5-2.5"/></svg></span>
+<h3>SFTP 文件</h3><p>浏览服务器文件，预览代码（语法高亮）、Markdown 和图片；上传、下载、重命名、删除，或把手机里的图片路径直接插入终端。</p></div>
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg></span>
+<h3>主机监控</h3><p>实时查看 Linux、macOS 与 Windows 主机的 CPU、内存、磁盘、网络、GPU 和占用最高的进程，主机卡片显示在线状态与建连延时。</p></div>
+</div>
+</div>
+</section>
+
+<section class="block">
+<div class="wrap">
+<div class="section-head">
+<h2>Android 与 iPhone，同一套体验</h2>
+<p>两个版本功能保持一致，界面默认简体中文，可切换 English。</p>
+</div>
+<div class="platforms">
+<div class="platform"><h3>Android</h3><p class="req">需要 Android 8.0 及以上</p>
+<ul><li>凭据由 Android Keystore 加密保存</li><li>前台服务在后台保持你打开的连接，最后一个连接断开即释放</li><li>可从系统分享直接上传图片</li></ul></div>
+<div class="platform"><h3>iPhone</h3><p class="req">需要 iOS 16 及以上</p>
+<ul><li>凭据保存在仅限本设备的钥匙串中</li><li>下载的文件可在“文件”App 中查看</li><li>从分享菜单把照片、文件和文本发送给 Roamtty 上传</li></ul></div>
+</div>
+</div>
+</section>
+
+<section class="block alt" id="privacy">
+<div class="wrap">
+<div class="section-head">
+<h2>你的服务器，只属于你</h2>
+<p>Roamtty 没有后端服务器。主机、凭据和设置只保存在你的设备上，连接只发往你添加的服务器。</p>
+</div>
+<ul class="checks">
+<li>无需注册账号</li>
+<li>无广告、无统计分析、无崩溃上报</li>
+<li>首次连接核对 SHA-256 指纹，指纹变化直接阻止连接</li>
+<li>密码仅在你勾选后加密保存，私钥口令从不保存</li>
+<li>终端内容只存在于内存中</li>
+<li>一次购买，没有内购和订阅</li>
+</ul>
+<p style="margin-top:24px"><a href="/privacy/">阅读完整隐私政策 →</a></p>
+</div>
+</section>
+
+<section class="block cta">
+<div class="wrap narrow">
+<h2>有问题或建议？</h2>
+<p>使用帮助、常见问题和联系方式都在支持页面。</p>
+<p><a href="/support/">前往支持页面</a> · <a href="mailto:{{email}}">{{email}}</a></p>
+</div>
+</section>

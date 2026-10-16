@@ -1,0 +1,85 @@
+<!-- title: Roamtty: SSH for remote AI coding, in your pocket -->
+<!-- description: Roamtty is an SSH client for remote AI coding on Android and iPhone, with tmux session persistence, mosh roaming, SFTP and AI agent session status. No accounts, ads or telemetry. -->
+<section class="hero">
+<div class="wrap">
+<div>
+<span class="eyebrow">Android · iPhone · One-time purchase</span>
+<h1>Keep your remote AI coding <em>going</em> from your phone</h1>
+<p class="lede">Roamtty is an SSH terminal designed for touch. tmux keeps your sessions alive and mosh rides out network changes, so you can check on an agent, answer its questions and review the files it changed on the go.</p>
+{{stores}}
+<p class="hero-note">Android 8.0+ · iOS 16+ · No accounts, ads or telemetry</p>
+</div>
+<div class="phone" role="img" aria-label="Illustration of the Roamtty session list: three AI agent sessions that are running, waiting for approval and idle, above a terminal">
+<div class="bar"><b>Sessions</b><span>Hosts</span></div>
+<div class="label">Sessions · 3</div>
+<div class="card"><span class="ic" style="background:#3a2a22;color:#f0a27e">✳</span><span class="t">Refactor login and add tests</span><span class="s">Claude Code · ~/app</span><span class="st"><i class="dot run"></i>Running · npm test</span></div>
+<div class="card"><span class="ic" style="background:#26304a;color:#9db4ff">◎</span><span class="t">Fix the CI build cache</span><span class="s">Codex · ~/infra</span><span class="st"><i class="dot ask"></i>Waiting for approval</span></div>
+<div class="card"><span class="ic" style="background:#2b3a2f;color:#8fd6a5">❯</span><span class="t">tmux · deploy</span><span class="s">ubuntu · ~/</span><span class="st"><i class="dot idle"></i>Idle · last turn 4 min</span></div>
+<div class="term"><span class="d">$ tmux attach -t roamtty-1</span><br><span class="g">✓</span> 42 passed <span class="d">(3.1s)</span><br><span class="p">❯</span> run the full test suite<br><span class="d">  ⎿ Editing src/auth/session.ts</span><br><br><span class="p">●</span> Allow <span class="g">git push</span>?<br><span class="d">  1. Yes　2. Always this session　3. No</span><br><span class="p">❯</span> <span class="cur"></span><img class="pet" src="/assets/icon-512.png" alt=""></div>
+</div>
+</div>
+</section>
+
+<section class="block alt" id="features">
+<div class="wrap">
+<div class="section-head">
+<h2>Built for remote development on a phone</h2>
+<p>Your AI tools run on your servers. Roamtty lets you reach them from anywhere.</p>
+</div>
+<div class="grid">
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><path d="M12 3l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L4.8 8.3l5-.7z"/></svg></span>
+<h3>AI agent sessions</h3><p>Pick an agent, a host and a start folder, with read-only, normal or skip-confirmation permissions. Session cards show the current task, whether it is running, waiting for you or idle, and the command it is running.</p></div>
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 20V9"/></svg></span>
+<h3>tmux persistence</h3><p>Each session gets its own remote tmux session. Work keeps running when the network drops, the screen locks or the app closes, and reattaches when you come back.</p></div>
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M2 9a14.5 14.5 0 0 1 20 0"/><circle cx="12" cy="19.5" r="1"/></svg></span>
+<h3>mosh roaming</h3><p>When the host has mosh, the terminal uses UDP and survives switching between Wi-Fi and cellular. If mosh does not answer, it falls back to SSH.</p></div>
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><path d="M9 11V6a3 3 0 0 1 6 0v8"/><path d="M15 11.5a2 2 0 0 1 4 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-5.2-3L5 15a1.8 1.8 0 0 1 3-2l1 1.5"/></svg></span>
+<h3>A terminal made for touch</h3><p>Double-tap for Tab, swipe for arrow keys, and hold the little ghost to drag onto a ring of keys such as Esc, Ctrl and F1–F12. Pinch to zoom; hold to select text or drag the cursor.</p></div>
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><path d="M4 5h6l2 2h8v12H4z"/><path d="M12 11v5M9.5 13.5L12 16l2.5-2.5"/></svg></span>
+<h3>SFTP files</h3><p>Browse server files and preview code with syntax highlighting, Markdown and images. Upload, download, rename and delete, or insert a photo's remote path straight into the terminal.</p></div>
+<div class="feature"><span class="fi"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg></span>
+<h3>Host monitoring</h3><p>Live CPU, memory, disk, network, GPU and top processes for Linux, macOS and Windows hosts. Host cards show online status and connection latency.</p></div>
+</div>
+</div>
+</section>
+
+<section class="block">
+<div class="wrap">
+<div class="section-head">
+<h2>One experience on Android and iPhone</h2>
+<p>Both apps share the same features, in English or Simplified Chinese.</p>
+</div>
+<div class="platforms">
+<div class="platform"><h3>Android</h3><p class="req">Requires Android 8.0 or later</p>
+<ul><li>Credentials encrypted with the Android Keystore</li><li>A foreground service keeps your open connections alive and stops when the last one closes</li><li>Upload images straight from the share sheet</li></ul></div>
+<div class="platform"><h3>iPhone</h3><p class="req">Requires iOS 16 or later</p>
+<ul><li>Credentials kept in this-device-only Keychain storage</li><li>Downloaded files show up in the Files app</li><li>Send photos, files and text to Roamtty from the share sheet to upload them</li></ul></div>
+</div>
+</div>
+</section>
+
+<section class="block alt" id="privacy">
+<div class="wrap">
+<div class="section-head">
+<h2>Your servers stay yours</h2>
+<p>Roamtty has no backend. Hosts, credentials and settings stay on your device, and connections go only to the servers you add.</p>
+</div>
+<ul class="checks">
+<li>No account needed</li>
+<li>No ads, analytics or crash reporting</li>
+<li>SHA-256 fingerprint check on first connect; a changed key blocks the connection</li>
+<li>Passwords saved, encrypted, only when you choose; key passphrases never saved</li>
+<li>Terminal content lives in memory only</li>
+<li>Pay once: no in-app purchases or subscriptions</li>
+</ul>
+<p style="margin-top:24px"><a href="/en/privacy/">Read the full privacy policy →</a></p>
+</div>
+</section>
+
+<section class="block cta">
+<div class="wrap narrow">
+<h2>Questions or ideas?</h2>
+<p>Help, FAQs and contact details are on the support page.</p>
+<p><a href="/en/support/">Go to support</a> · <a href="mailto:{{email}}">{{email}}</a></p>
+</div>
+</section>

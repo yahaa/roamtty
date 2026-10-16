@@ -67,6 +67,7 @@ Windows 目录和监控命令测试使用 `ROAMTTY_PWSH=/path/to/pwsh ./gradlew 
 
 - [架构与设计约束](docs/ARCHITECTURE.md)
 - [Google Play 上架清单](docs/GOOGLE_PLAY_RELEASE.md)
-- [隐私政策](docs/PRIVACY.md)
+- [隐私政策](docs/PRIVACY.md)（公开地址 https://roamtty.com/privacy/）
+- [官网 roamtty.com 与商店网址](docs/WEBSITE.md)
 - [Logo 设计预览](docs/previews/logo-redesign.html)
 - [第三方许可](THIRD_PARTY_NOTICES.md)
