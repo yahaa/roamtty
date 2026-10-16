@@ -97,4 +97,24 @@ class TmuxSessionNameTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test fun agentStatusKeepsNonAsciiWithoutAUtf8Locale() {
+        assumeTrue(runCatching { ProcessBuilder("tmux", "-V").start().waitFor() == 0 }.getOrDefault(false))
+        val dir = java.nio.file.Files.createTempDirectory("tmux-status").toFile()
+        val work = java.io.File(dir, "工作").apply { mkdir() }.canonicalPath
+        // As sshd on macOS runs a command: no LANG, LC_CTYPE or LC_ALL.
+        fun sh(script: String): String = ProcessBuilder("/bin/sh", "-c", script).also {
+            it.environment().keys.removeAll { key -> key == "TMUX" || key == "LANG" || key.startsWith("LC_") }
+            it.environment()["TMUX_TMPDIR"] = dir.path
+        }.redirectErrorStream(true).start().let { val out = it.inputStream.bufferedReader().readText(); it.waitFor(); out }
+        try {
+            sh("tmux -u new-session -d -s roamtty-s -c '$work' sh && tmux -u set-option -t roamtty-s @roamtty_task '帮我编译 App'")
+            val lines = sh(Tmux.agentStatusCommand("roamtty-s")).lines()
+            assertEquals("sh|||帮我编译 App|", lines[0])
+            assertEquals(work, lines[1])
+        } finally {
+            sh("tmux kill-server")
+            dir.deleteRecursively()
+        }
+    }
 }
