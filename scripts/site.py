@@ -113,7 +113,7 @@ def page(lang: str, path: str, title: str, description: str, body: str, current:
 </main>
 <footer class="site-footer"><div class="wrap">
 <nav aria-label="{"页脚" if lang == "zh" else "Footer"}">{footer}<a href="mailto:{EMAIL}">{EMAIL}</a></nav>
-<span>© {datetime.date.today().year} Roamtty contributors · Apache-2.0</span>
+<span>© {datetime.date.today().year} Roamtty</span>
 <p class="tm">{strings["tm"]}</p>
 </div></footer>
 </body>

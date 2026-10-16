@@ -2,7 +2,7 @@
 
 生效日期：2026-10-16
 
-Roamtty 是一款开源的 SSH 终端客户端，提供 Android 版与 iOS 版（以下合称“应用”）。我们（Roamtty 开发者）不运营任何应用后端服务器，不要求注册账号，不收集、不上传、不出售、也不与任何第三方共享你的个人数据。本政策适用于从 Google Play、App Store 或本项目发布页获取的 Roamtty，以及网站 roamtty.com。
+Roamtty 是一款 SSH 终端客户端，提供 Android 版与 iOS 版（以下合称“应用”）。我们（Roamtty 开发者）不运营任何应用后端服务器，不要求注册账号，不收集、不上传、不出售、也不与任何第三方共享你的个人数据。本政策适用于从 Google Play 或 App Store 获取的 Roamtty，以及网站 roamtty.com。
 
 ## 摘要
 
@@ -46,7 +46,7 @@ Roamtty 是一款开源的 SSH 终端客户端，提供 Android 版与 iOS 版�
 
 ## 第三方服务
 
-应用本身不使用第三方服务。如果你从 Google Play 或 App Store 安装，Google 或 Apple 会依照其自身的隐私政策处理安装和商店相关数据（例如下载量和你选择共享的崩溃报告），这不在本政策范围内。你连接的服务器由你或服务器管理员控制，其数据处理方式由对方负责。
+应用本身不使用第三方服务。如果你从 Google Play 或 App Store 安装，Google 或 Apple 会依照其自身的隐私政策处理安装、购买、付款和商店相关数据（例如下载量、订单信息和你选择共享的崩溃报告），这不在本政策范围内。你连接的服务器由你或服务器管理员控制，其数据处理方式由对方负责。
 
 ## 网站
 
@@ -81,7 +81,7 @@ roamtty.com 是托管在 GitHub Pages、经 Cloudflare 分发的静态网站，�
 
 Effective date: 2026-10-16
 
-Roamtty is an open-source SSH terminal client for Android and iOS (together, “the app”). We, the Roamtty developers, run no app backend servers and require no account. We do not collect, upload, sell or share any of your personal data with anyone. This policy covers Roamtty obtained from Google Play, the App Store or the project's release page, and the website roamtty.com.
+Roamtty is an SSH terminal client for Android and iOS (together, “the app”). We, the Roamtty developers, run no app backend servers and require no account. We do not collect, upload, sell or share any of your personal data with anyone. This policy covers Roamtty obtained from Google Play or the App Store, and the website roamtty.com.
 
 ## Summary
 
@@ -125,7 +125,7 @@ Uploads, downloads and importing keys or fonts go through the system file picker
 
 ## Third-party services
 
-The app itself uses no third-party services. If you install it from Google Play or the App Store, Google or Apple handles installation and store data (such as download counts and crash reports you choose to share) under its own privacy policy, which this policy does not cover. The servers you connect to are controlled by you or their administrators, who are responsible for how they handle data.
+The app itself uses no third-party services. If you install it from Google Play or the App Store, Google or Apple handles installation, purchase, payment and store data (such as download counts, order details and crash reports you choose to share) under its own privacy policy, which this policy does not cover. The servers you connect to are controlled by you or their administrators, who are responsible for how they handle data.
 
 ## Website
 
