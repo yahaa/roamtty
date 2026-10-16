@@ -8,7 +8,8 @@ which GitHub Pages serves at the custom domain roamtty.com (DNS and TLS through 
   scripts/site.py              build and publish
 
 Chinese pages live at the site root and English ones under /en/. /privacy/ carries both languages so a single URL
-can be given to Google Play and the App Store. Markdown is rendered through GitHub's API, so `gh` must be signed in.
+can be given to Google Play and the App Store. Blog posts are site/blog/<slug>.<lang>.html, served at /blog/<slug>/.
+Markdown is rendered through GitHub's API, so `gh` must be signed in.
 """
 from __future__ import annotations
 
@@ -33,16 +34,22 @@ APP_STORE_URL = ""
 LANGS = {
     "zh": {"prefix": "/", "html": "zh-CN", "other": "en", "switch": "English", "soon": "即将上架",
            "get": {"play": "立即下载", "ios": "立即下载"},
-           "nav": [("/#features", "功能", "features"), ("/docs/", "文档", "docs"), ("/support/", "支持", "support"), ("/privacy/", "隐私", "privacy")],
-           "footer": [("/docs/", "使用文档"), ("/support/", "支持与联系"), ("/privacy/", "隐私政策"), ("/terms/", "使用条款")],
+           "nav": [("/#features", "功能", "features"), ("/docs/", "文档", "docs"), ("/blog/", "博客", "blog"), ("/support/", "支持", "support"),
+                   ("/privacy/", "隐私", "privacy")],
+           "footer": [("/docs/", "使用文档"), ("/blog/", "博客"), ("/support/", "支持与联系"), ("/privacy/", "隐私政策"), ("/terms/", "使用条款")],
+           "blog": {"title": "博客", "lede": "远程开发、组网与 Roamtty 使用技巧。", "back": "← 全部文章", "toc": "目录",
+                    "description": "Roamtty 博客：远程开发、Tailscale / Headscale 组网与 Roamtty 使用技巧。"},
            "tm": "Claude Code、Codex、Grok 是其各自所有者的商标，Roamtty 与这些公司没有关联。Google Play 是 Google LLC 的商标；"
                  "App Store、iPhone 是 Apple Inc. 的商标。"},
     "en": {"prefix": "/en/", "html": "en", "other": "zh", "switch": "中文", "soon": "Coming soon",
            "get": {"play": "Get it on", "ios": "Download on the"},
-           "nav": [("/en/#features", "Features", "features"), ("/en/docs/", "Docs", "docs"),
+           "nav": [("/en/#features", "Features", "features"), ("/en/docs/", "Docs", "docs"), ("/en/blog/", "Blog", "blog"),
                    ("/en/support/", "Support", "support"),
                    ("/en/privacy/", "Privacy", "privacy")],
-           "footer": [("/en/docs/", "Documentation"), ("/en/support/", "Support & contact"), ("/en/privacy/", "Privacy policy"), ("/en/terms/", "Terms of use")],
+           "footer": [("/en/docs/", "Documentation"), ("/en/blog/", "Blog"), ("/en/support/", "Support & contact"),
+                      ("/en/privacy/", "Privacy policy"), ("/en/terms/", "Terms of use")],
+           "blog": {"title": "Blog", "lede": "Notes on remote development, networking and getting more out of Roamtty.", "back": "← All posts",
+                    "toc": "Contents", "description": "The Roamtty blog: remote development, Tailscale and Headscale networking, and Roamtty tips."},
            "tm": "Claude Code, Codex and Grok are trademarks of their respective owners; Roamtty is not affiliated with them. "
                  "Google Play is a trademark of Google LLC. App Store and iPhone are trademarks of Apple Inc."},
 }
@@ -71,12 +78,13 @@ def store_buttons(lang: str) -> str:
     return '<div class="stores">' + "".join(buttons) + "</div>"
 
 
-def page(lang: str, path: str, title: str, description: str, body: str, current: str = "", alternate: str | None = None) -> str:
+def page(lang: str, path: str, title: str, description: str, body: str, current: str = "", alternate: str | None = None,
+         og_type: str = "website") -> str:
     """`path` is this page's URL path, `alternate` the same page in the other language (None when there is none)."""
     strings = LANGS[lang]
     other = LANGS[strings["other"]]
-    # The docs link stays visible on narrow screens, where the other options fold away.
-    nav = "".join(f'<a class="opt{" keep" if key == "docs" else ""}" href="{href}"' + (' aria-current="page"' if key == current else "") + f'>{label}</a>'
+    # The docs and blog links stay visible on narrow screens, where the other options fold away.
+    nav = "".join(f'<a class="opt{" keep" if key in ("docs", "blog") else ""}" href="{href}"' + (' aria-current="page"' if key == current else "") + f'>{label}</a>'
                   for href, label, key in strings["nav"])
     switch = f'<a class="lang" href="{alternate}" hreflang="{other["html"]}" lang="{other["html"]}">{strings["switch"]}</a>' \
         if alternate else ""
@@ -96,7 +104,7 @@ def page(lang: str, path: str, title: str, description: str, body: str, current:
 {hreflang}<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <link rel="stylesheet" href="/assets/style.css">
-<meta property="og:type" content="website">
+<meta property="og:type" content="{og_type}">
 <meta property="og:site_name" content="Roamtty">
 <meta property="og:title" content="{html.escape(title)}">
 <meta property="og:description" content="{html.escape(description)}">
@@ -123,9 +131,9 @@ def page(lang: str, path: str, title: str, description: str, body: str, current:
 """
 
 
-def fragment(name: str, lang: str) -> tuple[dict, str]:
-    """site/pages/<name>.<lang>.html: `<!-- key: value -->` header lines (title, description, nav), then the body."""
-    text = (SITE / "pages" / f"{name}.{lang}.html").read_text(encoding="utf-8")
+def fragment(name: str, lang: str, folder: str = "pages") -> tuple[dict, str]:
+    """site/<folder>/<name>.<lang>.html: `<!-- key: value -->` header lines (title, description, nav), then the body."""
+    text = (SITE / folder / f"{name}.{lang}.html").read_text(encoding="utf-8")
     meta = {}
     while match := re.match(r"\s*<!--\s*(\w+):\s*(.*?)\s*-->\n", text):
         meta[match.group(1)] = match.group(2)
@@ -133,6 +141,42 @@ def fragment(name: str, lang: str) -> tuple[dict, str]:
     for key, value in {"{{stores}}": store_buttons(lang), "{{email}}": EMAIL}.items():
         text = text.replace(key, value)
     return meta, text
+
+
+def posts(lang: str) -> list[tuple[str, dict, str]]:
+    """(slug, meta, body) for each site/blog/<slug>.<lang>.html, newest first. Header lines: title, description, date."""
+    found = []
+    for file in (SITE / "blog").glob(f"*.{lang}.html"):
+        slug = file.name.removesuffix(f".{lang}.html")
+        meta, body = fragment(slug, lang, "blog")
+        found.append((slug, meta, body))
+    return sorted(found, key=lambda post: (post[1]["date"], post[0]), reverse=True)
+
+
+def long_date(iso: str, lang: str) -> str:
+    day = datetime.date.fromisoformat(iso)
+    return f"{day.year} 年 {day.month} 月 {day.day} 日" if lang == "zh" else f"{day:%B} {day.day}, {day.year}"
+
+
+def blog_index(lang: str, entries: list[tuple[str, dict, str]]) -> str:
+    strings = LANGS[lang]["blog"]
+    cards = "".join(f'<li><a class="post-card" href="{LANGS[lang]["prefix"]}blog/{slug}/"><time datetime="{meta["date"]}">'
+                    f'{long_date(meta["date"], lang)}</time><h2>{html.escape(meta["title"])}</h2>'
+                    f'<p>{html.escape(meta["description"])}</p></a></li>' for slug, meta, _ in entries)
+    return (f'<article class="doc"><div class="wrap narrow"><h1>{strings["title"]}</h1><p class="meta">{strings["lede"]}</p>'
+            f'<ul class="posts">{cards}</ul></div></article>')
+
+
+def blog_post(lang: str, meta: dict, body: str) -> str:
+    """A post is laid out like the docs: its `<h2 id>` headings become the contents column."""
+    strings = LANGS[lang]["blog"]
+    toc = "".join(f'<li><a href="#{anchor}">{re.sub(r"<[^>]+>", "", heading)}</a></li>'
+                  for anchor, heading in re.findall(r'<h2 id="([^"]+)">(.*?)</h2>', body))
+    return (f'<article class="doc docs post"><div class="wrap docs-layout">\n'
+            f'<nav class="docs-toc" aria-label="{strings["toc"]}"><p class="toc-title">{strings["toc"]}</p><ol>{toc}</ol></nav>\n'
+            f'<div class="docs-body">\n<p class="crumb"><a href="{LANGS[lang]["prefix"]}blog/">{strings["back"]}</a></p>\n'
+            f'<h1>{html.escape(meta["title"])}</h1>\n<p class="meta"><time datetime="{meta["date"]}">{long_date(meta["date"], lang)}</time></p>\n'
+            f'{body}</div>\n</div></article>')
 
 
 def privacy_sections() -> tuple[str, str]:
@@ -165,6 +209,20 @@ def build(out: pathlib.Path) -> None:
             meta, body = fragment(name, lang)
             path, alternate = LANGS[lang]["prefix"] + slug, LANGS[LANGS[lang]["other"]]["prefix"] + slug
             write(out, path, page(lang, path, meta["title"], meta["description"], body, meta.get("nav", ""), alternate))
+            urls.append(path)
+
+    for lang in LANGS:
+        strings, other = LANGS[lang], LANGS[LANGS[lang]["other"]]
+        entries, translated = posts(lang), {slug for slug, _, _ in posts(strings["other"])}
+        path = strings["prefix"] + "blog/"
+        write(out, path, page(lang, path, f'{strings["blog"]["title"]} · Roamtty', strings["blog"]["description"],
+                              blog_index(lang, entries), "blog", other["prefix"] + "blog/"))
+        urls.append(path)
+        for slug, meta, body in entries:
+            path = f'{strings["prefix"]}blog/{slug}/'
+            alternate = f'{other["prefix"]}blog/{slug}/' if slug in translated else None
+            write(out, path, page(lang, path, f'{meta["title"]} · Roamtty', meta["description"], blog_post(lang, meta, body),
+                                  "blog", alternate, "article"))
             urls.append(path)
 
     chinese, english = privacy_sections()

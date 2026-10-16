@@ -179,7 +179,7 @@ sudo headscale preauthkeys create --user 1 --reusable --expiration 24h</code></p
     - https://controlplane.tailscale.com/derpmap/default   # 保留官方节点作后备
   paths: []</code></pre>
 <p>放行 <strong>UDP 3478</strong> 后重启 Headscale，在服务器上运行 <code>tailscale netcheck</code> 应能看到自建节点且延迟最低。</p>
-<p>使用 Tailscale 官方服务时，可在另一台服务器上运行官方的 <code>derper</code>，再在后台策略文件中添加 <code>derpMap</code>，见 <a href="https://tailscale.com/kb/1118/custom-derp-servers">Tailscale 自定义 DERP 文档</a>。境内服务器未备案的域名通常无法使用 80 / 443 端口，可改用非标准端口或香港等地区的服务器；安全组和系统防火墙都要放行。</p>
+<p>使用 Tailscale 官方服务、把中继放在另一台服务器，或服务器在中国大陆时，按博客文章<a href="/blog/self-hosted-derp/">《自建 DERP 中继：Tailscale 与 Headscale 教程》</a>部署官方的 <code>derper</code>。</p>
 </details>
 
 <h2 id="troubleshooting">常见错误</h2>
