@@ -149,6 +149,42 @@
       "test": "E2eFramesTest",
       "about": "frames drawn while dragging through scrollback (0 = the drag never redraws)"
     },
+    "flood_seq200k_main_cpu_ms": {
+      "max": 3000,
+      "unit": "ms",
+      "test": "E2eFramesTest",
+      "about": "main-thread CPU parsing and drawing seq 1 200000 at the real frame rate",
+      "emulator": {
+        "max": 1500
+      }
+    },
+    "flood_seq200k_frame_p90_ms": {
+      "max": 40,
+      "unit": "ms",
+      "test": "E2eFramesTest",
+      "about": "90th percentile frame time while seq 1 200000 is drawn",
+      "emulator": {
+        "max": 60
+      }
+    },
+    "flood_color_main_cpu_ms": {
+      "max": 1500,
+      "unit": "ms",
+      "test": "E2eFramesTest",
+      "about": "main-thread CPU parsing and drawing 20,000 SGR-coloured lines at the real frame rate",
+      "emulator": {
+        "max": 800
+      }
+    },
+    "flood_color_frame_p90_ms": {
+      "max": 40,
+      "unit": "ms",
+      "test": "E2eFramesTest",
+      "about": "90th percentile frame time while the coloured lines are drawn",
+      "emulator": {
+        "max": 60
+      }
+    },
     "hostlist_jank_pct": {
       "max": 40,
       "unit": "%",

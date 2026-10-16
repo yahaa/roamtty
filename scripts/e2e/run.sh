@@ -35,6 +35,8 @@ RUNNER=$PKG.test/io.itermux.app.ItermuxTestRunner
 PORT=${ROAMTTY_E2E_PORT:-22258}
 
 [ "$(adb get-state 2>/dev/null)" = device ] || { echo "$SERIAL is not connected." >&2; exit 2; }
+# An idle emulator turns its screen off, and a sleeping screen reports no launch times.
+adb shell input keyevent KEYCODE_WAKEUP
 if adb shell dumpsys window | grep -qE 'mDreamingLockscreen=true|isKeyguardShowing=true|mShowingLockscreen=true'; then
   echo "$SERIAL is locked. Unlock it and run again." >&2; exit 2
 fi
@@ -81,7 +83,15 @@ adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null || tru
 adb reverse tcp:$PORT tcp:$PORT >/dev/null
 adb shell rm -rf /sdcard/Android/data/$PKG/files/e2e
 # Compile with the bundled baseline profile, as a Play install does, so numbers do not depend on JIT warm-up.
+# A sideloaded APK gets that profile only once the app's ProfileInstaller writes it; compiling before then falls back
+# to `verify` and leaves everything interpreted. Drop profiles from earlier runs, have it install the bundled one now.
+adb shell cmd package compile --reset $PKG >/dev/null 2>&1 || true
+adb shell am broadcast -a androidx.profileinstaller.action.INSTALL_PROFILE \
+  -n $PKG/androidx.profileinstaller.ProfileInstallReceiver >/dev/null 2>&1 || true
+sleep 2
+adb shell am force-stop $PKG
 adb shell cmd package compile -m speed-profile -f $PKG >/dev/null 2>&1 || true
+echo "dexopt: $(adb shell pm art dump $PKG 2>/dev/null | grep -o 'status=[a-z-]*' | head -1)"
 
 echo "== Cold start"
 adb shell am force-stop $PKG
@@ -93,6 +103,7 @@ for _ in 1 2 3 4 5 6; do
   [ -n "$t" ] && starts+=("$t")
 done
 adb shell am force-stop $PKG
+[ "${#starts[@]}" -gt 0 ] || { echo "No launch times: is the screen on?" >&2; exit 1; }
 sorted=($(printf '%s\n' "${starts[@]}" | sort -n))
 echo "cold start ms: ${starts[*]}"
 host_metric cold_start_p50_ms "${sorted[$(( ${#sorted[@]} / 2 ))]}" ms
