@@ -86,12 +86,13 @@ object Tmux {
     /**
      * One line `pane_command|state|since|agent|tool|detail|worked|task|reply` of what an agent reports through the
      * session options `@roamtty_agent`, `@roamtty_worked`, `@roamtty_task` and `@roamtty_reply` (empty when it reports
-     * nothing), then the host's clock for the elapsed time.
+     * nothing), then the host's clock for the elapsed time. `-u`: sshd on macOS runs commands without a UTF-8 locale,
+     * and tmux then prints each non-ASCII character of a prompt or a folder as "_".
      */
     fun agentStatusCommand(sessionName: String): String =
-        "/bin/sh -c '$PATH_SETUP; tmux display-message -p -t ${sanitizeSessionName(sessionName)} " +
+        "/bin/sh -c '$PATH_SETUP; tmux -u display-message -p -t ${sanitizeSessionName(sessionName)} " +
             "\"#{pane_current_command}|#{@roamtty_agent}|#{@roamtty_worked}|#{@roamtty_task}|#{@roamtty_reply}\" 2>/dev/null && " +
-            "tmux display-message -p -t ${sanitizeSessionName(sessionName)} \"#{pane_current_path}\" 2>/dev/null; date +%s'"
+            "tmux -u display-message -p -t ${sanitizeSessionName(sessionName)} \"#{pane_current_path}\" 2>/dev/null; date +%s'"
 
     fun newSessionName(): String = "roamtty-${UUID.randomUUID().toString().replace("-", "").take(12)}"
 
