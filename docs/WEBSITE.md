@@ -20,6 +20,7 @@ App Store 的“App 隐私”问卷选择“不收集数据”；iOS 的 `ITSApp
 | 路径 | 内容 | 来源 |
 | --- | --- | --- |
 | `/`、`/en/` | 首页：功能、平台、隐私摘要、商店按钮 | `site/pages/index.{zh,en}.html` |
+| `/docs/`、`/en/docs/` | 使用文档：准备服务器、添加主机、会话与 AI Agent、终端操作、文件、监控、后台，以及 Tailscale / 自建 Headscale / DERP 组网 | `site/pages/docs.{zh,en}.html` |
 | `/support/`、`/en/support/` | 联系方式、反馈须知、系统要求、常见问题、安全问题报告 | `site/pages/support.{zh,en}.html` |
 | `/terms/`、`/en/terms/` | 使用条款 | `site/pages/terms.{zh,en}.html` |
 | `/privacy/`、`/en/privacy/` | 隐私政策 | `docs/PRIVACY.md`（与 Android 应用内显示的是同一份） |
@@ -57,3 +58,5 @@ scripts/site.py                                 # 构建并推送到 yahaa/roamt
 ## 支持邮箱
 
 `support@roamtty.com` 写在网站、隐私政策和 `security.txt` 中，商店审核会用它联系开发者。域名目前没有 MX 记录，需在 Cloudflare **Email → Email Routing** 中启用：Cloudflare 自动添加 MX 与 SPF 记录，再创建自定义地址 `support@roamtty.com` 转发到开发者的个人邮箱，并在该邮箱中确认验证邮件。启用后发一封测试邮件确认能收到。
+
+使用文档中 Headscale 的版本号与命令按写作时的最新版（0.29.5）核对过；Headscale 升级改动 CLI 或配置项时，同步更新两种语言的文档。应用界面文字变化时，文档里引用的按钮名称和错误提示也要随之更新（中文以 `tr()` 原文为准，英文以 `AppLocale.kt` 的译文为准）。

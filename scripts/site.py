@@ -33,15 +33,16 @@ APP_STORE_URL = ""
 LANGS = {
     "zh": {"prefix": "/", "html": "zh-CN", "other": "en", "switch": "English", "soon": "即将上架",
            "get": {"play": "立即下载", "ios": "立即下载"},
-           "nav": [("/#features", "功能", "features"), ("/support/", "支持", "support"), ("/privacy/", "隐私", "privacy")],
-           "footer": [("/support/", "支持与联系"), ("/privacy/", "隐私政策"), ("/terms/", "使用条款")],
+           "nav": [("/#features", "功能", "features"), ("/docs/", "文档", "docs"), ("/support/", "支持", "support"), ("/privacy/", "隐私", "privacy")],
+           "footer": [("/docs/", "使用文档"), ("/support/", "支持与联系"), ("/privacy/", "隐私政策"), ("/terms/", "使用条款")],
            "tm": "Claude Code、Codex、Grok 是其各自所有者的商标，Roamtty 与这些公司没有关联。Google Play 是 Google LLC 的商标；"
                  "App Store、iPhone 是 Apple Inc. 的商标。"},
     "en": {"prefix": "/en/", "html": "en", "other": "zh", "switch": "中文", "soon": "Coming soon",
            "get": {"play": "Get it on", "ios": "Download on the"},
-           "nav": [("/en/#features", "Features", "features"), ("/en/support/", "Support", "support"),
+           "nav": [("/en/#features", "Features", "features"), ("/en/docs/", "Docs", "docs"),
+                   ("/en/support/", "Support", "support"),
                    ("/en/privacy/", "Privacy", "privacy")],
-           "footer": [("/en/support/", "Support & contact"), ("/en/privacy/", "Privacy policy"), ("/en/terms/", "Terms of use")],
+           "footer": [("/en/docs/", "Documentation"), ("/en/support/", "Support & contact"), ("/en/privacy/", "Privacy policy"), ("/en/terms/", "Terms of use")],
            "tm": "Claude Code, Codex and Grok are trademarks of their respective owners; Roamtty is not affiliated with them. "
                  "Google Play is a trademark of Google LLC. App Store and iPhone are trademarks of Apple Inc."},
 }
@@ -74,7 +75,8 @@ def page(lang: str, path: str, title: str, description: str, body: str, current:
     """`path` is this page's URL path, `alternate` the same page in the other language (None when there is none)."""
     strings = LANGS[lang]
     other = LANGS[strings["other"]]
-    nav = "".join(f'<a class="opt" href="{href}"' + (' aria-current="page"' if key == current else "") + f'>{label}</a>'
+    # The docs link stays visible on narrow screens, where the other options fold away.
+    nav = "".join(f'<a class="opt{" keep" if key == "docs" else ""}" href="{href}"' + (' aria-current="page"' if key == current else "") + f'>{label}</a>'
                   for href, label, key in strings["nav"])
     switch = f'<a class="lang" href="{alternate}" hreflang="{other["html"]}" lang="{other["html"]}">{strings["switch"]}</a>' \
         if alternate else ""
@@ -157,7 +159,7 @@ def build(out: pathlib.Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     shutil.copytree(SITE / "assets", out / "assets")
     urls = []
-    for name in ("index", "support", "terms"):
+    for name in ("index", "docs", "support", "terms"):
         slug = "" if name == "index" else f"{name}/"
         for lang in LANGS:
             meta, body = fragment(name, lang)
