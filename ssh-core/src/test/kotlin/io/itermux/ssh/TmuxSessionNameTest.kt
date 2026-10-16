@@ -32,6 +32,22 @@ class TmuxSessionNameTest {
         assertTrue(Tmux.PATH_SETUP.contains("/opt/homebrew/bin"))
     }
 
+    @Test fun existingSessionAttachesWithoutCreatingOrDetaching() {
+        val command = Tmux.attachCommand("work;rm", existing = true)
+        assertEquals("exec /bin/sh -c '${Tmux.PATH_SETUP}; exec tmux attach-session -t =workrm \\; set-option -t workrm mouse on'", command)
+        assertEquals(2, command.count { it == '\'' })
+        assertTrue(Tmux.attachShellCommand("work", existing = true).startsWith("/bin/sh -c '"))
+    }
+
+    @Test fun listedSessionsParseNewestFirstAndFlagUnusableNames() {
+        val sessions = TmuxSessionInfo.parse(listOf("2\t1\t1700000000\twork\t/home/me/a\tb", "1\t0\t1700000500\tmy session\t/tmp",
+            "garbage", "x\t1\t0\tname", ""))
+        assertEquals(listOf("my session", "work"), sessions.map { it.name })
+        assertEquals(TmuxSessionInfo("work", 2, 1, 1_700_000_000, "/home/me/a\tb"), sessions[1])
+        assertEquals(listOf(false, true), sessions.map { it.attachable })
+        assertTrue(Tmux.LIST_SESSIONS_SCRIPT.contains("exit 127"))
+    }
+
     @Test fun newSessionNamesAreUniqueAndPrefixed() {
         val a = Tmux.newSessionName()
         val b = Tmux.newSessionName()

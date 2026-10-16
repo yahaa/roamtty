@@ -426,9 +426,10 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 Text(it, Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelMedium, color = colors.error, maxLines = 2)
             }
         }
-        // Long press: close it, ending everything it runs, without asking.
+        // Long press: close it, ending everything it runs, without asking; a tmux session that was already on the
+        // server is only detached.
         DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(text = { Text(tr("关闭"), color = colors.error) },
+            DropdownMenuItem(text = { Text(tr(if (session.external) "断开" else "关闭"), color = colors.error) },
                 onClick = { menu = false; onClose() },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null, tint = colors.error) },
                 modifier = Modifier.testTag("$tagPrefix-close-${session.id}"))

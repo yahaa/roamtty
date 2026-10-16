@@ -55,6 +55,7 @@ class SessionService : Service() {
                         host, entry.mode, null, app.pins, scope, entry.id, entry.title,
                         sessionNumber = number,
                         remoteSessionName = entry.remoteSessionName,
+                        external = entry.external,
                         onRename = ::saveSessions,
                         lastAgentStatus = entry.agentStatus,
                         onAgentReport = ::saveSessions
@@ -72,15 +73,22 @@ class SessionService : Service() {
     }
     suspend fun awaitRestoration() { restoration.join() }
     private fun saveSessions() = journal.save(mutableSessions.value)
-    /** Opens a new local entry. TMUX mode always allocates a fresh remote session name. */
-    suspend fun open(host: Host, mode: SessionMode, credentials: Credentials, preferMosh: Boolean = host.prefersMosh): TerminalConnection {
+    /**
+     * Opens a new local entry. TMUX mode allocates a fresh remote session name, unless [attach] names a tmux session
+     * already on the server to attach as it is.
+     */
+    suspend fun open(host: Host, mode: SessionMode, credentials: Credentials, preferMosh: Boolean = host.prefersMosh,
+        attach: String? = null): TerminalConnection {
         awaitRestoration()
         check(mutableSessions.value.count { it.host.id == host.id } < MAX_SESSIONS_PER_HOST) {
             trf("每台主机最多保留 %d 个会话，请先关闭这台主机的旧会话", MAX_SESSIONS_PER_HOST)
         }
         val connection = TerminalConnection(
-            host, mode, credentials, app.pins, scope,
+            host, if (attach != null) SessionMode.TMUX else mode, credentials, app.pins, scope,
+            initialTitle = attach.orEmpty(),
             sessionNumber = nextSessionNumber(mutableSessions.value.filter { it.host.id == host.id }.map { it.sessionNumber }),
+            remoteSessionName = attach ?: if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION,
+            external = attach != null,
             onRename = ::saveSessions,
             onHostSystemDetected = { updateHostSystem(host, it) },
             preferMosh = preferMosh,
@@ -130,6 +138,7 @@ class SessionService : Service() {
             initialTitle = existing.title.value,
             sessionNumber = existing.sessionNumber,
             remoteSessionName = existing.remoteSessionName,
+            external = existing.external,
             onRename = ::saveSessions,
             onHostSystemDetected = { updateHostSystem(host, it) },
             preferMosh = current.prefersMosh,
@@ -144,12 +153,16 @@ class SessionService : Service() {
 
     /**
      * Ends a session outright: a tmux session is killed on the server first, with everything running in it, and the
-     * card goes. A tmux session that cannot be reached keeps its card so it can still be ended later.
+     * card goes. A tmux session that cannot be reached keeps its card so it can still be ended later. A tmux session
+     * that was already on the server is only detached: its card goes and it keeps running.
      */
     fun close(id: String) {
         val existing = mutableSessions.value.find { it.id == id } ?: return
         stateWatchers.remove(id)?.cancel()
-        if (existing.mode == SessionMode.TMUX && existing.state.value.phase == Phase.CONNECTED) {
+        if (existing.external) {
+            existing.disconnect()
+            mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+        } else if (existing.mode == SessionMode.TMUX && existing.state.value.phase == Phase.CONNECTED) {
             mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
             scope.launch {
                 if (!existing.killRemoteSession()) android.util.Log.w("RoamttyConn", "close $id: remote tmux not ended")
