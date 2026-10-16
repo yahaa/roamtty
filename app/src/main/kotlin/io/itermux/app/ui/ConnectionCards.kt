@@ -79,7 +79,7 @@ import io.itermux.ssh.TerminalTransport
         }
         Row(Modifier.padding(top = Spacing.Row), horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}"))
+            HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}").padding(end = 2.dp))
             // Once probed, the card lists only the plugins the host actually has.
             val plugins = host.installedPlugins
             if (plugins == null) MetaTag(modeLabel(host.mode == SessionMode.TMUX.name, host.multiplexer))
@@ -92,13 +92,14 @@ import io.itermux.ssh.TerminalTransport
     }
 }
 
-@Composable private fun HostReachabilityLabel(reachability: HostReachability, modifier: Modifier = Modifier) {
+/** A dot in the colour of [reachability] beside what it says: online with the latency, offline or checking. */
+@Composable internal fun HostReachabilityLabel(reachability: HostReachability, modifier: Modifier = Modifier) {
     val (color, label) = when (reachability) {
         is HostReachability.Online -> StatusColors.success to (reachability.latencyMs?.let { trf("在线 · %s", latencyLabel(it)) } ?: tr("在线"))
         HostReachability.Offline -> StatusColors.danger to tr("离线")
         HostReachability.Checking -> StatusColors.idle to tr("检测中")
     }
-    Row(modifier.padding(end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(6.dp))
         Text(label, style = MaterialTheme.typography.labelMedium,

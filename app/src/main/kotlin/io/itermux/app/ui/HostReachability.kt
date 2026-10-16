@@ -92,9 +92,12 @@ private val Host.probeTarget get() = "$address:$port"
 @Stable
 internal class HostReachabilityTracker(private val clock: () -> Long = { System.nanoTime() / 1_000_000 }) {
     private class Entry(val target: String, val result: HostReachability, val failures: Int, val dueAt: Long, val checkedAt: Long)
-    private var entries by mutableStateOf(emptyMap<String, Entry>())
+    /** One state per host, so a probe result recomposes only what shows that host. Used on the main thread. */
+    private val entries = HashMap<String, MutableState<Entry?>>()
 
-    private fun entry(host: Host) = entries[host.id]?.takeIf { it.target == host.probeTarget }
+    private fun slot(host: Host) = entries.getOrPut(host.id) { mutableStateOf(null) }
+
+    private fun entry(host: Host) = slot(host).value?.takeIf { it.target == host.probeTarget }
 
     fun now() = clock()
 
@@ -109,14 +112,14 @@ internal class HostReachabilityTracker(private val clock: () -> Long = { System.
     /** Probes the host again at once, keeping the last result (and its back-off count) until the new one arrives. */
     fun requestProbe(host: Host) {
         val entry = entry(host) ?: return
-        entries = entries + (host.id to Entry(entry.target, entry.result, entry.failures, now(), entry.checkedAt))
+        slot(host).value = Entry(entry.target, entry.result, entry.failures, now(), entry.checkedAt)
     }
 
     fun record(host: Host, result: HostReachability) {
         val online = result is HostReachability.Online
         val failures = if (online) 0 else (entry(host)?.failures ?: 0) + 1
         val at = now()
-        entries = entries + (host.id to Entry(host.probeTarget, result, failures, at + probeInterval(online, failures), at))
+        slot(host).value = Entry(host.probeTarget, result, failures, at + probeInterval(online, failures), at)
     }
 }
 

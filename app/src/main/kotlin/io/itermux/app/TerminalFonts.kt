@@ -137,6 +137,11 @@ object TerminalFonts {
         }
     }
 
+    /**
+     * Loading a face reads and inflates megabytes of font data (see [symbolFallbacks]); [preload] does it on a
+     * background thread, so only one caller loads and the terminal's first frame finds it ready.
+     */
+    @Synchronized
     fun resolveTypeface(context: Context): Typeface {
         val id = selection
         return when (id) {
@@ -147,6 +152,11 @@ object TerminalFonts {
             }
             else -> loadAsset(context, id.assetFile!!)
         }
+    }
+
+    /** Loads the selected face off the UI thread, ahead of the terminal or a file preview asking for it. */
+    suspend fun preload(context: Context) {
+        withContext(Dispatchers.IO) { resolveTypeface(context.applicationContext) }
     }
 
     private fun fallbackAsset(context: Context): Typeface =

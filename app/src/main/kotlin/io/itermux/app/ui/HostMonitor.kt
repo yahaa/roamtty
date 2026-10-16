@@ -34,6 +34,24 @@ internal fun Host.needsTypedSecret(app: ItermuxApp): Boolean {
     }
 }
 /**
+ * The credentials of one login to [host]: its saved password or key, else the [password] typed for it, and a typed key
+ * [passphrase]. Saved secrets are decrypted with the Keystore, so call this off the main thread.
+ */
+internal fun ItermuxApp.credentialsFor(host: Host, password: String, passphrase: String) = Credentials(
+    password = if (host.auth == AuthMethod.PASSWORD.name) host.encryptedPassword?.let { vault.decrypt(it, "${host.id}:password") } ?: password.toByteArray() else null,
+    privateKey = host.encryptedKey?.takeIf { host.auth == AuthMethod.KEY.name }?.let { vault.decrypt(it, "${host.id}:key") },
+    passphrase = passphrase.takeIf { it.isNotEmpty() }?.toByteArray())
+
+/** A login of a page's own (no PTY); its prompts wait in [pending] for the page to answer them. */
+internal fun ItermuxApp.pageLogin(host: Host, credentials: Credentials, pending: MutableStateFlow<PendingPrompt?>) =
+    JschSession(host.target(SessionMode.SHELL), credentials, pins, interaction = { prompt ->
+        val request = PendingPrompt(prompt)
+        withContext(Dispatchers.Main.immediate) { pending.value = request }
+        try { request.answer.await() }
+        finally { withContext(NonCancellable + Dispatchers.Main.immediate) { pending.compareAndSet(request, null) } }
+    }, connectTimeoutMs = 15_000)
+
+/**
  * What a login to this host is made of. Pages keep their login while this stays the same, so editing the
  * address, user or credentials logs in again, while a plugin probe or OS detection saving the host does not.
  */
@@ -97,18 +115,8 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     private suspend fun login(): ConnectionState = coroutineScope {
         var credentials: Credentials? = null
         try {
-            credentials = withContext(Dispatchers.IO) {
-                Credentials(
-                    password = if (host.auth == AuthMethod.PASSWORD.name) host.encryptedPassword?.let { app.vault.decrypt(it, "${host.id}:password") } ?: login.password.toByteArray() else null,
-                    privateKey = host.encryptedKey?.takeIf { host.auth == AuthMethod.KEY.name }?.let { app.vault.decrypt(it, "${host.id}:key") },
-                    passphrase = login.passphrase.takeIf { it.isNotEmpty() }?.toByteArray())
-            }
-            val ssh = JschSession(host.target(SessionMode.SHELL), credentials, app.pins, interaction = { prompt ->
-                val request = PendingPrompt(prompt)
-                withContext(Dispatchers.Main.immediate) { pending.value = request }
-                try { request.answer.await() }
-                finally { withContext(NonCancellable + Dispatchers.Main.immediate) { pending.compareAndSet(request, null) } }
-            }, connectTimeoutMs = 15_000)
+            credentials = withContext(Dispatchers.IO) { app.credentialsFor(host, login.password, login.passphrase) }
+            val ssh = app.pageLogin(host, credentials, pending)
             session = ssh
             // Keep showing the reconnect notice until this login gets past connecting.
             val state = launch { ssh.state.collect { if (it.phase != Phase.CONNECTING || !connection.value.active) connection.value = it } }
