@@ -37,6 +37,20 @@ class ScreenAppTest {
               GPT-6-Astra xhigh · Context 100% left · weekly 65% left
               ← for agents · ? for shortcuts                      ⚠ 2 warnings · f2 to view
         """))
+        // A phone-wide screen cuts the footer before "Context", while Codex's own working row and question say
+        // "esc to interrupt" and "? for shortcuts" as Claude Code does: the "› " prompt still tells.
+        assertEquals(ScreenApp.CODEX, detect("""
+            • Working (1m 48s • esc to interrupt)
+
+            • Queued follow-up inputs
+              ? 1 question
+                ⇧← to answer
+
+            › <cursor>Ask Codex to do anything                Esc
+
+              GPT-6-Astra xhigh · ~/work/roamtty · Conte…
+              ? for shortcuts
+        """))
     }
 
     @Test fun grokBox() {
