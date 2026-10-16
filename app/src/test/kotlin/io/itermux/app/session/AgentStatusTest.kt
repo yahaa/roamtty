@@ -24,6 +24,9 @@ class AgentStatusTest {
         assertNull(AgentStatus.parse("-bash|idle|1000|claude|||task\n1042"))
         // Codex and Grok run under their launcher.
         assertEquals(AgentStatus.State.IDLE, AgentStatus.parse("sh|idle|1000|codex|||task\n1042")!!.state)
+        // On macOS /bin/sh is bash, so the launcher shows as "bash".
+        assertEquals(AgentStatus.State.IDLE, AgentStatus.parse("bash|idle|1000|codex|||task\n1042")!!.state)
+        assertEquals(AgentStatus.State.WORKING, AgentStatus.parse("bash|working|1000|grok|||task\n1042")!!.state)
     }
 
     @Test fun noReportsOrUnknownStatesMeanNoStatus() {

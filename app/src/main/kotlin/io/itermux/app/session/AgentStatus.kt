@@ -22,8 +22,13 @@ data class AgentStatus(
     enum class State { WORKING, WAITING, IDLE }
 
     companion object {
-        /** Not "sh": Codex and Grok run under their `/bin/sh` launcher, which ends the report itself ([AgentHooks]). */
         private val shells = setOf("bash", "zsh", "fish", "dash", "ash", "ksh", "csh", "tcsh", "nu", "pwsh", "login")
+
+        /**
+         * Agents that run under their `/bin/sh` launcher, which ends the report itself ([AgentHooks]): the pane shows the
+         * launcher's shell while they run, "sh" on Linux but "bash" on macOS, whose `/bin/sh` is bash.
+         */
+        private val launched = setOf("codex", "grok")
 
         /**
          * Output of the status command: `pane_command|state|since|agent|tool|detail|worked|task|reply` (`worked` and
@@ -37,7 +42,7 @@ data class AgentStatus(
             val worked = if (fields.size >= 8) fields[6].trim().toLongOrNull() else null
             val task = if (fields.size >= 8) fields[7] else fields[6]
             val reply = if (fields.size == 9) clean(fields[8]) else ""
-            if (fields[0].trimStart('-') in shells) return null
+            if (fields[0].trimStart('-') in shells && fields[3] !in launched) return null
             val state = when (fields[1]) {
                 "working" -> State.WORKING
                 "waiting" -> State.WAITING
