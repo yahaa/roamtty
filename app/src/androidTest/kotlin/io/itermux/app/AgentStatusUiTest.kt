@@ -58,7 +58,9 @@ class AgentStatusUiTest {
             // Codex's hooks come with its launcher, which must arrive runnable.
             val hook = "sh ~/.roamtty/agent-hook.sh codex"
             withContext(Dispatchers.Main) {
-                session.runWhenConnected("[ -x ~/.roamtty/codex ] && printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; " +
+                // Started, before any prompt: idle, awaiting one.
+                session.runWhenConnected("[ -x ~/.roamtty/codex ] && $hook start </dev/null; sleep 15; " +
+                    "printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; " +
                     "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"make test\"}}' | $hook tool; sleep 20; " +
                     // Then a new prompt: working on, with no command yet.
                     "printf '{\"prompt\":\"refactor the parser\"}' | $hook prompt; sleep 15; " +
@@ -72,11 +74,23 @@ class AgentStatusUiTest {
                     "head -n 1 >/dev/null; rm -f /tmp/roamtty-follow-up-\$\$; $hook post </dev/null; sleep 600",
                     agentHooks = CodingAgent.CODEX)
             }
+            fun exists(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            // Idle without a prompt: the prompt's line says it awaits one, and the host moves to the status line.
+            compose.waitUntil(30_000) { exists("home-session-awaiting-${session.id}") }
+            compose.onNodeWithTag("home-session-awaiting-${session.id}", useUnmergedTree = true).assertTextEquals(tr("等待输入中…"))
+            compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true)
+                .assertTextContains("Agent status · ", substring = true)
+            compose.onNodeWithTag("home-session-follow-up-${session.id}", useUnmergedTree = true).assertExists()
+            context.getExternalFilesDir(null)?.let { dir ->
+                java.io.FileOutputStream(java.io.File(dir, "agent-row-awaiting.png")).use {
+                    compose.onNodeWithTag("home-sessions-list").captureToImage().asAndroidBitmap()
+                        .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
             val working = withTimeout(40_000) { session.agentStatus.first { it?.state == AgentStatus.State.WORKING } }!!
             check(working.tool == "Bash" && working.detail == "make test" && working.task == "refactor the parser" &&
                 working.directory.isNotEmpty()) { "$working" }
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("home-session-${session.id}").fetchSemanticsNodes().isNotEmpty() }
-            fun exists(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
             val row = compose.onNodeWithTag("home-session-${session.id}")
             // Under 运行中, named by its folder, the prompt beneath, the command across the row, the host on the status line.
             compose.waitUntil(10_000) { exists("home-session-group-working") && exists("home-session-working-${session.id}") }

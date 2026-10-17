@@ -599,6 +599,7 @@ private object EnglishText {
         "%d 秒" to "%d s",
         "运行中" to "Running",
         "等待确认" to "Needs approval",
+        "等待输入中…" to "Awaiting input…",
         "空闲" to "Idle",
         "思考中…" to "Thinking…",
         "已完成 · 用时 %s" to "Worked for %s",

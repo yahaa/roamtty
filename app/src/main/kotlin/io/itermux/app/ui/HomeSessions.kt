@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -290,9 +291,10 @@ private fun SessionGroupHeader(group: SessionGroup, count: Int, plainOnly: Boole
 }
 
 /**
- * One session: its tile beside its name and the last prompt ("你: …"), then, across the whole row, what the agent
- * answered or runs and a status line with where it runs and what the agent needs (allow a request, or a follow-up
- * typed right here). A plain terminal has its host and folder beneath its name. Long press for its menu.
+ * One session: its tile beside its name and the last prompt ("你: …", or "等待输入中…" while an idle agent has had
+ * none), then, across the whole row, what the agent answered or runs and a status line with where it runs and what
+ * the agent needs (allow a request, or a follow-up typed right here). A plain terminal has its host and folder beneath
+ * its name. Long press for its menu.
  * An agent's session is named by its folder, the agent's badge before it (the prompt has its own line);
  * others by [sessionListTitle].
  */
@@ -329,6 +331,9 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val reply = status?.reply?.let(::replyPreview).orEmpty()
     val waiting = status?.state == AgentStatus.State.WAITING
     val idle = status?.state == AgentStatus.State.IDLE
+    // The line under the name holds the prompt, or says an idle agent awaits one, so every agent row reads alike;
+    // where it runs then moves to the status line.
+    val promptLine = prompt.isNotEmpty() || idle
     val elapsed = rememberElapsedSeconds(status)
 
     val scope = rememberCoroutineScope()
@@ -377,6 +382,9 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                         append(prompt)
                     }, Modifier.padding(top = 2.dp).testTag("$tagPrefix-prompt-${session.id}"), style = MaterialTheme.typography.bodySmall,
                         color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    else if (idle) Text(tr("等待输入中…"), Modifier.padding(top = 2.dp).testTag("$tagPrefix-awaiting-${session.id}"),
+                        style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic,
+                        color = colors.onSurfaceVariant.copy(alpha = 0.7f), maxLines = 1)
                     else Text(location, Modifier.padding(top = 2.dp).testTag("$tagPrefix-location-${session.id}"),
                         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
@@ -403,9 +411,9 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 // what keeps and carries it, and what the agent needs from the user.
                 Row(Modifier.weight(1f).padding(start = Spacing.Tight), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
                     verticalAlignment = Alignment.CenterVertically) {
-                    if (prompt.isNotEmpty()) Text(location, Modifier.weight(1f, fill = false).testTag("$tagPrefix-location-${session.id}"),
+                    if (promptLine) Text(location, Modifier.weight(1f, fill = false).testTag("$tagPrefix-location-${session.id}"),
                         style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant.copy(alpha = 0.8f),
-                        maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Row(Modifier.testTag("$tagPrefix-tags-${session.id}"), horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         sessionTransportTags(session.mode, multiplexer, session.host.multiplexer, transport.takeIf { connected })
