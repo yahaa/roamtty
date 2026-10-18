@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import io.itermux.ssh.TmuxSessionInfo
 import java.io.File
 import java.nio.file.Files
 
@@ -281,5 +282,18 @@ class AgentStatusTest {
         assertEquals("Claude · roamtty", sessionListTitle("Claude Code · roamtty", null, CodingAgent.CLAUDE, "v"))
         assertEquals("部署脚本", sessionListTitle("部署脚本", null, CodingAgent.CLAUDE, "v"))
         assertEquals("Claude · roamtty", sessionListTitle("Claude · roamtty", null, null, "v"))
+    }
+
+    @Test fun aListedTmuxSessionTellsItsAgentOrWhetherOnlyAShellRuns() {
+        val claude = TmuxSessionInfo("a", 1, 0, 0, "/home/v/app", "claude", "working|1|claude|Bash|ls||fix it|")
+        assertEquals(AgentStatus.State.WORKING, claude.agent?.state)
+        assertEquals("fix it", claude.agent?.task)
+        assertEquals("/home/v/app", claude.agent?.directory)
+        assertFalse(claude.idleShell)
+        // A pane back at its shell leaves an agent's last report behind: it no longer counts; a program still shows.
+        val stale = TmuxSessionInfo("b", 1, 0, 0, "/tmp", "-zsh", "idle|0|claude||||task|")
+        assertNull(stale.agent); assertTrue(stale.idleShell)
+        val vim = TmuxSessionInfo("c", 1, 0, 0, "", "vim", "|||")
+        assertNull(vim.agent); assertFalse(vim.idleShell)
     }
 }

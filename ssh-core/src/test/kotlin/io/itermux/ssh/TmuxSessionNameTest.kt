@@ -40,10 +40,10 @@ class TmuxSessionNameTest {
     }
 
     @Test fun listedSessionsParseNewestFirstAndFlagUnusableNames() {
-        val sessions = TmuxSessionInfo.parse(listOf("2\t1\t1700000000\twork\t/home/me/a\tb", "1\t0\t1700000500\tmy session\t/tmp",
-            "garbage", "x\t1\t0\tname", ""))
+        val sessions = TmuxSessionInfo.parse(listOf("2\t1\t1700000000\tclaude\tworking|1|claude|Bash|ls||fix it|\twork\t/home/me/a\tb",
+            "1\t0\t1700000500\tzsh\t|||\tmy session\t/tmp", "garbage", "x\t1\t0\tname", "1\t0\t0\tzsh\t|||\t\t/tmp", ""))
         assertEquals(listOf("my session", "work"), sessions.map { it.name })
-        assertEquals(TmuxSessionInfo("work", 2, 1, 1_700_000_000, "/home/me/a\tb"), sessions[1])
+        assertEquals(TmuxSessionInfo("work", 2, 1, 1_700_000_000, "/home/me/a\tb", "claude", "working|1|claude|Bash|ls||fix it|"), sessions[1])
         assertEquals(listOf(false, true), sessions.map { it.attachable })
         assertTrue(Tmux.LIST_SESSIONS_SCRIPT.contains("exit 127"))
     }

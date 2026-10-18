@@ -1,5 +1,7 @@
 package io.itermux.app.session
 
+import io.itermux.ssh.TmuxSessionInfo
+
 /**
  * What an AI agent in a tmux session reports through the hooks [AgentHooks] adds: its state, the tool it is running and
  * the task (the last prompt), and the folder the pane is in. Read with [Tmux.agentStatusCommand]; see [parse].
@@ -42,7 +44,7 @@ data class AgentStatus(
             val worked = if (fields.size >= 8) fields[6].trim().toLongOrNull() else null
             val task = if (fields.size >= 8) fields[7] else fields[6]
             val reply = if (fields.size == 9) clean(fields[8]) else ""
-            if (fields[0].trimStart('-') in shells && fields[3] !in launched) return null
+            if (isShell(fields[0]) && fields[3] !in launched) return null
             val state = when (fields[1]) {
                 "working" -> State.WORKING
                 "waiting" -> State.WAITING
@@ -57,6 +59,9 @@ data class AgentStatus(
                 worked.takeIf { state == State.IDLE }, reply.takeIf { state == State.IDLE }.orEmpty())
         }
 
+        /** The shells a pane rests at; a report left under one is stale, and nothing else runs there. */
+        internal fun isShell(command: String) = command.trimStart('-') in shells
+
         /** The folder the pane is in, from the same poll [parse] reads; known with or without an agent, empty when not. */
         fun directory(output: String?): String {
             val lines = output?.lines()?.filter { it.isNotBlank() } ?: return ""
@@ -67,6 +72,13 @@ data class AgentStatus(
         private fun clean(value: String) = value.trim().trimEnd('�')
     }
 }
+
+/** What an agent reports from a listed tmux session, as [AgentStatus.parse] reads it; null without one. */
+val TmuxSessionInfo.agent: AgentStatus?
+    get() = AgentStatus.parse("$command|$agentReport" + (if (directory.isEmpty()) "" else "\n$directory") + "\n0")
+
+/** Whether a listed tmux session's pane is only at a shell prompt. */
+val TmuxSessionInfo.idleShell: Boolean get() = agent == null && (command.isEmpty() || AgentStatus.isShell(command))
 
 /**
  * An agent's [AgentStatus.reply] as the session list shows it: the Markdown it answers in read as plain text (no
