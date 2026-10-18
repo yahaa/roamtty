@@ -66,4 +66,4 @@ scripts/site.py                                 # 构建并推送到 yahaa/roamt
 
 使用文档中 Headscale 的版本号与命令按写作时的最新版（0.29.5）核对过；Headscale 升级改动 CLI 或配置项时，同步更新两种语言的文档。应用界面文字变化时，文档里引用的按钮名称、错误提示和截图也要随之更新（中文以 `tr()` 原文为准，英文以 `AppLocale.kt` 的译文为准）。
 
-首页和使用文档的截图在 `site/assets/screens/`（文档另用 `hosts`、`add-host`、`agent`、`files` 四组），是 Android 应用连接演示服务器时的实际界面；重新截图的方法见 `scripts/site-demo/README.md`。应用界面有明显变化时同步更新截图。
+首页和使用文档的截图在 `site/assets/screens/`（文档另用 `hosts`、`add-host`、`agent`、`files`、`toolbar`、`commands`、`plugins`、`settings` 八组），是 Android 应用连接演示服务器时的实际界面；重新截图的方法见 `scripts/site-demo/README.md`。应用界面有明显变化时同步更新截图。

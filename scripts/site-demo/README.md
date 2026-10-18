@@ -20,4 +20,4 @@ adb -s emulator-5554 shell 'iptables -t nat -A OUTPUT -d 100.101.10.2 -p tcp --d
   iptables -t nat -A OUTPUT -d 100.101.10.7 -p udp -j DNAT --to-destination 10.0.2.2'
 ```
 
-用 `-PitermuxApplicationId=com.roamtty.app.demo` 构建的独立包安装到模拟器（不影响已装的 Roamtty），开启系统界面演示模式（时间 9:41、满电量）。添加主机 `devbox` = `dev@100.101.10.2`、`build` = `dev@100.101.10.7`，在 `devbox` 的 `~/acme-app`、`~/blog` 启动 Claude，在 `build` 的 `~/infra` 启动 Codex。截图缩放到 720×1600 并转成 WebP，命名为 `<画面>-<zh|en>.webp`。切换语言时在设置中改应用语言，并把两台容器的 `~/.demo-lang` 改掉后重启各会话里的 Agent。
+用 `-PitermuxApplicationId=com.roamtty.app.demo` 构建的独立包安装到模拟器（不影响已装的 Roamtty），开启系统界面演示模式（时间 9:41、满电量）。添加主机 `devbox` = `dev@100.101.10.2`、`build` = `dev@100.101.10.7`，在 `devbox` 的 `~/acme-app`、`~/blog` 启动 Claude，在 `build` 的 `~/infra` 启动 Codex。截图缩放到 720×1600 并转成 WebP，命名为 `<画面>-<zh|en>.webp`。切换语言时在设置中改应用语言，并把两台容器的 `~/.demo-lang` 改掉后重启各会话里的 Agent。关闭会话会把 Roamtty 的启动命令写进 `~/.bash_history`，拍“常用命令”前用 `docker cp home/.bash_history roamtty-demo-devbox:/home/dev/` 还原（再 `chown dev:dev`）。
