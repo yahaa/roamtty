@@ -146,11 +146,13 @@ object Tmux {
         "/bin/sh -c '$PATH_SETUP; exec tmux attach-session -t =$name \\; set-option -t $name mouse on'"
 
     /**
-     * POSIX script printing one line per tmux session on the server (see [TmuxSessionInfo.parse]); nothing when no
-     * tmux server runs, and exit status 127 without tmux.
+     * POSIX script printing one line per tmux session on the server, `windows<TAB>attached clients<TAB>last activity<TAB>
+     * pane command<TAB>agent report<TAB>name<TAB>folder`, the report as [agentStatusCommand] reads it (see
+     * [TmuxSessionInfo.parse]); nothing when no tmux server runs, and exit status 127 without tmux. The hook strips tabs
+     * from what it records.
      */
     const val LIST_SESSIONS_SCRIPT = "$PATH_SETUP\ncommand -v tmux >/dev/null 2>&1 || exit 127\n" +
-        "tmux -u list-sessions -F '#{session_windows}\t#{session_attached}\t#{session_activity}\t#{session_name}\t#{pane_current_path}' 2>/dev/null\nexit 0\n"
+        "tmux -u list-sessions -F '#{session_windows}\t#{session_attached}\t#{session_activity}\t#{pane_current_command}\t#{@roamtty_agent}|#{@roamtty_worked}|#{@roamtty_task}|#{@roamtty_reply}\t#{session_name}\t#{pane_current_path}' 2>/dev/null\nexit 0\n"
 
     /**
      * Restarts [sessionName]'s pane in the folder it is in, ending whatever runs there. Prints the
@@ -186,6 +188,10 @@ data class TmuxSessionInfo(
     val activity: Long?,
     /** The folder of its active pane. */
     val directory: String,
+    /** The program in the foreground of its active pane ("zsh", "vim", "claude"); empty when tmux did not say. */
+    val command: String = "",
+    /** What the app's agent hooks recorded for it, `state|since|agent|tool|detail|worked|task|reply`; empty fields without one. */
+    val agentReport: String = "",
 ) {
     /** The app's tmux commands take only names [Tmux.sanitizeSessionName] keeps as they are. */
     val attachable: Boolean get() = Tmux.sanitizeSessionName(name) == name
@@ -193,12 +199,12 @@ data class TmuxSessionInfo(
     companion object {
         /** [Tmux.LIST_SESSIONS_SCRIPT] output lines, most recently used first. */
         fun parse(lines: List<String>): List<TmuxSessionInfo> = lines.mapNotNull { line ->
-            val fields = line.split('\t', limit = 5)
+            val fields = line.split('\t', limit = 7)
             val windows = fields.getOrNull(0)?.toIntOrNull()
             val attached = fields.getOrNull(1)?.toIntOrNull()
-            val name = fields.getOrNull(3)
+            val name = fields.getOrNull(5)
             if (windows == null || attached == null || name.isNullOrEmpty()) null
-            else TmuxSessionInfo(name, windows, attached, fields[2].toLongOrNull(), fields.getOrNull(4).orEmpty())
+            else TmuxSessionInfo(name, windows, attached, fields[2].toLongOrNull(), fields.getOrNull(6).orEmpty(), fields[3], fields[4])
         }.sortedByDescending { it.activity ?: Long.MIN_VALUE }
     }
 }
