@@ -56,7 +56,7 @@ scripts/site.py                                 # 构建并推送到 yahaa/roamt
    - `roamtty.com`：4 条 A 记录 `185.199.108.153`、`185.199.109.153`、`185.199.110.153`、`185.199.111.153`（可再加 AAAA `2606:50c0:8000::153` 至 `8003::153`）；
    - `www`：CNAME 到 `yahaa.github.io`。
    - 首次配置时先设为“仅 DNS”（灰色云），等 GitHub 签发证书、勾选 Enforce HTTPS 后，再改为“已代理”（橙色云）。
-3. **Cloudflare SSL/TLS**：加密模式选 **Full (strict)**（GitHub Pages 有有效证书）；不要用 Flexible，否则会与 GitHub 的 HTTPS 跳转形成重定向循环。开启“始终使用 HTTPS”。
+3. **Cloudflare SSL/TLS**：加密模式选 **Full**。不要用 Full (strict)：GitHub Pages 的证书链是 Let's Encrypt YE2 → ISRG Root YE，Cloudflare 回源校验不认，2026-10-18 试过切到 strict，全站立即返回 526；也不要用 Flexible，否则会与 GitHub 的 HTTPS 跳转形成重定向循环。开启“始终使用 HTTPS”。
 4. **www 跳转**（可选）：Rules → Redirect Rules，将 `www.roamtty.com/*` 301 到 `https://roamtty.com/${1}`；GitHub Pages 本身也会把 `www` 跳到主域名。
 5. **缓存**：更新隐私政策后如需立即生效，在 Cloudflare Caching → Configuration 中清除缓存。
 
