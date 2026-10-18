@@ -25,9 +25,11 @@ App Store 的“App 隐私”问卷选择“不收集数据”；iOS 的 `ITSApp
 | `/support/`、`/en/support/` | 联系方式、反馈须知、系统要求、常见问题、安全问题报告 | `site/pages/support.{zh,en}.html` |
 | `/terms/`、`/en/terms/` | 使用条款 | `site/pages/terms.{zh,en}.html` |
 | `/privacy/`、`/en/privacy/` | 隐私政策 | `docs/PRIVACY.md`（与 Android 应用内显示的是同一份） |
-| `/404.html`、`/robots.txt`、`/sitemap.xml`、`/.well-known/security.txt` | 自动生成 | `scripts/site.py` |
+| `/404.html`、`/robots.txt`、`/sitemap.xml`、`/llms.txt`、`/.well-known/security.txt` | 自动生成 | `scripts/site.py` |
 
 新增博客文章：在 `site/blog/` 下放 `<slug>.zh.html` 与 `<slug>.en.html`，开头写 `<!-- title: … -->`（不带“· Roamtty”后缀）、`<!-- description: … -->`（同时用作列表摘要）、`<!-- date: YYYY-MM-DD -->`，正文从第一段开始，标题、日期和返回链接由脚本生成；只有一种语言时，语言切换按钮不显示。自建 DERP 一文的命令按 Tailscale 1.104、Headscale 0.29.5 与 derper 源码核对过，两者改动 derper 参数或 DERP 配置项时同步更新。
+
+搜索引擎与 AI 搜索相关的元数据都由脚本生成：每页有 canonical、hreflang（含指向英文页的 `x-default`）、`og:locale`；首页带 `Organization`、`WebSite`、`MobileApplication` 的 JSON-LD，支持页把 `<details><summary>` 常见问题生成 `FAQPage`，博客文章生成 `BlogPosting`（`dateModified` 取源文件最后一次提交日期）。sitemap 的 `lastmod` 同样取各源文件的提交日期，未提交的文件用构建当天。`/llms.txt` 列出中英文全部页面的标题与摘要。改版后可用 [validator.schema.org](https://validator.schema.org/) 或 Google Rich Results Test 检查 JSON-LD。支持页新增常见问题时保持 `<details><summary>问题</summary>回答</details>` 的写法，才会进入 `FAQPage`。
 
 页面片段开头的 `<!-- title: … -->`、`<!-- description: … -->`、`<!-- nav: … -->` 是页面元数据；`{{stores}}` 替换为商店按钮，`{{email}}` 替换为支持邮箱。版式、导航和页脚在 `scripts/site.py` 的 `page()` 中，样式在 `site/assets/style.css`。网站不引用任何外部字体、脚本或统计代码，在中国大陆也能完整加载。
 
