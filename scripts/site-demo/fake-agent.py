@@ -125,14 +125,22 @@ def main():
     signal.signal(signal.SIGINT, lambda *_: (tmux_set("@roamtty_agent", ""), sys.exit(0)))
     {"acme-app": claude_app, "infra": codex_infra, "blog": claude_blog}.get(folder, claude_blog)()
     text = "".join(OUT).rstrip("\n")
-    rows = os.get_terminal_size().lines if sys.stdout.isatty() else 40
-    pad = max(0, rows - text.count("\n") - 1)
-    sys.stdout.write("\x1b[2J\x1b[H" + "\n" * pad + text)
-    if folder == "infra":
-        sys.stdout.write("\x1b[?25l")
-    else:
-        sys.stdout.write("\x1b[1A\x1b[2G\x1b[C\x1b[C\x1b[C")
-    sys.stdout.flush()
+
+    def draw(*_):
+        # Drop the launch command from tmux's history too, or a taller window pulls it back into view.
+        if pane:
+            subprocess.run(["tmux", "clear-history", "-t", pane], stderr=subprocess.DEVNULL)
+        rows = os.get_terminal_size().lines if sys.stdout.isatty() else 40
+        pad = max(0, rows - text.count("\n") - 1)
+        sys.stdout.write("\x1b[2J\x1b[3J\x1b[H" + "\n" * pad + text)
+        if folder == "infra":
+            sys.stdout.write("\x1b[?25l")
+        else:
+            sys.stdout.write("\x1b[1A\x1b[2G\x1b[C\x1b[C\x1b[C")
+        sys.stdout.flush()
+
+    draw()
+    signal.signal(signal.SIGWINCH, draw)
     for line in sys.stdin:
         pass
     while True:
