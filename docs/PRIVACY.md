@@ -1,14 +1,14 @@
 # Roamtty 隐私政策
 
-生效日期：2026-10-16
+生效日期：2026-10-18
 
-Roamtty 是一款 SSH 终端客户端，提供 Android 版与 iOS 版（以下合称“应用”）。我们（Roamtty 开发者）不运营任何应用后端服务器，不要求注册账号，不收集、不上传、不出售、也不与任何第三方共享你的个人数据。本政策适用于从 Google Play 或 App Store 获取的 Roamtty，以及网站 roamtty.com。
+Roamtty 是一款 SSH 终端客户端，提供 Android 版与 iOS 版（以下合称“应用”）。我们（Roamtty 开发者）不运营任何应用后端服务器，不要求注册账号，不会自动收集或上传你的个人数据，也不会出售你的个人数据；你主动联系支持或分享报告时，相关内容会发送给你选择的接收方。本政策适用于从 Google Play 或 App Store 获取的 Roamtty，以及网站 roamtty.com。
 
 ## 摘要
 
-- 没有账号、广告、统计分析、崩溃上报或第三方 SDK。
+- 没有账号或广告，不集成第三方统计分析或崩溃上报 SDK，也不会自动上传诊断报告。
 - 主机配置、凭据和设置只保存在你的设备上；凭据由系统密钥库加密保护。
-- 应用只连接你自己添加的服务器，开发者收不到任何数据。
+- 应用只连接你自己添加的服务器，开发者不会自动收到数据；你主动联系支持或分享报告时，会向你选择的接收方发送相应内容。
 
 ## 应用在设备上保存的数据
 
@@ -20,18 +20,20 @@ Roamtty 是一款 SSH 终端客户端，提供 Android 版与 iOS 版（以下�
   - iOS：密码和私钥保存在系统钥匙串中，访问级别为“仅限本设备、首次解锁后可用”，不会随备份或设备迁移转移到其他设备。
 - **服务器信任记录**：你确认信任的服务器公钥及其算法，按服务器地址和端口保存；应用由公钥计算指纹，用于防止中间人攻击。同一地址和端口的主机配置共享此记录。
 - **会话记录**：每台主机最多 8 条会话的 ID、对应主机、模式、标题、远端 tmux 会话名和会话序号，用于应用重启后恢复会话列表。不包含终端内容。
+- **Agent 状态摘要**（iOS）：最近的 Agent 状态、工具和命令摘要、工作目录、最近提示词的前 200 个字符及回复的前 400 个字符，保存在本机偏好存储中，以便重新打开应用后显示会话卡片。移除对应会话时清除这些摘要；卸载应用会删除本机偏好存储。
+- **本机诊断**（iOS）：应用保留最多 400 条运行事件日志和 20 份 iOS MetricKit 指标或诊断报告，供你排查崩溃、卡顿和内存问题。报告只保存在设备上，不会自动上传。你可以在“关于”页面主动通过系统分享菜单发送给自己选择的接收方；分享前请检查报告内容。卸载应用会删除这些本机文件。
 - **偏好设置**：语言、主题、字体（含你导入的自定义字体文件）、字号、操作栏和下载目录等设置。
 - **你传输的文件**（iOS）：从服务器下载的文件保存在应用的“文稿”目录，可在“文件”App 的“我的 iPhone › Roamtty”中查看和删除；通过系统分享发送给应用的图片、文件和文本暂存在应用容器中，直到你上传或删除。Android 上下载的文件保存在你通过系统文件选择器指定的位置。
 
-终端输出、输入内容和编辑草稿只存在于内存中，不写入磁盘。Android 版关闭了系统备份与设备迁移；iOS 版把主机数据库排除在 iCloud 和电脑备份之外，钥匙串中的凭据也不会进入备份。你下载到 iOS“文稿”目录的文件与其他用户文件一样，可能包含在你自己的设备备份中。
+除上述 Agent 状态摘要外，终端输出、输入内容和编辑草稿只存在于内存中，不写入磁盘。Android 版关闭了系统备份与设备迁移；iOS 版把主机数据库排除在 iCloud 和电脑备份之外，钥匙串中的凭据也不会进入备份。你下载到 iOS“文稿”目录的文件与其他用户文件一样，可能包含在你自己的设备备份中。
 
 ## 网络连接
 
 - 应用只会连接到你自己添加的服务器：SSH（TCP）、mosh（UDP）以及用于显示在线状态和延迟的 TCP 连通性检测。iOS 在连接局域网内的主机前会请求“本地网络”权限。
 - SSH 与 mosh 连接均加密传输；应用不发起明文 HTTP 请求。点按终端中的链接时，链接由系统浏览器或对应的应用打开。
 - 连接时，应用会在远端执行只读操作：识别远端系统、检查 tmux / mosh 是否可用（结果保存在本机的主机信息中），以及读取远端 shell 历史文件作为“常用命令”。常用命令只缓存于会话的内存状态，断开后仍可能用于查看，不写入应用持久化存储，进程结束后不保留。主机详情页的监控数据（CPU、内存、磁盘、网络、进程）同样只在内存中显示。其他远端操作只在你主动发起时执行，例如安装 tmux / mosh，或通过 SFTP 上传、下载文件。
-- 从应用启动 Claude Code、Codex 或 Grok 时（Windows 起始目录除外），应用会在远端写入用于显示 Agent 状态的 hook 文件：`~/.roamtty/agent-hook.sh`，以及 `~/.roamtty/claude-hooks.json`（Claude Code）或启动器 `~/.roamtty/codex`、`~/.roamtty/grok`。Codex 启动器会在 `${CODEX_HOME:-~/.codex}/config.toml` 末尾追加这些 hook 的信任记录（已有同名条目则不改动）；Grok 启动器会写入 `${GROK_HOME:-~/.grok}/hooks/roamtty.json`，其中的 hook 只对从应用启动的 Grok 生效。hook 把 Agent 的状态、正在执行的工具和命令、你最近一条提示词的前 200 个字符，以及 Agent 最近一次回复的前 400 个字符，保存为该 tmux 会话的选项，Agent 退出时清除；应用通过 SSH 读取这些选项，在会话列表显示，只保存在内存中，不写入手机存储，也不发往其他地方。这些文件留在服务器上，可随时删除 `~/.roamtty` 目录、`config.toml` 中追加的条目和 `roamtty.json`；下次从应用启动 Agent 时会重新写入。不从应用启动 Agent 时不会写入这些文件。
-- 应用不包含广告、统计分析、崩溃上报或任何第三方 SDK，不会向开发者或第三方发送任何数据。
+- 从应用启动 Claude Code、Codex 或 Grok 时（Windows 起始目录除外），应用会在远端写入用于显示 Agent 状态的 hook 文件：`~/.roamtty/agent-hook.sh`，以及 `~/.roamtty/claude-hooks.json`（Claude Code）或启动器 `~/.roamtty/codex`、`~/.roamtty/grok`。Codex 启动器会在 `${CODEX_HOME:-~/.codex}/config.toml` 末尾追加这些 hook 的信任记录（已有同名条目则不改动）；Grok 启动器会写入 `${GROK_HOME:-~/.grok}/hooks/roamtty.json`，其中的 hook 只对从应用启动的 Grok 生效。hook 把 Agent 的状态、正在执行的工具和命令、你最近一条提示词的前 200 个字符，以及 Agent 最近一次回复的前 400 个字符，保存为该 tmux 会话的选项，Agent 退出时清除；应用通过 SSH 读取这些选项，在会话列表显示。Android 版只将其保存在内存中；iOS 版还会在本机保存最近的状态摘要，保存范围与删除方式见上文。应用不会自动将这些状态发往开发者或其他接收方。这些文件留在服务器上，可随时删除 `~/.roamtty` 目录、`config.toml` 中追加的条目和 `roamtty.json`；下次从应用启动 Agent 时会重新写入。不从应用启动 Agent 时不会写入这些文件。
+- 应用不包含广告或第三方统计分析、崩溃上报 SDK。应用使用 AndroidX、JSch、Bouncy Castle、SwiftTerm、libssh2 和 OpenSSL 等开源组件提供界面、SSH 和加密功能；这些组件不用于向开发者收集数据。连接和文件传输发往你选择的服务器；本机诊断报告仅在你主动分享时发往你选择的接收方。
 
 ## 权限
 
@@ -75,19 +77,19 @@ roamtty.com 是托管在 GitHub Pages、经 Cloudflare 分发的静态网站，�
 
 ## 联系方式
 
-如对本政策有任何疑问，请发送邮件至 support@roamtty.com，或访问 https://roamtty.com/support/ 。
+如对本政策有任何疑问，请发送邮件至 roamtty@gmail.com，或访问 https://roamtty.com/support/ 。
 
 # Roamtty Privacy Policy
 
-Effective date: 2026-10-16
+Effective date: 2026-10-18
 
-Roamtty is an SSH terminal client for Android and iOS (together, “the app”). We, the Roamtty developers, run no app backend servers and require no account. We do not collect, upload, sell or share any of your personal data with anyone. This policy covers Roamtty obtained from Google Play or the App Store, and the website roamtty.com.
+Roamtty is an SSH terminal client for Android and iOS (together, “the app”). We, the Roamtty developers, run no app backend servers and require no account. We do not automatically collect or upload your personal data, and we do not sell it. When you contact support or share a report, the selected content goes to the recipient you choose. This policy covers Roamtty obtained from Google Play or the App Store, and the website roamtty.com.
 
 ## Summary
 
-- No accounts, ads, analytics, crash reporting or third-party SDKs.
+- No accounts or ads, no third-party analytics or crash-reporting SDKs, and no automatic diagnostic uploads.
 - Hosts, credentials and settings stay on your device; credentials are protected by the system keystore.
-- The app connects only to servers you add. The developers receive no data.
+- The app connects only to servers you add. The developers receive no data automatically; contacting support or sharing a report sends the content you choose to the recipient you select.
 
 ## Data stored on your device
 
@@ -99,18 +101,20 @@ The following data stays on your device and is used only by the app itself:
   - iOS: passwords and private keys are stored in the system Keychain with “this device only, after first unlock” accessibility, so they never move to another device through backups or device transfer.
 - **Server trust records**: the server public keys and their algorithms you chose to trust, stored by server address and port. The app calculates fingerprints from these keys to detect man-in-the-middle attacks. Host entries using the same address and port share the record.
 - **Session list**: the ID, host, mode, title, remote tmux session name and session number of up to 8 sessions per host, used to restore the session list after the app restarts. It contains no terminal content.
+- **Agent status previews** (iOS): the latest agent state, tool and command details, working directory, up to 200 characters of the latest prompt and up to 400 characters of its reply are saved in local preferences to restore session cards after relaunch. Removing the corresponding session clears its previews; uninstalling the app removes its local preferences.
+- **Local diagnostics** (iOS): the app keeps up to 400 event-log entries and 20 iOS MetricKit metric or diagnostic reports to help investigate crashes, hangs and memory issues. These files stay on the device and are not uploaded automatically. From About, you can choose to share them with a recipient through the system share sheet. Review their contents before sharing. Uninstalling the app removes these local files.
 - **Preferences**: language, theme, font (including font files you import), font size, control bar and download folder settings.
 - **Files you transfer** (iOS): files downloaded from a server are saved in the app's Documents folder, visible and removable in the Files app under “On My iPhone › Roamtty”. Images, files and text shared to the app are held in the app's container until you upload or delete them. On Android, downloads are saved where you choose with the system file picker.
 
-Terminal output, input and text drafts are kept in memory only and never written to disk. The Android app disables system backup and device transfer. The iOS app excludes its host database from iCloud and computer backups, and Keychain credentials never enter backups. Files you download into the iOS Documents folder may be included in your own device backups, like your other files.
+Except for the agent previews described above, terminal output, input and text drafts are kept in memory only and never written to disk. The Android app disables system backup and device transfer. The iOS app excludes its host database from iCloud and computer backups, and Keychain credentials never enter backups. Files you download into the iOS Documents folder may be included in your own device backups, like your other files.
 
 ## Network connections
 
 - The app connects only to servers you add: SSH (TCP), mosh (UDP), and TCP reachability checks that show whether a host is online and its latency. On iOS, the system asks for Local Network permission before the app connects to a host on your local network.
 - SSH and mosh connections are encrypted; the app makes no cleartext HTTP requests. Links you tap in the terminal open in the system browser or the matching app.
 - When connecting, the app performs read-only operations on the server: it identifies the system, checks whether tmux / mosh are available (stored in the host entry on your device), and reads the remote shell history file to suggest common commands. Common commands are cached only in the session's memory and may remain available to view after disconnecting. They are not written to persistent app storage and do not survive process termination. Host monitoring data (CPU, memory, disk, network, processes) is likewise only shown from memory. Everything else happens only when you ask for it, such as installing tmux / mosh or uploading and downloading files over SFTP.
-- When you start Claude Code, Codex or Grok from the app (except in a Windows start folder), the app writes hook files to the server so it can show the agent's status: `~/.roamtty/agent-hook.sh`, plus `~/.roamtty/claude-hooks.json` (Claude Code) or the launchers `~/.roamtty/codex` and `~/.roamtty/grok`. The Codex launcher appends trust entries for these hooks to the end of `${CODEX_HOME:-~/.codex}/config.toml` (an existing entry with the same name is left alone); the Grok launcher writes `${GROK_HOME:-~/.grok}/hooks/roamtty.json`, whose hooks act only for a Grok started from the app. The hooks store the agent's state, the tool and command it is running, the first 200 characters of your latest prompt and the first 400 characters of the agent's latest reply as options of that tmux session, cleared when the agent exits. The app reads them over SSH to show in the session list; they are kept in memory only, never written to the phone's storage or sent anywhere else. The files stay on the server; you can delete the `~/.roamtty` folder, the entries appended to `config.toml` and `roamtty.json` at any time, and the next agent started from the app writes them again. None of these files are written unless you start an agent from the app.
-- The app contains no ads, analytics, crash reporting or third-party SDKs, and sends no data to the developers or any third party.
+- When you start Claude Code, Codex or Grok from the app (except in a Windows start folder), the app writes hook files to the server so it can show the agent's status: `~/.roamtty/agent-hook.sh`, plus `~/.roamtty/claude-hooks.json` (Claude Code) or the launchers `~/.roamtty/codex` and `~/.roamtty/grok`. The Codex launcher appends trust entries for these hooks to the end of `${CODEX_HOME:-~/.codex}/config.toml` (an existing entry with the same name is left alone); the Grok launcher writes `${GROK_HOME:-~/.grok}/hooks/roamtty.json`, whose hooks act only for a Grok started from the app. The hooks store the agent's state, the tool and command it is running, the first 200 characters of your latest prompt and the first 400 characters of the agent's latest reply as options of that tmux session, cleared when the agent exits. The app reads them over SSH to show in the session list. Android keeps them in memory only; iOS also saves the latest status previews locally as described above. The app does not automatically send these states to the developers or other recipients. The files stay on the server; you can delete the `~/.roamtty` folder, the entries appended to `config.toml` and `roamtty.json` at any time, and the next agent started from the app writes them again. None of these files are written unless you start an agent from the app.
+- The app contains no ads or third-party analytics or crash-reporting SDKs. It uses open-source components including AndroidX, JSch, Bouncy Castle, SwiftTerm, libssh2 and OpenSSL for its interface, SSH and cryptography; they are not used to collect data for the developers. Connections and file transfers go to the servers you choose. Local diagnostic reports are sent to a recipient only when you choose to share them.
 
 ## Permissions
 
@@ -154,4 +158,4 @@ If this policy changes, this page will be updated along with its effective date.
 
 ## Contact
 
-If you have questions about this policy, email support@roamtty.com or visit https://roamtty.com/support/.
+If you have questions about this policy, email roamtty@gmail.com or visit https://roamtty.com/support/.
