@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import html
 import json
 import pathlib
@@ -26,6 +27,8 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
 SITE_REPO = "yahaa/roamtty-site"
+# Browsers keep assets for hours (max-age=14400), so the stylesheet URL changes whenever its content does.
+CSS_VERSION = hashlib.sha256((SITE / "assets/style.css").read_bytes()).hexdigest()[:10]
 DOMAIN = "roamtty.com"
 EMAIL = "support@roamtty.com"
 # Store listings; leave empty until the app is live there and the button reads "coming soon".
@@ -157,7 +160,7 @@ def page(lang: str, path: str, title: str, description: str, body: str, current:
 <link rel="canonical" href="https://{DOMAIN}{path}">
 {hreflang}<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="/assets/style.css?v={CSS_VERSION}">
 <meta property="og:type" content="{og_type}">
 <meta property="og:site_name" content="Roamtty">
 <meta property="og:locale" content="{strings["locale"]}">

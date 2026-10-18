@@ -31,7 +31,7 @@ App Store 的“App 隐私”问卷选择“不收集数据”；iOS 的 `ITSApp
 
 搜索引擎与 AI 搜索相关的元数据都由脚本生成：每页有 canonical、hreflang（含指向英文页的 `x-default`）、`og:locale`；首页带 `Organization`、`WebSite`、`MobileApplication` 的 JSON-LD，支持页把 `<details><summary>` 常见问题生成 `FAQPage`，博客文章生成 `BlogPosting`（`dateModified` 取源文件最后一次提交日期）。sitemap 的 `lastmod` 同样取各源文件的提交日期，未提交的文件用构建当天。`/llms.txt` 列出中英文全部页面的标题与摘要。改版后可用 [validator.schema.org](https://validator.schema.org/) 或 Google Rich Results Test 检查 JSON-LD。支持页新增常见问题时保持 `<details><summary>问题</summary>回答</details>` 的写法，才会进入 `FAQPage`。
 
-页面片段开头的 `<!-- title: … -->`、`<!-- description: … -->`、`<!-- nav: … -->` 是页面元数据；`{{stores}}` 替换为商店按钮，`{{email}}` 替换为支持邮箱。版式、导航和页脚在 `scripts/site.py` 的 `page()` 中，样式在 `site/assets/style.css`。网站不引用任何外部字体、脚本或统计代码，在中国大陆也能完整加载。
+页面片段开头的 `<!-- title: … -->`、`<!-- description: … -->`、`<!-- nav: … -->` 是页面元数据；`{{stores}}` 替换为商店按钮，`{{email}}` 替换为支持邮箱。版式、导航和页脚在 `scripts/site.py` 的 `page()` 中，样式在 `site/assets/style.css`；样式表链接带内容哈希（`style.css?v=…`），浏览器缓存 4 小时也能立即用上新样式。网站不引用任何外部字体、脚本或统计代码，在中国大陆也能完整加载。
 
 应用上架后，把商店链接填入 `scripts/site.py` 的 `PLAY_URL`、`APP_STORE_URL`，按钮即从“即将上架”变为下载链接。修改隐私政策后同步更新两种语言的生效日期并重新发布。
 
