@@ -100,3 +100,6 @@ internal fun phaseLabel(phase: Phase) = when (phase) {
     Phase.TMUX_MISSING -> tr("缺少 tmux 或 psmux")
     Phase.FAILED -> tr("连接失败")
 }
+
+/** The server [Host] reaches: sessions keep the copy they were opened with, so an edited host's old endpoint differs. */
+internal val Host.endpointKey get() = Triple(id, address, port)

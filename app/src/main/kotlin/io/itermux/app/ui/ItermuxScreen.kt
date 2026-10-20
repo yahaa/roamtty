@@ -1,10 +1,10 @@
 package io.itermux.app.ui
 
+import io.itermux.app.appSettings
 import io.itermux.app.tr
 
 import android.Manifest
 import android.net.Uri
-import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import android.widget.Toast
@@ -13,22 +13,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
@@ -40,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.core.content.edit
 import io.itermux.app.ItermuxApp
 import io.itermux.app.AppLocale
 import io.itermux.app.TerminalFonts
@@ -54,7 +45,6 @@ import io.itermux.app.session.*
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -90,50 +80,55 @@ fun ItermuxScreen(
     val sessionsByActivity = remember(sessions, sessionStates) {
         sessions.sortedBy { activityRank(sessionStates[it.id] ?: it.state.value) }
     }
-    var page by rememberSaveable { mutableStateOf("hosts") }
+    var page by rememberSaveable { mutableStateOf(AppPage.HOME) }
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val prefs = remember(context) { context.getSharedPreferences("app-settings", Context.MODE_PRIVATE) }
-    var theme by remember { mutableStateOf(AppTheme.from(prefs.getString("theme", null))) }
-    var settingsReturnPage by rememberSaveable { mutableStateOf("hosts") }
-    /** The host whose detail page is shown when [page] is "host". */
+    val settings = remember(context) { context.appSettings() }
+    var theme by remember { mutableStateOf(settings.appTheme()) }
+    var settingsReturnPage by rememberSaveable { mutableStateOf(AppPage.HOME) }
+    /** The host whose detail page is shown on [AppPage.HOST]. */
     var detailHostId by rememberSaveable { mutableStateOf<String?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val lightTheme = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
-    val terminalVisible = page == "terminal" && sessions.isNotEmpty()
-    val navigationVisible = page == "hosts"
+    val terminalVisible = page == AppPage.TERMINAL && sessions.isNotEmpty()
+    val navigationVisible = page == AppPage.HOME
     // The file browser wears the terminal's chrome: a transparent status bar and no navigation bar.
-    val terminalChrome = terminalVisible || page == "files"
+    val terminalChrome = terminalVisible || page == AppPage.FILES
     // Older IMEs reveal system bars without changing window focus. Restore immersive mode on close.
     LaunchedEffect(terminalChrome, imeVisible, lightTheme, landscape) { onChromeChange(terminalChrome, lightTheme) }
-    BackHandler(page == "settings" && !drawerState.isOpen) { page = settingsReturnPage }
+    BackHandler(page == AppPage.SETTINGS && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     /** The home page's tabs: sessions first, then hosts. */
     val homePager = rememberPagerState { 2 }
+    /** Shows session [id] on the terminal page, or on [on]. */
+    fun showSession(id: String, on: AppPage = AppPage.TERMINAL) {
+        selected = id
+        page = on
+    }
     /** Opens the detail page of the selected session's host; the host list when that host is gone. */
     fun showSessionHost() {
         val hostId = sessions.find { it.id == selected }?.host?.id
         if (hostId != null && hosts.any { it.id == hostId }) {
             detailHostId = hostId
-            page = "host"
-        } else page = "hosts"
+            page = AppPage.HOST
+        } else page = AppPage.HOME
     }
     /** Leaves the terminal or file browser for the home page on its sessions tab. */
     fun leaveTerminal() {
-        page = "hosts"
+        page = AppPage.HOME
         homePager.requestScrollToPage(0)
     }
-    BackHandler(page == "terminal") { leaveTerminal() }
+    BackHandler(page == AppPage.TERMINAL) { leaveTerminal() }
     LaunchedEffect(service, sessions, selected, page) {
         service?.awaitRestoration()
-        if (service != null && page == "terminal" && service.sessions.value.none { it.id == selected }) page = "hosts"
-        if (service != null && page == "files" && service.sessions.value.none { it.id == selected }) page = "hosts"
+        if (service != null && page == AppPage.TERMINAL && service.sessions.value.none { it.id == selected }) page = AppPage.HOME
+        if (service != null && page == AppPage.FILES && service.sessions.value.none { it.id == selected }) page = AppPage.HOME
     }
     var search by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val hostGridState = rememberLazyGridState()
-    BackHandler(page == "hosts" && homePager.currentPage != 0 && !searchExpanded && !drawerState.isOpen) {
+    BackHandler(page == AppPage.HOME && homePager.currentPage != 0 && !searchExpanded && !drawerState.isOpen) {
         scope.launch { homePager.animateScrollToPage(0) }
     }
     LaunchedEffect(landscape) {
@@ -184,19 +179,9 @@ fun ItermuxScreen(
                     toast(failure?.let { trf("未能终止远端会话：%s。长按卡片可强制删除", it) } ?: tr("远端 tmux 会话已终止，卡片已移除"))
                     return@launch
                 }
-                val session = if (request.reuseSessionId != null) {
-                    bound.reconnect(request.reuseSessionId, credentials)
-                } else {
-                    // File browsing needs only SFTP, so it never starts a mosh server.
-                    bound.open(request.host, request.mode, credentials, preferMosh = request.host.prefersMosh && !request.openFilesAfterConnect,
-                        attach = request.attach)
-                }
-                if (request.title.isNotBlank()) session.rename(request.title)
-                request.agent?.let { session.launchedAgent.value = it }
-                request.startupCommand?.let { session.runWhenConnected(it, request.agent.takeIf { request.agentHooks }) }
+                val session = bound.openFor(request, credentials)
                 if (!open) return@launch
-                selected = session.id
-                page = if (request.openFilesAfterConnect) "files" else "terminal"
+                showSession(session.id, if (request.openFilesAfterConnect) AppPage.FILES else AppPage.TERMINAL)
             } catch (e: Exception) {
                 credentials?.clear()
                 if (e is CancellationException) throw e
@@ -212,63 +197,30 @@ fun ItermuxScreen(
         if (host.needsTypedSecret(app)) connectRequest = request
         else start(request)
     }
-    fun connect(host: Host, mode: SessionMode = host.newSessionMode, title: String = "", reuseSessionId: String? = null,
-        openFilesAfterConnect: Boolean = false, startupCommand: String? = null, agentHooks: Boolean = false, agent: CodingAgent? = null) {
-        begin(ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect, startupCommand = startupCommand,
-            agentHooks = agentHooks, agent = agent.takeIf { startupCommand != null }))
+    fun connect(host: Host, mode: SessionMode, title: String = "", reuseSessionId: String? = null, openFilesAfterConnect: Boolean = false) {
+        begin(ConnectRequest(host, mode, title, reuseSessionId, openFilesAfterConnect))
     }
     /**
      * Ends a session and everything in it, without asking. A disconnected tmux session is killed over a fresh login;
      * see [SessionService.close] for the rest.
      */
     fun closeSession(session: TerminalConnection) {
-        if (session.closeForgets(session.state.value.active)) begin(ConnectRequest(session.host, SessionMode.SHELL, terminateSessionId = session.id))
+        if (session.closeForgets(session.state.value.active)) begin(session.terminateRequest())
         else service?.close(session.id)
     }
 
     val resumed by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
-    val onSessionsTab = page == "hosts" && homePager.currentPage == 0 && resumed.isAtLeast(Lifecycle.State.RESUMED)
-    /** Sessions that already retried an unreachable host during this look at the session list. */
-    val retriedThisVisit = remember(onSessionsTab) { mutableSetOf<String>() }
-    /** Session id → when the list began waiting for its host to answer again; see [hostBackSince]. */
-    val waitingForHostSince = remember { mutableMapOf<String, Long>() }
+    val onSessionsTab = page == AppPage.HOME && homePager.currentPage == 0 && resumed.isAtLeast(Lifecycle.State.RESUMED)
     /** A live session to the same endpoint already shows the host is up, without probing it. */
     fun hostConnected(host: Host) = service?.sessions?.value.orEmpty().any {
-        it.host.id == host.id && it.host.address == host.address && it.host.port == host.port && it.state.value.phase == Phase.CONNECTED
+        it.host.endpointKey == host.endpointKey && it.state.value.phase == Phase.CONNECTED
     }
-    // While the session list is on screen, sessions that dropped, came back from the journal or lost the network
-    // reconnect by themselves; only on hosts that need no typed password, and only once the host answers again.
-    LaunchedEffect(onSessionsTab, service, sessions, hosts) {
-        if (!onSessionsTab || service == null) return@LaunchedEffect
-        service.awaitRestoration()
-        service.sessions.value.forEach { session ->
-            val host = hosts.firstOrNull { it.id == session.host.id } ?: return@forEach
-            if (host.auth != AuthMethod.KEY.name && (host.auth != AuthMethod.PASSWORD.name || host.encryptedPassword == null)) return@forEach
-            launch {
-                session.state.first { reconnectsFromList(it) && session.id !in retriedThisVisit }
-                autoReconnectedAt[session.id]?.let { delay(it + AUTO_RECONNECT_INTERVAL_MS - SystemClock.elapsedRealtime()) }
-                // An offline host is left alone, not retried on every visit: a fresh probe must find its sshd first.
-                if (!hostConnected(host)) {
-                    val since = waitingForHostSince.getOrPut(session.id) {
-                        hostReachability.now().also { hostReachability.requestProbe(host) }
-                    }
-                    snapshotFlow {
-                        hostConnected(host) || hostBackSince(hostReachability.statusOf(host), hostReachability.checkedAt(host), since)
-                    }.first { it }
-                }
-                waitingForHostSince -= session.id
-                val state = session.state.value
-                if (!reconnectsFromList(state)) return@launch
-                // A host still out of reach is tried once per visit, not every few seconds.
-                if (!reconnectsOnOpen(state)) retriedThisVisit += session.id
-                autoReconnectedAt[session.id] = SystemClock.elapsedRealtime()
-                start(ConnectRequest(host, session.mode, session.title.value, reuseSessionId = session.id), open = false)
-            }
-        }
+    ReconnectFromSessionList(onSessionsTab, service, sessions, hosts, hostReachability, autoReconnectedAt, ::hostConnected) { host, session ->
+        start(session.reconnectRequest(host), open = false)
     }
     /** tmux restarts the pane over the live connection; a plain shell gets a fresh one by reconnecting. */
     fun restartSession(session: TerminalConnection) {
-        if (session.mode != SessionMode.TMUX) connect(session.host, session.mode, session.title.value, reuseSessionId = session.id)
+        if (session.mode != SessionMode.TMUX) begin(session.reconnectRequest())
         else scope.launch { if (!session.restartPane()) toast(tr("未能重启会话，请检查连接后重试")) }
     }
 
@@ -278,22 +230,17 @@ fun ItermuxScreen(
             toast(tr(StartDirectory.UNSUPPORTED_MESSAGE))
             return
         }
-        if (agent != null) connect(host, title = agent.title, startupCommand = agent.commandLine, agentHooks = agent.reportsStatus,
-            agent = agent.agent)
-        else connect(host, startupCommand = StartDirectory.command(directory))
+        begin(launchRequest(host, directory, agent))
     }
 
     /** Attaches a tmux session already on the server; one the app already holds opens its card instead. */
     fun attachOn(host: Host, name: String) {
-        sessions.firstOrNull { it.host.id == host.id && it.mode == SessionMode.TMUX && it.remoteSessionName == name }?.let {
-            selected = it.id
-            page = "terminal"
+        sessions.tmuxCard(host, name)?.let {
+            showSession(it.id)
             return
         }
         begin(ConnectRequest(host, SessionMode.TMUX, attach = name))
     }
-    /** The tmux sessions of [host] that already have a card, which the launch sheet marks as open. */
-    fun openTmux(host: Host) = sessions.filter { it.host.id == host.id && it.mode == SessionMode.TMUX }.map { it.remoteSessionName }.toSet()
 
     fun managePlugins(host: Host) {
         if (host.needsTypedSecret(app))
@@ -308,10 +255,9 @@ fun ItermuxScreen(
             toast(tr("会话服务尚未就绪，请稍后重试"))
             return
         }
-        val existing = sessions.firstOrNull { it.host.id == host.id && it.state.value.phase == Phase.CONNECTED }
+        val existing = sessions.connectedTo(host)
         if (existing != null) {
-            selected = existing.id
-            page = "files"
+            showSession(existing.id, AppPage.FILES)
             return
         }
         // Prefer a short-lived SHELL session so browsing does not create a remote tmux session.
@@ -323,8 +269,7 @@ fun ItermuxScreen(
     val shareUrisPending by shareFlow.collectAsStateWithLifecycle()
     fun uploadSharedImages(session: TerminalConnection, uris: List<Uri>) {
         if (uris.isEmpty()) return
-        selected = session.id
-        page = "terminal"
+        showSession(session.id)
         if (!session.transfers.uploadSharedImages(context, session, uris))
             toast(tr("已有传输进行中，请稍后再试"))
     }
@@ -334,7 +279,7 @@ fun ItermuxScreen(
         when {
             connected.isEmpty() -> {
                 toast(tr("请先连接一台主机后再分享图片"))
-                page = "hosts"
+                page = AppPage.HOME
             }
             connected.size == 1 -> uploadSharedImages(connected.first(), uris)
             else -> {
@@ -356,14 +301,14 @@ fun ItermuxScreen(
             return@MaterialTheme
         }
         val colors = MaterialTheme.colorScheme
-        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != "files" && page != "host",
+        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != AppPage.FILES && page != AppPage.HOST,
             drawerContent = {
                 ItermuxDrawer(page, hosts.size, sessionsByActivity,
-                    onHosts = { page = "hosts"; homePager.requestScrollToPage(1); scope.launch { drawerState.close() } },
-                    onOpenSession = { selected = it; page = "terminal"; scope.launch { drawerState.close() } },
+                    onHosts = { page = AppPage.HOME; homePager.requestScrollToPage(1); scope.launch { drawerState.close() } },
+                    onOpenSession = { showSession(it); scope.launch { drawerState.close() } },
                     onSettings = {
-                        if (page != "settings") settingsReturnPage = page
-                        page = "settings"
+                        if (page != AppPage.SETTINGS) settingsReturnPage = page
+                        page = AppPage.SETTINGS
                         scope.launch { drawerState.close() }
                     },
                     onGuide = { scope.launch { drawerState.close() }; showAbout = true },
@@ -377,7 +322,7 @@ fun ItermuxScreen(
             // The terminal applies the keyboard inset itself, in one step (see TerminalPane).
             val imeInsets = if (terminalVisible) WindowInsets(0) else WindowInsets.ime
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).windowInsetsPadding(imeInsets)) {
-                if ((!imeVisible || searchExpanded) && !terminalVisible && page != "files" && page != "host") AppToolbar(
+                if ((!imeVisible || searchExpanded) && !terminalVisible && page != AppPage.FILES && page != AppPage.HOST) AppToolbar(
                     navigation = {
                         // As wide as the search on the right, so the home tabs sit in the middle of the screen.
                         Box(Modifier.width(48.dp)) {
@@ -409,7 +354,7 @@ fun ItermuxScreen(
                             ToolbarIcon(R.drawable.ic_close, tr("关闭设置"), Modifier.testTag("close-settings")) { page = settingsReturnPage }
                         }
                     })
-                if (page == "hosts") {
+                if (page == AppPage.HOME) {
                     Column(Modifier.fillMaxSize()) {
                         if (searchExpanded) {
                             AppSearchField(search, { search = it },
@@ -420,13 +365,13 @@ fun ItermuxScreen(
                         // A live connection already proves the host is up, whatever the last probe said. Sessions keep
                         // the endpoint they were opened with, so one still on an edited host's old address does not count.
                         val connectedEndpoints = sessions.filter { (sessionStates[it.id]?.phase ?: it.state.value.phase) == Phase.CONNECTED }
-                            .map { Triple(it.host.id, it.host.address, it.host.port) }.toSet()
+                            .map { it.host.endpointKey }.toSet()
                         ProbeHostReachability(hostReachability, hosts,
-                            connected = hosts.filter { Triple(it.id, it.address, it.port) in connectedEndpoints }.map { it.id }.toSet())
+                            connected = hosts.filter { it.endpointKey in connectedEndpoints }.map { it.id }.toSet())
                         HorizontalPager(homePager, Modifier.weight(1f).testTag("home-pager"), key = { HOME_TAB_TAGS[it] }) { tab ->
                             if (tab == 0) HomeSessionsTab(sessionsByActivity, hosts.isNotEmpty(), search,
                                 onNewSession = { newSessionOpen = true },
-                                onOpen = { selected = it.id; page = "terminal" },
+                                onOpen = { showSession(it.id) },
                                 onClose = ::closeSession,
                                 onForget = { session -> if (!session.state.value.active) service?.forget(session.id) },
                                 hostOffline = { session ->
@@ -436,11 +381,11 @@ fun ItermuxScreen(
                             else HomeHostsTab(hosts, search, hostGridState,
                                 reachability = { host ->
                                     hostReachability.statusOf(host).let { probed ->
-                                        if (Triple(host.id, host.address, host.port) in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
+                                        if (host.endpointKey in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
                                     }
                                 },
                                 onAdd = { editHostId = null; editorOpen = true },
-                                onOpen = { host -> detailHostId = host.id; page = "host" },
+                                onOpen = { host -> detailHostId = host.id; page = AppPage.HOST },
                                 onEdit = { host -> editHostId = host.id; editorOpen = true },
                                 onDelete = { host -> deleteHost = host },
                                 onBrowseFiles = ::browseFiles,
@@ -448,54 +393,52 @@ fun ItermuxScreen(
                                 onLaunch = { host, forAgent -> launchRequest = LaunchRequest(host, forAgent) })
                         }
                     }
-                } else if (page == "host") {
+                } else if (page == AppPage.HOST) {
                     val detailHost = hosts.firstOrNull { it.id == detailHostId }
                     if (detailHost != null) key(detailHost.id) {
                         val connected = sessions.any { it.host.id == detailHost.id && (sessionStates[it.id]?.phase ?: it.state.value.phase) == Phase.CONNECTED }
                         HostDetailPage(detailHost,
                             hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
-                            onBack = { page = "hosts" },
+                            onBack = { page = AppPage.HOME },
                             onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
-                            openTmux = openTmux(detailHost),
+                            openTmux = sessions.openTmuxNames(detailHost),
                             onAttach = { attachOn(detailHost, it) },
                             onBrowseFiles = { browseFiles(detailHost) },
                             onEdit = { editHostId = detailHost.id; editorOpen = true },
                             onManagePlugins = { managePlugins(detailHost) },
                             onDelete = { deleteHost = detailHost },
                             modifier = Modifier.weight(1f))
-                    } else if (loadedHosts != null) LaunchedEffect(Unit) { page = "hosts" } // deleted, or gone after a restore
-                } else if (page == "files") {
+                    } else if (loadedHosts != null) LaunchedEffect(Unit) { page = AppPage.HOME } // deleted, or gone after a restore
+                } else if (page == AppPage.FILES) {
                     val filesSession = sessions.find { it.id == selected }
                     if (filesSession != null) {
                         key(filesSession) {
                             RemoteFileBrowserPage(filesSession, onBack = ::leaveTerminal, Modifier.weight(1f),
                                 // A new terminal session (tmux when the host has it) so the agent outlives the browser.
                                 onLaunchAgent = { launch ->
-                                    connect(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host,
-                                        title = launch.title, startupCommand = launch.commandLine, agentHooks = launch.reportsStatus, agent = launch.agent)
+                                    begin(launchRequest(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host, launch.directory, launch))
                                 }, onOpenTerminal = { directory ->
                                     launchOn(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host, directory, null)
                                 })
                         }
                     } else {
                         EmptyState(tr("会话不存在"), tr("连接已关闭，请从主机列表重新打开文件。"), Modifier.fillMaxSize(),
-                            action = { FilledTonalButton(onClick = { page = "hosts" }) { Text(tr("返回主机列表")) } })
+                            action = { FilledTonalButton(onClick = { page = AppPage.HOME }) { Text(tr("返回主机列表")) } })
                     }
-                } else if (page == "settings") {
+                } else if (page == AppPage.SETTINGS) {
                     SettingsPage(theme, { option ->
                         theme = option
-                        prefs.edit { putString("theme", option.name) }
+                        settings.saveAppTheme(option)
                     }, AppLocale.language, { option -> AppLocale.set(context, option); service?.refreshLanguage() })
                 } else if (sessions.isEmpty()) {
                     EmptyState(tr("终端已就绪"), tr("连接一台主机，开始远端工作。"), Modifier.fillMaxSize(),
-                        action = { FilledTonalButton(onClick = { page = "hosts" }) { Text(tr("返回主机列表")) } })
+                        action = { FilledTonalButton(onClick = { page = AppPage.HOME }) { Text(tr("返回主机列表")) } })
                 } else {
                     val active = sessions.find { it.id == selected }
                     // Reconnecting preserves the journal id but replaces the transport and emulator.
                     if (active != null) key(active) {
                         // The saved host, not the session's copy: a password saved since then spares a prompt.
-                        val reconnect = { connect(hosts.firstOrNull { it.id == active.host.id } ?: active.host,
-                            active.mode, active.title.value, reuseSessionId = active.id) }
+                        val reconnect = { begin(active.reconnectRequest(hosts.firstOrNull { it.id == active.host.id } ?: active.host)) }
                         val activeState by active.state.collectAsStateWithLifecycle()
                         val autoReconnect = reconnectsOnOpen(activeState)
                         // Set once the automatic attempt left this entry disconnected, e.g. a dismissed password prompt.
@@ -545,15 +488,21 @@ fun ItermuxScreen(
         }
         launchRequest?.let { (host, forAgent, initialAgent, newSession) ->
             LaunchSheet(host, forAgent, monitor = null, onDismiss = { launchRequest = null }, initialAgent = initialAgent,
-                title = if (newSession) tr(if (forAgent) "选择工作目录" else "新建会话") else null, openTmux = openTmux(host),
+                title = if (newSession) tr(if (forAgent) "选择工作目录" else "新建会话") else null, openTmux = sessions.openTmuxNames(host),
                 onAttach = { launchRequest = null; attachOn(host, it) }) { directory, agent ->
                 launchRequest = null
                 launchOn(host, directory, agent)
             }
         }
-        deleteHost?.let { host -> AlertDialog(onDismissRequest = { deleteHost = null }, title = { Text(trf("删除 %s？", host.name)) }, text = { Text(tr("将删除这台主机及保存的凭据，并关闭它的连接。服务器信任记录会独立保留，可通过重新核验移除。远端 tmux 任务不受影响。")) },
-            confirmButton = { TextButton(onClick = { scope.launch { sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }; app.database.hosts().delete(host.id); deleteHost = null } }) { Text(tr("删除"), color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { deleteHost = null }) { Text(tr("取消")) } }) }
+        deleteHost?.let { host ->
+            DeleteHostDialog(host, onDismiss = { deleteHost = null }) {
+                scope.launch {
+                    sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }
+                    app.database.hosts().delete(host.id)
+                    deleteHost = null
+                }
+            }
+        }
         connectRequest?.let { request -> CredentialsDialog(request, { connectRequest = null }) { password, phrase ->
             connectRequest = null
             if (request.plugins) pluginTarget = PluginTarget(request.host, password, phrase) else start(request, password, phrase)
@@ -564,14 +513,17 @@ fun ItermuxScreen(
             DisposableEffect(controller) { onDispose { controller.close() } }
             HostPluginsSheet(controller) { pluginTarget = null }
         }
-        reverify?.let { session -> AlertDialog(onDismissRequest = { reverify = null }, title = { Text(tr("重新核验主机指纹")) }, text = { Text(trf("请先向服务器管理员确认新指纹。继续会移除此地址原有的信任记录，关闭该地址的连接，并在重连时重新展示指纹。\n\n%s", session.host.target().endpoint)) },
-            confirmButton = { TextButton(onClick = { scope.launch {
-                val endpoint = session.host.target().endpoint
-                sessions.filter { it.host.target().endpoint == endpoint }.forEach { service?.close(it.id) }
-                app.database.hosts().forgetPin(endpoint)
-                reverify = null
-                connect(session.host, session.mode, session.title.value, reuseSessionId = session.id.takeIf { session.mode == SessionMode.TMUX })
-            } }) { Text(tr("移除旧记录并重连")) } }, dismissButton = { TextButton(onClick = { reverify = null }) { Text(tr("取消")) } }) }
+        reverify?.let { session ->
+            val endpoint = session.host.target().endpoint
+            ReverifyHostDialog(endpoint, onDismiss = { reverify = null }) {
+                scope.launch {
+                    sessions.filter { it.host.target().endpoint == endpoint }.forEach { service?.close(it.id) }
+                    app.database.hosts().forgetPin(endpoint)
+                    reverify = null
+                    connect(session.host, session.mode, session.title.value, reuseSessionId = session.id.takeIf { session.mode == SessionMode.TMUX })
+                }
+            }
+        }
         if (shareUrisPending.isNotEmpty()) {
             fun dismissShare() { service?.pendingSharedImages?.value = emptyList() }
             ShareTargetSheet(sessions.filter { it.state.value.phase == Phase.CONNECTED }, ::dismissShare) { session ->
@@ -581,79 +533,6 @@ fun ItermuxScreen(
             }
         }
         if (showAbout) AboutDialog(context) { showAbout = false }
-    }
-}
-
-/** Picks the connected session that receives images shared to the app while several are connected. */
-@Composable
-private fun ShareTargetSheet(choices: List<TerminalConnection>, onDismiss: () -> Unit, onPick: (TerminalConnection) -> Unit) {
-    AppSheet(onDismiss = onDismiss) {
-        LazyColumn(Modifier.weight(1f)) {
-            item { SheetHeader(tr("选择会话以上传图片"), tr("选择接收图片的主机和会话。"), onDismiss) }
-            items(choices.size, key = { choices[it].id }) { index ->
-                val session = choices[index]
-                val title by session.title.collectAsStateWithLifecycle()
-                val state by session.state.collectAsStateWithLifecycle()
-                GroupedRow(session.titleForDisplay(title),
-                    Modifier.padding(horizontal = Spacing.Tight).clip(MaterialTheme.shapes.small)
-                        .testTag("share-session-${session.id}"),
-                    subtitle = "${session.host.username}@${session.host.address}:${session.host.port}",
-                    leading = { SessionIcon(session, 40.dp) },
-                    trailing = { Chevron() },
-                    enabled = state.phase == Phase.CONNECTED,
-                    onClick = { onPick(session) })
-            }
-        }
-    }
-}
-
-/** The home page's sessions tab: its header, then the sessions matching [search], or why there are none. */
-@Composable
-private fun HomeSessionsTab(sessions: List<TerminalConnection>, hasHosts: Boolean, search: String, onNewSession: () -> Unit,
-    onOpen: (TerminalConnection) -> Unit, onClose: (TerminalConnection) -> Unit, onForget: (TerminalConnection) -> Unit,
-    hostOffline: (TerminalConnection) -> Boolean) {
-    Column(Modifier.fillMaxSize()) {
-        HomeListHeader(trf("会话 · %d", sessions.size), tr("新建会话"), "add-session", onNewSession)
-        val matching = sessions.filter {
-            "${it.displayTitle} ${it.host.name} ${it.host.address} ${it.host.username}".contains(search, true)
-        }
-        when {
-            // No host is needed first: the new-session sheet fills one in on the way.
-            !hasHosts && sessions.isEmpty() -> EmptyState(tr("从第一个会话开始"),
-                tr("填写远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
-                Modifier.fillMaxSize().testTag("home-sessions-empty"),
-                artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
-                action = { Button(onClick = onNewSession) { Text(tr("新建会话")) } })
-            sessions.isEmpty() -> EmptyState(tr("暂无会话"), tr("选择主机，打开终端或 AI Agent。"),
-                Modifier.fillMaxSize().testTag("home-sessions-empty"),
-                action = { Button(onClick = onNewSession) { Text(tr("新建会话")) } })
-            matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
-            else -> HomeSessionsList(matching, onOpen = onOpen, onClose = onClose, onForget = onForget, hostOffline = hostOffline)
-        }
-    }
-}
-
-/** The home page's hosts tab: its header, then the hosts matching [search] as cards, or why there are none. */
-@Composable
-private fun HomeHostsTab(hosts: List<Host>, search: String, gridState: LazyGridState, reachability: (Host) -> HostReachability,
-    onAdd: () -> Unit, onOpen: (Host) -> Unit, onEdit: (Host) -> Unit, onDelete: (Host) -> Unit, onBrowseFiles: (Host) -> Unit,
-    onManagePlugins: (Host) -> Unit, onLaunch: (host: Host, forAgent: Boolean) -> Unit) {
-    Column(Modifier.fillMaxSize()) {
-        HomeListHeader(trf("主机 · %d", hosts.size), tr("添加主机"), "add-host", onAdd)
-        val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
-        if (hosts.isEmpty()) EmptyState(tr("从第一台主机开始"), tr("保存远端主机，运行 AI 编程工具。\n可直连，也可使用手机已有 VPN。"),
-            Modifier.fillMaxSize(),
-            artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
-            action = { Button(onClick = onAdd) { Text(tr("添加主机")) } })
-        else if (filtered.isEmpty()) EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.fillMaxSize())
-        else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = gridState, modifier = Modifier.fillMaxSize().testTag("host-grid"),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row),
-            contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
-            items(filtered, key = { it.id }) { host ->
-                HostCard(host, { onOpen(host) }, { onEdit(host) }, { onDelete(host) }, { onBrowseFiles(host) }, { onManagePlugins(host) },
-                    reachability(host), openTerminal = { onLaunch(host, false) }, launchAgent = { onLaunch(host, true) })
-            }
-        }
     }
 }
 

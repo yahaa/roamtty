@@ -1,6 +1,6 @@
 package io.itermux.app.ui
 
-import android.content.Context
+import io.itermux.app.appSettings
 import android.content.SharedPreferences
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
@@ -78,7 +78,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     val context = LocalContext.current.applicationContext
     val app = context as ItermuxApp
     val scope = rememberCoroutineScope()
-    val preferences = remember(context) { context.getSharedPreferences("app-settings", Context.MODE_PRIVATE) }
+    val preferences = remember(context) { context.appSettings() }
     var recent by remember(host.id) { mutableStateOf(preferences.recentStartDirectories(host.id)) }
     var current by remember { mutableStateOf(StartDirectory.HOME) }
     val unsupported = !StartDirectory.isSupported(current)

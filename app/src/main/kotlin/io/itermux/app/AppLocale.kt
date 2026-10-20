@@ -20,11 +20,11 @@ object AppLocale {
         private set
 
     fun initialize(context: Context) {
-        language = AppLanguage.from(context.getSharedPreferences("app-settings", Context.MODE_PRIVATE).getString("language", null))
+        language = AppLanguage.from(context.appSettings().getString("language", null))
     }
 
     fun set(context: Context, value: AppLanguage) {
-        context.getSharedPreferences("app-settings", Context.MODE_PRIVATE).edit { putString("language", value.name) }
+        context.appSettings().edit { putString("language", value.name) }
         language = value
     }
 }

@@ -1,5 +1,7 @@
 package io.itermux.app.ui
 
+import android.content.SharedPreferences
+import androidx.core.content.edit
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -23,6 +25,12 @@ internal enum class AppTheme(val label: String) {
         fun from(value: String?) = entries.firstOrNull { it.name == value } ?: DARK
     }
 }
+
+internal fun SharedPreferences.appTheme() = AppTheme.from(getString(THEME_KEY, null))
+
+internal fun SharedPreferences.saveAppTheme(theme: AppTheme) = edit { putString(THEME_KEY, theme.name) }
+
+private const val THEME_KEY = "theme"
 
 internal val DarkColors = darkColorScheme(
     primary = Color(0xFFEFA783), onPrimary = Color(0xFF442315),
