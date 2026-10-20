@@ -144,6 +144,7 @@ fun ItermuxScreen(
     var deleteHost by remember { mutableStateOf<Host?>(null) }
     /** A launch on a host: from its menu (the agent chosen on the launch sheet) or from 新建会话 (the agent picked first). */
     var launchRequest by remember { mutableStateOf<LaunchRequest?>(null) }
+    var continueOn by remember { mutableStateOf<Host?>(null) }
     /** The home page's "new session" sheet, which picks the host before the launch sheet. */
     var newSessionOpen by rememberSaveable { mutableStateOf(false) }
     /** Set while the host editor fills in a new host for a new session: the agent it starts, or "" for a terminal. */
@@ -482,9 +483,18 @@ fun ItermuxScreen(
             }
         }
         if (newSessionOpen) NewSessionSheet(hosts, onDismiss = { newSessionOpen = false },
-            onNewHost = { newSessionOpen = false; newHostFor = it?.name.orEmpty() }) { host, agent ->
+            onNewHost = { newSessionOpen = false; newHostFor = it?.name.orEmpty() },
+            onContinue = { newSessionOpen = false; continueOn = it }) { host, agent ->
             newSessionOpen = false
             launchRequest = LaunchRequest(host, agent != null, agent, newSession = true)
+        }
+        continueOn?.let { host ->
+            ContinueSessionSheet(host, sessions.openTmuxNames(host), onDismiss = { continueOn = null },
+                onNewTerminal = { continueOn = null; launchOn(host, StartDirectory.HOME, null) },
+                onInstall = { continueOn = null; managePlugins(host) }) {
+                continueOn = null
+                attachOn(host, it)
+            }
         }
         launchRequest?.let { (host, forAgent, initialAgent, newSession) ->
             LaunchSheet(host, forAgent, monitor = null, onDismiss = { launchRequest = null }, initialAgent = initialAgent,
