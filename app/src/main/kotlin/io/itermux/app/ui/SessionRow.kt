@@ -197,7 +197,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                         RowAction(tr("允许"), "$tagPrefix-approve-${session.id}", fill = StatusColors.warning) {
                             scope.launch { if (!session.approveAgent()) failure = tr("未发送：Agent 已不在等待确认") }
                         }
-                    } else if (idle && live) RowAction(tr("追问"), "$tagPrefix-follow-up-${session.id}", icon = R.drawable.ic_reply) {
+                    } else if (idle && live) RowAction(tr("追问"), "$tagPrefix-follow-up-${session.id}", icon = R.drawable.ic_reply, iconOnly = true) {
                         replying = !replying
                     }
                 }
@@ -271,10 +271,19 @@ private fun AgentStateLabel(state: AgentStatus.State, label: String, modifier: M
 
 /** A small pill button on a row's status line: filled with [fill], text only when [plain], else on a neutral wash. */
 @Composable
-private fun RowAction(label: String, tag: String, icon: Int? = null, fill: Color? = null, plain: Boolean = false, onClick: () -> Unit) {
+private fun RowAction(label: String, tag: String, icon: Int? = null, fill: Color? = null, plain: Boolean = false,
+    iconOnly: Boolean = false, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val background = fill ?: if (plain) Color.Transparent else colors.onSurface.copy(alpha = 0.07f)
     val content = if (fill != null) Color(0xFF1D1A12) else if (plain) colors.onSurfaceVariant else colors.onSurface
+    // Only the icon, in a round button; the label is what TalkBack reads.
+    if (icon != null && iconOnly) {
+        Box(Modifier.size(28.dp).clip(CircleShape).background(background).clickable(role = Role.Button, onClick = onClick)
+            .testTag(tag), contentAlignment = Alignment.Center) {
+            Icon(painterResource(icon), contentDescription = label, Modifier.size(14.dp), tint = content)
+        }
+        return
+    }
     Row(Modifier.height(28.dp).clip(CircleShape).background(background).clickable(role = Role.Button, onClick = onClick)
         .padding(horizontal = if (plain) 6.dp else 10.dp).testTag(tag), verticalAlignment = Alignment.CenterVertically) {
         if (icon != null) {
