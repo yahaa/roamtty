@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方案 A 主机路径</title>
+<style>
+:root {
+  --page: #1b1c1e; --bg: #252628; --card: #333230; --on: #ECE7DF; --dim: #B4AEA4; --faint: #8a857d;
+  --hair: rgba(236,231,223,.07); --wash: rgba(236,231,223,.07);
+  --warn: #F2B84B; --ok: #6CC287; --work: #D97757;
+  --claude: #D97757; --codex: #9AA7FF;
+  --h-dev: #4FB6A8; --h-mac: #B394F0; --h-tx: #6AA7F5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--on); font: 14px/1.45 system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+header { padding: 20px 16px 8px; max-width: 1500px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 6px; }
+header p { margin: 0; color: var(--dim); }
+nav { position: sticky; top: 0; z-index: 5; background: var(--page); padding: 10px 16px; display: flex; gap: 6px; overflow-x: auto; max-width: 1500px; margin: 0 auto; }
+nav a { flex: none; padding: 6px 12px; border-radius: 99px; background: var(--wash); color: var(--on); text-decoration: none; font-size: 13px; }
+main { display: flex; flex-wrap: wrap; gap: 28px 24px; padding: 8px 16px 40px; max-width: 1500px; margin: 0 auto; }
+section { width: 380px; max-width: 100%; scroll-margin-top: 56px; }
+section h2 { font-size: 16px; margin: 0 0 4px; }
+section h2 small { color: var(--warn); font-weight: 500; font-size: 12px; margin-left: 6px; }
+.note { color: var(--dim); font-size: 13px; margin: 0 0 10px; min-height: 58px; }
+.pros { font-size: 12.5px; color: var(--dim); margin: 10px 0 0; padding-left: 18px; }
+.pros li { margin: 2px 0; }
+.phone { background: var(--bg); border-radius: 28px; padding: 14px 12px 18px; border: 1px solid #3a3a3c; }
+.tabs { display: flex; justify-content: center; gap: 28px; font-size: 19px; font-weight: 600; padding: 4px 0 12px; }
+.tabs span:last-child { color: var(--faint); font-weight: 500; }
+.chips { display: flex; gap: 6px; overflow: hidden; padding-bottom: 4px; }
+.chip { flex: none; display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 99px; background: var(--wash); font-size: 12.5px; color: var(--dim); }
+.chip b { color: var(--on); }
+.chip.sel { background: rgba(236,231,223,.12); box-shadow: inset 0 0 0 1px rgba(236,231,223,.3); color: var(--on); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.gh { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 14px 6px 8px; }
+.ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; }
+.panel { border-radius: 18px; overflow: hidden; background: var(--card); }
+.row { position: relative; padding: 12px 14px; }
+.row + .row::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; height: 1px; background: var(--hair); }
+.row.wait::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--warn); }
+.top { display: flex; align-items: center; gap: 12px; }
+.tile { position: relative; width: 40px; height: 40px; border-radius: 11px; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.tile .sd { position: absolute; right: -2px; top: -2px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--card); }
+.tile .os { position: absolute; right: -5px; bottom: -5px; width: 19px; height: 19px; border-radius: 6px; border: 2px solid var(--card); display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff; }
+.body { flex: 1; min-width: 0; }
+.tl { display: flex; align-items: center; gap: 6px; }
+.badge { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; flex: none; }
+.name { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.time { font-size: 12px; color: var(--faint); flex: none; }
+.sub { font-size: 12.5px; color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub i { color: var(--faint); font-style: normal; }
+.act { font: 12px/1.4 ui-monospace, "JetBrains Mono", monospace; color: var(--dim); margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply { font-size: 12.5px; color: var(--dim); margin-top: 8px; }
+.st { display: flex; align-items: center; margin-top: 8px; min-height: 28px; gap: 6px; }
+.lab { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; flex: none; }
+.right { flex: 1; min-width: 0; display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+.loc { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tag { font-size: 10.5px; padding: 2px 6px; border-radius: 5px; background: var(--wash); color: var(--dim); flex: none; }
+.btn { height: 28px; padding: 0 10px; border-radius: 99px; display: flex; align-items: center; font-size: 12px; font-weight: 500; flex: none; background: var(--wash); }
+.btn.fill { background: var(--warn); color: #1D1A12; }
+.btn.plain { background: none; color: var(--dim); padding: 0 4px; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; }
+/* host pieces */
+.hchip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 2px 8px 2px 6px; border-radius: 99px; flex: none; }
+.eyebrow { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; margin-bottom: 1px; }
+.eyebrow i { color: var(--faint); font-weight: 400; font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foot { display: flex; align-items: center; gap: 8px; margin: 10px -14px -12px; padding: 8px 14px; background: rgba(0,0,0,.16); font-size: 12px; }
+.foot .os { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff; flex: none; }
+.foot b { font-weight: 600; }
+.foot code { font: 11.5px ui-monospace, monospace; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.hh { display: flex; align-items: center; gap: 10px; padding: 14px 6px 8px; }
+.hh .os { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; }
+.hh b { font-size: 14px; }
+.hh small { color: var(--faint); font-size: 12px; }
+.hh .cnt { margin-left: auto; color: var(--faint); font-size: 12px; }
+.seg { display: flex; background: var(--wash); border-radius: 99px; padding: 2px; margin-bottom: 4px; width: max-content; font-size: 12.5px; }
+.seg span { padding: 4px 12px; border-radius: 99px; color: var(--dim); }
+.seg span.on { background: rgba(236,231,223,.14); color: var(--on); }
+@media (max-width: 420px) { section { width: 100%; } }
+</style>
+</head><body>
+<style>
+.ttl { flex: 1; min-width: 0; display: flex; align-items: baseline; font-size: 16px; font-weight: 500; white-space: nowrap; }
+.ttl .pre { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; direction: rtl; color: var(--faint); font-weight: 400; font-size: 14px; }
+.ttl .leaf { flex: none; max-width: 85%; overflow: hidden; text-overflow: ellipsis; }
+.mono { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12px; }
+.hchip { max-width: 42%; }
+.hchip .hn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hchip.off { color: var(--faint) !important; background: rgba(236,231,223,.06) !important; }
+.hchip.off .dot { background: none !important; box-shadow: inset 0 0 0 1.5px var(--faint); }
+.sec-title { width: 100%; font-size: 17px; margin: 18px 0 -10px; padding-top: 10px; border-top: 1px solid #333; }
+.spec { width: 100%; max-width: 820px; color: var(--dim); font-size: 13.5px; }
+.spec h3 { color: var(--on); font-size: 15px; margin: 18px 0 6px; }
+.spec table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.spec td, .spec th { border-bottom: 1px solid #333; padding: 6px 8px; text-align: left; vertical-align: top; }
+.spec th { color: var(--on); font-weight: 600; }
+.spec code { background: #2a2a2c; padding: 1px 5px; border-radius: 4px; color: var(--on); }
+</style>
+<header>
+  <h1>方案 A 完善：主机胶囊 + 工作路径</h1>
+  <p>主机胶囊固定在标题行右侧。问题是：有提示词的 Agent 会话，第二行被「你: …」占用，路径放哪？下面三种放法 + 推荐方案的边界情况与规格。示例里特意放了<b>两台主机上同名的 roamtty</b>、超长路径、超长主机名和离线主机。<a href="session-host-preview.html" style="color:var(--h-tx)">← 返回 4 个方案总览</a></p>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+<script>
+const HOSTS = {
+  dev:     { name: "dev", color: "var(--h-dev)", raw: "79,182,168", online: true },
+  macbook: { name: "macbook", color: "var(--h-mac)", raw: "179,148,240", online: true },
+  tencent: { name: "tencent", color: "var(--h-tx)", raw: "106,167,245", online: true },
+  gpu:     { name: "gpu-box-shanghai-02", color: "#E59A5B", raw: "229,154,91", online: false },
+};
+const BASE = [
+  { group: "wait", agent: "CC", ac: "var(--claude)", host: "dev", path: "~/work/roamtty", prompt: "打包 release apk 并装到手机", act: "Bash(./gradlew assembleRelease)", time: "0m42s", tags: ["tmux"] },
+  { group: "work", agent: "CX", ac: "var(--codex)", host: "macbook", path: "~/src/roamtty", prompt: "把 TODO 都清掉", act: "rg -n TODO src/", time: "2m14s", tags: ["tmux"] },
+  { group: "done", agent: "CC", ac: "var(--claude)", host: "tencent", path: "/srv/www/blog.example.com/content/posts", prompt: "修复文章里的图片链接", reply: "已修复 3 篇文章里的 12 个失效图片链接，并重新生成了站点。", time: "3分钟前", worked: "1m08s", tags: ["tmux", "mosh"] },
+  { group: "term", title: "htop", host: "dev", path: "~", tags: ["tmux"] },
+];
+const EDGE = [
+  { group: "wait", agent: "CC", ac: "var(--claude)", host: "gpu", path: "~/experiments/llm-finetune-qwen2.5-72b-lora", prompt: "继续上次的训练，学习率减半", act: "Bash(python train.py --lr 1e-5 --resume ckpt/step-12000)", time: "5m03s", tags: ["tmux"] },
+  { group: "work", agent: "CC", ac: "var(--claude)", host: "dev", path: "~", prompt: "看看磁盘为什么满了", act: "du -sh ~/.cache/*", time: "0m09s", tags: ["tmux"] },
+  { group: "term", title: "train", host: "gpu", path: "~/experiments/llm-finetune-qwen2.5-72b-lora", tags: ["tmux"], offline: true },
+  { group: "term", title: "vim nginx.conf", host: "tencent", path: "/etc/nginx", tags: [] },
+];
+const GROUPS = { wait: ["等待确认", "var(--warn)"], work: ["运行中", "var(--work)"], done: ["已完成", "var(--ok)"], term: ["终端", "var(--faint)"] };
+
+const hostChip = (h, off) => `<span class="hchip${off ? " off" : ""}" style="color:${h.color};background:rgba(${h.raw},.14)"><span class="dot" style="background:${h.color}"></span><span class="hn">${h.name}</span></span>`;
+const split = p => { if (p === "~" || p === "/") return ["", p]; const i = p.lastIndexOf("/"); return [p.slice(0, i + 1), p.slice(i + 1)]; };
+const leaf = p => split(p)[1];
+
+function tile(s) {
+  const sd = { wait: "var(--warn)", work: "var(--work)", done: "var(--ok)" }[s.group];
+  return s.agent
+    ? `<div class="tile" style="background:rgba(217,119,87,.16);color:${s.ac}">${s.agent === "CC" ? "✳" : "◎"}${sd ? `<span class="sd" style="background:${sd}"></span>` : ""}</div>`
+    : `<div class="tile" style="background:rgba(236,231,223,.1);color:var(--dim);font-size:13px">$_</div>`;
+}
+function status(s, withTime) {
+  const t = withTime && s.time ? ` <span style="color:var(--faint);font-weight:400">· ${s.time}</span>` : "";
+  if (s.offline) return `<span class="lab" style="color:var(--faint)"><span class="dot" style="width:8px;height:8px;box-shadow:inset 0 0 0 1.5px var(--faint)"></span>主机离线</span>`;
+  if (s.group === "wait") return `<span class="lab" style="color:var(--warn)"><span class="dot" style="width:8px;height:8px;background:var(--warn)"></span>等待确认${t}</span>`;
+  if (s.group === "work") return `<span class="lab" style="color:${s.ac}"><span class="spin"></span>运行中${t}</span>`;
+  if (s.group === "done") return `<span class="lab" style="color:var(--ok)">✓ 用时 ${s.worked}${t}</span>`;
+  return `<span class="lab" style="color:var(--ok)"><span class="dot" style="width:8px;height:8px;background:var(--ok)"></span>已连接</span>`;
+}
+const actions = s => s.offline ? "" : s.group === "wait" ? `<span class="btn plain">查看</span><span class="btn fill">允许</span>`
+  : s.group === "done" ? `<span class="btn">↩ 追问</span>` : "";
+const tags = s => s.tags.map(t => `<span class="tag">${t}</span>`).join("");
+
+function row(s, v) {
+  const h = HOSTS[s.host];
+  const badge = s.agent ? `<span class="badge" style="color:${s.ac};background:rgba(217,119,87,.14)">${s.agent}</span>` : "";
+  const [pre, lf] = split(s.path);
+  const prompt = s.prompt ? `<div class="sub"><i>你: </i>${s.prompt}</div>` : "";
+  let title, sub = "", stLoc = "";
+  if (v === "A1") {         // folder name as title, full path in the status line
+    title = `<span class="name">${s.agent ? lf : s.title}</span>`;
+    sub = s.agent ? prompt : `<div class="sub mono">${s.path}</div>`;
+    if (s.agent) stLoc = `<span class="loc mono" style="direction:rtl"><bdi>${s.path}</bdi></span>`;
+  } else if (v === "A2") {  // the path is the title: parents dim, folder bright
+    title = s.agent ? `<span class="ttl"><span class="pre"><bdi>${pre}</bdi></span><span class="leaf">${lf}</span></span>`
+                    : `<span class="name">${s.title}</span>`;
+    sub = s.agent ? prompt : `<div class="sub mono">${s.path}</div>`;
+  } else {                  // A3: a path line of its own under the title
+    title = `<span class="name">${s.agent ? lf : s.title}</span>`;
+    sub = `<div class="sub mono" style="color:var(--faint)">${s.path}</div>` + prompt;
+  }
+  const body = s.act ? `<div class="act">${s.act}</div>` : s.reply ? `<div class="reply">${s.reply}</div>` : "";
+  return `<div class="row ${s.group === "wait" && !s.offline ? "wait" : ""}">
+    <div class="top">${tile(s)}<div class="body">
+      <div class="tl">${badge}${title}${hostChip(h, s.offline || !h.online)}</div>${sub}</div></div>
+    ${body}
+    <div class="st">${status(s, true)}<div class="right">${stLoc}${tags(s)}${actions(s)}</div></div>
+  </div>`;
+}
+function list(data, v) {
+  const n = k => data.filter(s => s.group === k).length;
+  const chips = `<div class="chips"><span class="chip sel">全部 <b>${data.length}</b></span>` + Object.entries(GROUPS).filter(([k]) => n(k)).map(([k, [l, c]]) =>
+    `<span class="chip"><span class="dot" style="background:${c}"></span>${l} <b>${n(k)}</b></span>`).join("") + `</div>`;
+  return chips + Object.entries(GROUPS).filter(([k]) => n(k)).map(([k, [l, c]]) => {
+    const m = data.filter(s => s.group === k);
+    return `<div class="gh" style="color:${c}"><span class="ring" ${k === "wait" ? `style="background:${c}"` : ""}></span>${l} <span style="opacity:.8">${m.length}</span></div>
+      <div class="panel">${m.map(s => row(s, v)).join("")}</div>`;
+  }).join("");
+}
+
+const VARIANTS = [
+  { id: "A1", t: "A1 · 路径放状态行", note: "标题只显示文件夹名，完整路径移到状态行左侧（等宽、从开头省略）。和现状位置相近，但去掉了主机名，空间宽松一些。",
+    pros: ["不增加行高", "仍和标签、按钮抢空间，等待确认行几乎放不下", "路径与标题分离，读的时候要来回看"] },
+  { id: "A2", t: "A2 · 路径即标题", rec: true, note: "标题就是完整路径：上级目录暗色小一号，最后一级文件夹亮色。太长时从<b>开头</b>省略（…/content/posts），文件夹名永远完整。一行看全「哪台机器的哪个目录」。",
+    pros: ["不增加行高，也不占状态行", "两台机器上同名 roamtty 一眼分清（路径+颜色）", "状态行只剩状态、计时、标签、操作"] },
+  { id: "A3", t: "A3 · 路径独立一行", note: "标题下单独一行等宽路径，再下一行是提示词。信息最完整、最规整，代价是每张卡片高一行（约 +18dp）。",
+    pros: ["最清楚，长路径能显示更多", "每行 +18dp，一屏少放约 1 个会话", "纯终端和 Agent 卡片结构一致"] },
+];
+
+document.getElementById("nav").innerHTML = VARIANTS.map(v => `<a href="#${v.id}">${v.t}</a>`).join("") + `<a href="#edge">A2 边界情况</a><a href="#spec">A2 规格</a>`;
+document.getElementById("main").innerHTML = VARIANTS.map(v => `<section id="${v.id}">
+  <h2>${v.t}${v.rec ? "<small>推荐</small>" : ""}</h2><p class="note">${v.note}</p>
+  <div class="phone"><div class="tabs"><span>会话</span><span>主机</span></div>${list(BASE, v.id)}</div>
+  <ul class="pros">${v.pros.map(p => `<li>${p}</li>`).join("")}</ul></section>`).join("")
++ `<section id="edge"><h2>A2 · 边界情况</h2><p class="note">超长路径从开头省略、文件夹名保底显示；超长主机名胶囊最多占标题行 42% 后截断；主机离线时胶囊变灰、实心点变空心；路径就是 <code>~</code> 时只显示 ~；纯终端仍以命令/标题为名，路径在第二行。</p>
+  <div class="phone"><div class="tabs"><span>会话</span><span>主机</span></div>${list(EDGE, "A2")}</div></section>
+<div class="spec" id="spec">
+  <h3>A2 规格（落到 SessionRow）</h3>
+  <table>
+    <tr><th>位置</th><th>内容</th><th>实现</th></tr>
+    <tr><td>标题行</td><td>[Agent 徽标] 路径标题 … [主机胶囊]</td><td>上级目录 <code>titleSmall</code> + <code>onSurfaceVariant 0.6</code>，文件夹 <code>titleMedium</code>；上级目录 <code>TextOverflow.StartEllipsis</code>，文件夹名不截（过长时走现有 MarqueeTitle 滚动）</td></tr>
+    <tr><td>主机胶囊</td><td>● 主机名</td><td><code>labelMedium SemiBold</code>，底色主机色 14%，高 20dp，圆角全圆；<code>widthIn(max = 标题行 42%)</code> 后省略；离线：灰字 + 空心点</td></tr>
+    <tr><td>主机颜色</td><td>每台主机固定一色</td><td>默认按 host.id 哈希到 8 色调色板（避开状态色琥珀/绿/红），以后可在主机详情里改</td></tr>
+    <tr><td>第二行</td><td>Agent：「你: 提示词」/「等待输入中…」；终端：完整路径（等宽）</td><td>终端路径用 <code>MiddleEllipsis</code></td></tr>
+    <tr><td>状态行</td><td>状态 · 计时　…　tmux/mosh　操作按钮</td><td>原标题行右侧的计时挪到状态文字后面；原 <code>location</code> 文本删除</td></tr>
+    <tr><td>无障碍</td><td>contentDescription</td><td>「roamtty，主机 dev，路径 ~/work/roamtty，等待确认」</td></tr>
+  </table>
+  <h3>可选增强</h3>
+  <ul>
+    <li>筛选芯片里加主机维度：「全部 / dev / macbook …」，与状态芯片并列（只在 ≥2 台主机有会话时出现）。</li>
+    <li>点主机胶囊 = 只看这台主机（胶囊命中区 ≥32dp，避免误触打开终端）。</li>
+    <li>只有 1 台主机时可隐藏胶囊，界面回到最简。</li>
+  </ul>
+</div>`;
+</script>
+</body>
+</html>

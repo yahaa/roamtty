@@ -98,6 +98,25 @@ internal val Typography.sectionHeader: TextStyle
     get() = labelLarge.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.2.sp)
 
 /** Status hues tuned for both themes; connection state never relies on the accent colour alone. */
+/**
+ * Each host's own colour, picked by its id so it stays put across launches; none is a status colour (amber, green,
+ * red), and each has a deeper shade for the light theme.
+ */
+@Composable @ReadOnlyComposable
+internal fun hostColor(id: String): Color {
+    val (light, dark) = HostColors[Math.floorMod(id.hashCode(), HostColors.size)]
+    return if (MaterialTheme.colorScheme.background.luminance() > 0.5f) light else dark
+}
+
+private val HostColors = listOf(
+    Color(0xFF1F8A7E) to Color(0xFF4FB6A8), // teal
+    Color(0xFF7B5BC9) to Color(0xFFB394F0), // violet
+    Color(0xFF2F6FC4) to Color(0xFF6AA7F5), // blue
+    Color(0xFFB8457F) to Color(0xFFE88BB8), // pink
+    Color(0xFF1F86A6) to Color(0xFF5CC3E0), // cyan
+    Color(0xFF4F5BC4) to Color(0xFF8F98F0), // indigo
+)
+
 internal object StatusColors {
     @Composable @ReadOnlyComposable
     private fun light() = MaterialTheme.colorScheme.background.luminance() > 0.5f

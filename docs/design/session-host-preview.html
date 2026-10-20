@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会话列表主机信息方案</title>
+<style>
+:root {
+  --page: #1b1c1e; --bg: #252628; --card: #333230; --on: #ECE7DF; --dim: #B4AEA4; --faint: #8a857d;
+  --hair: rgba(236,231,223,.07); --wash: rgba(236,231,223,.07);
+  --warn: #F2B84B; --ok: #6CC287; --work: #D97757;
+  --claude: #D97757; --codex: #9AA7FF;
+  --h-dev: #4FB6A8; --h-mac: #B394F0; --h-tx: #6AA7F5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--on); font: 14px/1.45 system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+header { padding: 20px 16px 8px; max-width: 1500px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 6px; }
+header p { margin: 0; color: var(--dim); }
+nav { position: sticky; top: 0; z-index: 5; background: var(--page); padding: 10px 16px; display: flex; gap: 6px; overflow-x: auto; max-width: 1500px; margin: 0 auto; }
+nav a { flex: none; padding: 6px 12px; border-radius: 99px; background: var(--wash); color: var(--on); text-decoration: none; font-size: 13px; }
+main { display: flex; flex-wrap: wrap; gap: 28px 24px; padding: 8px 16px 40px; max-width: 1500px; margin: 0 auto; }
+section { width: 380px; max-width: 100%; scroll-margin-top: 56px; }
+section h2 { font-size: 16px; margin: 0 0 4px; }
+section h2 small { color: var(--warn); font-weight: 500; font-size: 12px; margin-left: 6px; }
+.note { color: var(--dim); font-size: 13px; margin: 0 0 10px; min-height: 58px; }
+.pros { font-size: 12.5px; color: var(--dim); margin: 10px 0 0; padding-left: 18px; }
+.pros li { margin: 2px 0; }
+.phone { background: var(--bg); border-radius: 28px; padding: 14px 12px 18px; border: 1px solid #3a3a3c; }
+.tabs { display: flex; justify-content: center; gap: 28px; font-size: 19px; font-weight: 600; padding: 4px 0 12px; }
+.tabs span:last-child { color: var(--faint); font-weight: 500; }
+.chips { display: flex; gap: 6px; overflow: hidden; padding-bottom: 4px; }
+.chip { flex: none; display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 99px; background: var(--wash); font-size: 12.5px; color: var(--dim); }
+.chip b { color: var(--on); }
+.chip.sel { background: rgba(236,231,223,.12); box-shadow: inset 0 0 0 1px rgba(236,231,223,.3); color: var(--on); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.gh { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 14px 6px 8px; }
+.ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; }
+.panel { border-radius: 18px; overflow: hidden; background: var(--card); }
+.row { position: relative; padding: 12px 14px; }
+.row + .row::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; height: 1px; background: var(--hair); }
+.row.wait::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--warn); }
+.top { display: flex; align-items: center; gap: 12px; }
+.tile { position: relative; width: 40px; height: 40px; border-radius: 11px; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.tile .sd { position: absolute; right: -2px; top: -2px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--card); }
+.tile .os { position: absolute; right: -5px; bottom: -5px; width: 19px; height: 19px; border-radius: 6px; border: 2px solid var(--card); display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff; }
+.body { flex: 1; min-width: 0; }
+.tl { display: flex; align-items: center; gap: 6px; }
+.badge { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; flex: none; }
+.name { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.time { font-size: 12px; color: var(--faint); flex: none; }
+.sub { font-size: 12.5px; color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub i { color: var(--faint); font-style: normal; }
+.act { font: 12px/1.4 ui-monospace, "JetBrains Mono", monospace; color: var(--dim); margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply { font-size: 12.5px; color: var(--dim); margin-top: 8px; }
+.st { display: flex; align-items: center; margin-top: 8px; min-height: 28px; gap: 6px; }
+.lab { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; flex: none; }
+.right { flex: 1; min-width: 0; display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+.loc { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tag { font-size: 10.5px; padding: 2px 6px; border-radius: 5px; background: var(--wash); color: var(--dim); flex: none; }
+.btn { height: 28px; padding: 0 10px; border-radius: 99px; display: flex; align-items: center; font-size: 12px; font-weight: 500; flex: none; background: var(--wash); }
+.btn.fill { background: var(--warn); color: #1D1A12; }
+.btn.plain { background: none; color: var(--dim); padding: 0 4px; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; }
+/* host pieces */
+.hchip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 2px 8px 2px 6px; border-radius: 99px; flex: none; }
+.eyebrow { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; margin-bottom: 1px; }
+.eyebrow i { color: var(--faint); font-weight: 400; font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foot { display: flex; align-items: center; gap: 8px; margin: 10px -14px -12px; padding: 8px 14px; background: rgba(0,0,0,.16); font-size: 12px; }
+.foot .os { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff; flex: none; }
+.foot b { font-weight: 600; }
+.foot code { font: 11.5px ui-monospace, monospace; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.hh { display: flex; align-items: center; gap: 10px; padding: 14px 6px 8px; }
+.hh .os { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; }
+.hh b { font-size: 14px; }
+.hh small { color: var(--faint); font-size: 12px; }
+.hh .cnt { margin-left: auto; color: var(--faint); font-size: 12px; }
+.seg { display: flex; background: var(--wash); border-radius: 99px; padding: 2px; margin-bottom: 4px; width: max-content; font-size: 12.5px; }
+.seg span { padding: 4px 12px; border-radius: 99px; color: var(--dim); }
+.seg span.on { background: rgba(236,231,223,.14); color: var(--on); }
+@media (max-width: 420px) { section { width: 100%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>会话列表：主机信息方案</h1>
+  <p>现状里主机名和路径挤在状态行右侧的灰色小字里（<code>dev · ~/work/roamtty</code>），还常被按钮挤到省略。下面 4 个方案用同一组示例数据（3 台主机、4 个会话）。主机颜色按主机名哈希自动分配，也可在主机详情里改。</p>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+<script>
+const HOSTS = {
+  dev:     { name: "dev",     os: "U", osColor: "#E95420", color: "var(--h-dev)", raw: "79,182,168", addr: "100.64.0.2",  online: true },
+  macbook: { name: "macbook", os: "⌘", osColor: "#8E8E93", color: "var(--h-mac)", raw: "179,148,240", addr: "100.64.0.4", online: true },
+  tencent: { name: "tencent", os: "D", osColor: "#D70A53", color: "var(--h-tx)",  raw: "106,167,245", addr: "43.163.113.102", online: true },
+};
+const S = [
+  { group: "wait", agent: "CC", ac: "var(--claude)", name: "roamtty", host: "dev", path: "~/work/roamtty", prompt: "打包 release apk 并装到手机", act: "Bash(./gradlew assembleRelease)", time: "0m42s", tags: ["tmux"] },
+  { group: "work", agent: "CX", ac: "var(--codex)", name: "api-server", host: "macbook", path: "~/code/api-server", prompt: "把 TODO 都清掉", act: "rg -n TODO src/", time: "2m14s", tags: ["tmux"] },
+  { group: "done", agent: "CC", ac: "var(--claude)", name: "blog", host: "tencent", path: "/srv/blog", prompt: "修复文章里的图片链接", reply: "已修复 3 篇文章里的 12 个失效图片链接，并重新生成了站点。", time: "3分钟前", worked: "1m08s", tags: ["tmux", "mosh"] },
+  { group: "term", name: "htop", host: "dev", path: "~", tags: ["tmux"] },
+];
+const GROUPS = { wait: ["等待确认", "var(--warn)"], work: ["运行中", "var(--work)"], done: ["已完成", "var(--ok)"], term: ["终端", "var(--faint)"] };
+
+const osBox = (h, cls) => `<span class="${cls}" style="background:${h.osColor}">${h.os}</span>`;
+const hostChip = h => `<span class="hchip" style="color:${h.color};background:rgba(${h.raw},.14)"><span class="dot" style="background:${h.color}"></span>${h.name}</span>`;
+
+function tile(s, v) {
+  const h = HOSTS[s.host];
+  const sd = s.group === "wait" ? "var(--warn)" : s.group === "work" ? "var(--work)" : s.group === "done" ? "var(--ok)" : null;
+  const face = s.agent
+    ? `<div class="tile" style="background:rgba(217,119,87,.16);color:${s.ac}">${s.agent === "CC" ? "✳" : "◎"}`
+    : `<div class="tile" style="background:rgba(236,231,223,.1);color:var(--dim);font-size:13px">$_`;
+  return face + (sd && s.agent ? `<span class="sd" style="background:${sd}"></span>` : "")
+    + (v === "B" ? osBox(h, "os") : "") + `</div>`;
+}
+
+function status(s) {
+  if (s.group === "wait") return `<span class="lab" style="color:var(--warn)"><span class="dot" style="width:8px;height:8px;background:var(--warn)"></span>等待确认</span>`;
+  if (s.group === "work") return `<span class="lab" style="color:${s.ac}"><span class="spin"></span>运行中</span>`;
+  if (s.group === "done") return `<span class="lab" style="color:var(--ok)">✓ 用时 ${s.worked}</span>`;
+  return `<span class="lab" style="color:var(--ok)"><span class="dot" style="width:8px;height:8px;background:var(--ok)"></span>已连接</span>`;
+}
+const actions = s => s.group === "wait" ? `<span class="btn plain">查看</span><span class="btn fill">允许</span>`
+  : s.group === "done" ? `<span class="btn">↩ 追问</span>` : "";
+const tags = s => s.tags.map(t => `<span class="tag">${t}</span>`).join("");
+
+function row(s, v) {
+  const h = HOSTS[s.host];
+  const agentBadge = s.agent ? `<span class="badge" style="color:${s.ac};background:rgba(217,119,87,.14)">${s.agent}</span>` : "";
+  const timeHere = s.time ? `<span class="time">${s.time}</span>` : "";
+  let eyebrow = "", titleRight = timeHere, sub, loc = "", foot = "";
+  const promptLine = s.prompt ? `<div class="sub"><i>你: </i>${s.prompt}</div>` : null;
+
+  if (v === "now") {
+    sub = promptLine || `<div class="sub">${h.name} · ${s.path}</div>`;
+    if (s.prompt) loc = `<span class="loc">${h.name} · ${s.path}</span>`;
+  } else if (v === "A") {
+    titleRight = hostChip(h);
+    sub = promptLine || `<div class="sub" style="font-family:ui-monospace,monospace;font-size:12px">${s.path}</div>`;
+    if (s.time) loc = `<span class="loc">${s.time}</span>`;
+  } else if (v === "B") {
+    eyebrow = `<div class="eyebrow" style="color:${h.color}">${h.name}<i>${s.path}</i></div>`;
+    sub = promptLine || "";
+  } else if (v === "D") {
+    sub = promptLine || `<div class="sub">${s.path}</div>`;
+    foot = `<div class="foot">${osBox(h, "os")}<b style="color:${h.color}">${h.name}</b><code>${s.path}</code>${tags(s)}</div>`;
+  } else if (v === "C") {
+    sub = promptLine || `<div class="sub" style="font-family:ui-monospace,monospace;font-size:12px">${s.path}</div>`;
+    if (s.prompt) loc = `<span class="loc" style="font-family:ui-monospace,monospace">${s.path}</span>`;
+  }
+  const body = s.act ? `<div class="act">${s.act}</div>` : s.reply ? `<div class="reply">${s.reply}</div>` : "";
+  return `<div class="row ${s.group === "wait" ? "wait" : ""}">
+    <div class="top">${tile(s, v)}<div class="body">${eyebrow}
+      <div class="tl">${agentBadge}<span class="name">${s.name}</span>${titleRight}</div>${sub}</div></div>
+    ${body}
+    <div class="st">${status(s)}<div class="right">${loc}${v === "D" ? "" : tags(s)}${actions(s)}</div></div>${foot}
+  </div>`;
+}
+
+function byStatus(v) {
+  const chips = `<div class="chips"><span class="chip sel">全部 <b>4</b></span>` + Object.entries(GROUPS).map(([k, [l, c]]) =>
+    `<span class="chip"><span class="dot" style="background:${c}"></span>${l} <b>1</b></span>`).join("") + `</div>`;
+  return chips + Object.entries(GROUPS).map(([k, [l, c]]) => {
+    const m = S.filter(s => s.group === k);
+    return `<div class="gh" style="color:${c}"><span class="ring" ${k === "wait" ? `style="background:${c}"` : ""}></span>${l} <span style="opacity:.8">${m.length}</span></div>
+      <div class="panel">${m.map(s => row(s, v)).join("")}</div>`;
+  }).join("");
+}
+
+function byHost() {
+  const seg = `<div class="seg"><span>按状态</span><span class="on">按主机</span></div>`;
+  return seg + Object.entries(HOSTS).map(([k, h]) => {
+    const m = S.filter(s => s.host === k);
+    return `<div class="hh">${osBox(h, "os")}<div><b>${h.name}</b> <small>${h.addr}</small></div>
+      <span class="cnt"><span class="dot" style="display:inline-block;background:var(--ok);margin-right:5px"></span>${m.length} 个会话</span></div>
+      <div class="panel">${m.map(s => row(s, "C")).join("")}</div>`;
+  }).join("");
+}
+
+const VARIANTS = [
+  { id: "now", t: "现状", note: "有提示词时，主机+路径被挤到状态行右侧，灰色 12px，再加 tmux 标签和按钮后经常只剩 \"de…\"。纯终端则在标题下。位置不固定，扫一眼找不到。" },
+  { id: "A", t: "A · 标题行主机胶囊", rec: true, note: "主机名做成带主机色的小胶囊，固定放在标题行最右（取代计时，计时移到状态行）。位置永远一致，颜色一眼区分机器；路径在纯终端时用等宽字体显示。",
+    pros: ["改动最小，只动 SessionRow 两处", "每行同一位置，颜色可扫读", "名字很长时胶囊仍不被截断（标题先截）"] },
+  { id: "B", t: "B · 主机眉题 + OS 角标", rec: true, note: "标题上方加一行主机色的小字眉题「dev ~/work/roamtty」，图标右下角叠一个系统角标（Ubuntu/macOS/Debian）。主机与完整路径都回到卡片顶部，状态行只留状态与操作。",
+    pros: ["主机+路径完整可见，不再与按钮抢空间", "OS 角标复用主机页已有图标", "每行高约 +16dp"] },
+  { id: "C", t: "C · 按主机分组", note: "顶部加「按状态 / 按主机」切换。按主机时以主机为组头（系统图标、地址、在线状态、会话数），行内就不必再写主机。适合多台机器、每台多个会话的场景。",
+    pros: ["主机信息最显眼，结构最清晰", "跨主机看「谁在等确认」需切回按状态", "改动最大（分组、筛选、记忆选择）"] },
+  { id: "D", t: "D · 卡片底栏", note: "每张卡片底部加一条压暗的主机栏：系统图标 + 主机名（主机色）+ 等宽路径 + tmux/mosh 标签。主机作为「运行在哪里」的元信息与内容分区。",
+    pros: ["信息层次分明，标签也有了固定位置", "每行高约 +34dp，列表变长", "在宽屏多列卡片下也很协调"] },
+];
+
+document.getElementById("nav").innerHTML = VARIANTS.map(v => `<a href="#${v.id}">${v.t}</a>`).join("");
+document.getElementById("main").innerHTML = VARIANTS.map(v => `<section id="${v.id}">
+  <h2>${v.t}${v.rec ? "<small>推荐</small>" : ""}${v.id === "A" ? ` <a href="session-host-a.html" style="font-size:12px;color:var(--h-tx)">完善版 →</a>` : ""}</h2><p class="note">${v.note}</p>
+  <div class="phone"><div class="tabs"><span>会话</span><span>主机</span></div>${v.id === "C" ? byHost() : byStatus(v.id)}</div>
+  ${v.pros ? `<ul class="pros">${v.pros.map(p => `<li>${p}</li>`).join("")}</ul>` : ""}
+</section>`).join("");
+</script>
+</body>
+</html>

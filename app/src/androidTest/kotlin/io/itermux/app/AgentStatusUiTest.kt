@@ -20,6 +20,7 @@ import io.itermux.app.data.Host
 import io.itermux.app.session.AgentStatus
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.SessionService
+import io.itermux.app.session.sessionListPath
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
@@ -75,11 +76,12 @@ class AgentStatusUiTest {
                     agentHooks = CodingAgent.CODEX)
             }
             fun exists(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
-            // Idle without a prompt: the prompt's line says it awaits one, and the host moves to the status line.
+            // Idle without a prompt: the prompt's line says it awaits one, the folder moves to the status line and the
+            // host keeps its chip beside the name.
             compose.waitUntil(30_000) { exists("home-session-awaiting-${session.id}") }
             compose.onNodeWithTag("home-session-awaiting-${session.id}", useUnmergedTree = true).assertTextEquals(tr("等待输入中…"))
-            compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true)
-                .assertTextContains("Agent status · ", substring = true)
+            compose.onNodeWithTag("home-session-host-${session.id}", useUnmergedTree = true).assertTextEquals("Agent status")
+            compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true).assertExists()
             compose.onNodeWithTag("home-session-follow-up-${session.id}", useUnmergedTree = true).assertExists()
             context.getExternalFilesDir(null)?.let { dir ->
                 java.io.FileOutputStream(java.io.File(dir, "agent-row-awaiting.png")).use {
@@ -92,14 +94,15 @@ class AgentStatusUiTest {
                 working.directory.isNotEmpty()) { "$working" }
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("home-session-${session.id}").fetchSemanticsNodes().isNotEmpty() }
             val row = compose.onNodeWithTag("home-session-${session.id}")
-            // Under 运行中, named by its folder, the prompt beneath, the command across the row, the host on the status line.
+            // Under 运行中, named by its folder, the prompt beneath, the command across the row, the whole folder on the
+            // status line.
             compose.waitUntil(10_000) { exists("home-session-group-working") && exists("home-session-working-${session.id}") }
             val folder = working.directory.trimEnd('/').substringAfterLast('/')
             compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals(folder)
             compose.onNodeWithTag("home-session-prompt-${session.id}", useUnmergedTree = true)
                 .assertTextEquals(tr("你: ") + "refactor the parser")
             compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true)
-                .assertTextContains("Agent status · ", substring = true)
+                .assertTextEquals(sessionListPath(working.directory, host.username))
             compose.onNode(hasTestTag("agent-icon-codex") and hasAnyAncestor(hasTestTag("home-session-${session.id}")),
                 useUnmergedTree = true).assertExists()
             compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("Running make test")

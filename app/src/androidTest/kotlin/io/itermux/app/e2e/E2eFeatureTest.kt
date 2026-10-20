@@ -675,8 +675,9 @@ class E2eFeatureTest {
         sessionsTab()
         E2e.waitTag(compose, "home-session-${session.id}")
         compose.waitUntil(20_000) { session.directory.value.isNotEmpty() }
+        compose.onNodeWithTag("home-session-host-${session.id}", useUnmergedTree = true).assertTextEquals(host.name)
         compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true)
-            .assertTextEquals("${host.name} · ${sessionListPath(session.directory.value, host.username)}")
+            .assertTextEquals(sessionListPath(session.directory.value, host.username))
         E2e.capture(compose, "f16-agent-card")
     }
 
