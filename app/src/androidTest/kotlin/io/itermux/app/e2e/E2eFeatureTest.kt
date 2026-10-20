@@ -783,6 +783,50 @@ class E2eFeatureTest {
         compose.waitUntil(5_000) { service.sessions.value.none { it.host.id == host.id } }
     }
 
+    /**
+     * 新建会话 › 继续会话: with one tmux host it lists that host's running sessions straight away, one tap opens a
+     * detached one, and tapping the one already open switches to its card instead of attaching it twice.
+     */
+    @Test fun f22_continueSessionAttachesARunningTmuxSession() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("继续会话", mode = SessionMode.TMUX))
+        val first = openTerminal(host)
+        shellReady(first)
+        // Short commands: long typed lines lose keys on the emulator.
+        val name = "e2c${System.currentTimeMillis() % 10_000}"
+        E2e.run(compose, "tmux new -d -s $name; echo MADE_$((6*7))")
+        E2e.waitOutput(compose, first, "MADE_42")
+        backToHome()
+        sessionsTab()
+        val before = service.sessions.value.map { it.id }.toSet()
+        click("add-session")
+        E2e.waitTag(compose, "new-session-pick-continue")
+        E2e.capture(compose, "f22-new-session")
+        click("new-session-pick-continue")
+        E2e.waitTag(compose, "continue-sheet")
+        E2e.waitTag(compose, "launch-tmux-$name", timeoutMs = 20_000)
+        E2e.capture(compose, "f22-continue-sheet")
+        click("launch-tmux-$name")
+        compose.waitUntil(15_000) { newSessions(before).isNotEmpty() }
+        val attached = newSessions(before).single()
+        assertEquals(Phase.CONNECTED, E2e.connected(attached))
+        assertEquals(SessionMode.TMUX, attached.mode)
+        E2e.waitTag(compose, "terminal")
+        shellReady(attached)
+        E2e.run(compose, "tmux display -p 'IN_#S'")
+        E2e.waitOutput(compose, attached, "IN_$name")
+        E2e.capture(compose, "f22-attached")
+        // The first card's session is marked open; tapping it shows that card, no second attach.
+        backToHome()
+        val count = service.sessions.value.size
+        click("add-session")
+        click("new-session-pick-continue")
+        E2e.waitTag(compose, "launch-tmux-${first.remoteSessionName}", timeoutMs = 20_000)
+        click("launch-tmux-${first.remoteSessionName}")
+        E2e.waitTag(compose, "terminal")
+        assertEquals(count, service.sessions.value.size)
+        E2e.run(compose, "tmux kill-session -t $name")
+    }
+
     private companion object {
         val FAILURES = setOf(Phase.AUTH_FAILED, Phase.HOST_KEY_CHANGED, Phase.FAILED, Phase.TMUX_MISSING)
     }

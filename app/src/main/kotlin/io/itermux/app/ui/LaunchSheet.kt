@@ -237,7 +237,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
 }
 
 @Composable
-private fun CenterNote(message: String, action: String, onAction: () -> Unit) {
+internal fun CenterNote(message: String, action: String, onAction: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(Spacing.Section), verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally) {
         Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
