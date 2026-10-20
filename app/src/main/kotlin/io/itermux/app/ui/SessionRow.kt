@@ -60,10 +60,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * One session: its tile beside its name and the last prompt ("你: …", or "等待输入中…" while an idle agent has had
- * none), then, across the whole row, what the agent answered or runs and a status line with where it runs and what
- * the agent needs (allow a request, or a follow-up typed right here). A plain terminal has its host and folder beneath
- * its name. Long press for its menu.
+ * One session: its tile beside its name, the chip of the host it runs on and the last prompt ("你: …", or "等待输入中…"
+ * while an idle agent has had none), then, across the whole row, what the agent answered or runs and a status line with
+ * how long it has been at it, its folder and what the agent needs (allow a request, or a follow-up typed right here). A
+ * plain terminal has its folder beneath its name. Long press for its menu.
  * An agent's session is named by its folder, the agent's badge before it (the prompt has its own line);
  * others by [sessionListTitle].
  */
@@ -93,8 +93,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             ?: kind?.label.orEmpty()
         else -> sessionListTitle(title, null, kind, username).let { shown -> kind?.let { shown.removePrefix("${it.shortLabel} · ") } ?: shown }
     }.ifBlank { trf("会话 %d", session.sessionNumber) }
-    // Where it runs: the host and the whole folder (the name holds only its last part).
-    val location = listOf(session.host.name, path).filter { it.isNotEmpty() && it != name }.distinct().joinToString(" · ")
+    // Where it runs: the whole folder (the name holds only its last part); the host has its chip beside the name.
+    val location = path.takeIf { it != name }.orEmpty()
     val prompt = status?.task.orEmpty()
     val activity = agentActivity(status)
     val reply = status?.reply?.let(::replyPreview).orEmpty()
@@ -141,10 +141,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                             Spacer(Modifier.width(6.dp))
                         }
                         MarqueeTitle(name, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"))
-                        if (status != null && live) Text(if (idle) ago(elapsed) else shortDuration(elapsed),
-                            Modifier.padding(start = Spacing.Tight).testTag("$tagPrefix-time-${session.id}"),
-                            style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant.copy(alpha = 0.8f),
-                            maxLines = 1, softWrap = false)
+                        HostChip(session.host.name, session.host.id, hostOffline && !state.active, "$tagPrefix-host-${session.id}",
+                            Modifier.padding(start = Spacing.Tight))
                     }
                     if (prompt.isNotEmpty()) Text(buildAnnotatedString {
                         withStyle(SpanStyle(color = colors.onSurfaceVariant.copy(alpha = 0.7f))) { append(tr("你: ")) }
@@ -154,8 +152,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                     else if (idle) Text(tr("等待输入中…"), Modifier.padding(top = 2.dp).testTag("$tagPrefix-awaiting-${session.id}"),
                         style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic,
                         color = colors.onSurfaceVariant.copy(alpha = 0.7f), maxLines = 1)
-                    else Text(location, Modifier.padding(top = 2.dp).testTag("$tagPrefix-location-${session.id}"),
-                        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+                    else if (location.isNotEmpty()) Text(location, Modifier.padding(top = 2.dp).testTag("$tagPrefix-location-${session.id}"),
+                        style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
                 }
             }
@@ -176,13 +174,19 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                     status.workedSeconds != null -> TurnDone(status.workedSeconds, Modifier.testTag("$tagPrefix-done-${session.id}"))
                     else -> AgentStateLabel(status.state, tr("空闲"), Modifier.testTag("$tagPrefix-status-${session.id}"))
                 }
-                // Then, held to the right, where it runs (beside its name already for a session without a prompt line),
+                if (status != null && live) Text("· " + if (idle) ago(elapsed) else shortDuration(elapsed),
+                    Modifier.padding(start = 6.dp).testTag("$tagPrefix-time-${session.id}"),
+                    style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                    maxLines = 1, softWrap = false)
+                // Then, held to the right, its folder (beneath its name already for a session without a prompt line),
                 // what keeps and carries it, and what the agent needs from the user.
                 Row(Modifier.weight(1f).padding(start = Spacing.Tight), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
                     verticalAlignment = Alignment.CenterVertically) {
-                    if (promptLine) Text(location, Modifier.weight(1f, fill = false).testTag("$tagPrefix-location-${session.id}"),
-                        style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant.copy(alpha = 0.8f),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // Cut from its start, so the folder's own name stays.
+                    if (promptLine && location.isNotEmpty()) Text(location,
+                        Modifier.weight(1f, fill = false).testTag("$tagPrefix-location-${session.id}"),
+                        style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace,
+                        color = colors.onSurfaceVariant.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.StartEllipsis)
                     Row(Modifier.testTag("$tagPrefix-tags-${session.id}"), horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         sessionTransportTags(session.mode, multiplexer, session.host.multiplexer, transport.takeIf { connected })
@@ -235,6 +239,22 @@ private fun AgentBadge(agent: CodingAgent) {
     Text(agent.shortLabel, Modifier.clip(RoundedCornerShape(5.dp)).background(brand.copy(alpha = 0.14f))
         .padding(horizontal = 6.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = brand,
         fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+}
+
+/** The host a session runs on: its name on a wash of [hostColor], grey around a hollow dot while the host is offline. */
+@Composable
+private fun HostChip(name: String, id: String, offline: Boolean, tag: String, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val tint = if (offline) colors.onSurfaceVariant.copy(alpha = 0.7f) else hostColor(id)
+    Row(modifier.widthIn(max = 140.dp).clip(CircleShape)
+        .background(if (offline) colors.onSurface.copy(alpha = 0.06f) else tint.copy(alpha = 0.14f))
+        .padding(start = 6.dp, end = 8.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(6.dp).clip(CircleShape)
+            .then(if (offline) Modifier.border(1.5.dp, tint, CircleShape) else Modifier.background(tint)))
+        Spacer(Modifier.width(5.dp))
+        Text(name, Modifier.testTag(tag), style = MaterialTheme.typography.labelMedium, color = tint,
+            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 /** A dot and [label] in the colour of [state]. */
