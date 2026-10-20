@@ -1,6 +1,6 @@
 package io.itermux.app.ui
 
-import android.content.Context
+import io.itermux.app.appSettings
 import android.content.SharedPreferences
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.toggleable
@@ -84,7 +84,7 @@ internal class RemoteFileOptions(private val preferences: SharedPreferences) {
 @Composable
 internal fun rememberRemoteFileOptions(): RemoteFileOptions {
     val context = LocalContext.current.applicationContext
-    val preferences = remember(context) { context.getSharedPreferences("app-settings", Context.MODE_PRIVATE) }
+    val preferences = remember(context) { context.appSettings() }
     val options = remember(preferences) { RemoteFileOptions(preferences) }
     DisposableEffect(preferences, options) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->

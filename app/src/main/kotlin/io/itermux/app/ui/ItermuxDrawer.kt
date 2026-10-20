@@ -22,7 +22,7 @@ import io.itermux.app.session.TerminalConnection
 
 @Composable
 internal fun ItermuxDrawer(
-    page: String,
+    page: AppPage,
     hostCount: Int,
     sessions: List<TerminalConnection>,
     onHosts: () -> Unit,
@@ -87,7 +87,7 @@ internal fun ItermuxDrawer(
                 }
             }
             HorizontalDivider()
-            NavigationDrawerItem(label = { Text(tr("设置")) }, selected = page == "settings", onClick = onSettings,
+            NavigationDrawerItem(label = { Text(tr("设置")) }, selected = page == AppPage.SETTINGS, onClick = onSettings,
                 icon = { Icon(painterResource(R.drawable.ic_settings), contentDescription = null) },
                 modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp).testTag("drawer-settings"))
             NavigationDrawerItem(label = { Text(tr("帮助")) }, selected = false, onClick = onGuide,

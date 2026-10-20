@@ -1,6 +1,6 @@
 package io.itermux.app.ui
 
-import android.content.Context
+import io.itermux.app.appSettings
 import android.content.SharedPreferences
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
@@ -45,7 +45,7 @@ import io.itermux.app.trf
 @Composable
 internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch: (AgentLaunch) -> Unit) {
     val context = LocalContext.current.applicationContext
-    val preferences = remember(context) { context.getSharedPreferences("app-settings", Context.MODE_PRIVATE) }
+    val preferences = remember(context) { context.appSettings() }
     var agent by remember { mutableStateOf(CodingAgent.from(preferences.getString(AGENT_KEY, null))) }
     var mode by remember { mutableStateOf(preferences.agentMode()) }
     val yolo = mode == AgentMode.YOLO
