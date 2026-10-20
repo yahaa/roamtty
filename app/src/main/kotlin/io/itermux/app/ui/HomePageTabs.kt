@@ -16,6 +16,20 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import io.itermux.app.data.Host
 import io.itermux.app.session.TerminalConnection
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import io.itermux.app.R
 
 /** The home page's sessions tab: its header, then the sessions matching [search], or why there are none. */
 @Composable
@@ -66,3 +80,44 @@ internal fun HomeHostsTab(hosts: List<Host>, search: String, gridState: LazyGrid
         }
     }
 }
+
+/**
+ * The home page's tabs in the toolbar, after Grok's header: the names side by side, the selected one in full
+ * colour with a short bar beneath it.
+ */
+@Composable
+internal fun HomeTabs(titles: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight),
+        verticalAlignment = Alignment.CenterVertically) {
+        titles.forEachIndexed { index, title ->
+            val active = index == selected
+            val color by animateColorAsState(if (active) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), label = "home-tab")
+            Column(Modifier.clip(MaterialTheme.shapes.small)
+                .selectable(active, role = Role.Tab, onClick = { onSelect(index) })
+                .heightIn(min = 48.dp).padding(horizontal = Spacing.Row).testTag(HOME_TAB_TAGS[index]),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Text(title, style = MaterialTheme.typography.titleLarge, color = color, maxLines = 1,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.size(width = 20.dp, height = 3.dp).clip(CircleShape)
+                    .background(if (active) color else Color.Transparent))
+            }
+        }
+    }
+}
+
+/** Test tags of the home tabs, in page order. */
+internal val HOME_TAB_TAGS = listOf("home-tab-sessions", "home-tab-hosts")
+
+/** The line above a home list: how many it holds on the left, the + that adds one on the right. */
+@Composable
+internal fun HomeListHeader(label: String, addDescription: String, addTag: String, onAdd: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = Spacing.Page, end = Spacing.Page - 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        ToolbarIcon(R.drawable.ic_add, addDescription, Modifier.testTag(addTag), onClick = onAdd)
+    }
+}
+
