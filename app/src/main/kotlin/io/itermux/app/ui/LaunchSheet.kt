@@ -1,65 +1,34 @@
 package io.itermux.app.ui
 
-import io.itermux.app.appSettings
-import android.content.SharedPreferences
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import kotlinx.coroutines.launch
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.ItermuxApp
 import io.itermux.app.R
+import io.itermux.app.appSettings
 import io.itermux.app.data.Host
 import io.itermux.app.data.multiplexer
 import io.itermux.app.session.AgentLaunch
 import io.itermux.app.session.AgentMode
-import io.itermux.app.session.AgentStatus
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.RemoteFolders
 import io.itermux.app.session.StartDirectory
 import io.itermux.app.session.agent
-import io.itermux.app.session.agentActivity
-import io.itermux.app.session.idleShell
-import io.itermux.app.session.replyPreview
 import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.SessionMode
-import io.itermux.ssh.TmuxSessionInfo
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /**
  * One sheet to open a terminal or, with [forAgent], start Claude Code, Codex or Grok on [host]. The folder is
@@ -267,211 +236,6 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     own?.pending?.collectAsStateWithLifecycle()?.value?.let { PromptDialog(it) }
 }
 
-private fun folderName(directory: String) = if (StartDirectory.isHome(directory)) tr("主目录")
-    else directory.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }
-
-/**
- * Where the session will start, as tappable crumbs (`~ › work › app`), so any folder above is one tap away; the arrow
- * steps up past home. The magnifier filters long folder lists.
- */
-@Composable
-private fun PathBar(segments: List<Pair<String, String>>, parent: String?, canFilter: Boolean,
-    onNavigate: (String) -> Unit, onFilter: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val scroll = rememberScrollState()
-    LaunchedEffect(segments, scroll.maxValue) { scroll.animateScrollTo(scroll.maxValue) }
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { parent?.let(onNavigate) }, enabled = parent != null, modifier = Modifier.size(40.dp).testTag("launch-parent")) {
-            Icon(painterResource(R.drawable.ic_arrow_up), contentDescription = tr("上一级"), Modifier.size(20.dp))
-        }
-        Row(Modifier.weight(1f).horizontalScroll(scroll).testTag("launch-path"), verticalAlignment = Alignment.CenterVertically) {
-            segments.forEachIndexed { index, (name, path) ->
-                val last = index == segments.lastIndex
-                if (index > 0) Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null,
-                    Modifier.size(14.dp), tint = colors.outline)
-                Text(name, maxLines = 1, softWrap = false,
-                    style = if (last) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
-                    color = if (last) colors.onSurface else colors.primary,
-                    modifier = Modifier.clip(MaterialTheme.shapes.extraSmall).clickable(enabled = !last) { onNavigate(path) }
-                        .padding(horizontal = 6.dp, vertical = 10.dp).testTag("launch-crumb-$index"))
-            }
-        }
-        if (canFilter) IconButton(onClick = onFilter, modifier = Modifier.size(40.dp).testTag("launch-filter-toggle")) {
-            Icon(painterResource(R.drawable.ic_search), contentDescription = tr("筛选当前目录"),
-                Modifier.size(20.dp), tint = colors.onSurfaceVariant)
-        }
-    }
-}
-
-/** Takes the path bar's place while filtering, so the folders keep the room; Enter opens the first match. */
-@Composable
-private fun FolderFilter(value: String, onValueChange: (String) -> Unit, onClose: () -> Unit, onGo: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onClose, modifier = Modifier.size(40.dp).testTag("launch-filter-close")) {
-            Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = tr("关闭筛选"), Modifier.size(20.dp))
-        }
-        Box(Modifier.weight(1f).padding(horizontal = 6.dp), contentAlignment = Alignment.CenterStart) {
-            if (value.isEmpty()) Text(tr("筛选当前目录"), style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
-            BasicTextField(value, onValueChange, singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
-                cursorBrush = SolidColor(colors.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { onGo() }),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus).testTag("launch-filter"))
-        }
-        if (value.isNotEmpty()) IconButton(onClick = { onValueChange("") }, modifier = Modifier.size(40.dp)) {
-            Icon(painterResource(R.drawable.ic_clear), contentDescription = tr("清除"), Modifier.size(18.dp),
-                tint = colors.onSurfaceVariant)
-        }
-    }
-}
-
-/** tmux sessions on the server, most recently used first; tapping one picks it. [home] shortens their folders to `~`. */
-@Composable
-private fun TmuxSessionList(sessions: List<TmuxSessionInfo>, picked: String?, open: Set<String>, busy: Boolean, home: String?,
-    onPick: (String) -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val now = System.currentTimeMillis() / 1000
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize().testTag("launch-tmux-sessions")) {
-            items(sessions, key = { it.name }) { session ->
-                val selected = session.name == picked
-                val status = session.agent
-                val agent = CodingAgent.fromCommand(status?.agent) ?: CodingAgent.fromCommand(session.command)
-                val headline = tmuxHeadline(session, status, agent, home)
-                Row(Modifier.fillMaxWidth().background(if (selected) colors.primary.copy(alpha = 0.1f) else Color.Transparent)
-                    .selectable(selected, enabled = session.attachable, role = Role.RadioButton) { onPick(session.name) }
-                    .alpha(if (session.attachable) 1f else 0.5f).heightIn(min = 52.dp)
-                    .padding(horizontal = Spacing.Page, vertical = 8.dp).testTag("launch-tmux-${session.name}"),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    if (agent != null) AgentIcon(agent, 32.dp, status?.state) else TerminalTile(32.dp)
-                    Spacer(Modifier.width(Spacing.Row))
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(headline, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false))
-                            if (session.name in open) Text(tr("已打开"), style = MaterialTheme.typography.labelSmall, color = colors.primary,
-                                modifier = Modifier.padding(start = 6.dp).border(BorderStroke(0.5.dp, colors.primary), MaterialTheme.shapes.extraSmall)
-                                    .padding(horizontal = 4.dp, vertical = 1.dp))
-                        }
-                        tmuxDoing(status)?.let { doing ->
-                            Text(doing, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                color = status?.state?.color() ?: colors.onSurfaceVariant)
-                        }
-                        Text(tmuxDetail(session, headline, home, now), style = MaterialTheme.typography.bodySmall, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis, color = if (session.attachable) colors.onSurfaceVariant else colors.error)
-                    }
-                    if (selected) Icon(painterResource(R.drawable.ic_check), contentDescription = tr("已选择"), Modifier.size(18.dp),
-                        tint = colors.primary)
-                }
-                GroupedDivider(start = 60.dp)
-            }
-        }
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
-    }
-}
-
-/** [directory] with [home] as `~`. */
-private fun tmuxPath(directory: String, home: String?) =
-    if (home != null && home != "/" && (directory == home || directory.startsWith("$home/"))) "~" + directory.removePrefix(home) else directory
-
-/**
- * What the session is for: its agent's task, else the agent or the program it runs and the folder ("Claude · roamtty",
- * "vim · roamtty"), else the folder of the shell; the session's own name when tmux said none.
- */
-private fun tmuxHeadline(session: TmuxSessionInfo, status: AgentStatus?, agent: CodingAgent?, home: String?): String {
-    status?.task?.takeIf { it.isNotBlank() }?.let { return it }
-    val path = tmuxPath(session.directory, home)
-    val program = agent?.shortLabel ?: session.command.takeUnless { session.idleShell }
-    val folder = if (path == "~" || path == "/") path else path.trimEnd('/').substringAfterLast('/')
-    return when {
-        program != null -> if (path.isEmpty()) program else "$program · $folder"
-        else -> path.ifEmpty { session.name }
-    }
-}
-
-/** The agent's state and what it runs or last answered: "运行中 · Running npm test", "空闲 · 已修复…". */
-private fun tmuxDoing(status: AgentStatus?): String? {
-    status ?: return null
-    val state = when (status.state) {
-        AgentStatus.State.WORKING -> tr("运行中")
-        AgentStatus.State.WAITING -> tr("等待确认")
-        AgentStatus.State.IDLE -> tr("空闲")
-    }
-    val more = if (status.state == AgentStatus.State.IDLE) replyPreview(status.reply) else agentActivity(status)
-    return if (more.isEmpty()) state else "$state · $more"
-}
-
-/**
- * "~/work/app · 5分钟前 · 3 个窗口 · 2 个客户端已连接 · roamtty-1a2b": the folder unless [headline] is it; a name the app
- * made up goes last, as it says least, one somebody chose first.
- */
-private fun tmuxDetail(session: TmuxSessionInfo, headline: String, home: String?, now: Long): String {
-    if (!session.attachable) return tr("名称含有特殊字符，暂不支持打开")
-    val parts = mutableListOf<String>()
-    val path = tmuxPath(session.directory, home)
-    if (path.isNotEmpty() && path != headline) parts += path
-    session.activity?.let { parts += ago((now - it).coerceAtLeast(0)) }
-    if (session.windows > 1) parts += trf("%d 个窗口", session.windows)
-    if (session.attached > 0) parts += trf("%d 个客户端已连接", session.attached)
-    if (headline != session.name) {
-        if (session.name.startsWith("roamtty-")) parts += session.name else parts.add(0, session.name)
-    }
-    return parts.joinToString(" · ")
-}
-
-/** Recently used folders, one tap each; the cross forgets one. */
-@Composable
-private fun RecentFolders(recent: List<String>, current: String, onPick: (String) -> Unit, onForget: (String) -> Unit) {
-    LazyRow(Modifier.padding(bottom = Spacing.Tight), contentPadding = PaddingValues(horizontal = Spacing.Page),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-        items(recent, key = { it }) { dir ->
-            FilterChip(current == dir, onClick = { onPick(dir) }, label = { Text(folderName(dir), maxLines = 1) },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_history), contentDescription = null, Modifier.size(16.dp)) },
-                trailingIcon = {
-                    Icon(painterResource(R.drawable.ic_clear), contentDescription = trf("移除 %s", dir),
-                        Modifier.size(16.dp).clickable { onForget(dir) })
-                },
-                modifier = Modifier.testTag("launch-recent-${recent.indexOf(dir)}"))
-        }
-    }
-}
-
-/** [folders] of [listing] (all, or those matching the filter); [busy] dims them while the next folder loads. */
-@Composable
-private fun FolderList(listing: RemoteFolders, folders: List<String>, busy: Boolean, onOpen: (String) -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize().alpha(if (busy) 0.5f else 1f).testTag("launch-folders")) {
-            if (folders.isEmpty()) item(key = "empty") {
-                Text(if (listing.folders.isEmpty()) tr("这里没有子文件夹") else tr("没有匹配的文件夹"),
-                    Modifier.fillMaxWidth().padding(Spacing.Section), style = MaterialTheme.typography.bodyMedium,
-                    color = colors.onSurfaceVariant)
-            }
-            items(folders, key = { "f:$it" }) { name ->
-                FolderRow(name, enabled = !busy) { onOpen(listing.child(name)) }
-                GroupedDivider(start = 60.dp)
-            }
-        }
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
-    }
-}
-
-@Composable
-private fun FolderRow(name: String, enabled: Boolean, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).heightIn(min = 44.dp)
-        .padding(horizontal = Spacing.Page, vertical = 6.dp).testTag("launch-folder-$name"),
-        verticalAlignment = Alignment.CenterVertically) {
-        RemoteFileIcon(name, directory = true, size = 22.dp)
-        Spacer(Modifier.width(Spacing.Row))
-        Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f))
-        Chevron()
-    }
-}
-
 @Composable
 private fun CenterNote(message: String, action: String, onAction: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(Spacing.Section), verticalArrangement = Arrangement.Center,
@@ -481,116 +245,4 @@ private fun CenterNote(message: String, action: String, onAction: () -> Unit) {
     }
 }
 
-/** Agent and permission as two dropdowns on one line; YOLO is red, and its "!" says what it allows. */
-@Composable
-private fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAgent) -> Unit, onMode: (AgentMode) -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val yolo = mode == AgentMode.YOLO
-    Row(Modifier.fillMaxWidth().padding(start = Spacing.Page, end = Spacing.Page, top = Spacing.Row),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-        Picker(Modifier.weight(1f), "agent-picker", anchor = {
-            AgentBadge(agent, 20.dp)
-            Spacer(Modifier.width(Spacing.Tight))
-            Text(agent.shortLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false))
-        }) { close ->
-            CodingAgent.entries.forEach { option ->
-                PickerItem(option == agent, "agent-option-${option.name.lowercase()}", onClick = { onAgent(option); close() },
-                    leading = { AgentBadge(option, 24.dp) }) {
-                    Text(option.shortLabel, style = MaterialTheme.typography.bodyLarge)
-                    Text(option.command, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        color = colors.onSurfaceVariant)
-                }
-            }
-        }
-        Picker(Modifier.weight(1f), "agent-mode-picker", borderColor = if (yolo) colors.error else null, anchor = {
-            Text(modeLabel(mode, agent), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (yolo) colors.error else colors.onSurface, modifier = Modifier.weight(1f, fill = false))
-            if (yolo) YoloWarning()
-        }) { close ->
-            AgentMode.entries.forEach { option ->
-                val danger = option == AgentMode.YOLO
-                PickerItem(option == mode, "agent-mode-${option.name.lowercase().replace('_', '-')}",
-                    onClick = { onMode(option); close() }) {
-                    Text(modeLabel(option, agent), style = MaterialTheme.typography.bodyLarge,
-                        color = if (danger) colors.error else colors.onSurface)
-                    Text(modeHint(option, agent), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                        color = if (danger) colors.error else colors.onSurfaceVariant)
-                }
-            }
-        }
-    }
-}
-
-/** An outlined field showing the current choice; tapping it drops the options below. */
-@Composable
-private fun Picker(modifier: Modifier, tag: String, borderColor: Color? = null, anchor: @Composable RowScope.() -> Unit,
-    menu: @Composable ColumnScope.(close: () -> Unit) -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    var open by remember { mutableStateOf(false) }
-    Box(modifier) {
-        Surface(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { open = true }.testTag(tag),
-            shape = MaterialTheme.shapes.small, color = colors.groupedContainer,
-            border = BorderStroke(if (borderColor != null) 1.dp else 0.5.dp, borderColor ?: colors.outlineVariant)) {
-            Row(Modifier.heightIn(min = 44.dp).padding(start = Spacing.Row, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                anchor()
-                Spacer(Modifier.weight(1f))
-                Icon(painterResource(R.drawable.ic_expand_down), contentDescription = null, Modifier.size(18.dp),
-                    tint = colors.onSurfaceVariant)
-            }
-        }
-        DropdownMenu(open, onDismissRequest = { open = false }) { menu { open = false } }
-    }
-}
-
-@Composable
-private fun PickerItem(selected: Boolean, tag: String, onClick: () -> Unit, leading: (@Composable () -> Unit)? = null,
-    content: @Composable ColumnScope.() -> Unit) {
-    DropdownMenuItem(text = { Column(content = content) }, onClick = onClick, leadingIcon = leading,
-        trailingIcon = if (selected) { { Icon(painterResource(R.drawable.ic_check), contentDescription = tr("已选择"),
-            Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) } } else null,
-        modifier = Modifier.testTag(tag))
-}
-
-/** The red "!" beside YOLO; tapping it explains, in red, what the mode lets the agent do. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun YoloWarning() {
-    val colors = MaterialTheme.colorScheme
-    val state = rememberTooltipState(isPersistent = true)
-    val scope = rememberCoroutineScope()
-    TooltipBox(TooltipDefaults.rememberPlainTooltipPositionProvider(), state = state, tooltip = {
-        PlainTooltip(containerColor = colors.surfaceContainerHighest, contentColor = colors.error) {
-            Text(modeHint(AgentMode.YOLO), style = MaterialTheme.typography.bodyMedium, maxLines = 1, modifier = Modifier.testTag("agent-mode-warning"))
-        }
-    }) {
-        Icon(painterResource(R.drawable.ic_alert), contentDescription = tr("YOLO 模式说明"), tint = colors.error,
-            modifier = Modifier.padding(start = 4.dp).size(32.dp).clip(RoundedCornerShape(50))
-                .clickable { scope.launch { state.show() } }.padding(7.dp).testTag("agent-mode-info"))
-    }
-}
-
-internal fun modeLabel(mode: AgentMode, agent: CodingAgent = CodingAgent.CODEX) = when (mode) {
-    AgentMode.READ_ONLY -> tr(if (agent == CodingAgent.CLAUDE) "计划" else "只读")
-    AgentMode.STANDARD -> tr("普通")
-    AgentMode.YOLO -> "YOLO"
-}
-
-internal fun modeHint(mode: AgentMode, agent: CodingAgent = CodingAgent.CODEX) = when (mode) {
-    AgentMode.READ_ONLY -> tr(when (agent) {
-        CodingAgent.CLAUDE -> "先分析并制定计划，批准后开始修改"
-        CodingAgent.CODEX -> "以只读沙箱启动，可在 Agent 中调整权限"
-        CodingAgent.GROK -> "只读沙箱；状态与临时目录仍可写"
-    })
-    AgentMode.STANDARD -> tr("改文件或运行命令前先问你")
-    AgentMode.YOLO -> tr("跳过所有确认，直接执行")
-}
-
-internal fun SharedPreferences.recentStartDirectories(hostId: String): List<String> =
-    StartDirectory.sanitizeRecent(getString("$RECENT_KEY:$hostId", null).orEmpty().split('\n'))
-
-internal fun SharedPreferences.saveRecentStartDirectories(hostId: String, directories: List<String>) =
-    edit { putString("$RECENT_KEY:$hostId", StartDirectory.sanitizeRecent(directories).joinToString("\n")) }
-
-private const val RECENT_KEY = "startDirectories"
 private const val FILTER_THRESHOLD = 8
