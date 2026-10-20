@@ -828,6 +828,41 @@ class E2eFeatureTest {
         E2e.run(compose, "tmux kill-session -t $name")
     }
 
+    /** 强制删除 removes a disconnected tmux card at once and also ends its tmux session on the server. */
+    @Test fun f23_forceDeleteEndsTheRemoteTmuxSession() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("强制删除", mode = SessionMode.TMUX))
+        val tmux = openTerminal(host)
+        shellReady(tmux)
+        val name = tmux.remoteSessionName
+        // A plain shell on the same server watches the tmux session; short commands, as long typed lines lose keys
+        // on the emulator.
+        backToHome()
+        val check = openTerminal(E2e.save(E2e.host("强制删除检查")))
+        shellReady(check)
+        E2e.run(compose, "tmux has -t =$name && echo ALIVE_$((6*7))")
+        E2e.waitOutput(compose, check, "ALIVE_42")
+        // A deliberate disconnect leaves the card, which then offers 强制删除.
+        compose.runOnUiThread { live(tmux.id).disconnect() }
+        compose.waitUntil(10_000) { !live(tmux.id).state.value.active }
+        backToHome()
+        sessionsTab()
+        E2e.waitTag(compose, "home-session-${tmux.id}")
+        compose.onNodeWithTag("home-session-${tmux.id}").performTouchInput { longClick() }
+        click("home-session-forget-${tmux.id}")
+        E2e.capture(compose, "f23-confirm")
+        click("home-session-forget-confirm-${tmux.id}")
+        E2e.waitGone(compose, hasTestTag("home-session-${tmux.id}"))
+        assertTrue(service.sessions.value.none { it.id == tmux.id })
+        // The session ends over a login of its own after the card went, so give the server a moment.
+        click("home-session-${check.id}")
+        E2e.waitTag(compose, "terminal")
+        val gone = (1..10).any {
+            E2e.run(compose, "tmux has -t =$name || echo GONE_$((6*$it))")
+            runCatching { E2e.waitOutput(compose, check, "GONE_${6 * it}", timeoutMs = 3_000) }.isSuccess
+        }
+        assertTrue("tmux session $name still runs", gone)
+    }
+
     private companion object {
         val FAILURES = setOf(Phase.AUTH_FAILED, Phase.HOST_KEY_CHANGED, Phase.FAILED, Phase.TMUX_MISSING)
     }

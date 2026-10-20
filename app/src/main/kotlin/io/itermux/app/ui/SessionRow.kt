@@ -214,7 +214,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 onClick = { menu = false; onClose() },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null, tint = colors.error) },
                 modifier = Modifier.testTag("$tagPrefix-close-${session.id}"))
-            // Closing a disconnected tmux session logs in to end it, which an offline host never allows.
+            // Closing a disconnected tmux session logs in to end it, which an offline host never allows; force delete
+            // removes the card first and ends the session if the host answers.
             if (session.closeForgets(state.active)) DropdownMenuItem(text = { Text(tr("强制删除"), color = colors.error) },
                 onClick = { menu = false; forgetting = true },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null, tint = colors.error) },
@@ -222,7 +223,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
         }
         if (forgetting) AlertDialog(onDismissRequest = { forgetting = false },
             title = { Text(tr("强制删除会话？")) },
-            text = { Text(trf("只移除本机的会话卡片，不登录主机；远端 %s 会话若仍在运行，会继续保留。", session.host.multiplexer.id)) },
+            text = { Text(trf("立即移除会话卡片，并用已保存的登录结束远端 %s 会话；主机无法连接时，远端会话会继续保留。", session.host.multiplexer.id)) },
             confirmButton = {
                 TextButton(onClick = { forgetting = false; onForget() }, Modifier.testTag("$tagPrefix-forget-confirm-${session.id}")) {
                     Text(tr("删除"), color = colors.error)
