@@ -5,7 +5,6 @@ import io.itermux.app.trf
 
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Context
 import android.content.res.Configuration
 import android.view.KeyEvent
 import android.view.View
@@ -18,17 +17,10 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
@@ -42,7 +34,6 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -54,11 +45,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -66,7 +53,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.view.SoftwareKeyboardControllerCompat
-import androidx.core.content.edit
 import com.termux.terminal.KeyHandler
 import com.termux.terminal.TextStyle
 import com.termux.view.TerminalView
@@ -74,8 +60,6 @@ import io.itermux.app.TerminalFonts
 import io.itermux.app.session.*
 import io.itermux.app.R
 import io.itermux.ssh.Phase
-import io.itermux.ssh.SessionMode
-import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -97,8 +81,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val context = LocalContext.current
     val inputScope = rememberCoroutineScope()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val prefs = remember { context.getSharedPreferences("terminal-settings", Context.MODE_PRIVATE) }
-    var fontSize by rememberSaveable { mutableIntStateOf(prefs.getInt("fontSize", 13)) }
+    val settings = remember { TerminalSettings(context) }
+    var fontSize by rememberSaveable { mutableIntStateOf(settings.fontSize) }
     // Snapshot reads: changing font in Settings recomposes this pane and AndroidView.update.
     val terminalFontKey = TerminalFonts.selection to TerminalFonts.revision
     var editor by rememberSaveable { mutableStateOf(false) }
@@ -110,9 +94,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var sessionMenu by remember { mutableStateOf(false) }
     var fileAction by remember { mutableStateOf<FileAction?>(null) }
     var commonCommandsOpen by rememberSaveable { mutableStateOf(false) }
-    var ctrlArmed by remember { mutableStateOf(false) }
-    var shiftArmed by remember { mutableStateOf(false) }
-    var dockPinned by rememberSaveable { mutableStateOf(prefs.getBoolean("dockPinned", false)) }
+    val sticky = remember { StickyModifiers() }
+    var dockPinned by rememberSaveable { mutableStateOf(settings.dockPinned) }
     var dockExpanded by rememberSaveable { mutableStateOf(false) }
     var dockBounds by remember { mutableStateOf(Rect.Zero) }
     var workspaceOrigin by remember { mutableStateOf(Offset.Zero) }
@@ -130,8 +113,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         menu = false
         sessionMenu = false
         if (!dockPinned) dockExpanded = false
-        ctrlArmed = false
-        shiftArmed = false
+        sticky.clear()
     }
     // The collapsed toolbox fades out after a quiet spell and returns on the next touch.
     var toolboxAwake by remember { mutableStateOf(true) }
@@ -144,38 +126,28 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             toolboxAwake = false
         }
     }
-    // Holding the pet opens a ring of agent shortcuts around it; dragging onto one and letting go sends it.
-    var petCenter by remember { mutableStateOf<Offset?>(null) }
-    var petArc by remember { mutableStateOf<PetArc?>(null) }
-    var petHovered by remember { mutableStateOf<Int?>(null) }
-    // The ring matches the program in front, read from the screen when the hold starts; Fn opens a sub-ring.
-    var petApp by remember { mutableStateOf(ScreenApp.SHELL) }
-    var petMenu by remember { mutableStateOf<List<PetShortcut>?>(null) }
-    // Letting go away from every item leaves the ring open for taps until it times out.
-    var petPinned by remember { mutableStateOf(false) }
-    val petShortcuts = petMenu ?: petShortcuts(petApp)
+    val petRing = remember { PetRingState() }
+    val petShortcuts = petRing.shortcuts
     val haptics = LocalHapticFeedback.current
-    fun closePetRing() { petCenter = null; petArc = null; petHovered = null; petMenu = null; petPinned = false }
     LaunchedEffect(dockAvailable, dockVisible) {
-        if (!dockAvailable || dockVisible) closePetRing()
+        if (!dockAvailable || dockVisible) petRing.close()
     }
     // An open ring keeps itself and the pet up until a tap, or until it has been left alone for a long spell; then
     // both go together.
-    fun dismissPetRing() { closePetRing(); if (TerminalToolbox.autoHideMillis > 0) toolboxAwake = false }
-    LaunchedEffect(petPinned, touches) {
+    fun dismissPetRing() { petRing.close(); if (TerminalToolbox.autoHideMillis > 0) toolboxAwake = false }
+    LaunchedEffect(petRing.pinned, touches) {
         val hideAfter = TerminalToolbox.petRingHideMillis
-        if (petPinned && hideAfter > 0) {
+        if (petRing.pinned && hideAfter > 0) {
             delay(hideAfter)
             dismissPetRing()
         }
     }
     // Resting on a menu item unfolds its sub-ring.
-    LaunchedEffect(petHovered, petShortcuts) {
-        val menu = petHovered?.let(petShortcuts::getOrNull)?.action as? PetAction.Menu ?: return@LaunchedEffect
+    LaunchedEffect(petRing.hovered, petShortcuts) {
+        val menu = petRing.hovered?.let(petShortcuts::getOrNull)?.action as? PetAction.Menu ?: return@LaunchedEffect
         delay(350)
-        petHovered = null
-        petArc = null
-        petMenu = menu.items
+        petRing.hovered = null
+        petRing.unfold(menu.items)
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
     // The cursor-row Enter key stays out of the way while typing and appears once input pauses,
@@ -191,7 +163,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var petArrowTouches by remember { mutableIntStateOf(0) }
     // Where the pet and its arrows sit (root coordinates), so the cursor-row Enter/Esc key can step aside.
     var petArrowBounds by remember { mutableStateOf<Rect?>(null) }
-    val petArrowsShown = (petArrowsAwake || slashCommandLine != 0) && petCenter == null
+    val petArrowsShown = (petArrowsAwake || slashCommandLine != 0) && petRing.center == null
     LaunchedEffect(petArrowTouches) {
         if (petArrowTouches == 0) return@LaunchedEffect
         petArrowsAwake = true
@@ -237,12 +209,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     fun terminalKey(keyCode: Int) {
         // Sticky modifiers apply to arrows (e.g. Shift+Left → CSI ESC[1;2D); other keys are sent unmodified.
         if (keyCode !in arrowKeys) {
-            ctrlArmed = false
-            shiftArmed = false
+            sticky.clear()
         }
         terminal?.sendInputControlKey(keyCode)
-        ctrlArmed = false
-        shiftArmed = false
+        sticky.clear()
     }
     /** An arrow key beside the pet: keeps the arrows up a while longer and sends the key at the live screen. */
     fun petArrow(keyCode: Int) {
@@ -253,8 +223,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     fun sendPetShortcut(shortcut: PetShortcut) {
         when (val action = shortcut.action) {
             is PetAction.Keys -> {
-                ctrlArmed = false
-                shiftArmed = false
+                sticky.clear()
                 terminal?.scrollToBottom()
                 session.write(action.keys)
                 if (action.repeat) inputScope.launch {
@@ -263,25 +232,24 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 }
             }
             is PetAction.Key -> {
-                val modifiers = (if (ctrlArmed) KeyHandler.KEYMOD_CTRL else 0) or (if (shiftArmed) KeyHandler.KEYMOD_SHIFT else 0)
-                ctrlArmed = false
-                shiftArmed = false
+                val modifiers = (if (sticky.ctrl) KeyHandler.KEYMOD_CTRL else 0) or (if (sticky.shift) KeyHandler.KEYMOD_SHIFT else 0)
+                sticky.clear()
                 terminal?.scrollToBottom()
                 terminal?.sendInputControlKey(action.keyCode, modifiers)
             }
             // Like the dock's Ctrl and Shift keys: armed for the next key, Ctrl with the keyboard up.
             PetAction.Ctrl -> {
-                shiftArmed = false
-                ctrlArmed = !ctrlArmed
-                if (ctrlArmed) terminal?.let { view ->
+                sticky.shift = false
+                sticky.ctrl = !sticky.ctrl
+                if (sticky.ctrl) terminal?.let { view ->
                     view.requestFocus()
                     SoftwareKeyboardControllerCompat(view).show()
                 }
             }
             PetAction.Shift -> {
-                ctrlArmed = false
-                shiftArmed = !shiftArmed
-                if (shiftArmed) terminal?.requestFocus()
+                sticky.ctrl = false
+                sticky.shift = !sticky.shift
+                if (sticky.shift) terminal?.requestFocus()
             }
             is PetAction.Menu -> Unit
         }
@@ -289,13 +257,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     /** Swipe-and-hold jumps to the line start (Ctrl+A) or end (Ctrl+E); armed modifiers are dropped, not applied. */
     fun lineEdge(control: String) {
         terminal?.sendInputText(control)
-        ctrlArmed = false
-        shiftArmed = false
+        sticky.clear()
     }
     fun hideKeyboard() {
         // Clear Compose/native focus before hiding so focus transfer cannot reopen the IME.
-        ctrlArmed = false
-        shiftArmed = false
+        sticky.clear()
         focus.clearFocus(force = true)
         terminal?.clearFocus()
         keyboard.hide()
@@ -323,8 +289,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     // AndroidView can outlive a recomposition/reconnection. Always paste into the current session.
     val pasteClipboard by rememberUpdatedState {
         if (session.state.value.phase == Phase.CONNECTED) clipboardText()?.let { text ->
-            ctrlArmed = false
-            shiftArmed = false
+            sticky.clear()
             paste(text)
         }
     }
@@ -335,18 +300,18 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             session.onScreenChanged = null; session.copyToClipboard = null; session.pasteFromClipboard = null
         }
     }
-    LaunchedEffect(fontSize) { prefs.edit { putInt("fontSize", fontSize) } }
+    LaunchedEffect(fontSize) { settings.fontSize = fontSize }
     LaunchedEffect(session.id) { hideKeyboard() }
     LaunchedEffect(state.phase) {
         if (state.phase != Phase.CONNECTED) {
-            ctrlArmed = false; shiftArmed = false; confirmPaste = null
+            sticky.clear(); confirmPaste = null
             menu = false; sessionMenu = false
         }
         else session.inputWarning.value = null
     }
     // Opening the arrow menu can hide the IME. Keep Shift armed until the arrow is sent.
     // A keyboard closed some other way drops a pending hide, so reopening it is not undone.
-    LaunchedEffect(imeVisible) { if (!imeVisible) { ctrlArmed = false; keyboardHide?.cancel() } }
+    LaunchedEffect(imeVisible) { if (!imeVisible) { sticky.ctrl = false; keyboardHide?.cancel() } }
     BackHandler(editor || imeVisible) { editor = false; hideKeyboard() }
     val fileControls: @Composable () -> Unit = {
         TerminalFileActions(enabled = state.phase == Phase.CONNECTED && !transferStatus.running) { action ->
@@ -357,44 +322,20 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val dock: @Composable (Dp) -> Unit = { availableHeight ->
         TerminalDock(availableHeight, landscape, imeVisible, modifier = Modifier.onGloballyPositioned { dockBounds = it.boundsInRoot() }, collapseControl = {
             IconButton(onClick = {
-                ctrlArmed = false
-                shiftArmed = false
+                sticky.clear()
                 dockExpanded = false
                 dockPinned = false
-                prefs.edit { putBoolean("dockPinned", false) }
+                settings.dockPinned = false
             }, modifier = Modifier.testTag("collapse-dock")) {
                 Icon(painterResource(R.drawable.ic_close), contentDescription = tr("收起操作栏"), modifier = Modifier.size(20.dp))
             }
         }, sessionControl = { sessionModifier ->
-            Box(sessionModifier) {
-                TextButton(onClick = { hideKeyboard(); sessionMenu = true }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = trf("切换会话：%s", session.titleForDisplay(sessionTitle)) }.testTag("session-switcher"), contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    // The dot on the sessions icon doubles as the connection indicator.
-                    Box {
-                        Icon(painterResource(R.drawable.ic_sessions), contentDescription = null, modifier = Modifier.size(22.dp))
-                        Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp).size(8.dp).clip(CircleShape)
-                            .background(if (state.phase == Phase.CONNECTED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error))
-                    }
-                }
-                DropdownMenu(sessionMenu, ::dismissDockMenus) {
-                    DropdownMenuItem(text = { Text(tr("返回主机详情")) }, onClick = { sessionMenu = false; onHostDetail() })
-                    DropdownMenuItem(text = { Text(tr(if (session.external) "断开当前会话" else "关闭当前会话")) }, onClick = { sessionMenu = false; onClose() },
-                        modifier = Modifier.testTag("close-session"))
-                    // A tmux pane restarts over the live connection; a plain shell restarts by reconnecting.
-                    DropdownMenuItem(
-                        text = { Text(tr("重启当前会话")) },
-                        onClick = { sessionMenu = false; restartConfirm = true },
-                        enabled = session.mode == SessionMode.SHELL || state.phase == Phase.CONNECTED,
-                        modifier = Modifier.testTag("restart-session")
-                    )
-                    HorizontalDivider()
-                    sessions.forEach { other ->
-                        val otherState by other.state.collectAsStateWithLifecycle()
-                        val otherTitle by other.title.collectAsStateWithLifecycle()
-                        DropdownMenuItem(text = { Text("${if (other.id == session.id) "✓ " else ""}${other.titleForDisplay(otherTitle)} · ${phaseLabel(otherState.phase)}",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis) }, onClick = { sessionMenu = false; onSelectSession(other.id) })
-                    }
-                }
-            }
+            SessionSwitcher(session, sessionTitle, state.phase, sessions, sessionMenu, sessionModifier,
+                onExpand = { hideKeyboard(); sessionMenu = true }, onDismiss = ::dismissDockMenus,
+                onHostDetail = { sessionMenu = false; onHostDetail() },
+                onClose = { sessionMenu = false; onClose() },
+                onRestart = { sessionMenu = false; restartConfirm = true },
+                onSelect = { sessionMenu = false; onSelectSession(it) })
         }, primaryControls = {
             fileControls()
             IconButton(
@@ -405,23 +346,23 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 Icon(painterResource(R.drawable.ic_commands), contentDescription = tr("常用命令"))
             }
             Box {
-                IconButton(onClick = { ctrlArmed = false; shiftArmed = false; menu = true }, modifier = Modifier.testTag("terminal-menu")) {
+                IconButton(onClick = { sticky.clear(); menu = true }, modifier = Modifier.testTag("terminal-menu")) {
                     Icon(painterResource(R.drawable.ic_settings), contentDescription = tr("终端设置"))
                 }
                 DropdownMenu(menu, ::dismissDockMenus) {
                     DropdownMenuItem(text = { Text(tr("编辑文本")) }, onClick = { menu = false; editor = true; hideKeyboard() })
                     DropdownMenuItem(text = { Text(if (dockPinned) tr("取消固定操作栏") else tr("固定操作栏")) }, onClick = {
                         menu = false; dockPinned = !dockPinned; dockExpanded = true
-                        prefs.edit { putBoolean("dockPinned", dockPinned) }
+                        settings.dockPinned = dockPinned
                     })
                     DropdownMenuItem(text = { Text(tr("隐藏操作栏")) }, onClick = {
                         menu = false; dockPinned = false; dockExpanded = false; editor = false; hideKeyboard()
-                        prefs.edit { putBoolean("dockPinned", false) }
+                        settings.dockPinned = false
                     })
                     DropdownMenuItem(text = { Text(tr("粘贴")) }, onClick = { menu = false; showClipboard() })
                     HorizontalDivider()
-                    DropdownMenuItem(text = { Text(trf("增大字号 · %d sp", fontSize)) }, onClick = { fontSize = (fontSize + 1).coerceAtMost(28); menu = false })
-                    DropdownMenuItem(text = { Text(trf("减小字号 · %d sp", fontSize)) }, onClick = { fontSize = (fontSize - 1).coerceAtLeast(8); menu = false })
+                    DropdownMenuItem(text = { Text(trf("增大字号 · %d sp", fontSize)) }, onClick = { fontSize = (fontSize + 1).coerceAtMost(TerminalSettings.MAX_FONT_SIZE); menu = false })
+                    DropdownMenuItem(text = { Text(trf("减小字号 · %d sp", fontSize)) }, onClick = { fontSize = (fontSize - 1).coerceAtLeast(TerminalSettings.MIN_FONT_SIZE); menu = false })
                 }
             }
         })
@@ -452,9 +393,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     TerminalView(ctx, null).apply {
                         terminal = this
                         setTerminalViewClient(MobileTerminalClient(this,
-                            onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(8, 28) },
-                            controlArmed = { ctrlArmed }, consumeControl = { ctrlArmed = false },
-                            shiftArmed = { shiftArmed }, consumeShift = { shiftArmed = false },
+                            onScale = { factor -> fontSize = (fontSize * factor).toInt().coerceIn(TerminalSettings.MIN_FONT_SIZE, TerminalSettings.MAX_FONT_SIZE) },
+                            controlArmed = { sticky.ctrl }, consumeControl = { sticky.ctrl = false },
+                            shiftArmed = { sticky.shift }, consumeShift = { sticky.shift = false },
                             onDoubleTap = {
                                 terminalKey(KeyEvent.KEYCODE_TAB)
                                 enterKeyTyping = false
@@ -490,8 +431,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             CursorKey(R.drawable.ic_return, tr("回车"), "cursor-enter") {
                                 enterKeyTyping = false
                                 enterKeyTouches++
-                                ctrlArmed = false
-                                shiftArmed = false
+                                sticky.clear()
                                 view.scrollToBottom()
                                 session.write("\r")
                                 // Like the soft keyboard's Enter: put an open keyboard away so the output shows.
@@ -506,8 +446,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     terminal?.let { view ->
                         CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight, avoid = petArrowBounds.takeIf { petArrowsShown }) {
                             CursorKey(null, tr("发送 Esc"), "cursor-escape", label = "Esc") {
-                                ctrlArmed = false
-                                shiftArmed = false
+                                sticky.clear()
                                 view.scrollToBottom()
                                 session.write("\u001b")
                             }
@@ -534,51 +473,29 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     } }
                 }
                 }
-                if (editor && landscape) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        OutlinedTextField(draft, ::updateDraft,
-                            placeholder = { Text(tr("输入文本后，在这里确认"), maxLines = 1) },
-                            minLines = 1, maxLines = if (imeVisible) 2 else 3,
-                            modifier = Modifier.weight(1f).testTag("prompt-editor"))
-                        DraftInputControls(draft, ::updateDraft)
-                        TextButton(onClick = { editor = false; hideKeyboard() }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(tr("收起")) }
-                        TextButton(onClick = { session.write("\r") }, enabled = state.phase == Phase.CONNECTED, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(tr("回车 ↵")) }
-                        Button(onClick = { paste(draft.text) }, enabled = draft.text.isNotEmpty() && state.phase == Phase.CONNECTED, contentPadding = PaddingValues(horizontal = 12.dp)) { Text(tr("发送文本")) }
-                    }
-                } else if (editor) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
-                        OutlinedTextField(draft, ::updateDraft, placeholder = { Text(tr("输入文本后，在这里确认")) }, minLines = 1, maxLines = if (imeVisible) 2 else 4, modifier = Modifier.fillMaxWidth().testTag("prompt-editor"))
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            DraftInputControls(draft, ::updateDraft)
-                            Spacer(Modifier.weight(1f))
-                            TextButton(onClick = { editor = false; hideKeyboard() }, modifier = Modifier.width(48.dp), contentPadding = PaddingValues(4.dp)) { Text(tr("收起")) }
-                            TextButton(onClick = { session.write("\r") }, enabled = state.phase == Phase.CONNECTED, modifier = Modifier.width(48.dp).semantics { contentDescription = tr("回车") }, contentPadding = PaddingValues(4.dp)) { Text("↵", fontSize = 22.sp) }
-                            Button(onClick = { paste(draft.text) }, enabled = draft.text.isNotEmpty() && state.phase == Phase.CONNECTED, modifier = Modifier.width(88.dp), contentPadding = PaddingValues(8.dp)) { Text(tr("发送文本")) }
-                        }
-                    }
-                }
+                if (editor) DraftEditor(draft, ::updateDraft, landscape, imeVisible, connected = state.phase == Phase.CONNECTED,
+                    onCollapse = { editor = false; hideKeyboard() }, onEnter = { session.write("\r") }, onSend = { paste(draft.text) })
             }
             if (dockReserved) TerminalDockPlacement(
                 Modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.End))
                     .width(if (terminalDockTwoColumns(landscape, imeVisible, safeDockHeight)) 96.dp else 48.dp),
                 endInset = 0.dp, content = dock)
         }
-        val ringCenter = petCenter
+        val ringCenter = petRing.center
         if (ringCenter != null && dockAvailable && !dockVisible) {
             val topInset = WindowInsets.displayCutout.union(WindowInsets.statusBars).getTop(LocalDensity.current).toFloat()
-            PetShortcutArc(petShortcuts, ringCenter, topInset, petHovered, armed = { action ->
-                action == PetAction.Ctrl && ctrlArmed || action == PetAction.Shift && shiftArmed
-            }, onTap = if (petPinned) { index ->
+            PetShortcutArc(petShortcuts, ringCenter, topInset, petRing.hovered, armed = { action ->
+                action == PetAction.Ctrl && sticky.ctrl || action == PetAction.Shift && sticky.shift
+            }, onTap = if (petRing.pinned) { index ->
                 val picked = index?.let(petShortcuts::getOrNull)
                 val menu = picked?.action as? PetAction.Menu
                 if (menu != null) {
-                    petArc = null
-                    petMenu = menu.items
+                    petRing.unfold(menu.items)
                 } else {
                     dismissPetRing()
                     if (picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
                 }
-            } else null) { petArc = it }
+            } else null) { petRing.arc = it }
         }
         if (floatingDock) {
             TerminalDockPlacement { height ->
@@ -589,7 +506,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         } else if (dockAvailable && !dockVisible) {
             // Leave the composition while hidden so taps on that edge reach the terminal.
             // The ring opens around the pet, so the arrows step aside while it is up.
-            AnimatedVisibility(toolboxAwake || petCenter != null || petArrowsShown, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
+            AnimatedVisibility(toolboxAwake || petRing.center != null || petArrowsShown, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
                 exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
                 // Up above the pet, Down below it and Left to its left; the pet stays put between them.
                 TerminalDockPlacement { Column(Modifier.onGloballyPositioned { petArrowBounds = it.boundsInRoot() },
@@ -599,34 +516,34 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     }
                     Box(contentAlignment = Alignment.CenterStart) {
                         ToolboxPet(tr("显示操作栏"), onHoldStart = { center ->
-                            petHovered = null
-                            petMenu = null
-                            petPinned = false
-                            petApp = session.screenApp()
-                            petCenter = center - workspaceOrigin
+                            petRing.hovered = null
+                            petRing.menu = null
+                            petRing.pinned = false
+                            petRing.app = session.screenApp()
+                            petRing.center = center - workspaceOrigin
                         }, onHoldMove = { drag ->
-                            val arc = petArc
+                            val arc = petRing.arc
                             // Back over the pet leaves a sub-ring.
-                            if (petMenu != null && arc != null && drag.getDistance() < arc.radius * 0.25f) {
-                                petMenu = null
-                                petArc = null
+                            if (petRing.menu != null && arc != null && drag.getDistance() < arc.radius * 0.25f) {
+                                petRing.menu = null
+                                petRing.arc = null
                             }
-                            val hovered = petArc?.hoveredItem(drag)
-                            if (hovered != petHovered) {
-                                petHovered = hovered
+                            val hovered = petRing.arc?.hoveredItem(drag)
+                            if (hovered != petRing.hovered) {
+                                petRing.hovered = hovered
                                 if (hovered != null) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             }
                         }, onHoldEnd = { released ->
-                            val picked = petHovered?.let(petShortcuts::getOrNull)
+                            val picked = petRing.hovered?.let(petShortcuts::getOrNull)
                             val menu = picked?.action as? PetAction.Menu
                             touches++
                             if (released && (picked == null || menu != null)) {
                                 // Let go between items: keep the ring up for a tap. A menu not yet unfolded opens now.
-                                petHovered = null
-                                if (menu != null) { petArc = null; petMenu = menu.items }
-                                petPinned = true
+                                petRing.hovered = null
+                                if (menu != null) petRing.unfold(menu.items)
+                                petRing.pinned = true
                             } else {
-                                closePetRing()
+                                petRing.close()
                                 if (released && picked != null && state.phase == Phase.CONNECTED) sendPetShortcut(picked)
                             }
                         }) { dockExpanded = true }
@@ -658,11 +575,10 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         terminal?.scrollToBottom()
         session.executeHistoryCommand(command)
     }, onDismiss = { commonCommandsOpen = false })
-    confirmPaste?.let { text -> AlertDialog(onDismissRequest = { confirmPaste = null }, title = { Text(tr("发送多行文本？")) }, text = { Text(tr("远端尚未启用 bracketed paste。文本中的换行可能立即执行命令，请确认当前程序能安全接收多行输入。")) }, confirmButton = { TextButton(onClick = { sendPaste(text); confirmPaste = null }, enabled = state.phase == Phase.CONNECTED) { Text(tr("发送")) } }, dismissButton = { TextButton(onClick = { confirmPaste = null }) { Text(tr("取消")) } }) }
-    if (restartConfirm) AlertDialog(onDismissRequest = { restartConfirm = false }, title = { Text(tr("重启当前会话？")) },
-        text = { Text(if (session.mode == SessionMode.TMUX) tr("正在运行的程序会被结束，然后在同一目录重新启动。") else tr("当前 shell 会结束并重新连接。")) },
-        confirmButton = { TextButton(onClick = { restartConfirm = false; onRestart() }, modifier = Modifier.testTag("restart-session-confirm")) { Text(tr("重启")) } },
-        dismissButton = { TextButton(onClick = { restartConfirm = false }) { Text(tr("取消")) } })
+    confirmPaste?.let { text ->
+        PasteConfirmDialog(enabled = state.phase == Phase.CONNECTED, onSend = { sendPaste(text); confirmPaste = null }) { confirmPaste = null }
+    }
+    if (restartConfirm) RestartSessionDialog(session.mode, onRestart = { restartConfirm = false; onRestart() }) { restartConfirm = false }
 }
 
 /** Idle timeout of the collapsed toolbox button; 0 keeps it visible (instrumentation tests). */
@@ -678,62 +594,7 @@ internal object TerminalToolbox {
     @Volatile var petArrowsHideMillis = 4_000L
 }
 
-/** Keys at the right end of the cursor row, [height] tall and centred on it; hidden while the cursor is scrolled away. */
-@Composable
-private fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewportHeight: Int, height: Dp,
-    avoid: Rect? = null, keys: @Composable () -> Unit) {
-    // Output moves the cursor: follow it on every screen revision. Only whether the row is on screen recomposes;
-    // the position is read while placing, so a stream of output moves the keys without recomposing them.
-    val onScreen by remember(view, outputRevision) {
-        derivedStateOf { checkNotNull(outputRevision.value); view.getCursorRowTop() >= 0 }
-    }
-    if (!onScreen) return
-    // Where the keys' box sits before its offset, in root coordinates.
-    var containerTop by remember { mutableFloatStateOf(0f) }
-    Box(Modifier.onGloballyPositioned { containerTop = it.positionInRoot().y }.offset {
-        checkNotNull(outputRevision.value)
-        // The terminal view sits 6dp below the viewport top; centre the keys on the cursor row.
-        val keyHeight = height.roundToPx()
-        val keyTop = (6.dp.roundToPx() + view.getCursorRowTop() + view.lineHeight / 2 - keyHeight / 2)
-            .coerceIn(0, (viewportHeight - keyHeight).coerceAtLeast(0))
-        // The pet's Up/Down/Left keys sit at the same right edge: when the row falls within their span, slide left of them.
-        val keyShift = if (avoid != null && containerTop + keyTop < avoid.bottom && containerTop + keyTop + keyHeight > avoid.top)
-            (avoid.width + 8.dp.toPx() + 40.dp.toPx()).roundToInt() else 0
-        IntOffset(-keyShift, keyTop)
-    }) { keys() }
-}
-
-/** One of the Up, Down and Left keys around the pet, fading in and out with the others. */
-@Composable
-private fun PetArrowKey(visible: Boolean, icon: Int, description: String, tag: String, onClick: () -> Unit) {
-    androidx.compose.animation.AnimatedVisibility(visible, enter = fadeIn(tween(120)), exit = fadeOut(tween(200))) {
-        CursorKey(icon, description, tag, onClick = onClick)
-    }
-}
-
-private val CursorKeyHeight = 32.dp
 internal const val KeyboardHideAfterEnterMillis = 15_000L
-
-/** A slim key drawn inside a larger touch area, tinted on press; shows [icon], or [label] when there is none. */
-@Composable
-private fun CursorKey(icon: Int?, description: String, tag: String, label: String = "", onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    Box(Modifier.size(40.dp, CursorKeyHeight)
-        .clickable(interaction, indication = null, onClick = onClick)
-        .semantics { contentDescription = description }.testTag(tag),
-        contentAlignment = Alignment.Center) {
-        Surface(Modifier.size(28.dp, 20.dp), shape = RoundedCornerShape(6.dp),
-            color = if (pressed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
-            contentColor = MaterialTheme.colorScheme.primary,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
-            Box(contentAlignment = Alignment.Center) {
-                if (icon != null) Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(14.dp))
-                else Text(label, fontSize = 10.sp, lineHeight = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
-            }
-        }
-    }
-}
 
 /** The colour the terminal renderer fills its canvas with, so the status bar area matches it. */
 private fun terminalBackground(session: TerminalConnection): Color {
