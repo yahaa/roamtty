@@ -131,8 +131,12 @@ class Frame(val type: Int, val payload: ByteArray)
 data class DisplayInfo(val id: Int, val width: Int, val height: Int, val scale: Double, val x: Int, val y: Int,
     val primary: Boolean, val name: String)
 
+/** The UDP transport's port on the host and its session key (16 bytes, never stored). */
+class UdpOffer(val port: Int, val key: ByteArray)
+
 data class Hello(val proto: Int, val version: String, val os: String, val session: String, val resumeToken: String,
-    val displays: List<DisplayInfo>, val encoders: List<String>, val hardware: String, val needs: List<String>) {
+    val displays: List<DisplayInfo>, val encoders: List<String>, val hardware: String, val needs: List<String>,
+    val udp: UdpOffer? = null) {
     companion object {
         fun parse(json: JSONObject) = Hello(
             proto = json.getInt("proto"), version = json.optString("ver"), os = json.optString("os"),
@@ -142,7 +146,10 @@ data class Hello(val proto: Int, val version: String, val os: String, val sessio
                     it.optInt("y"), it.optBoolean("primary"), it.optString("name"))
             },
             encoders = json.optJSONArray("enc").strings(), hardware = json.optString("hw"),
-            needs = json.optJSONArray("needs").strings())
+            needs = json.optJSONArray("needs").strings(),
+            udp = json.optJSONObject("udp")?.let { u ->
+                java.util.Base64.getDecoder().decode(u.getString("key")).takeIf { it.size == 16 }?.let { UdpOffer(u.getInt("port"), it) }
+            })
     }
 }
 

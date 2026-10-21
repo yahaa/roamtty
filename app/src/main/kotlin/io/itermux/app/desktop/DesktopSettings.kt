@@ -28,6 +28,18 @@ internal class DesktopSettings(context: Context) {
         get() = prefs.getString("desktop.pluginBaseUrl", "").orEmpty()
         set(value) = prefs.edit { putString("desktop.pluginBaseUrl", value.trim()) }
 
+    private val testHooks = io.itermux.app.BuildConfig.DEBUG || io.itermux.app.BuildConfig.BUILD_TYPE == "e2e"
+
+    /** Debug and e2e builds: where UDP goes instead of the host's address (the emulator reaches its host at 10.0.2.2). */
+    var udpHostOverride: String
+        get() = if (testHooks) prefs.getString("desktop.udpHost", "").orEmpty() else ""
+        set(value) = prefs.edit { putString("desktop.udpHost", value.trim()) }
+
+    /** Debug and e2e builds: share of UDP datagrams dropped both ways, to exercise FEC and resends. */
+    var testLoss: Double
+        get() = if (testHooks) prefs.getFloat("desktop.testLoss", 0f).toDouble() else 0.0
+        set(value) = prefs.edit { putFloat("desktop.testLoss", value.toFloat()) }
+
     fun pointerMode(hostId: String): PointerMode =
         PointerMode.entries.firstOrNull { it.name == prefs.getString("desktop.$hostId.mode", null) } ?: PointerMode.TOUCH
     fun setPointerMode(hostId: String, mode: PointerMode) = prefs.edit { putString("desktop.$hostId.mode", mode.name) }

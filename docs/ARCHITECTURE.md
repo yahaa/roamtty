@@ -56,7 +56,8 @@ tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec 
 - `ssh-core`：`HostPluginProbe` 在插件检测脚本末尾做只读桌面探测（`HostDesktop`）；`RemoteHost.openStream` 提供长驻的 exec channel；`DesktopPluginInstaller` 按“主机下载 → 失败则手机下载并 SFTP 上传 → SHA-256 校验 → 原子改名”安装。
 - `app/desktop`：`SessionService` 持有 `DesktopRegistry`（每台主机至多一个 `DesktopConnection`，不进会话日志、不占 8 个会话的配额）。`DesktopConnection` 自己登录（`pageLogin` + `administer`），探测、按需安装、启动 `roamtty-desktop serve`，读帧交给 `VideoDecoder`（MediaCodec 直接渲染到 SurfaceView，SPS/PPS 作为 csd），解码完成后回 ACK。离开页面发 `PAUSE` 并保持到设置的时长；链路断开时带 `--resume` 重连，30 秒内恢复，否则失败；网络切换时立即重连。
 - 前台服务在有活动桌面时保持，通知里多一行“<主机> 桌面 · 已连接”，点按回到桌面页。
-- 当前只走 SSH channel（P1）；UDP 传输、macOS / Windows / Wayland 后端属于后续阶段。
+- UDP（P2）：hello 带端口和随机 key，`desktop-core` 的 `UdpLink` 连到 SSH 所连的地址（调试/e2e 可覆盖为 10.0.2.2）。数据报为 `dir | seq` 明文头 + AES-128-GCM；每个协议帧是一条消息，切成等长分片加 Reed-Solomon 校验（`Fec`，GF(2^8) Cauchy 矩阵，与插件逐字节一致，金样在 `udp-*.bin`）。按键、按钮、文字和控制消息重发到收到 RACK；指针、滚轮、ACK、PING 只发一次。客户端 50 ms 后上报每条视频消息的到达情况，主机据此做简化 GCC（延迟趋势 + 丢包）、按丢包调 FEC 比例（5–30%）、按 1.5 倍码率 pacing；RTT 小于两帧时对缺片发 NACK。3 秒收不到包两端都回到 SSH channel，恢复后自动切回；SSH 断开而 UDP 还通时继续只走 UDP。切网时换新 socket、立即发 3 个心跳并请求关键帧，主机按新地址漫游。
+- macOS / Windows / Wayland 后端属于后续阶段。
 
 ## 界面结构
 

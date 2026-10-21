@@ -79,7 +79,7 @@ class E2eDesktopTest {
         E2e.cleanup(if (::service.isInitialized) service else null)
     }
 
-    @After fun tearDown() { DesktopSettings(E2e.context).apply { enabled = false; pluginBaseUrl = "" } }
+    @After fun tearDown() { DesktopSettings(E2e.context).apply { enabled = false; pluginBaseUrl = ""; udpHostOverride = ""; testLoss = 0.0 } }
 
     private fun click(tag: String, timeoutMs: Long = 10_000) {
         E2e.waitTag(compose, tag, timeoutMs)
@@ -217,5 +217,79 @@ class E2eDesktopTest {
         E2e.waitTag(compose, "home-session-${session.id}")
         compose.waitForIdle()
         assertFalse(E2e.exists(compose, hasTestTag("home-session-desktop-${session.id}")))
+    }
+
+    /**
+     * UDP (plan §7.3 P2) with 5% loss each way: video and typing ride UDP, FEC rebuilds frames,
+     * a network change recovers within a second, blocked UDP falls back to SSH and comes back.
+     * The emulator reaches this machine's loopback, where the plugin listens, at 10.0.2.2.
+     */
+    @Test fun d03_udpWithLossRoamingAndFallback() {
+        DesktopSettings(E2e.context).apply { udpHostOverride = "10.0.2.2"; testLoss = 0.05 }
+        val host = runBlocking { E2e.save(E2e.host("desktop-udp")) }
+        hostId = host.id
+        val session = runBlocking {
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+        }
+        runBlocking { E2e.connected(session) }
+        compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
+        click("home-session-desktop-${session.id}", 15_000)
+        E2e.waitTag(compose, "desktop-page")
+        waitPhase(45_000, "first frame") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
+        assertTrue("${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)
+        compose.waitUntil(8_000) { desktop().stats.value.link == "UDP" }
+        E2e.capture(compose, "desktop-udp-01-connected")
+
+        // Typing under loss: every character arrives (reliable frames are resent), frames keep coming.
+        compose.onNodeWithTag("desktop-touch").performTouchInput { click(Offset(width * 0.25f, height * 0.25f)) }
+        click("desktop-rail-keyboard")
+        E2e.waitTag(compose, "desktop-ime-field")
+        val framesBefore = decodedFrames()
+        val marker = "E2E_UDP_" + (System.currentTimeMillis() % 100000)
+        compose.onNodeWithTag("desktop-ime-field").performTextInput("echo $marker 你好 > ~/desktop-udp.txt")
+        compose.onNodeWithTag("desktop-ime-field").performImeAction()
+        compose.waitUntil(15_000) { "$marker 你好" in remote("cat ~/desktop-udp.txt 2>/dev/null") }
+        repeat(40) { i -> desktop().input(io.itermux.desktop.DesktopProtocol.text("${i % 10}")); idle(60) }
+        idle(1_500)
+        val stats = desktop().stats.value
+        val frames = decodedFrames() - framesBefore
+        E2e.metric("desktop_udp_frames_under_loss", frames, "count")
+        E2e.metric("desktop_udp_loss_pct", stats.lossPercent ?: -1.0, "%")
+        E2e.metric("desktop_udp_fec_recovered", stats.fecRecovered, "count")
+        E2e.metric("desktop_udp_lost_frames", stats.lostFrames, "count")
+        assertEquals("UDP", stats.link)
+        assertFalse("5% loss on a fast link is not a poor network", (desktop().phase.value as DesktopPhase.Connected).poor)
+        assertTrue("frames under loss: $frames", frames >= 20)
+        assertTrue("lost ${stats.lostFrames} of $frames", stats.lostFrames * 10 <= frames)
+        E2e.capture(compose, "desktop-udp-02-typed")
+        Espresso.pressBack()
+        E2e.waitGone(compose, hasTestTag("desktop-keyboard"))
+
+        // Network change: a new socket; the host follows and a keyframe arrives within a second.
+        val beforeRoam = decodedFrames()
+        val t0 = System.nanoTime()
+        desktop().networkChanged()
+        compose.waitUntil(5_000) { decodedFrames() > beforeRoam }
+        val roamMs = (System.nanoTime() - t0) / 1_000_000
+        E2e.metric("desktop_udp_roam_ms", roamMs, "ms")
+        assertTrue("roam took $roamMs ms", roamMs <= 1_000)
+        assertEquals("UDP", desktop().stats.value.link)
+
+        // UDP blocked: the picture carries on over SSH, then returns to UDP.
+        desktop().testUdpDrop(1.0)
+        val blocked = System.nanoTime()
+        compose.waitUntil(10_000) { desktop().stats.value.link == "SSH" }
+        val fallbackMs = (System.nanoTime() - blocked) / 1_000_000
+        E2e.metric("desktop_udp_fallback_ms", fallbackMs, "ms")
+        val onSsh = decodedFrames()
+        compose.waitUntil(8_000) { desktop().input(io.itermux.desktop.DesktopProtocol.text("s")); idle(200); decodedFrames() > onSsh }
+        desktop().testUdpDrop(0.05)
+        compose.waitUntil(10_000) { desktop().stats.value.link == "UDP" }
+        val back = decodedFrames()
+        compose.waitUntil(8_000) { desktop().input(io.itermux.desktop.DesktopProtocol.text("u")); idle(200); decodedFrames() > back }
+        assertTrue(desktop().phase.value is DesktopPhase.Connected)
+        compose.onNodeWithTag("desktop-network").performClick()
+        E2e.waitTag(compose, "desktop-stats")
+        E2e.capture(compose, "desktop-udp-03-stats")
     }
 }

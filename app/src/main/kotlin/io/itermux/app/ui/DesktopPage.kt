@@ -395,6 +395,8 @@ private fun NetworkBadge(connection: DesktopConnection, phase: DesktopPhase, mod
                     tr("帧率") to "${stats.fps} fps",
                     tr("分辨率") to if (stats.width > 0) "${stats.width}×${stats.height}" else "—",
                     tr("链路") to stats.link,
+                    tr("丢包") to (stats.lossPercent?.let { "%.1f %%".format(it) } ?: "—"),
+                    tr("FEC 恢复") to "${stats.fecRecovered}",
                     tr("解码器") to stats.decoder.ifEmpty { "—" },
                     tr("编码器") to stats.encoder.ifEmpty { "—" },
                     tr("已解码") to "${stats.frames}",
@@ -410,7 +412,7 @@ private fun NetworkBadge(connection: DesktopConnection, phase: DesktopPhase, mod
             Text(when {
                 phase is DesktopPhase.Recovering -> tr("恢复中")
                 poor -> tr("网络较差")
-                else -> stats.rttMs?.let { "$it ms" } ?: "SSH"
+                else -> listOfNotNull(stats.link.takeIf { it == "UDP" }, stats.rttMs?.let { "$it ms" }).joinToString(" · ").ifEmpty { "SSH" }
             }, color = Ink, fontSize = 12.sp)
         }
     }

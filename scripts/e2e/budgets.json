@@ -5,7 +5,7 @@
       "max": 0,
       "unit": "count",
       "source": "host",
-      "about": "JVM unit tests of app, ssh-core, terminal-emulator, terminal-view",
+      "about": "JVM unit tests of app, ssh-core, desktop-core, terminal-emulator, terminal-view",
       "optional": true
     },
     "cold_start_p50_ms": {
@@ -262,6 +262,48 @@
       "emulator": {
         "max": 40
       }
+    },
+    "desktop_install_first_frame_ms": {
+      "max": 15000,
+      "unit": "ms",
+      "source": "device",
+      "about": "desktop button tap to first frame, plugin and OpenH264 installed from nothing (plan: ≤ 15 s)",
+      "optional": true
+    },
+    "desktop_resume_first_frame_ms": {
+      "max": 1000,
+      "unit": "ms",
+      "source": "device",
+      "about": "back into a desktop kept in the background to a new frame (plan: ≤ 1 s)",
+      "optional": true
+    },
+    "desktop_static_frames_3s": {
+      "max": 1,
+      "unit": "count",
+      "source": "device",
+      "about": "frames a still desktop sends in 3 s after its refine frame (plan: none)",
+      "optional": true
+    },
+    "desktop_udp_roam_ms": {
+      "max": 1000,
+      "unit": "ms",
+      "source": "device",
+      "about": "network change on UDP (new socket) to the next frame (plan: ≤ 1 s)",
+      "optional": true
+    },
+    "desktop_udp_lost_frames": {
+      "max": 2,
+      "unit": "count",
+      "source": "device",
+      "about": "video messages lost outright over UDP with 5% loss each way",
+      "optional": true
+    },
+    "desktop_udp_fallback_ms": {
+      "max": 5000,
+      "unit": "ms",
+      "source": "device",
+      "about": "UDP blocked to the picture running over SSH (3 s silence plus a stats tick)",
+      "optional": true
     }
   }
 }

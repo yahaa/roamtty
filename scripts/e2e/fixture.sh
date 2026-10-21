@@ -104,7 +104,7 @@ PrintLastLog no
 MaxStartups 50:30:100
 MaxSessions 30
 Subsystem sftp internal-sftp
-SetEnv PATH=$FIXTURE/bin
+SetEnv PATH=$FIXTURE/bin ROAMTTY_DESKTOP_TEST=1
 LogLevel ERROR
 EOF
   # mosh needs UDP, which adb reverse cannot carry, so the fixture hides mosh-server and terminals use SSH.

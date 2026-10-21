@@ -35,6 +35,8 @@ fun trf(pattern: String, vararg args: Any): String = tr(pattern).format(*args)
 
 private object EnglishText {
     val values: Map<String, String> = mapOf(
+        "丢包" to "Loss",
+        "FEC 恢复" to "FEC rebuilt",
         "%s 桌面 · 已连接" to "%s desktop · connected",
         "上传到主机…" to "Uploading to the host…",
         "下载 OpenH264 编码器失败" to "Couldn't download the OpenH264 encoder",

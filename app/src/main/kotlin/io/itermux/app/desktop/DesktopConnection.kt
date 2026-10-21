@@ -28,7 +28,9 @@ internal class CursorImage(val bitmap: Bitmap, val hotX: Int, val hotY: Int)
 
 /** What the network badge and the statistics show. */
 internal data class DesktopStats(val rttMs: Int? = null, val fps: Int = 0, val kbps: Int = 0, val width: Int = 0, val height: Int = 0,
-    val frames: Long = 0, val decoder: String = "", val link: String = "SSH", val encoder: String = "")
+    val frames: Long = 0, val decoder: String = "", val link: String = "SSH", val encoder: String = "",
+    /** UDP only: share of shards lost before FEC, frames FEC rebuilt, frames lost outright. */
+    val lossPercent: Double? = null, val fecRecovered: Long = 0, val lostFrames: Long = 0)
 
 /**
  * One host's desktop (plan §4.1): its own SSH login, the plugin's `serve` on an exec channel, frames
@@ -70,9 +72,13 @@ internal class DesktopConnection(
     /** The video size of the last frame: the page's surface is fixed to it. */
     val videoSize = MutableStateFlow(0 to 0)
 
-    val decoder = VideoDecoder(onDecoded = ::decoded, onNeedKeyframe = { send(DesktopProtocol.req(DesktopProtocol.REQ_KEYFRAME)) })
+    val decoder = VideoDecoder(onDecoded = ::decoded, onNeedKeyframe = { askKeyframe() })
 
     @Volatile private var outgoing: Channel<ByteArray>? = null
+    /** The UDP transport once the host offered one; frames go over it while it is alive (plan §7.3 P2). */
+    @Volatile private var link: UdpLink? = null
+    @Volatile private var lastVideoFrame = -1L
+    @Volatile private var lastKeyAsk = 0L
     @Volatile private var stream: RemoteStream? = null
     @Volatile private var ssh: JschSession? = null
     private var job: Job? = null
@@ -88,6 +94,10 @@ internal class DesktopConnection(
     @Volatile private var pingSentUs = 0L
     /** The last ping got its pong; only an unanswered one counts as waiting. */
     @Volatile private var pingAnswered = true
+    /** Pings in a row that went unanswered for 300 ms; on UDP a single one may simply be lost. */
+    @Volatile private var missedPings = 0
+    /** RTT smoothed like TCP's SRTT (1/4 new sample): one slow answer is not a slow network. */
+    @Volatile private var smoothedRtt = -1.0
     @Volatile private var poorSince = 0L
     @Volatile private var goodSince = 0L
     private var frameWindow = 0
@@ -282,6 +292,8 @@ internal class DesktopConnection(
         stats.value = stats.value.copy(encoder = hello.hardware)
         val channel = Channel<ByteArray>(Channel.UNLIMITED)
         outgoing = channel
+        lastVideoFrame = -1L
+        startUdp(hello, channel)
         val config = mutableMapOf<String, Any>("display" to display.value, "fps" to fps.value, "quality" to quality.value,
             "lock_on_close" to lockOnClose.value)
         channel.trySend(DesktopProtocol.config(config))
@@ -292,6 +304,8 @@ internal class DesktopConnection(
         lastPong = System.currentTimeMillis()
         pingSentUs = 0L
         pingAnswered = true
+        missedPings = 0
+        smoothedRtt = -1.0
         coroutineScope {
             val writer = launch(Dispatchers.IO) {
                 val out = BufferedOutputStream(s.output, 64 * 1024)
@@ -317,6 +331,13 @@ internal class DesktopConnection(
                         handle(message)
                         if (kicked) break
                     }
+                    // The SSH channel is gone but UDP still carries the desktop: keep going on it alone,
+                    // as the host does, until UDP falls silent too.
+                    if (!closing && !kicked && link?.alive == true) {
+                        Log.i(TAG, "${host.name}: SSH channel closed, staying on UDP")
+                        outgoing = null
+                        while (!closing && !kicked && link?.alive == true) delay(200)
+                    }
                 }
             } finally {
                 outgoing = null
@@ -325,6 +346,9 @@ internal class DesktopConnection(
                 ticker.cancel()
                 s.close()
                 stream = null
+                link?.close()
+                link = null
+                stats.value = stats.value.copy(link = "SSH", lossPercent = null)
             }
         }
         return when {
@@ -334,37 +358,92 @@ internal class DesktopConnection(
         }
     }
 
+    /** Opens the host's UDP offer; the link sends its own port so a host firewall can let replies in. */
+    private suspend fun startUdp(hello: Hello, channel: Channel<ByteArray>) {
+        val offer = hello.udp ?: return
+        val override = settings.udpHostOverride
+        val address = withContext(Dispatchers.IO) { runCatching { java.net.InetAddress.getByName(override.ifEmpty { host.address }) }.getOrNull() }
+            ?: return
+        val l = UdpLink(address, offer.port, offer.key,
+            onFrame = { frame -> runCatching { DesktopProtocol.decode(frame) }.getOrNull()?.let(::handle) },
+            onVideoLost = ::askKeyframe,
+            log = { Log.i(TAG, "${host.name}: $it") })
+        val loss = settings.testLoss
+        if (loss > 0) { l.dropRate = loss; channel.trySend(DesktopProtocol.config(mapOf("debug_loss" to loss))) }
+        withContext(Dispatchers.IO) { l.start() }
+        link = l
+        channel.trySend(DesktopProtocol.config(mapOf("udp_client_port" to l.localPort)))
+        Log.i(TAG, "${host.name}: UDP offered on ${address.hostAddress}:${offer.port}")
+    }
+
+    @Volatile private var keyAskPending = false
+
+    /**
+     * At most one keyframe request a second: a lost frame on UDP otherwise asks for each one after it.
+     * A request inside that second waits for it rather than vanishing, or a still screen would stay broken.
+     */
+    private fun askKeyframe() {
+        val now = System.currentTimeMillis()
+        if (now - lastKeyAsk < 1000) { keyAskPending = true; return }
+        keyAskPending = false
+        lastKeyAsk = now
+        send(DesktopProtocol.req(DesktopProtocol.REQ_KEYFRAME))
+    }
+
     private var statsAt = System.currentTimeMillis()
 
     private fun tick() {
         val now = System.currentTimeMillis()
+        if (keyAskPending) askKeyframe()
         if (pingSentUs == 0L) {
             pingAnswered = false
             pingSentUs = System.nanoTime() / 1000
             send(DesktopProtocol.ping(pingSentUs))
         }
-        // A ping unanswered past 300 ms, or a slow answer, is a poor link; five clean seconds restore it.
+        // A ping unanswered past 300 ms is sent again (UDP may have dropped it); two in a row, or a slow
+        // answer, is a poor link. Five clean seconds restore it.
         val waiting = if (!pingAnswered && pingSentUs != 0L) (System.nanoTime() / 1000 - pingSentUs) / 1000 else 0
-        val rtt = stats.value.rttMs ?: 0
-        val bad = waiting > POOR_MS || rtt > POOR_MS
+        if (waiting > POOR_MS) {
+            missedPings++
+            pingSentUs = System.nanoTime() / 1000
+            send(DesktopProtocol.ping(pingSentUs))
+        }
+        val rtt = smoothedRtt.takeIf { it >= 0 }?.toInt() ?: 0
+        // On UDP the link itself says it: heartbeats answer every 250 ms, so 700 ms without a datagram is
+        // a stall; heavy loss counts too. Lost pings there are just loss.
+        val l = link
+        val bad = if (l != null && l.alive) l.silentUs > 700_000 || l.loss > 0.25 || rtt > POOR_MS
+            else missedPings >= 2 || rtt > POOR_MS
         if (bad) { poorSince = now; goodSince = 0 } else if (goodSince == 0L) goodSince = now
         (phase.value as? DesktopPhase.Connected)?.let { c ->
             val poor = if (bad) true else if (c.poor && now - goodSince < 5000) true else false
-            if (poor != c.poor) phase.value = c.copy(poor = poor)
+            if (poor != c.poor) {
+                Log.i(TAG, "${host.name}: poor=$poor (udp=${l?.alive} silent=${l?.silentUs?.div(1000)}ms loss=${l?.loss} rtt=$rtt missed=$missedPings)")
+                phase.value = c.copy(poor = poor)
+            }
         }
         if (now - statsAt >= 1000) {
             val seconds = (now - statsAt) / 1000.0
+            val l = link
+            val udp = l?.alive == true
             stats.value = stats.value.copy(fps = (frameWindow / seconds).toInt(), kbps = (byteWindow * 8 / 1000 / seconds).toInt(),
-                decoder = decoder.decoderName, frames = decoder.decodedFrames)
+                decoder = decoder.decoderName, frames = decoder.decodedFrames, link = if (udp) "UDP" else "SSH",
+                lossPercent = if (udp) l!!.loss * 100 else null, fecRecovered = l?.fecRecovered ?: 0, lostFrames = l?.lostMessages ?: 0)
             frameWindow = 0
             byteWindow = 0
             statsAt = now
         }
     }
 
-    private suspend fun handle(m: ServerMessage) {
+    /** Frames from either transport; UDP's arrive on its receive thread. */
+    private fun handle(m: ServerMessage) {
         when (m) {
             is ServerMessage.Video -> {
+                // Both transports may deliver around a switch: older frames than the newest are stale.
+                synchronized(this) {
+                    if (m.frame <= lastVideoFrame) return
+                    lastVideoFrame = m.frame
+                }
                 received[m.frame] = System.nanoTime() / 1000
                 frameWindow++
                 byteWindow += m.data.size
@@ -383,7 +462,7 @@ internal class DesktopConnection(
             }
             is ServerMessage.CursorPos -> cursor.value = RemoteCursor(m.x, m.y, m.visible, shapes[m.shape])
             is ServerMessage.State -> {
-                if (m.kicked) kicked = true
+                if (m.kicked) { kicked = true; stream?.close() }
                 m.clip?.let { remoteClipboard.tryEmit(it) }
                 m.needs?.let { if (it.isNotEmpty()) phase.value = DesktopPhase.NeedsAction(it) }
                 m.locked?.let { notice.value = if (it) tr("请在本机解锁") else null }
@@ -393,7 +472,9 @@ internal class DesktopConnection(
             is ServerMessage.Pong -> {
                 if (m.t1 == pingSentUs && !pingAnswered) {
                     pingAnswered = true
+                    missedPings = 0
                     val rtt = ((System.nanoTime() / 1000 - m.t1) / 1000).toInt()
+                    smoothedRtt = if (smoothedRtt < 0) rtt.toDouble() else smoothedRtt * 0.75 + rtt * 0.25
                     stats.value = stats.value.copy(rttMs = rtt)
                     lastPong = System.currentTimeMillis()
                     // The next ping goes a second after this one left.
@@ -414,8 +495,12 @@ internal class DesktopConnection(
         }
     }
 
-    /** Queues a frame for the host; dropped when no stream runs. */
-    fun send(bytes: ByteArray) { outgoing?.trySend(bytes) }
+    /** Sends a frame to the host: over UDP while it is alive (resent until acknowledged when it must arrive), else SSH. */
+    fun send(bytes: ByteArray) {
+        val l = link
+        if (l != null && l.alive) l.send(bytes, UdpLink.reliable(bytes))
+        else outgoing?.trySend(bytes)
+    }
 
     fun input(bytes: ByteArray) { if (!viewOnly.value) send(bytes) }
 
@@ -443,12 +528,25 @@ internal class DesktopConnection(
         keepAlive = null
         (phase.value as? DesktopPhase.Connected)?.let { phase.value = it.copy(paused = false) }
         send(DesktopProtocol.req(DesktopProtocol.REQ_RESUME))
-        if (job?.isActive != true) start()
+        // Only a desktop that ended quietly (keep-alive over) starts again by itself; a failed one, e.g.
+        // taken over by another device, waits for 重试.
+        if (job?.isActive != true && phase.value is DesktopPhase.Idle) start()
     }
 
-    /** A new network: drop the old socket now instead of waiting for keepalives; the loop resumes it. */
+    /**
+     * A new network. On UDP: a new socket and three heartbeats now, not after mosh's 10 s port hop,
+     * plus a keyframe. On SSH: drop the old socket instead of waiting for keepalives; the loop resumes it.
+     */
     fun networkChanged() {
         if (!everConnected || closing) return
+        val l = link
+        if (l != null && l.alive) {
+            Log.i(TAG, "${host.name}: network changed, rebinding UDP")
+            l.rebind()
+            lastKeyAsk = 0
+            askKeyframe()
+            return
+        }
         Log.i(TAG, "${host.name}: network changed, reconnecting")
         stream?.close()
         ssh?.disconnect()
@@ -459,11 +557,16 @@ internal class DesktopConnection(
         keepAlive?.cancel()
         pending.value?.answer?.complete(null)
         stream?.close()
+        link?.close()
         ssh?.disconnect()
         if (job?.isActive != true) { phase.value = DesktopPhase.Idle; onEnded(this) }
     }
 
     fun release() { decoder.close() }
+
+    /** e2e only: drop this share of UDP datagrams on the phone side (1.0 blocks UDP). */
+    internal fun testUdpDrop(rate: Double) { link?.dropRate = rate }
+    internal val udpLink: UdpLink? get() = link
 
     companion object {
         private const val TAG = "RoamttyDesktop"
