@@ -87,6 +87,7 @@ private object EnglishText {
         "桌面" to "Desktop",
         "桌面插件出错：%s" to "Desktop plugin error: %s",
         "桌面插件启动失败" to "The desktop plugin didn't start",
+        "重新启动桌面代理…" to "Restarting the desktop agent…",
         "桌面插件启动失败（退出码 %d）" to "The desktop plugin didn't start (exit code %d)",
         "桌面插件校验失败" to "The desktop plugin failed its checksum",
         "正在打开桌面" to "Opening the desktop",

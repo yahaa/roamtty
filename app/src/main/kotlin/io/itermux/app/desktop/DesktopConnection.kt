@@ -111,6 +111,7 @@ internal class DesktopConnection(
         if (job?.isActive == true) return
         closing = false
         kicked = false
+        agentReloaded = false
         phase.value = DesktopPhase.Connecting(DesktopPhase.Step.LOGIN)
         job = scope.launch(Dispatchers.IO) { runLoop() }
     }
@@ -224,7 +225,18 @@ internal class DesktopConnection(
                     when (start.code) {
                         "encoder_failed", "proto_unsupported" -> { install(remote, target.first, target.second, force = true)?.let { return it } }
                         "no_desktop" -> return Outcome.Failed(tr("这台主机没有图形桌面"))
-                        "not_logged_in" -> { phase.value = DesktopPhase.NeedsAction(listOf("not-logged-in")); delay(1000) }
+                        "not_logged_in" -> {
+                            // Someone is at the Mac's console, so the agent itself is gone (an upgrade
+                            // that raced launchd unloaded it): load it again once instead of waiting.
+                            if (target.first.startsWith("macos-") && probe.desktop == "yes" && !agentReloaded) {
+                                agentReloaded = true
+                                line(tr("重新启动桌面代理…"))
+                                val ok = DesktopPluginInstaller(remote, fetch = ::download, onLine = { line(it) }).registerAgent()
+                                Log.i(TAG, "${host.name}: agent not running, reloaded: $ok")
+                                if (ok) { tries--; continue }
+                            }
+                            phase.value = DesktopPhase.NeedsAction(listOf("not-logged-in")); delay(1000)
+                        }
                         else -> return Outcome.Failed(trf("桌面插件出错：%s", start.detail ?: start.code))
                     }
                 }
@@ -243,6 +255,9 @@ internal class DesktopConnection(
     private suspend fun saveProbe(probe: HostDesktop) {
         runCatching { app.database.hosts().updateDesktop(host.id, host.address, host.port, host.username, probe.desktop, System.currentTimeMillis()) }
     }
+
+    /** The macOS agent was reloaded once for this connection after serve found it not running. */
+    @Volatile private var agentReloaded = false
 
     /** The host's shell is cmd.exe or PowerShell (a native Windows host). */
     @Volatile private var windowsHost = false

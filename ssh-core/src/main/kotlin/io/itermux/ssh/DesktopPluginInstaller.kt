@@ -85,11 +85,14 @@ class DesktopPluginInstaller(
         }
         onStep(Step.REGISTER)
         // macOS: (re)load the LaunchAgent; it runs in the GUI session, where TCC permissions apply.
-        if (build.app && remote.run("exec 2>&1; \"\$HOME/.roamtty/bin/roamtty-desktop\" install", 30_000, onLine) != 0)
-            return Result.Failed(Reason.HOST, "agent")
+        if (build.app && !registerAgent()) return Result.Failed(Reason.HOST, "agent")
         onStep(Step.DONE)
         return Result.Installed
     }
+
+    /** macOS: reloads the installed plugin's LaunchAgent in the GUI session; false when it did not come up. */
+    suspend fun registerAgent(): Boolean =
+        remote.run("exec 2>&1; \"\$HOME/.roamtty/bin/roamtty-desktop\" install", 30_000, onLine) == 0
 
     private suspend fun ps(script: String, timeoutMs: Long) = remote.runCommand(PowerShell.command(script), timeoutMs, onLine)
 
