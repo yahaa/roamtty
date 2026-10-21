@@ -28,7 +28,9 @@ class UdpLink(
     private val crypto = UdpCrypto(key)
     @Volatile private var socket: DatagramSocket = DatagramSocket()
     private val seq = AtomicLong(1)
-    private val msg = AtomicLong(1)
+    /** Reliable messages are odd (2n + 1, n counting up) so the host can apply them in order; the rest even. */
+    private val reliableSeq = AtomicLong(0)
+    private val plainSeq = AtomicLong(1)
     private val replay = ReplayWindow()
     private val reasm = Reassembler()
     private val lock = Any()
@@ -115,7 +117,7 @@ class UdpLink(
 
     /** Sends a whole protocol frame; [reliable] ones are resent until the host acknowledges them. */
     fun send(frame: ByteArray, reliable: Boolean) {
-        val id = msg.getAndIncrement()
+        val id = if (reliable) reliableSeq.getAndIncrement() * 2 + 1 else plainSeq.getAndIncrement() * 2
         val frags = UdpWire.fragment(id, if (reliable) UdpWire.FLAG_RELIABLE else 0, frame, if (reliable && frame.size > UdpWire.SHARD) 0.25f else 0f)
         if (reliable) unacked[id] = Unacked(frags, now(), 0)
         frags.forEach { raw(it.encode()) }
