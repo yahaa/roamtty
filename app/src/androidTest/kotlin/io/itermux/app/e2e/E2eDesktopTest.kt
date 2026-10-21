@@ -292,4 +292,43 @@ class E2eDesktopTest {
         E2e.waitTag(compose, "desktop-stats")
         E2e.capture(compose, "desktop-udp-03-stats")
     }
+
+    /**
+     * A wlroots Wayland desktop (P3): a headless sway of the fixture account, started over SSH. Frames
+     * come from wlr-screencopy, typing (with Shift and Chinese) through the virtual keyboard.
+     */
+    @Test fun d04_waylandDesktop() {
+        val host = runBlocking { E2e.save(E2e.host("desktop-wayland")) }
+        hostId = host.id
+        val sway = "export XDG_RUNTIME_DIR=\"\$HOME/wl\"; mkdir -p -m 700 \"\$XDG_RUNTIME_DIR\"; " +
+            "printf 'output HEADLESS-1 resolution 1280x720\\n' > \"\$XDG_RUNTIME_DIR/sway.conf\"; " +
+            "WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman setsid sway -c \"\$XDG_RUNTIME_DIR/sway.conf\" " +
+            "> /dev/null 2>&1 < /dev/null & sleep 2; ls \"\$XDG_RUNTIME_DIR\""
+        val started = remote(sway)
+        assumeTrue("sway is not installed on the fixture host ($started)", "wayland-1" in started)
+        try {
+            val session = runBlocking {
+                withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+            }
+            runBlocking { E2e.connected(session) }
+            compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
+            click("home-session-desktop-${session.id}", 15_000)
+            E2e.waitTag(compose, "desktop-page")
+            waitPhase(45_000, "first frame") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
+            assertTrue("${desktop().phase.value} ${desktop().log.value.takeLast(5)}", desktop().phase.value is DesktopPhase.Connected)
+            assertEquals("the hello names the wlroots output", "HEADLESS-1", desktop().hello.value!!.displays.first().name)
+            // A terminal opened now gets keyboard focus (the headless seat had no keyboard before ours).
+            remote("export XDG_RUNTIME_DIR=\"\$HOME/wl\"; SWAYSOCK=\$(ls \"\$XDG_RUNTIME_DIR\"/sway-ipc.*.sock) swaymsg exec foot >/dev/null; sleep 1.5")
+            idle(500)
+            compose.onNodeWithTag("desktop-touch").performTouchInput { click(Offset(width * 0.25f, height * 0.25f)) }
+            click("desktop-rail-keyboard")
+            E2e.waitTag(compose, "desktop-ime-field")
+            compose.onNodeWithTag("desktop-ime-field").performTextInput("echo E2E_WL_你好 > ~/desktop-wl.txt")
+            compose.onNodeWithTag("desktop-ime-field").performImeAction()
+            compose.waitUntil(15_000) { "E2E_WL_你好" in remote("cat ~/desktop-wl.txt 2>/dev/null") }
+            E2e.capture(compose, "desktop-wl-01-typed")
+        } finally {
+            remote("pkill -x sway; pkill -x foot; true")
+        }
+    }
 }

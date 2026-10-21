@@ -197,10 +197,17 @@ class JschSession(
             ?: probeWindowsPlugins(ssh)
     }
 
-    private suspend fun probeWindowsPlugins(ssh: Session): Set<HostPlugin>? =
-        Psmux.parseProbe(runCommand(ssh, Psmux.probeCommand))
-            ?.let { found -> if (found) setOf(HostPlugin.PSMUX) else emptySet() }
-            ?.also { mutableNativeWindows.value = true; mutableDetectedPlugins.value = it }
+    private suspend fun probeWindowsPlugins(ssh: Session): Set<HostPlugin>? {
+        val found = Psmux.parseProbe(runCommand(ssh, Psmux.probeCommand))
+            ?.let { found -> if (found) setOf(HostPlugin.PSMUX) else emptySet() } ?: return null
+        mutableNativeWindows.value = true
+        // The desktop side of a native Windows shell: the console user and the plugin, read-only.
+        val desktop = HostPluginProbe.parseDesktop(runCommand(ssh, WindowsDesktop.probeCommand))
+        desktop?.let { mutableDetectedDesktop.value = it }
+        val plugins = if (desktop?.pluginVersion != null) found + HostPlugin.DESKTOP else found
+        mutableDetectedPlugins.value = plugins
+        return plugins
+    }
 
     /** tmux where a POSIX shell has it, else psmux on a native Windows shell; null when neither runs. */
     private suspend fun findMultiplexer(ssh: Session): HostPlugin? = multiplexer.value ?: when {

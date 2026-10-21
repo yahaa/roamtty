@@ -83,6 +83,10 @@ class DesktopProtocolTest {
         assertEquals("linux-aarch64", PluginManifest.targetFor("Linux aarch64"))
         assertEquals("macos-universal", PluginManifest.targetFor("Darwin arm64"))
         assertNull(PluginManifest.targetFor("Linux riscv64"))
+        assertEquals("windows-x64", PluginManifest.targetFor("Windows AMD64"))
+        assertEquals("windows-arm64", PluginManifest.targetFor("Windows ARM64"))
+        assertEquals("openh264-2.6.0-win64.dll.bz2", PluginManifest.openh264File("windows-x64", "2.6.0"))
+        assertNull(PluginManifest.openh264File("macos-universal", "2.6.0"))
         assertEquals("libopenh264-2.6.0-linux64.8.so.bz2", PluginManifest.openh264File("linux-x86_64", "2.6.0"))
     }
 }

@@ -354,8 +354,8 @@ private fun BoxScope.DesktopStatusOverlay(connection: DesktopConnection, phase: 
 
 private fun needsText(needs: List<String>): String = when (needs.firstOrNull()) {
     "not-logged-in" -> tr("请先在这台电脑上登录桌面")
-    "screen-recording" -> tr("请在 Mac 上允许“屏幕录制”")
-    "accessibility" -> tr("请在 Mac 上允许“辅助功能”")
+    "screen-recording" -> tr("请在 Mac 上允许“屏幕录制”：系统设置 › 隐私与安全性 › 屏幕与系统音频录制，打开 Roamtty Desktop")
+    "accessibility" -> tr("请在 Mac 上允许“辅助功能”：系统设置 › 隐私与安全性 › 辅助功能，打开 Roamtty Desktop")
     "locked" -> tr("请在本机解锁")
     "portal-approval" -> tr("请在电脑上点“允许”共享屏幕")
     else -> tr("需要在电脑上操作")

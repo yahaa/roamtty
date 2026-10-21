@@ -35,14 +35,18 @@ data class PluginManifest(val version: String, val baseUrl: String, val protoMin
             return when (system.lowercase()) {
                 "linux" -> "linux-$arch"
                 "darwin" -> "macos-universal"
+                // The Windows probe reports "Windows AMD64" / "Windows ARM64" (PROCESSOR_ARCHITECTURE).
+                "windows" -> if (arch == "x86_64") "windows-x64" else "windows-arm64"
                 else -> null
             }
         }
 
-        /** The OpenH264 file Cisco publishes for a Linux target. */
+        /** The OpenH264 file Cisco publishes for a Linux or Windows target (macOS uses VideoToolbox). */
         fun openh264File(target: String, version: String): String? = when (target) {
             "linux-x86_64" -> "libopenh264-$version-linux64.8.so.bz2"
             "linux-aarch64" -> "libopenh264-$version-linux-arm64.8.so.bz2"
+            "windows-x64" -> "openh264-$version-win64.dll.bz2"
+            "windows-arm64" -> "openh264-$version-win-arm64.dll.bz2"
             else -> null
         }
 

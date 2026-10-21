@@ -35,6 +35,8 @@ fun trf(pattern: String, vararg args: Any): String = tr(pattern).format(*args)
 
 private object EnglishText {
     val values: Map<String, String> = mapOf(
+        "请在 Mac 上允许“屏幕录制”：系统设置 › 隐私与安全性 › 屏幕与系统音频录制，打开 Roamtty Desktop" to "Allow Screen Recording on the Mac: System Settings › Privacy & Security › Screen & System Audio Recording, turn on Roamtty Desktop",
+        "请在 Mac 上允许“辅助功能”：系统设置 › 隐私与安全性 › 辅助功能，打开 Roamtty Desktop" to "Allow Accessibility on the Mac: System Settings › Privacy & Security › Accessibility, turn on Roamtty Desktop",
         "丢包" to "Loss",
         "FEC 恢复" to "FEC rebuilt",
         "%s 桌面 · 已连接" to "%s desktop · connected",

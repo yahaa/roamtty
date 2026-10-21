@@ -98,6 +98,8 @@ internal class DesktopConnection(
     @Volatile private var missedPings = 0
     /** RTT smoothed like TCP's SRTT (1/4 new sample): one slow answer is not a slow network. */
     @Volatile private var smoothedRtt = -1.0
+    /** RTT samples since the stream started: the first answers race the first keyframe's encode. */
+    @Volatile private var rttSamples = 0
     @Volatile private var poorSince = 0L
     @Volatile private var goodSince = 0L
     private var frameWindow = 0
@@ -134,6 +136,8 @@ internal class DesktopConnection(
                         delay(1000)
                     }
                     is Outcome.Streamed -> recoveringSince = null
+                    // loggedIn keeps asking while the host needs the user; this only happens if that login dropped.
+                    is Outcome.Needs -> delay(1500)
                 }
                 if (outcome is Outcome.Streamed && !closing) {
                     // The stream ran and ended by itself: try to get it back right away.
@@ -155,6 +159,8 @@ internal class DesktopConnection(
         data class Dropped(val message: String? = null) : Outcome
         /** A stream ran and ended; the loop resumes it. */
         data object Streamed : Outcome
+        /** The host needs the user first (macOS permissions); asked again shortly. */
+        data object Needs : Outcome
     }
 
     private suspend fun attempt(): Outcome {
@@ -195,10 +201,12 @@ internal class DesktopConnection(
         if (probe.desktop == "no") return Outcome.Failed(tr("这台主机没有图形桌面"))
         val target = PluginManifest.targetFor(probe.uname)?.let { manifest.targets[it]?.let { t -> it to t } }
             ?: return Outcome.Failed(tr("暂不支持这台主机的系统"))
+        windowsHost = target.first.startsWith("windows-")
         if (probe.version != manifest.version) install(remote, target.first, target.second)?.let { return it }
         var tries = 0
         while (!closing && tries++ < 3) {
-            if (!everConnected) phase.value = DesktopPhase.Connecting(DesktopPhase.Step.START)
+            // While waiting on the user's permission, the guide stays up between tries.
+            if (!everConnected && phase.value !is DesktopPhase.NeedsAction) phase.value = DesktopPhase.Connecting(DesktopPhase.Step.START)
             val s = remote.openStream(serveCommand()) ?: return Outcome.Dropped()
             stream = s
             val first = try { DesktopProtocol.readLine(s.input) } catch (_: Exception) { null }
@@ -207,7 +215,7 @@ internal class DesktopConnection(
                 val errors = runCatching { s.errors.readBytes().toString(Charsets.UTF_8).trim() }.getOrDefault("")
                 s.close()
                 if (errors.isNotEmpty()) line(errors.takeLast(500))
-                if (status == 127) { install(remote, target.first, target.second)?.let { return it }; continue }
+                if (status == 127 || status == WindowsDesktop.NOT_FOUND) { install(remote, target.first, target.second)?.let { return it }; continue }
                 return if (s.closed && status != null) Outcome.Failed(trf("桌面插件启动失败（退出码 %d）", status)) else Outcome.Dropped()
             }
             when (val start = DesktopProtocol.parseStart(first)) {
@@ -220,7 +228,13 @@ internal class DesktopConnection(
                         else -> return Outcome.Failed(trf("桌面插件出错：%s", start.detail ?: start.code))
                     }
                 }
-                is Start.Ready -> return stream(s, start.hello)
+                is Start.Ready -> {
+                    val outcome = stream(s, start.hello)
+                    if (outcome != Outcome.Needs) return outcome
+                    // Every 1.5 s until the user allowed it on the host (plan §4.3: then it connects by itself).
+                    tries = 0
+                    delay(1500)
+                }
             }
         }
         return if (closing) Outcome.Closed else Outcome.Failed(tr("桌面插件启动失败"))
@@ -230,10 +244,15 @@ internal class DesktopConnection(
         runCatching { app.database.hosts().updateDesktop(host.id, host.address, host.port, host.username, probe.desktop, System.currentTimeMillis()) }
     }
 
+    /** The host's shell is cmd.exe or PowerShell (a native Windows host). */
+    @Volatile private var windowsHost = false
+
     private fun serveCommand(): String {
-        val resume = if (sessionId != null && resumeToken != null) " --resume $sessionId --token ${resumeToken!!.replace("'", "")}" else ""
+        // Resume tokens are base64: no quotes or spaces to escape in either shell.
+        val resume = if (sessionId != null && resumeToken != null) " --resume $sessionId --token ${resumeToken!!.filter { it.isLetterOrDigit() || it in "+/=" }}" else ""
         val client = "${maxOf(clientWidth, clientHeight)}x${minOf(clientWidth, clientHeight)}@$clientDpi"
-        return "\"\$HOME/.roamtty/bin/roamtty-desktop\" serve --proto ${DesktopProtocol.SUPPORTED.last} --client $client$resume"
+        val args = "--proto ${DesktopProtocol.SUPPORTED.last} --client $client$resume"
+        return if (windowsHost) WindowsDesktop.serveCommand(args) else "\"\$HOME/.roamtty/bin/roamtty-desktop\" serve $args"
     }
 
     /** Installs or upgrades the pinned plugin; null once it is in place, else why not. */
@@ -286,6 +305,12 @@ internal class DesktopConnection(
 
     private suspend fun stream(s: RemoteStream, hello: Hello): Outcome {
         mutableHello.value = hello
+        if (hello.needs.isNotEmpty()) {
+            phase.value = DesktopPhase.NeedsAction(hello.needs)
+            s.close()
+            stream = null
+            return if (closing) Outcome.Closed else Outcome.Needs
+        }
         sessionId = hello.session
         resumeToken = hello.resumeToken
         if (display.value !in hello.displays.indices) display.value = hello.displays.indexOfFirst { it.primary }.coerceAtLeast(0)
@@ -306,6 +331,7 @@ internal class DesktopConnection(
         pingAnswered = true
         missedPings = 0
         smoothedRtt = -1.0
+        rttSamples = 0
         coroutineScope {
             val writer = launch(Dispatchers.IO) {
                 val out = BufferedOutputStream(s.output, 64 * 1024)
@@ -408,7 +434,7 @@ internal class DesktopConnection(
             pingSentUs = System.nanoTime() / 1000
             send(DesktopProtocol.ping(pingSentUs))
         }
-        val rtt = smoothedRtt.takeIf { it >= 0 }?.toInt() ?: 0
+        val rtt = smoothedRtt.takeIf { it >= 0 && rttSamples >= 3 }?.toInt() ?: 0
         // On UDP the link itself says it: heartbeats answer every 250 ms, so 700 ms without a datagram is
         // a stall; heavy loss counts too. Lost pings there are just loss.
         val l = link
@@ -475,6 +501,7 @@ internal class DesktopConnection(
                     missedPings = 0
                     val rtt = ((System.nanoTime() / 1000 - m.t1) / 1000).toInt()
                     smoothedRtt = if (smoothedRtt < 0) rtt.toDouble() else smoothedRtt * 0.75 + rtt * 0.25
+                    rttSamples++
                     stats.value = stats.value.copy(rttMs = rtt)
                     lastPong = System.currentTimeMillis()
                     // The next ping goes a second after this one left.

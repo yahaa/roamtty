@@ -99,4 +99,19 @@ class DesktopPluginInstallerTest {
         assertNotNull(lines.joinToString("\n"), desktop)
         assertTrue(desktop!!.uname.startsWith("Linux"))
     }
+
+    /** The macOS app scripts, dumped for running on a Mac (ROAMTTY_DUMP_MAC_SCRIPTS=<dir>). */
+    @Test fun dumpsMacScripts() {
+        val dir = System.getenv("ROAMTTY_DUMP_MAC_SCRIPTS") ?: return
+        val m = DesktopPluginInstaller.Build("0.4.0", System.getenv("ROAMTTY_MAC_URL")!!, System.getenv("ROAMTTY_MAC_SHA")!!, null)
+        assertTrue(m.app)
+        File(dir, "host-app.sh").writeText(DesktopPluginInstaller.hostAppScript(m))
+    }
+
+    @Test fun zipBuildsAreApps() {
+        assertTrue(DesktopPluginInstaller.Build("1", "https://x/macos-universal.zip", "a", null).app)
+        assertFalse(DesktopPluginInstaller.Build("1", "https://x/linux-x86_64.gz", "a", null).app)
+        val script = DesktopPluginInstaller.placeAppScript("/tmp/x.zip", "ab")
+        assertTrue("ditto -x -k" in script && "ln -sf" in script && "Roamtty Desktop.app" in script)
+    }
 }

@@ -46,20 +46,19 @@ internal object HostPluginProbe {
 m=${'$'}(command -v mosh-server 2>/dev/null)"""
 
     /**
-     * Read-only: a graphical session this user owns. Linux: an X socket of the user's (Xorg as the
-     * user, Xvfb, startx) or a logind x11 session; Wayland waits for its own backend. macOS: someone
-     * at the console.
+     * Read-only: a graphical session this user owns. Linux: an X or Wayland socket of the user's
+     * (Xorg as the user, Xvfb, a compositor) or a logind x11/wayland session. macOS: someone at the console.
      */
     private val desktopProbe = """
         d=no
         case "${'$'}(uname -s 2>/dev/null)" in
           Darwin) if who 2>/dev/null | grep -q console; then d=yes; else d=nologin; fi ;;
           Linux)
-            for s in /tmp/.X11-unix/X*; do [ -S "${'$'}s" ] && [ -O "${'$'}s" ] && d=yes; done
+            for s in /tmp/.X11-unix/X* "${'$'}{XDG_RUNTIME_DIR:-/run/user/${'$'}(id -u)}"/wayland-[0-9]*; do [ -S "${'$'}s" ] && [ -O "${'$'}s" ] && d=yes; done
             if [ ${'$'}d = no ] && command -v loginctl >/dev/null 2>&1; then
               u=${'$'}(id -u)
               for i in ${'$'}(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="${'$'}u" '${'$'}2==u{print ${'$'}1}'); do
-                [ "${'$'}(loginctl show-session "${'$'}i" -p Type --value 2>/dev/null)" = x11 ] && d=yes
+                case "${'$'}(loginctl show-session "${'$'}i" -p Type --value 2>/dev/null)" in x11|wayland) d=yes ;; esac
               done
             fi ;;
         esac
