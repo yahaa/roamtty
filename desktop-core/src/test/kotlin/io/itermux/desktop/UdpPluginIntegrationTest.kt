@@ -113,4 +113,34 @@ class UdpPluginIntegrationTest {
         link.close()
         s.p.destroy()
     }
+
+    private fun pointer(): Pair<Int, Int> {
+        val out = ProcessBuilder("xdotool", "getmouselocation").apply { environment()["DISPLAY"] = display }.start()
+            .inputStream.bufferedReader().readText()
+        val v = Regex("""x:(\d+) y:(\d+)""").find(out)!!.groupValues
+        return v[1].toInt() to v[2].toInt()
+    }
+
+    /** Pointer moves are plain datagrams (the newest wins): they still reach the desktop. */
+    @Test fun pointerMovesOverUdp() {
+        assumeTrue("plugin fixture not configured", bin != null && home != null && display != null && File(bin).canExecute())
+        val s = serve()
+        val udp = s.hello.udp!!
+        val frames = AtomicLong()
+        lateinit var link: UdpLink
+        link = UdpLink(java.net.InetAddress.getLoopbackAddress(), udp.port, udp.key, onFrame = { f ->
+            if (f.type == DesktopProtocol.VIDEO) {
+                frames.incrementAndGet()
+                link.send(DesktopProtocol.ack((DesktopProtocol.decode(f) as ServerMessage.Video).frame, 0, 0), reliable = false)
+            }
+        }, onVideoLost = {})
+        link.start()
+        waitFor(5000, "first video over UDP") { frames.get() > 0 }
+        link.send(DesktopProtocol.abs(0, 100, 100), UdpLink.reliable(DesktopProtocol.abs(0, 100, 100)))
+        waitFor(2000, "absolute move") { pointer() == 100 to 100 }
+        repeat(10) { link.send(DesktopProtocol.rel(10, 5), UdpLink.reliable(DesktopProtocol.rel(10, 5))); Thread.sleep(16) }
+        waitFor(2000, "relative moves (at ${pointer()})") { pointer() == 200 to 150 }
+        link.close()
+        s.p.destroy()
+    }
 }

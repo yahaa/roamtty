@@ -392,6 +392,8 @@ internal class DesktopConnection(
                 stats.value = stats.value.copy(link = "SSH", lossPercent = null)
             }
         }
+        Log.i(TAG, "${host.name}: stream ended, inputs sent $inputsSent, view-only dropped $inputsDropped")
+        inputsSent = 0; inputsDropped = 0
         return when {
             kicked -> Outcome.Kicked
             closing -> Outcome.Closed
@@ -531,7 +533,9 @@ internal class DesktopConnection(
         val recv = received.remove(frame) ?: decodedUs
         received.keys.removeAll { it < frame - 120 }
         send(DesktopProtocol.ack(frame, recv, decodedUs))
-        if (phase.value !is DesktopPhase.Connected && phase.value !is DesktopPhase.NeedsAction) {
+        // Only a desktop on its way up: a frame the decoder still held after a kick or a failure (UDP
+        // keeps them coming until the link closes) must not bring a dead connection back to life.
+        if (phase.value is DesktopPhase.Connecting || phase.value is DesktopPhase.Recovering) {
             everConnected = true
             phase.value = DesktopPhase.Connected(paused = false)
         }
@@ -544,7 +548,15 @@ internal class DesktopConnection(
         else outgoing?.trySend(bytes)
     }
 
-    fun input(bytes: ByteArray) { if (!viewOnly.value) send(bytes) }
+    fun input(bytes: ByteArray) {
+        if (viewOnly.value) { inputsDropped++; return }
+        inputsSent++
+        send(bytes)
+    }
+
+    /** Per stream, for the log: inputs sent, and those view-only held back. */
+    @Volatile private var inputsSent = 0
+    @Volatile private var inputsDropped = 0
 
     fun setViewOnly(on: Boolean) {
         viewOnly.value = on

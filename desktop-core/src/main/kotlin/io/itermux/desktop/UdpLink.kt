@@ -5,6 +5,8 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
@@ -39,6 +41,12 @@ class UdpLink(
     /** NACKs sent per (msg, block) and when: repeated every max(2×RTT, 30 ms), three times at most. */
     private val nacked = HashMap<Pair<Long, Int>, Pair<Int, Long>>()
     @Volatile private var closed = false
+    /**
+     * Every datagram leaves from this one thread, in order. Callers include the main thread (touches
+     * become pointer input there), where Android refuses network calls: such a send threw
+     * NetworkOnMainThreadException into the catch below and the cursor never moved over UDP.
+     */
+    private val sender = Executors.newSingleThreadExecutor { r -> Thread(r, "udp-send").apply { isDaemon = true } }
     @Volatile private var lastRxUs = 0L
     @Volatile private var lastServerT = 0L
     @Volatile private var lastHeartbeatUs = 0L
@@ -105,9 +113,14 @@ class UdpLink(
 
     private fun raw(plain: ByteArray) {
         if (closed) return
-        val packet = crypto.seal(UdpWire.DIR_C2S, seq.getAndIncrement(), plain)
-        if (dropRate > 0 && Math.random() < dropRate) return
-        try { socket.send(DatagramPacket(packet, packet.size, InetSocketAddress(host, port))) } catch (_: Exception) {}
+        try {
+            sender.execute {
+                if (closed) return@execute
+                val packet = crypto.seal(UdpWire.DIR_C2S, seq.getAndIncrement(), plain)
+                if (dropRate > 0 && Math.random() < dropRate) return@execute
+                try { socket.send(DatagramPacket(packet, packet.size, InetSocketAddress(host, port))) } catch (_: Exception) {}
+            }
+        } catch (_: RejectedExecutionException) {}
     }
 
     private fun heartbeat() {
@@ -173,7 +186,7 @@ class UdpLink(
         log("udp rebound to port ${socket.localPort}")
     }
 
-    fun close() { closed = true; socket.close() }
+    fun close() { closed = true; sender.shutdown(); socket.close() }
 
     companion object {
         const val ALIVE_US = 3_000_000L

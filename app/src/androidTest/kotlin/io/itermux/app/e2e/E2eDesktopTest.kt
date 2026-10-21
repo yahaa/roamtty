@@ -293,6 +293,43 @@ class E2eDesktopTest {
         E2e.capture(compose, "desktop-udp-03-stats")
     }
 
+    private fun pointer(): Pair<Int, Int>? = Regex("""x:(\d+) y:(\d+)""").find(remote("DISPLAY=:77 xdotool getmouselocation"))
+        ?.groupValues?.let { it[1].toInt() to it[2].toInt() }
+
+    /**
+     * Mouse pointer mode over UDP, driven by real input events: one finger moves the cursor by its travel.
+     * Touches arrive on the main thread, where a datagram send is refused (NetworkOnMainThreadException).
+     */
+    @Test fun d05_mouseModeMovesThePointerOverUdp() {
+        DesktopSettings(E2e.context).udpHostOverride = "10.0.2.2"
+        val host = runBlocking { E2e.save(E2e.host("desktop-mouse")) }
+        hostId = host.id
+        DesktopSettings(E2e.context).setPointerMode(host.id, io.itermux.desktop.PointerMode.MOUSE)
+        val session = runBlocking {
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+        }
+        runBlocking { E2e.connected(session) }
+        compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
+        click("home-session-desktop-${session.id}", 15_000)
+        E2e.waitTag(compose, "desktop-page")
+        waitPhase(45_000, "first frame") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
+        assertTrue("${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)
+        compose.waitUntil(8_000) { desktop().stats.value.link == "UDP" }
+        remote("DISPLAY=:77 xdotool mousemove 200 200")
+        idle(500)
+        val before = pointer()
+        val node = compose.onNodeWithTag("desktop-touch").fetchSemanticsNode().boundsInRoot
+        val loc = IntArray(2).also { a -> compose.activityRule.scenario.onActivity { it.window.decorView.getLocationOnScreen(a) } }
+        val (x0, y0) = (loc[0] + node.left + node.width * 0.3f).toInt() to (loc[1] + node.top + node.height * 0.6f).toInt()
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input swipe $x0 $y0 ${x0 + 300} ${y0 - 200} 400").close()
+        idle(1_500)
+        val after = pointer()
+        E2e.capture(compose, "desktop-mouse-01-moved")
+        assertNotNull(before); assertNotNull(after)
+        assertEquals("UDP", desktop().stats.value.link)
+        assertTrue("pointer $before → $after", after!!.first > before!!.first + 50 && after.second < before.second - 30)
+    }
+
     /**
      * A wlroots Wayland desktop (P3): a headless sway of the fixture account, started over SSH. Frames
      * come from wlr-screencopy, typing (with Shift and Chinese) through the virtual keyboard.
