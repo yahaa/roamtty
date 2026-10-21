@@ -66,7 +66,9 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHostDetail: () -> Unit, onReconnect: (() -> Unit)?, onRestart: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
+fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHostDetail: () -> Unit, onReconnect: (() -> Unit)?, onRestart: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit,
+    /** Opens the host's desktop; null when it has none to open. */
+    onDesktop: (() -> Unit)? = null) {
     val state by session.state.collectAsStateWithLifecycle()
     val transferStatus by session.transfers.status.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
@@ -350,6 +352,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     Icon(painterResource(R.drawable.ic_settings), contentDescription = tr("终端设置"))
                 }
                 DropdownMenu(menu, ::dismissDockMenus) {
+                    if (onDesktop != null) DropdownMenuItem(text = { Text(tr("打开桌面")) }, onClick = { menu = false; hideKeyboard(); onDesktop() },
+                        modifier = Modifier.testTag("terminal-menu-desktop"))
                     DropdownMenuItem(text = { Text(tr("编辑文本")) }, onClick = { menu = false; editor = true; hideKeyboard() })
                     DropdownMenuItem(text = { Text(if (dockPinned) tr("取消固定操作栏") else tr("固定操作栏")) }, onClick = {
                         menu = false; dockPinned = !dockPinned; dockExpanded = true

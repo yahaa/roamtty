@@ -75,6 +75,7 @@ android {
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 dependencies {
     implementation(project(":ssh-core"))
+    implementation(project(":desktop-core"))
     implementation(project(":terminal-view"))
     implementation(platform("androidx.compose:compose-bom:2025.05.01"))
     implementation("androidx.activity:activity-compose:1.10.1")

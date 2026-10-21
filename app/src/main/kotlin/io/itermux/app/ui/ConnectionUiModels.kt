@@ -21,6 +21,8 @@ internal data class ConnectRequest(
     val openFilesAfterConnect: Boolean = false,
     /** Credentials are for the plugin installer, not a terminal. */
     val plugins: Boolean = false,
+    /** Credentials are for the host's remote desktop. */
+    val desktop: Boolean = false,
     /** Typed into the new terminal once it connects, e.g. an AI coding agent started from the file browser. */
     val startupCommand: String? = null,
     /** The startup command starts an agent that reports through [io.itermux.app.session.AgentHooks]. */

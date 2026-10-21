@@ -70,7 +70,9 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {},
     tagPrefix: String = "home-session", hostOffline: Boolean = false, shape: Shape = RoundedCornerShape(18.dp),
-    divider: Boolean = false, modifier: Modifier = Modifier) {
+    divider: Boolean = false, modifier: Modifier = Modifier,
+    /** The desktop button at the end of the bottom row, when the host can open its desktop. */
+    desktop: (@Composable () -> Unit)? = null) {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val agent by session.agentStatus.collectAsStateWithLifecycle()
@@ -200,6 +202,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                     } else if (idle && live) RowAction(tr("追问"), "$tagPrefix-follow-up-${session.id}", icon = R.drawable.ic_reply, iconOnly = true) {
                         replying = !replying
                     }
+                    // Rightmost, after 追问: the host's desktop.
+                    desktop?.invoke()
                 }
             }
             if (replying) FollowUpField(draft, { draft = it }, kind, sending, tagPrefix, session.id, ::sendFollowUp)

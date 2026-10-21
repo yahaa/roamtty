@@ -48,7 +48,7 @@
         </activity>
         <service android:name=".session.SessionService" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User initiated SSH terminal connections to remote computers; ongoing sessions with explicit disconnect notification." />
+                android:value="User initiated SSH terminal and remote desktop connections to the user's own computers; ongoing sessions with explicit disconnect notification." />
         </service>
     </application>
 </manifest>

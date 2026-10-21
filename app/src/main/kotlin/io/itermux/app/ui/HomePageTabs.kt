@@ -35,7 +35,7 @@ import io.itermux.app.R
 @Composable
 internal fun HomeSessionsTab(sessions: List<TerminalConnection>, hasHosts: Boolean, search: String, onNewSession: () -> Unit,
     onOpen: (TerminalConnection) -> Unit, onClose: (TerminalConnection) -> Unit, onForget: (TerminalConnection) -> Unit,
-    hostOffline: (TerminalConnection) -> Boolean) {
+    hostOffline: (TerminalConnection) -> Boolean, desktop: @Composable (TerminalConnection) -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         HomeListHeader(trf("会话 · %d", sessions.size), tr("新建会话"), "add-session", onNewSession)
         val matching = sessions.filter {
@@ -52,7 +52,7 @@ internal fun HomeSessionsTab(sessions: List<TerminalConnection>, hasHosts: Boole
                 Modifier.fillMaxSize().testTag("home-sessions-empty"),
                 action = { Button(onClick = onNewSession) { Text(tr("新建会话")) } })
             matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
-            else -> HomeSessionsList(matching, onOpen = onOpen, onClose = onClose, onForget = onForget, hostOffline = hostOffline)
+            else -> HomeSessionsList(matching, onOpen = onOpen, onClose = onClose, onForget = onForget, hostOffline = hostOffline, desktop = desktop)
         }
     }
 }

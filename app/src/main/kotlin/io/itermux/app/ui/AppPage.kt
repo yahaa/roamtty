@@ -10,4 +10,6 @@ internal enum class AppPage {
     /** The SFTP browser of the selected session. */
     FILES,
     SETTINGS,
+    /** One host's remote desktop. */
+    DESKTOP,
 }

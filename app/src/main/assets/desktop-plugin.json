@@ -1,0 +1,16 @@
+{
+  "baseUrl": "https://github.com/yahaa/roamtty-desktop/releases/download/v0.1.0/",
+  "openh264": "2.6.0",
+  "proto": {
+    "max": 1,
+    "min": 1
+  },
+  "targets": {
+    "linux-x86_64": {
+      "file": "linux-x86_64.gz",
+      "sha256": "90d6989a9a9627fc04b6a412a5421e3f104fac2936681746ef7e2f7729b93f5e",
+      "size": 913728
+    }
+  },
+  "version": "0.1.0"
+}

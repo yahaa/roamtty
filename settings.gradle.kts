@@ -4,4 +4,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "Roamtty"
-include(":app", ":ssh-core", ":terminal-emulator", ":terminal-view")
+include(":app", ":ssh-core", ":desktop-core", ":terminal-emulator", ":terminal-view")

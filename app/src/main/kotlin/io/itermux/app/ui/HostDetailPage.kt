@@ -63,6 +63,8 @@ internal fun HostDetailPage(
     onManagePlugins: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Opens the host's desktop; null hides the button (desktop off, or the host has none). */
+    onDesktop: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val app = LocalContext.current.applicationContext as ItermuxApp
@@ -116,6 +118,8 @@ internal fun HostDetailPage(
                     }
                     HostAction(tr("文件"), R.drawable.ic_folder, tag = "host-detail-files", modifier = Modifier.weight(1f),
                         onClick = onBrowseFiles)
+                    if (onDesktop != null) HostAction(tr("桌面"), R.drawable.ic_desktop, tag = "host-detail-desktop",
+                        modifier = Modifier.weight(1f), onClick = onDesktop)
                 }
                 if (monitor == null) MonitorLoginCard { askPassword = true }
                 else MonitorSection(monitor, onLogin = { if (host.needsTypedSecret(app)) askPassword = true else monitor.start() })

@@ -21,6 +21,8 @@ Roamtty's original code is copyright 2026 Roamtty contributors, licensed under A
 | Terminal symbol fallback: Noto Sans Symbols 2 (2.008) | assets/fonts + licenses/fonts | SIL Open Font License 1.1 |
 | Terminal icon fallback: Symbols Nerd Font Mono (Nerd Fonts 3.5.1) | assets/fonts + licenses/fonts | MIT |
 
+The remote desktop plugin `roamtty-desktop` is a separate Apache-2.0 project (github.com/yahaa/roamtty-desktop) with its own THIRD_PARTY_NOTICES; it is not bundled in the app, which only pins its version and SHA-256. Its software H.264 encoder is Cisco's OpenH264 binary, downloaded at install time from ciscobinary.openh264.org so Cisco's patent licence covers it; it is never built or bundled by Roamtty. The app decodes H.264 with the system MediaCodec.
+
 Upstream Termux is GPLv3 as an application. Only the two terminal libraries covered by its explicit Apache-2.0 exception are vendored. No Termux app, termux-shared, local shell launcher, JNI source, or native Termux binary is shipped. The original repository license declaration is preserved at `licenses/Termux-upstream-LICENSE.md`.
 
 Local changes to the vendored libraries:

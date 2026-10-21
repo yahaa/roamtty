@@ -3,17 +3,18 @@ package io.itermux.ssh
 /**
  * Remote helpers Roamtty can use: tmux keeps sessions alive, mosh keeps the terminal alive over
  * roaming UDP. [windows] plugins are for hosts whose OpenSSH shell is cmd.exe or PowerShell, where
- * psmux takes tmux's place; MSYS2 and Cygwin shells use the POSIX ones.
+ * psmux takes tmux's place; MSYS2 and Cygwin shells use the POSIX ones. The desktop plugin is
+ * Roamtty's own binary: the desktop page installs it, never a package manager.
  */
-enum class HostPlugin(val id: String, val windows: Boolean = false) {
-    TMUX("tmux"), MOSH("mosh"), PSMUX("psmux", windows = true);
+enum class HostPlugin(val id: String, val windows: Boolean = false, val packaged: Boolean = true) {
+    TMUX("tmux"), MOSH("mosh"), PSMUX("psmux", windows = true), DESKTOP("desktop", packaged = false);
 
     /** Keeps remote work running across disconnects, so new sessions run inside it. */
     val keepsSessions: Boolean get() = this == TMUX || this == PSMUX
 
     companion object {
         /** The plugins that can be installed on a host with (or without) a native Windows shell. */
-        fun offered(nativeWindows: Boolean): List<HostPlugin> = entries.filter { it.windows == nativeWindows }
+        fun offered(nativeWindows: Boolean): List<HostPlugin> = entries.filter { it.packaged && it.windows == nativeWindows }
 
         /** Stored as a comma-separated list; null means "never probed". */
         fun decode(value: String?): Set<HostPlugin>? = value?.split(',')
@@ -23,21 +24,64 @@ enum class HostPlugin(val id: String, val windows: Boolean = false) {
     }
 }
 
+/**
+ * What the read-only desktop probe saw: [desktop] is yes, no or nologin; [uname] is `uname -sm`;
+ * [pluginVersion] the first line of `roamtty-desktop --version`, null when it is not installed.
+ */
+data class HostDesktop(val desktop: String, val uname: String, val pluginVersion: String?) {
+    /** "roamtty-desktop 0.1.0 proto 1" → 0.1.0 */
+    val version: String? get() = pluginVersion?.split(' ')?.getOrNull(1)
+}
+
 internal object HostPluginProbe {
     const val TMUX = "__ITERMUX_TMUX__="
     const val MOSH = "__ITERMUX_MOSH__="
+    const val DESKTOP = "__ITERMUX_DESKTOP__="
+    const val UNAME = "__ITERMUX_UNAME__="
+    const val DESKTOP_PLUGIN = "__ITERMUX_DESKTOP_PLUGIN__="
     const val command = "/bin/sh -s"
 
     /** Looks mosh-server up in [m] with the Homebrew, MacPorts and snap paths a non-login shell misses. */
     const val moshLookup = """${Tmux.PATH_SETUP}
 m=${'$'}(command -v mosh-server 2>/dev/null)"""
 
+    /**
+     * Read-only: a graphical session this user owns. Linux: an X socket of the user's (Xorg as the
+     * user, Xvfb, startx) or a logind x11 session; Wayland waits for its own backend. macOS: someone
+     * at the console.
+     */
+    private val desktopProbe = """
+        d=no
+        case "${'$'}(uname -s 2>/dev/null)" in
+          Darwin) if who 2>/dev/null | grep -q console; then d=yes; else d=nologin; fi ;;
+          Linux)
+            for s in /tmp/.X11-unix/X*; do [ -S "${'$'}s" ] && [ -O "${'$'}s" ] && d=yes; done
+            if [ ${'$'}d = no ] && command -v loginctl >/dev/null 2>&1; then
+              u=${'$'}(id -u)
+              for i in ${'$'}(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="${'$'}u" '${'$'}2==u{print ${'$'}1}'); do
+                [ "${'$'}(loginctl show-session "${'$'}i" -p Type --value 2>/dev/null)" = x11 ] && d=yes
+              done
+            fi ;;
+        esac
+        printf '$DESKTOP%s\n' "${'$'}d"
+        printf '$UNAME%s\n' "${'$'}(uname -sm 2>/dev/null)"
+        printf '$DESKTOP_PLUGIN%s\n' "${'$'}("${'$'}HOME/.roamtty/bin/roamtty-desktop" --version 2>/dev/null | head -n 1)"
+    """.trimIndent().replace("\n", "\n        ")
+
     val script = """
         $moshLookup
         printf '$TMUX%s\n' "${'$'}(command -v tmux 2>/dev/null)"
         printf '$MOSH%s\n' "${'$'}m"
+        $desktopProbe
         exit 0
     """.trimIndent()
+
+    fun parseDesktop(output: String?): HostDesktop? {
+        val lines = output?.lineSequence()?.map { it.trim() }?.toList() ?: return null
+        fun value(prefix: String) = lines.firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)
+        val desktop = value(DESKTOP)?.takeIf { it in setOf("yes", "no", "nologin") } ?: return null
+        return HostDesktop(desktop, value(UNAME).orEmpty(), value(DESKTOP_PLUGIN)?.takeIf { it.startsWith("roamtty-desktop ") })
+    }
 
     fun parse(output: String?): Set<HostPlugin>? {
         val lines = output?.lineSequence()?.map { it.trim() }?.toList() ?: return null
@@ -46,6 +90,7 @@ m=${'$'}(command -v mosh-server 2>/dev/null)"""
         return buildSet {
             if (tmux.removePrefix(TMUX).isNotBlank()) add(HostPlugin.TMUX)
             if (mosh.removePrefix(MOSH).isNotBlank()) add(HostPlugin.MOSH)
+            if (parseDesktop(output)?.pluginVersion != null) add(HostPlugin.DESKTOP)
         }
     }
 }

@@ -86,7 +86,7 @@ private fun SessionGroup.color() = when (this) {
 @Composable
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
     onClose: (TerminalConnection) -> Unit, hostOffline: (TerminalConnection) -> Boolean = { false },
-    onForget: (TerminalConnection) -> Unit = {}) {
+    onForget: (TerminalConnection) -> Unit = {}, desktop: @Composable (TerminalConnection) -> Unit = {}) {
     // Each session's group, and whether it runs an agent at all; a session coming back stays in the group its agent
     // was last seen in.
     fun place(session: TerminalConnection) =
@@ -138,7 +138,7 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
                     }
                     SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
                         onForget = { onForget(session) }, hostOffline = hostOffline(session), shape = shape, divider = joined && index > 0,
-                        modifier = if (joined) Modifier else Modifier.padding(bottom = Spacing.Row))
+                        modifier = if (joined) Modifier else Modifier.padding(bottom = Spacing.Row), desktop = { desktop(session) })
                 }
             }
         }

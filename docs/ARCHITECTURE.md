@@ -48,6 +48,16 @@ Keystore 持有不可导出的 AES 密钥，AES-GCM 随机 IV 和 128 位认证�
 
 tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec channel 附着经校验的独立会话名 `roamtty-<id>`。附着前仅取消该窗格遗留的 copy-mode；`tmux new-session -A -D -s <会话名>` 创建或附着会话，并断开旧客户端，保留会话内的远端任务。会话开启 tmux 鼠标模式并关闭状态栏：上下滑动以滚轮事件交给 tmux 滚动它自己的历史，单击、双击、三击不作为鼠标点击发送，以免被 tmux 当成选词选行。普通 SSH 使用 shell channel。文件传输使用相同已认证 SSH 连接上的独立 SFTP channel，Android SAF 提供手机侧输入输出流；上传先写远端临时文件，确认目标不存在后改名。下载统计成功写入目标流的实际字节数；普通文件显式提供正数大小时，EOF 后核对是否一致，长度变化或下载不完整会失败并按现有 SAF 清理流程删除本地半成品。特殊文件、缺少大小属性或 stat 大小为零的动态流以未知总量显示，不用声明大小覆盖实际进度。连接时不会自动安装远端软件；用户在主机菜单显式点击安装后，`HostPluginInstaller` 可通过远端包管理器安装 tmux / mosh。从应用启动 Claude Code、Codex 或 Grok（POSIX 主机）时，才会通过 exec channel 把 `~/.roamtty/agent-hook.sh` 和该 agent 的 hook 文件写入远端：Claude Code 用 `claude-hooks.json`，以 `--settings` 附加到 claude 命令（与用户自己的设置合并，不改动用户配置）；Codex 与 Grok 改为输入启动器 `~/.roamtty/codex` / `~/.roamtty/grok`（带原有参数）。Codex 启动器用 `-c hooks.<事件>=…` 加入 hooks，并在 `${CODEX_HOME:-~/.codex}/config.toml` 追加这些 hook 的 `hooks.state."/<session-flags>/config.toml:<事件>:0:0".trusted_hash`，即 Codex 自己“Trust all”会写入的同一哈希（规范化定义的有序 JSON 的 SHA-256），已有同名条目则不动；哈希方案若随版本变化，Codex 会照常请用户审阅一次。`-c` 让 Codex 以内嵌模式运行（不用共享后台服务），hook 因而继承窗格的 `$TMUX_PANE`。Grok 没有按次加载 hooks 的参数，启动器把 `roamtty.json` 写入 `${GROK_HOME:-~/.grok}/hooks`（全局 hooks 无需信任），并以 `ROAMTTY_AGENT=grok` 运行 grok；脚本只在该变量存在时记录，用户自己启动的 Grok 不受影响，Grok 子 agent 的事件也被忽略。启动器在 agent 退出后执行 end 清除状态，并以 agent 的退出码退出；因为窗格前台此时是 `/bin/sh` 启动器，状态读取不再把 `sh` 当作“已回到 shell”。重启窗格时从 `ps` 读回的是启动器命令行，会再次经启动器启动。hook 把状态、当前工具和任务写入该 tmux 会话的 `@roamtty_agent` / `@roamtty_task` 选项（Grok 的 camelCase 字段同样读取；等待授权时保留即将运行的工具与命令）；应用每 3–10 秒用一条 `tmux display-message` 读取，在会话列表显示“运行中 / 等待确认 / 空闲”。窗格已回到 shell 时忽略遗留状态。没有端口转发、文件同步或后台自动命令重放。
 
+## 远程桌面
+
+方案见 issue #184。主机端是独立仓库 `yahaa/roamtty-desktop` 的单文件插件，App 通过 `assets/desktop-plugin.json`（`scripts/desktop/pin.sh` 生成）固定版本、下载地址和每个 target 的 SHA-256；协议金样拷在 `desktop-core/src/test/resources/desktop-proto/`。
+
+- `desktop-core`（纯 JVM）：协议编解码、hello 解析、按钮状态推导（`DesktopButton.derive`）、视口与坐标换算、手势到输入的映射、HID 键码与修饰键锁定、插件清单。全部可在 JVM 上单测。
+- `ssh-core`：`HostPluginProbe` 在插件检测脚本末尾做只读桌面探测（`HostDesktop`）；`RemoteHost.openStream` 提供长驻的 exec channel；`DesktopPluginInstaller` 按“主机下载 → 失败则手机下载并 SFTP 上传 → SHA-256 校验 → 原子改名”安装。
+- `app/desktop`：`SessionService` 持有 `DesktopRegistry`（每台主机至多一个 `DesktopConnection`，不进会话日志、不占 8 个会话的配额）。`DesktopConnection` 自己登录（`pageLogin` + `administer`），探测、按需安装、启动 `roamtty-desktop serve`，读帧交给 `VideoDecoder`（MediaCodec 直接渲染到 SurfaceView，SPS/PPS 作为 csd），解码完成后回 ACK。离开页面发 `PAUSE` 并保持到设置的时长；链路断开时带 `--resume` 重连，30 秒内恢复，否则失败；网络切换时立即重连。
+- 前台服务在有活动桌面时保持，通知里多一行“<主机> 桌面 · 已连接”，点按回到桌面页。
+- 当前只走 SSH channel（P1）；UDP 传输、macOS / Windows / Wayland 后端属于后续阶段。
+
 ## 界面结构
 
 `ItermuxScreen` 只负责页面导航（`AppPage` 枚举，可随配置变更保存）、顶层状态和对话框的显示时机。构造连接请求的纯函数集中在 `SessionRequests.kt`（新建、启动 agent、重连、终止及查找已有卡片），`SessionService.openFor` 负责打开或重连会话并排队启动命令，均可在 JVM 上单测。会话列表的自动重连由 `ReconnectFromSessionList` 独立管理；首页两个标签页、分享目标选择和主机删除/重新核验确认框各自成文件，只通过参数与回调通信。应用级设置统一经 `Context.appSettings()` 读取同一 `app-settings` 文件，主题读写由 `appTheme()` / `saveAppTheme()` 封装。

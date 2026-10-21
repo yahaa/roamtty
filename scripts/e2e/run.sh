@@ -60,7 +60,7 @@ read -r KEY_TYPE KEY_BLOB _ < /tmp/roamtty-e2e/host_ed25519.pub
 
 if [ "$UNIT" = 1 ]; then
   echo "== Unit tests (JVM)"
-  if ./gradlew -q :app:testDebugUnitTest :ssh-core:test :terminal-emulator:testDebugUnitTest :terminal-view:testDebugUnitTest \
+  if ./gradlew -q :app:testDebugUnitTest :ssh-core:test :desktop-core:test :terminal-emulator:testDebugUnitTest :terminal-view:testDebugUnitTest \
       > "$OUT/unit-tests.log" 2>&1; then
     echo "unit tests: passed"; host_metric unit_tests_failed 0 count
   else
@@ -110,14 +110,15 @@ host_metric cold_start_p50_ms "${sorted[$(( ${#sorted[@]} / 2 ))]}" ms
 host_metric cold_start_max_ms "${sorted[-1]}" ms
 
 echo "== Instrumentation (UI features + performance)"
-CLASS="io.itermux.app.e2e.E2eFeatureTest,io.itermux.app.e2e.E2ePerfTest,io.itermux.app.e2e.E2eFramesTest"
+CLASS="io.itermux.app.e2e.E2eFeatureTest,io.itermux.app.e2e.E2eDesktopTest,io.itermux.app.e2e.E2ePerfTest,io.itermux.app.e2e.E2eFramesTest"
 if [ -n "$ONLY" ]; then
   CLASS="$(echo "$ONLY" | sed -E 's/(^|,)(E2e)/\1io.itermux.app.e2e.\2/g')"
 fi
 adb logcat -c || true
 set +e
 adb shell am instrument -w -r -e e2ePassword "$(cat .private/e2e-password)" -e e2ePort $PORT \
-  -e e2eHostKeyType "$KEY_TYPE" -e e2eHostKey "$KEY_BLOB" -e class "$CLASS" $RUNNER > "$OUT/instrument.txt" 2>&1
+  -e e2eHostKeyType "$KEY_TYPE" -e e2eHostKey "$KEY_BLOB" -e e2eDesktopUrl "http://127.0.0.1:${ROAMTTY_E2E_DESKTOP_PORT:-8797}/" \
+  -e class "$CLASS" $RUNNER > "$OUT/instrument.txt" 2>&1
 set -e
 adb logcat -d -s E2E:I E2E_METRIC:I AndroidRuntime:E > "$OUT/logcat.txt" 2>&1 || true
 adb pull /sdcard/Android/data/$PKG/files/e2e "$OUT/screens" >/dev/null 2>&1 || true
