@@ -189,6 +189,20 @@ class SessionService : Service() {
     suspend fun terminate(id: String, credentials: Credentials, interaction: suspend (Prompt) -> List<String>?): String? {
         val existing = mutableSessions.value.find { it.id == id } ?: return null
         check(!existing.state.value.active)
+        return endRemoteSession(existing, credentials, interaction).also { if (it == null) forget(id) }
+    }
+    /**
+     * Force delete: the entry goes at once, whatever the host does. Its tmux session is then ended over a login of its
+     * own that answers no question, so returns null once it ended, else why it may still be running.
+     */
+    suspend fun forceDelete(id: String, credentials: Credentials): String? {
+        val existing = mutableSessions.value.find { it.id == id } ?: return null
+        forget(id)
+        if (existing.mode != SessionMode.TMUX || existing.external) return null
+        return endRemoteSession(existing, credentials) { null }
+    }
+    /** Ends [existing]'s remote tmux session over a separate login: null once it ended, else why it may still run. */
+    private suspend fun endRemoteSession(existing: TerminalConnection, credentials: Credentials, interaction: suspend (Prompt) -> List<String>?): String? {
         val ssh = JschSession(existing.host.target(SessionMode.SHELL), credentials, app.pins,
             interaction = interaction, connectTimeoutMs = 15_000)
         var status: Int? = null
@@ -201,7 +215,7 @@ class SessionService : Service() {
             }
         } finally { ssh.disconnect() }
         return when (status) {
-            0 -> { forget(id); null }
+            0 -> null
             null -> ssh.state.value.message.takeIf { it.isNotBlank() }?.let(::tr) ?: tr("无法连接服务器")
             else -> trf("tmux 退出码 %d", status!!)
         }

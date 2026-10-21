@@ -209,6 +209,30 @@ fun ItermuxScreen(
         if (session.closeForgets(session.state.value.active)) begin(session.terminateRequest())
         else service?.close(session.id)
     }
+    /**
+     * Force delete: the card goes at once. Its tmux session is then ended over a fresh login with the saved credentials,
+     * asking nothing, and one that could not be ended is reported.
+     */
+    fun forceDelete(session: TerminalConnection) {
+        val bound = service ?: return
+        if (session.state.value.active) return
+        if (session.host.needsTypedSecret(app)) {
+            bound.forget(session.id)
+            toast(trf("会话卡片已移除，但未能终止远端会话：%s", tr("没有已保存的登录信息")))
+            return
+        }
+        scope.launch {
+            val failure = try {
+                val credentials = withContext(Dispatchers.IO) { app.credentialsFor(session.host, "", "") }
+                try { bound.forceDelete(session.id, credentials) } finally { credentials.clear() }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                bound.forget(session.id)
+                e.message ?: tr("无法读取凭据，请重新导入密钥或保存密码。")
+            }
+            failure?.let { toast(trf("会话卡片已移除，但未能终止远端会话：%s", it)) }
+        }
+    }
 
     val resumed by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
     val onSessionsTab = page == AppPage.HOME && homePager.currentPage == 0 && resumed.isAtLeast(Lifecycle.State.RESUMED)
@@ -374,7 +398,7 @@ fun ItermuxScreen(
                                 onNewSession = { newSessionOpen = true },
                                 onOpen = { showSession(it.id) },
                                 onClose = ::closeSession,
-                                onForget = { session -> if (!session.state.value.active) service?.forget(session.id) },
+                                onForget = ::forceDelete,
                                 hostOffline = { session ->
                                     hosts.firstOrNull { it.id == session.host.id }
                                         ?.let { !hostConnected(it) && hostReachability.statusOf(it) == HostReachability.Offline } == true
