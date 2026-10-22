@@ -80,7 +80,7 @@ private fun SessionGroup.color() = when (this) {
 /**
  * Every session the app holds, grouped by what its agent is doing (waiting for the user, working, done, then the
  * rest), most active first within a group; a tap opens its terminal. With two groups or more, chips above them filter
- * to one. Finished agents and plain terminals take compact rows. On a phone a group's sessions share one panel, split by hairlines; where the page has room for more columns,
+ * to one. Sessions without an agent's report take compact rows. On a phone a group's sessions share one panel, split by hairlines; where the page has room for more columns,
  * each is a card of its own.
  */
 @Composable
@@ -140,7 +140,7 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
                     SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
                         onForget = { onForget(session) }, hostOffline = hostOffline(session), shape = shape, divider = joined && index > 0,
                         modifier = if (joined) Modifier else Modifier.padding(bottom = Spacing.Row),
-                        compact = group == SessionGroup.DONE || group == SessionGroup.OTHER, desktop = { desktop(session) })
+                        compact = group == SessionGroup.OTHER, desktop = { desktop(session) })
                 }
             }
         }

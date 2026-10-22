@@ -768,8 +768,9 @@ class E2eFeatureTest {
     }
 
     /**
-     * The session list: an agent waiting for the user gets the full row, finished agents and plain terminals compact
-     * rows (name, folder, one status line with their buttons); every finished agent shows.
+     * The session list: agents waiting or finished get the full row (finished: the prompt, the answer above a status
+     * line of how long it worked and when), plain terminals compact rows (name, folder, connection); every finished
+     * agent shows.
      */
     @Test fun f24_sessionListRows() = runBlocking<Unit> {
         val host = E2e.save(E2e.host("会话列表", mode = SessionMode.TMUX))
@@ -801,11 +802,12 @@ class E2eFeatureTest {
         compose.waitUntil(20_000) { E2e.exists(compose, hasTestTag("home-session-location-${waiting.id}")) }
         assertTrue(compose.text("home-session-location-${waiting.id}").endsWith("/work/roamtty"))
         tag("home-session-prompt-${waiting.id}").assertExists()
-        // Both finished agents show, each with its answer on its status line and no prompt line.
+        // Both finished agents show: the prompt, the answer, and a status line of how long it worked.
         compose.waitUntil(20_000) { listOf(older, latest).all { E2e.exists(compose, hasTestTag("home-session-reply-${it.id}")) } }
         listOf(older, latest).forEach {
+            tag("home-session-prompt-${it.id}").assertExists()
+            tag("home-session-done-${it.id}").assertExists()
             tag("home-session-follow-up-${it.id}").assertExists()
-            tag("home-session-prompt-${it.id}").assertDoesNotExist()
         }
         E2e.capture(compose, "f24-session-list")
         compose.onNodeWithTag("home-sessions-list").performScrollToNode(hasTestTag("home-session-${plain.id}"))

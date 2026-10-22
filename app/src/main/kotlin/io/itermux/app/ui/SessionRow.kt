@@ -63,15 +63,15 @@ import kotlinx.coroutines.launch
  * One session: its tile beside its name, the chip of the host it runs on, the folder it is in (the home as `~`)
  * and the last prompt ("你: …", or "等待输入中…" while an idle agent has had none), then, across the
  * whole row, what the agent answered or runs and a status line with how long it has been at it and what the agent
- * needs (allow a request, or a follow-up typed right here). [compact] rows, for sessions that need nothing from the
- * user, are built the same way with only the name, the folder and that status line. Long press for its menu.
+ * needs (allow a request, or a follow-up typed right here). [compact] rows, for sessions without an agent's report,
+ * are built the same way with only the name, the folder and a status line of the connection. Long press for its menu.
  * An agent's session is named by its folder, the agent's badge before it; others by [sessionListTitle].
  */
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {},
     tagPrefix: String = "home-session", hostOffline: Boolean = false, shape: Shape = RoundedCornerShape(18.dp),
     divider: Boolean = false, modifier: Modifier = Modifier,
-    /** Two lines only, for sessions that need nothing from the user: finished agents and plain terminals. */
+    /** Only the name, the folder and the connection: for sessions without an agent's report. */
     compact: Boolean = false,
     /** The desktop button at the end of the bottom row, when the host can open its desktop. */
     desktop: (@Composable () -> Unit)? = null) {
@@ -157,33 +157,19 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 SessionIcon(session, 40.dp, status?.state)
                 Column(Modifier.weight(1f).padding(start = Spacing.Row)) { titleLine() }
             }
-            // One line of how it stands, across the row's whole width: the agent's answer and when, or the connection and
-            // what carries it; its buttons at the end, where every row has them.
+            // How it is connected and what carries it, across the row's whole width; the desktop at the end, where every
+            // row has its buttons.
             Row(Modifier.padding(top = Spacing.Tight).heightIn(min = 28.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    if (status != null && live && idle) {
-                        Text(if (status.workedSeconds != null) "✓" else "●", Modifier.testTag(
-                            if (status.workedSeconds != null) "$tagPrefix-done-${session.id}" else "$tagPrefix-status-${session.id}"),
-                            style = MaterialTheme.typography.labelMedium, color = StatusColors.success)
-                        Spacer(Modifier.width(5.dp))
-                        Text(reply.ifEmpty { tr("等待输入中…") }, Modifier.weight(1f, fill = false).testTag(
-                            if (reply.isNotEmpty()) "$tagPrefix-reply-${session.id}" else "$tagPrefix-awaiting-${session.id}"),
-                            style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis)
-                        Text(" · " + ago(elapsed), Modifier.testTag("$tagPrefix-time-${session.id}"),
-                            style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant.copy(alpha = 0.8f),
-                            maxLines = 1, softWrap = false)
-                    } else StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"), hostOffline = hostOffline && !state.active)
-                }
+                StatusLabel(state.phase, Modifier.weight(1f).testTag("$tagPrefix-status-${session.id}"),
+                    hostOffline = hostOffline && !state.active)
                 Row(Modifier.padding(start = Spacing.Tight), horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    if (status == null || !live) Row(Modifier.testTag("$tagPrefix-tags-${session.id}"),
+                    Row(Modifier.testTag("$tagPrefix-tags-${session.id}"),
                         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         sessionTransportTags(session.mode, multiplexer, session.host.multiplexer, transport.takeIf { connected })
                             .forEach { MetaTag(it, Modifier.testTag("$tagPrefix-tag-$it-${session.id}")) }
                     }
-                    if (idle && live) followUp()
                     desktop?.invoke()
                 }
             }
