@@ -10,8 +10,6 @@ import android.view.KeyEvent
 import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -122,13 +120,18 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }
     // A dock the pet opened (not pinned) goes back to the pet after a quiet spell; a touch on it starts the spell over,
     // and an open menu holds it.
+    // Timed by frames, not an animation: with animations turned off in the system settings one would end at once.
     var dockTouches by remember { mutableIntStateOf(0) }
-    val dockCountdown = remember { Animatable(1f) }
+    val dockCountdown = remember { mutableFloatStateOf(1f) }
     val dockCountsDown = floatingDock && !menu && !sessionMenu && TerminalToolbox.dockHideMillis > 0
     LaunchedEffect(dockCountsDown, dockTouches) {
-        dockCountdown.snapTo(1f)
+        dockCountdown.floatValue = 1f
         if (!dockCountsDown) return@LaunchedEffect
-        dockCountdown.animateTo(0f, tween(TerminalToolbox.dockHideMillis.toInt(), easing = LinearEasing))
+        val hideAfter = TerminalToolbox.dockHideMillis.toFloat()
+        val start = withFrameMillis { it }
+        while (dockCountdown.floatValue > 0f) {
+            dockCountdown.floatValue = (1f - (withFrameMillis { it } - start) / hideAfter).coerceAtLeast(0f)
+        }
         sticky.clear()
         dockExpanded = false
     }
@@ -351,7 +354,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     if (dockPinned || TerminalToolbox.dockHideMillis <= 0) return@drawBehind
                     val stroke = Stroke(2.dp.toPx())
                     drawCircle(track, style = stroke)
-                    drawArc(ring, -90f, 360f * dockCountdown.value, false, style = stroke)
+                    drawArc(ring, -90f, 360f * dockCountdown.floatValue, false, style = stroke)
                 }, contentAlignment = Alignment.Center) {
                     Icon(painterResource(R.drawable.ic_close), contentDescription = tr("收起操作栏"), modifier = Modifier.size(20.dp))
                 }

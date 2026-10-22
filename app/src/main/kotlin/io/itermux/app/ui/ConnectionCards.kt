@@ -34,6 +34,7 @@ import io.itermux.app.session.AgentStatus
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.SessionMode
+import io.itermux.desktop.DesktopProbe
 import io.itermux.ssh.HostSystem
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.TerminalTransport
@@ -89,10 +90,13 @@ import io.itermux.ssh.TerminalTransport
         Row(Modifier.padding(top = Spacing.Row), horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}").padding(end = 2.dp))
-            // Only what the host can do: once probed, the plugins it actually has; before, the multiplexer it is set to use.
+            // Only what the host can do: once probed, the plugins it actually has (before, the multiplexer it is set to
+            // use), and a remote desktop wherever the probe found a graphical one, installed or not.
             val plugins = host.installedPlugins
-            val shown = plugins?.let { installed -> HostPlugin.entries.filter { it in installed } }
-                ?: listOfNotNull(host.multiplexer.takeIf { host.mode == SessionMode.TMUX.name })
+            val shown = (plugins?.let { installed -> HostPlugin.entries.filter { it in installed && it != HostPlugin.DESKTOP } }
+                ?: listOfNotNull(host.multiplexer.takeIf { host.mode == SessionMode.TMUX.name })) +
+                listOfNotNull(HostPlugin.DESKTOP.takeIf { plugins?.contains(it) == true ||
+                    DesktopProbe.decode(host.desktop).let { probe -> probe == DesktopProbe.YES || probe == DesktopProbe.NOLOGIN } })
             shown.forEach {
                 MetaTag(if (it == HostPlugin.DESKTOP) tr("远程桌面") else it.id, Modifier.testTag("host-plugin-${it.id}-${host.id}"))
             }
