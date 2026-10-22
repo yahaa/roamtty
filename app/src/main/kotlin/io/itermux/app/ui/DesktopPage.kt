@@ -392,6 +392,10 @@ private fun StepLine(label: String, current: Boolean, done: Boolean) {
     }
 }
 
+/** "采集 9 · 转换 6 · 编码 17" in whole ms; the parts with nothing measured left out. */
+private fun latencyParts(vararg parts: Pair<String, Double?>): String =
+    parts.mapNotNull { (k, v) -> v?.let { "$k ${it.roundToInt()}" } }.joinToString(" · ").ifEmpty { "—" }
+
 @Composable
 private fun NetworkBadge(connection: DesktopConnection, phase: DesktopPhase, modifier: Modifier) {
     val stats by connection.stats.collectAsStateWithLifecycle()
@@ -407,6 +411,11 @@ private fun NetworkBadge(connection: DesktopConnection, phase: DesktopPhase, mod
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 listOf(
                     tr("延迟") to (stats.rttMs?.let { "$it ms" } ?: "—"),
+                    tr("端到端") to (stats.latency?.totalMs?.let { "${it.roundToInt()} ms" } ?: "—"),
+                    tr("主机端") to latencyParts(tr("采集") to stats.latency?.captureMs, tr("转换") to stats.latency?.convertMs,
+                        tr("编码") to stats.latency?.encodeMs),
+                    tr("网络") to (stats.latency?.networkMs?.let { "${it.roundToInt()} ms" } ?: "—"),
+                    tr("手机端") to latencyParts(tr("解码") to stats.latency?.decodeMs, tr("上屏") to stats.latency?.renderMs),
                     tr("码率") to "${stats.kbps} kbps",
                     tr("帧率") to "${stats.fps} fps",
                     tr("分辨率") to if (stats.width > 0) "${stats.width}×${stats.height}" else "—",

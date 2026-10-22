@@ -30,7 +30,9 @@ internal class CursorImage(val bitmap: Bitmap, val hotX: Int, val hotY: Int)
 internal data class DesktopStats(val rttMs: Int? = null, val fps: Int = 0, val kbps: Int = 0, val width: Int = 0, val height: Int = 0,
     val frames: Long = 0, val decoder: String = "", val link: String = "SSH", val encoder: String = "",
     /** UDP only: share of shards lost before FEC, frames FEC rebuilt, frames lost outright. */
-    val lossPercent: Double? = null, val fecRecovered: Long = 0, val lostFrames: Long = 0)
+    val lossPercent: Double? = null, val fecRecovered: Long = 0, val lostFrames: Long = 0,
+    /** Where the last second's frames spent their time, host to screen. */
+    val latency: LatencyMeter.Latency? = null)
 
 /**
  * One host's desktop (plan §4.1): its own SSH login, the plugin's `serve` on an exec channel, frames
@@ -72,7 +74,9 @@ internal class DesktopConnection(
     /** The video size of the last frame: the page's surface is fixed to it. */
     val videoSize = MutableStateFlow(0 to 0)
 
-    val decoder = VideoDecoder(onDecoded = ::decoded, onNeedKeyframe = { askKeyframe() })
+    val decoder = VideoDecoder(onDecoded = ::decoded, onRendered = { frame, us -> latency.onRendered(frame, us) },
+        onNeedKeyframe = { askKeyframe() })
+    private val latency = LatencyMeter()
 
     @Volatile private var outgoing: Channel<ByteArray>? = null
     /** The UDP transport once the host offered one; frames go over it while it is alive (plan §7.3 P2). */
@@ -350,6 +354,7 @@ internal class DesktopConnection(
         missedPings = 0
         smoothedRtt = -1.0
         rttSamples = 0
+        latency.reset()
         coroutineScope {
             val writer = launch(Dispatchers.IO) {
                 val out = BufferedOutputStream(s.output, 64 * 1024)
@@ -474,7 +479,9 @@ internal class DesktopConnection(
             val udp = l?.alive == true
             stats.value = stats.value.copy(fps = (frameWindow / seconds).toInt(), kbps = (byteWindow * 8 / 1000 / seconds).toInt(),
                 decoder = decoder.decoderName, frames = decoder.decodedFrames, link = if (udp) "UDP" else "SSH",
-                lossPercent = if (udp) l!!.loss * 100 else null, fecRecovered = l?.fecRecovered ?: 0, lostFrames = l?.lostMessages ?: 0)
+                lossPercent = if (udp) l!!.loss * 100 else null, fecRecovered = l?.fecRecovered ?: 0, lostFrames = l?.lostMessages ?: 0,
+                // A still screen sends no frames: the last measured second stands.
+                latency = latency.take() ?: stats.value.latency)
             frameWindow = 0
             byteWindow = 0
             statsAt = now
@@ -495,7 +502,9 @@ internal class DesktopConnection(
                     if (m.keyframe) brokenUntilKey = false
                     if (brokenUntilKey) { askKeyframe(); return }
                 }
-                received[m.frame] = System.nanoTime() / 1000
+                val now = System.nanoTime() / 1000
+                received[m.frame] = now
+                latency.onReceived(m.frame, m.captureUs, m.encodedUs, now)
                 frameWindow++
                 byteWindow += m.data.size
                 if (videoSize.value != (m.width to m.height)) videoSize.value = m.width to m.height
@@ -519,9 +528,11 @@ internal class DesktopConnection(
                 m.needs?.let { if (it.isNotEmpty()) phase.value = DesktopPhase.NeedsAction(it) }
                 m.locked?.let { notice.value = if (it) tr("请在本机解锁") else null }
                 m.error?.let { line(it) }
+                m.json.optJSONObject("timing")?.let(latency::onHostTiming)
             }
             is ServerMessage.Ping -> send(DesktopProtocol.pong(m.t1, System.nanoTime() / 1000, System.nanoTime() / 1000))
             is ServerMessage.Pong -> {
+                latency.onPong(m.t1, m.t2, m.t3, System.nanoTime() / 1000)
                 if (m.t1 == pingSentUs && !pingAnswered) {
                     pingAnswered = true
                     missedPings = 0
@@ -539,6 +550,7 @@ internal class DesktopConnection(
     }
 
     private fun decoded(frame: Long, decodedUs: Long) {
+        latency.onDecoded(frame, decodedUs)
         val recv = received.remove(frame) ?: decodedUs
         received.keys.removeAll { it < frame - 120 }
         send(DesktopProtocol.ack(frame, recv, decodedUs))

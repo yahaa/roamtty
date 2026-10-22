@@ -161,6 +161,26 @@ class E2eDesktopTest {
         compose.onNodeWithTag("desktop-ime-field").performTextInput("\n")
         compose.waitUntil(10_000) { "E2E_DESKTOP_你好世界" in remote("cat ~/desktop-typed.txt 2>/dev/null") }
         E2e.capture(compose, "desktop-03-typed")
+        // Where a frame's time goes: the host's share (STATE timing), the network and the phone's, all measured.
+        runCatching {
+            compose.waitUntil(10_000) {
+                desktop().input(io.itermux.desktop.DesktopProtocol.text(" ")); idle(300)
+                desktop().stats.value.latency?.let { it.totalMs != null && it.captureMs != null && it.networkMs != null } == true
+            }
+        }
+        val latency = desktop().stats.value.latency
+        assertTrue("latency not measured: $latency", latency?.totalMs != null && latency.captureMs != null && latency.networkMs != null)
+        latency!!
+        listOf("capture" to latency.captureMs, "convert" to latency.convertMs, "encode" to latency.encodeMs, "network" to latency.networkMs,
+            "decode" to latency.decodeMs, "render" to latency.renderMs, "total" to latency.totalMs).forEach { (k, v) ->
+            E2e.metric("desktop_latency_${k}_ms", v?.let { Math.round(it) } ?: -1, "ms")
+        }
+        assertEquals("openh264", latency.encoder)
+        assertTrue("$latency", latency.totalMs!! in 1.0..1000.0)
+        compose.onNodeWithTag("desktop-network").performClick()
+        E2e.waitTag(compose, "desktop-stats")
+        E2e.capture(compose, "desktop-03b-latency")
+        compose.onNodeWithTag("desktop-network").performClick()
         // The shortcut bar is hidden until asked for; ⋯ swaps the input method for the 更多 keys.
         compose.onNodeWithTag("desktop-sk-esc").assertDoesNotExist()
         click("desktop-kb-toggle")
@@ -420,7 +440,7 @@ class E2eDesktopTest {
             click("desktop-key-${HidUsage.END}")
             click("desktop-kb-more")
             field.performTextInput(" > ~/desktop-keys.txt")
-            field.performImeAction()
+            field.performTextInput("\n")
             compose.waitUntil(10_000) { remote("cat ~/desktop-keys.txt 2>/dev/null").isNotBlank() }
             E2e.capture(compose, "desktop-keys-01-xfree86")
             assertEquals("ABC", remote("cat ~/desktop-keys.txt").trim())

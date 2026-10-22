@@ -15,10 +15,11 @@ import java.util.ArrayDeque
 /**
  * H.264 straight to a Surface (plan §8): a hardware decoder (the emulator's goldfish one counts),
  * low-latency keys on, one access unit per input buffer, every output rendered at once.
- * [onDecoded] reports each frame number as it reaches the screen; [onNeedKeyframe] asks the host
- * for a keyframe after a (re)configure or a decoder error.
+ * [onDecoded] reports each frame number as the decoder hands it over, [onRendered] when it reached
+ * the display; [onNeedKeyframe] asks the host for a keyframe after a (re)configure or a decoder error.
  */
-internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long) -> Unit, private val onNeedKeyframe: () -> Unit) {
+internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long) -> Unit,
+    private val onRendered: (frame: Long, renderedUs: Long) -> Unit, private val onNeedKeyframe: () -> Unit) {
     private val thread = HandlerThread("desktop-decoder").apply { start() }
     private val handler = Handler(thread.looper)
     private var codec: MediaCodec? = null
@@ -81,6 +82,8 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
         return try {
             val c = if (name != null) MediaCodec.createByCodecName(name) else MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
             c.setCallback(callback, handler)
+            // The frame number rides in the timestamp; the render time is on System.nanoTime's clock.
+            c.setOnFrameRenderedListener({ codec, frame, nanos -> if (codec === this.codec) onRendered(frame, nanos / 1000) }, handler)
             c.configure(format, s, null, 0)
             c.setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT)
             c.start()
