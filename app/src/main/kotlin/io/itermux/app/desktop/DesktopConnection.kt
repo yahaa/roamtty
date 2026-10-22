@@ -78,6 +78,8 @@ internal class DesktopConnection(
     /** The UDP transport once the host offered one; frames go over it while it is alive (plan §7.3 P2). */
     @Volatile private var link: UdpLink? = null
     @Volatile private var lastVideoFrame = -1L
+    /** A frame went missing: later ones are dropped until the next keyframe. */
+    @Volatile private var brokenUntilKey = false
     @Volatile private var lastKeyAsk = 0L
     @Volatile private var stream: RemoteStream? = null
     @Volatile private var ssh: JschSession? = null
@@ -333,6 +335,7 @@ internal class DesktopConnection(
         val channel = Channel<ByteArray>(Channel.UNLIMITED)
         outgoing = channel
         lastVideoFrame = -1L
+        brokenUntilKey = false
         startUdp(hello, channel)
         val config = mutableMapOf<String, Any>("display" to display.value, "fps" to fps.value, "quality" to quality.value,
             "lock_on_close" to lockOnClose.value)
@@ -485,7 +488,12 @@ internal class DesktopConnection(
                 // Both transports may deliver around a switch: older frames than the newest are stale.
                 synchronized(this) {
                     if (m.frame <= lastVideoFrame) return
+                    // A frame lost on UDP breaks every frame after it that refers back to it: decoding
+                    // them smeared the picture into stripes. Hold the last good picture until a keyframe.
+                    if (!m.keyframe && lastVideoFrame >= 0 && m.frame != lastVideoFrame + 1) brokenUntilKey = true
                     lastVideoFrame = m.frame
+                    if (m.keyframe) brokenUntilKey = false
+                    if (brokenUntilKey) { askKeyframe(); return }
                 }
                 received[m.frame] = System.nanoTime() / 1000
                 frameWindow++
@@ -495,6 +503,7 @@ internal class DesktopConnection(
                 decoder.submit(m)
             }
             is ServerMessage.CursorShape -> {
+                Log.d(TAG, "${host.name}: cursor shape ${m.width}x${m.height} hot ${m.hotX},${m.hotY}")
                 val pixels = IntArray(m.width * m.height) { i ->
                     val o = i * 4
                     (m.rgba[o + 3].toInt() and 0xFF shl 24) or (m.rgba[o].toInt() and 0xFF shl 16) or
