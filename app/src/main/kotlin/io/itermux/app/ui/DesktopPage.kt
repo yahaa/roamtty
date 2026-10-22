@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
@@ -622,7 +621,12 @@ private fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, la
             state.clearText()
             // With a modifier latched, a typed letter is a shortcut (Ctrl + c), not text.
             val k = text.singleOrNull()?.let(::charKey)
-            if (k != null && latched()) key(k) else connection.input(DesktopProtocol.text(text))
+            if (k != null && latched()) key(k)
+            // The input method's Enter commits a newline into the multi-line field: it is the Enter key.
+            else text.split('\n').forEachIndexed { i, line ->
+                if (i > 0) key(HidUsage.ENTER)
+                if (line.isNotEmpty()) connection.input(DesktopProtocol.text(line))
+            }
         }
     }
     Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().then(if (landscape) Modifier.padding(end = 72.dp) else Modifier)
@@ -674,9 +678,9 @@ private fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, la
                 }
             }.testTag("desktop-ime-field"),
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Transparent), cursorBrush = SolidColor(Color.Transparent),
-            lineLimits = TextFieldLineLimits.SingleLine,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send, autoCorrectEnabled = false),
-            onKeyboardAction = { key(HidUsage.ENTER) })
+            // Multi-line with no action, as in the terminal: the input method shows a plain ↵ that always works
+            // (a Send action on an empty single-line field is greyed out by some input methods and does nothing).
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default, autoCorrectEnabled = false))
     }
 }
 

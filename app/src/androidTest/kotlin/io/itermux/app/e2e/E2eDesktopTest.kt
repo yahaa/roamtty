@@ -1,5 +1,6 @@
 package io.itermux.app.e2e
 
+import android.view.inputmethod.EditorInfo
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -113,6 +114,10 @@ class E2eDesktopTest {
         runCatching { compose.waitUntil(ms + 1000) { System.currentTimeMillis() >= end } }
     }
 
+    /** The focused editor's imeOptions as the input method service sees them. */
+    private fun imeOptions(): Long? = Regex("imeOptions=0x([0-9a-f]+)").findAll(E2e.shell("dumpsys input_method"))
+        .lastOrNull()?.groupValues?.get(1)?.toLong(16)
+
     private fun decodedFrames() = desktop().decoder.decodedFrames
 
     @Test fun d01_desktopEndToEnd() {
@@ -147,8 +152,13 @@ class E2eDesktopTest {
         compose.onNodeWithTag("desktop-touch").performTouchInput { click(Offset(width * 0.25f, height * 0.25f)) }
         click("desktop-rail-keyboard")
         E2e.waitTag(compose, "desktop-ime-field")
+        // The input method gets a plain ↵ (no Send action, which some greyed out on an empty field).
+        compose.waitUntil(5_000) { imeOptions() != null }
+        val options = imeOptions()!!
+        assertEquals("imeOptions=0x${options.toString(16)}", 0, options and EditorInfo.IME_MASK_ACTION.toLong())
+        assertTrue("imeOptions=0x${options.toString(16)}", options and EditorInfo.IME_FLAG_NO_ENTER_ACTION.toLong() != 0L)
         compose.onNodeWithTag("desktop-ime-field").performTextInput("echo E2E_DESKTOP_你好世界 > ~/desktop-typed.txt")
-        compose.onNodeWithTag("desktop-ime-field").performImeAction()
+        compose.onNodeWithTag("desktop-ime-field").performTextInput("\n")
         compose.waitUntil(10_000) { "E2E_DESKTOP_你好世界" in remote("cat ~/desktop-typed.txt 2>/dev/null") }
         E2e.capture(compose, "desktop-03-typed")
         // The shortcut bar is hidden until asked for; ⋯ swaps the input method for the 更多 keys.
@@ -252,7 +262,7 @@ class E2eDesktopTest {
         val framesBefore = decodedFrames()
         val marker = "E2E_UDP_" + (System.currentTimeMillis() % 100000)
         compose.onNodeWithTag("desktop-ime-field").performTextInput("echo $marker 你好 > ~/desktop-udp.txt")
-        compose.onNodeWithTag("desktop-ime-field").performImeAction()
+        compose.onNodeWithTag("desktop-ime-field").performTextInput("\n")
         compose.waitUntil(15_000) { "$marker 你好" in remote("cat ~/desktop-udp.txt 2>/dev/null") }
         repeat(40) { i -> desktop().input(io.itermux.desktop.DesktopProtocol.text("${i % 10}")); idle(60) }
         idle(1_500)
@@ -368,7 +378,7 @@ class E2eDesktopTest {
             click("desktop-rail-keyboard")
             E2e.waitTag(compose, "desktop-ime-field")
             compose.onNodeWithTag("desktop-ime-field").performTextInput("echo E2E_WL_你好 > ~/desktop-wl.txt")
-            compose.onNodeWithTag("desktop-ime-field").performImeAction()
+            compose.onNodeWithTag("desktop-ime-field").performTextInput("\n")
             compose.waitUntil(15_000) { "E2E_WL_你好" in remote("cat ~/desktop-wl.txt 2>/dev/null") }
             E2e.capture(compose, "desktop-wl-01-typed")
         } finally {
