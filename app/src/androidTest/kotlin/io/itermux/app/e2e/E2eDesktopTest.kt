@@ -262,6 +262,8 @@ class E2eDesktopTest {
         assertTrue("frames under loss: $frames", frames >= 20)
         assertTrue("lost ${stats.lostFrames} of $frames", stats.lostFrames * 10 <= frames)
         E2e.capture(compose, "desktop-udp-02-typed")
+        // The first Back hides the input method, the next closes the panel.
+        Espresso.closeSoftKeyboard()
         Espresso.pressBack()
         E2e.waitGone(compose, hasTestTag("desktop-keyboard"))
 
@@ -366,6 +368,45 @@ class E2eDesktopTest {
             E2e.capture(compose, "desktop-wl-01-typed")
         } finally {
             remote("pkill -x sway; pkill -x foot; true")
+        }
+    }
+
+    /**
+     * Named keys on a server that does not number its keys like evdev: xrdp's Xorg uses the xfree86
+     * codes, where evdev's Left is Right Alt and End is Super. The quick keys must still edit the line.
+     */
+    @Test fun d06_namedKeysOnXfree86Keycodes() {
+        val host = runBlocking { E2e.save(E2e.host("desktop-keys")) }
+        hostId = host.id
+        remote("DISPLAY=:77 setxkbmap -rules base -model pc104 -layout us -keycodes xfree86")
+        try {
+            val session = runBlocking {
+                withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+            }
+            runBlocking { E2e.connected(session) }
+            compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
+            click("home-session-desktop-${session.id}", 15_000)
+            E2e.waitTag(compose, "desktop-page")
+            waitPhase(45_000, "first frame") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
+            assertTrue("${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)
+            compose.onNodeWithTag("desktop-touch").performTouchInput { click(Offset(width * 0.25f, height * 0.25f)) }
+            click("desktop-rail-keyboard")
+            E2e.waitTag(compose, "desktop-ime-field")
+            val field = compose.onNodeWithTag("desktop-ime-field")
+            // A clean line whatever an earlier test left; then "echo AC", back one, "B", and to the end
+            // of the line (End sits past the edge of the quick row): the file gets ABC.
+            click("desktop-quick-Ctrl+C")
+            field.performTextInput("echo AC")
+            click("desktop-quick-←")
+            field.performTextInput("B")
+            compose.onNodeWithTag("desktop-quick-End", useUnmergedTree = true).performScrollTo().performClick()
+            field.performTextInput(" > ~/desktop-keys.txt")
+            field.performImeAction()
+            compose.waitUntil(10_000) { remote("cat ~/desktop-keys.txt 2>/dev/null").isNotBlank() }
+            E2e.capture(compose, "desktop-keys-01-xfree86")
+            assertEquals("ABC", remote("cat ~/desktop-keys.txt").trim())
+        } finally {
+            remote("DISPLAY=:77 setxkbmap -rules evdev -model pc105 -layout us; rm -f ~/desktop-keys.txt")
         }
     }
 }

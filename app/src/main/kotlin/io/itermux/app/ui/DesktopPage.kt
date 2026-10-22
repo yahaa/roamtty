@@ -13,6 +13,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -22,8 +23,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,11 +55,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -119,7 +120,7 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
         }
         val screen: @Composable (Modifier) -> Unit = { m ->
             Box(m.background(Color.Black)) {
-                if (hasPicture) DesktopScreen(connection, mode)
+                if (hasPicture) DesktopScreen(connection, mode, keys = panel == DesktopPanel.NONE)
                 if (virtualMouse && hasPicture) VirtualMouse(connection)
                 DesktopStatusOverlay(connection, phase, hasPicture, onRetry = { connection.start() }, onClose = onDisconnect)
             }
@@ -176,7 +177,7 @@ private fun DesktopRail(landscape: Boolean, panel: DesktopPanel, onPanel: (Deskt
 /** The picture, the cursor drawn locally, and every touch turned into input. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode) {
+private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys: Boolean) {
     val density = LocalDensity.current.density
     val hello by connection.hello.collectAsStateWithLifecycle()
     val displayIndex by connection.display.collectAsStateWithLifecycle()
@@ -200,7 +201,8 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode) {
     val scope = rememberCoroutineScope()
     var longPress by remember { mutableStateOf<Job?>(null) }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    // A hardware keyboard types into the picture whenever no panel holds the focus.
+    LaunchedEffect(keys) { if (keys) runCatching { focus.requestFocus() } }
 
     fun apply(actions: List<GestureAction>) {
         val d = displayIndex
@@ -224,7 +226,7 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode) {
     }
 
     Box(Modifier.fillMaxSize().onSizeChanged { area = it }
-        .focusRequester(focus).onKeyEvent { event ->
+        .focusRequester(focus).focusable().onKeyEvent { event ->
             // A hardware keyboard: physical keys straight through as HID usages.
             val hid = HidUsage.fromAndroid(event.nativeKeyEvent.keyCode) ?: return@onKeyEvent false
             when (event.type) {
@@ -570,7 +572,7 @@ private fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, la
     val mac = os.lowercase() == "macos"
     fun send(events: List<Pair<Int, Boolean>>) { events.forEach { (k, d) -> connection.input(DesktopProtocol.key(k, d)) }; latchRevision++ }
     Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().then(if (landscape) Modifier.padding(end = 72.dp) else Modifier)
-        .background(PanelColor).imePadding().testTag("desktop-keyboard")) {
+        .background(PanelColor.copy(alpha = 1f)).imePadding().testTag("desktop-keyboard")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Choice(tr("输入法"), page == 0, "desktop-kb-ime") { page = 0 }
             Spacer(Modifier.width(6.dp))
@@ -590,7 +592,7 @@ private fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, la
             Spacer(Modifier.width(6.dp))
             Icon(painterResource(R.drawable.ic_close), tr("关闭键盘"), Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onDismiss).padding(6.dp), tint = Ink)
         }
-        if (page == 0) ImeInput(connection, mac) else {
+        if (page == 0) ImeInput(connection, mac, onDismiss) else {
             key(latchRevision) {
                 Column(Modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     layout.getOrNull(layoutPage)?.forEach { row ->
@@ -627,10 +629,20 @@ private fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, la
  * and Enter as keys, while a composition (pinyin) stays here until committed.
  */
 @Composable
-private fun ImeInput(connection: DesktopConnection, mac: Boolean) {
-    var value by remember { mutableStateOf(TextFieldValue("")) }
+private fun ImeInput(connection: DesktopConnection, mac: Boolean, onDismiss: () -> Unit) {
+    val state = rememberTextFieldState()
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    // Committed text goes out and the field is cleared in the same main-thread step as the IME's edits,
+    // so the next key always lands in an empty field (a cleared TextFieldValue only took effect at the
+    // next recomposition, and fast input in between was doubled or lost).
+    LaunchedEffect(state) {
+        snapshotFlow { state.text.toString() to state.composition }.collect {
+            if (state.composition != null || state.text.isEmpty()) return@collect
+            connection.input(DesktopProtocol.text(state.text.toString()))
+            state.clearText()
+        }
+    }
     fun key(hid: Int, mods: List<Int> = emptyList()) {
         mods.forEach { connection.input(DesktopProtocol.key(it, true)) }
         connection.input(DesktopProtocol.key(hid, true)); connection.input(DesktopProtocol.key(hid, false))
@@ -646,30 +658,25 @@ private fun ImeInput(connection: DesktopConnection, mac: Boolean) {
             "Del" to { key(HidUsage.DELETE) }, "Home" to { key(HidUsage.HOME) }, "End" to { key(HidUsage.END) },
         ).forEach { (label, click) -> Choice(label, false, "desktop-quick-$label") { click() } }
     }
-    BasicTextField(value, onValueChange = { next ->
-        // Composition still running: keep it here. Committed: send what is new, then start over.
-        if (next.composition != null) { value = next; return@BasicTextField }
-        val old = value.text
-        val text = next.text
-        if (text.length > old.length && text.startsWith(old)) connection.input(DesktopProtocol.text(text.substring(old.length)))
-        else if (text.length < old.length && old.startsWith(text)) repeat(old.length - text.length) { key(HidUsage.BACKSPACE) }
-        else if (text != old && text.isNotEmpty()) connection.input(DesktopProtocol.text(text))
-        value = TextFieldValue("", TextRange.Zero)
-    }, modifier = Modifier.fillMaxWidth().padding(8.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))
+    BasicTextField(state, modifier = Modifier.fillMaxWidth().padding(8.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))
         .padding(horizontal = 12.dp, vertical = 10.dp).focusRequester(focus)
         .onPreviewKeyEvent { e ->
+            // Back reaches the field only once the IME is hidden: it closes the panel (the field would
+            // otherwise take it to drop its focus, and a second Back was needed).
+            if (e.key == Key.Back) { if (e.type == KeyEventType.KeyUp) onDismiss(); return@onPreviewKeyEvent true }
             // On an empty field the IME sends Backspace and Enter as key events.
             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             when (e.key) {
-                Key.Backspace -> if (value.text.isEmpty()) { key(HidUsage.BACKSPACE); true } else false
+                Key.Backspace -> if (state.text.isEmpty()) { key(HidUsage.BACKSPACE); true } else false
                 Key.Enter, Key.NumPadEnter -> { key(HidUsage.ENTER); true }
                 else -> false
             }
         }.testTag("desktop-ime-field"),
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = Ink), cursorBrush = SolidColor(Accent),
+        lineLimits = TextFieldLineLimits.SingleLine,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send, autoCorrectEnabled = false),
-        keyboardActions = KeyboardActions(onSend = { key(HidUsage.ENTER) }),
-        decorationBox = { inner -> Box { if (value.text.isEmpty()) Text(tr("在这里输入，文字直接发到电脑"), color = InkDim); inner() } })
+        onKeyboardAction = { key(HidUsage.ENTER) },
+        decorator = { inner -> Box { if (state.text.isEmpty()) Text(tr("在这里输入，文字直接发到电脑"), color = InkDim); inner() } })
 }
 
 /** A floating mouse: drag its pad to move the cursor, buttons for left and right, a strip to scroll. */
