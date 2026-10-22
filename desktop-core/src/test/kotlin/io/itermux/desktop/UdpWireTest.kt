@@ -103,4 +103,23 @@ class UdpWireTest {
         assertTrue(link.alive)
         link.close(); serverThread.interrupt(); server.close()
     }
+
+    /**
+     * Wi-Fi holds a burst back for tens of ms at a time: a frame quiet for a while is late, not lost.
+     * Its gaps are NACKed once the next frame overtakes it (the host paces video in order), or after
+     * the fallback when nothing follows.
+     */
+    @Test fun nacksWaitForTheNextFrameNotForAQuietSpell() {
+        val r = Reassembler()
+        fun frag(msg: Long, index: Int) = UdpWire.fragment(msg, UdpWire.FLAG_VIDEO, ByteArray(UdpWire.SHARD * 4) { msg.toByte() }, 0f)[index]
+        val ms = 1000L
+        r.push(frag(2, 0), 0); r.push(frag(2, 1), 1 * ms)
+        assertTrue("a 40 ms stall alone is not loss", r.missing(41 * ms, 100 * ms).isEmpty())
+        r.push(frag(4, 0), 42 * ms)
+        assertTrue("overtaken a moment ago: reordering grace", r.missing(43 * ms, 100 * ms).isEmpty())
+        assertEquals(listOf(Triple(2L, 0, listOf(2, 3))), r.missing(48 * ms, 100 * ms))
+        // The newest frame, with nothing after it, waits for the fallback.
+        assertTrue(r.missing(100 * ms, 100 * ms).none { it.first == 4L })
+        assertEquals(listOf(1, 2, 3), r.missing(143 * ms, 100 * ms).single { it.first == 4L }.third)
+    }
 }

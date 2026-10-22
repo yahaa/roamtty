@@ -143,4 +143,36 @@ class UdpPluginIntegrationTest {
         link.close()
         s.p.destroy()
     }
+
+    /** No loss on the way: the phone asks for nothing again, whatever the pacing and the frame sizes. */
+    @Test fun noNacksWithoutLoss() {
+        assumeTrue("plugin fixture not configured", bin != null && home != null && display != null && File(bin).canExecute())
+        // A busy screen: big frames, split into many shards and paced out.
+        val xterm = ProcessBuilder("xterm", "-geometry", "160x50+0+0", "-e", "sh", "-c", "while :; do head -c 4000 /dev/urandom | base64; done")
+            .apply { environment()["DISPLAY"] = display }.start()
+        try {
+            Thread.sleep(500)
+            val s = serve()
+            val udp = s.hello.udp!!
+            val frames = AtomicLong()
+            lateinit var link: UdpLink
+            link = UdpLink(java.net.InetAddress.getLoopbackAddress(), udp.port, udp.key, onFrame = { f ->
+                if (f.type == DesktopProtocol.VIDEO) {
+                    frames.incrementAndGet()
+                    link.send(DesktopProtocol.ack((DesktopProtocol.decode(f) as ServerMessage.Video).frame, 0, 0), reliable = false)
+                }
+            }, onVideoLost = {})
+            link.start()
+            waitFor(5000, "first video over UDP") { frames.get() > 0 }
+            val (f0, n0) = frames.get() to link.nacks
+            Thread.sleep(6000)
+            val got = frames.get() - f0
+            val nacks = link.nacks - n0
+            println("no-loss run: frames=$got nacks=$nacks fec=${link.fecRecovered} lost=${link.lostMessages} loss=${link.loss}")
+            assertTrue("frames came ($got)", got >= 30)
+            assertTrue("NACKs without loss: $nacks for $got frames", nacks * 50 <= got)
+            link.close()
+            s.p.destroy()
+        } finally { xterm.destroy() }
+    }
 }

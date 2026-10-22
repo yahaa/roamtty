@@ -153,7 +153,7 @@ class UdpLink(
         }
         val (reports, missing, lost) = synchronized(lock) {
             // A retransmit only beats the next frame when the round trip is under about two frames.
-            val missing = if (rtt < 40_000) reasm.missing(t, maxOf(10_000L, rtt / 2)) else emptyList()
+            val missing = if (rtt < 40_000) reasm.missing(t, maxOf(100_000L, 3 * rtt)) else emptyList()
             Triple(reasm.takeReports(t), missing, reasm.expire(t, maxOf(300_000L, 3 * rtt)))
         }
         for ((m, block, idx) in missing) {

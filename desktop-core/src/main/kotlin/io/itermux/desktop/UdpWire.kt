@@ -149,7 +149,11 @@ sealed interface Packet {
 /** Puts messages back together; each comes out once, and video messages leave a [Report]. */
 class Reassembler {
     private class Block(val k: Int, val len: Int, val shards: Array<ByteArray?>) { var data: ByteArray? = null; var parity = false }
-    private class Pending(val flags: Int, val blocks: Array<Block?>, val firstUs: Long) { var lastUs = firstUs; var received = 0; var total = 0 }
+    private class Pending(val flags: Int, val blocks: Array<Block?>, val firstUs: Long) {
+        var lastUs = firstUs; var received = 0; var total = 0
+        /** When a shard of a later video message first arrived: everything of this one has been sent by then. */
+        var overtakenUs = 0L
+    }
     private val pending = HashMap<Long, Pending>()
     private val done = java.util.TreeSet<Long>()
     /** Finished video messages, kept a moment so parity arriving after the rebuild still counts. */
@@ -167,6 +171,7 @@ class Reassembler {
         val n = f.k + f.m
         if (f.k == 0 || n > Fec.MAX_SHARDS || f.index >= n || f.block >= f.blocks) return null
         val p = pending.getOrPut(f.msg) { Pending(f.flags, arrayOfNulls(f.blocks), nowUs) }
+        if (f.flags and UdpWire.FLAG_VIDEO != 0) for ((m, o) in pending) if (m < f.msg && o.overtakenUs == 0L && o.flags and UdpWire.FLAG_VIDEO != 0) o.overtakenUs = nowUs
         if (p.blocks.size != f.blocks) return null
         p.lastUs = nowUs
         val b = p.blocks[f.block] ?: Block(f.k, f.len, arrayOfNulls(n)).also { p.blocks[f.block] = it; p.total += n }
@@ -198,9 +203,15 @@ class Reassembler {
         if (p.flags and UdpWire.FLAG_VIDEO != 0) settling[msg] = Report(msg, p.received, p.total, p.firstUs, p.lastUs, outcome) to nowUs
     }
 
-    /** Missing shards (msg, block, indices) of messages quiet for [olderThanUs]: what a NACK asks for. */
-    fun missing(nowUs: Long, olderThanUs: Long): List<Triple<Long, Int, List<Int>>> = pending.flatMap { (msg, p) ->
-        if (nowUs - p.lastUs < olderThanUs) emptyList() else p.blocks.withIndex().mapNotNull { (bi, b) ->
+    /**
+     * Missing shards (msg, block, indices): what a NACK asks for. The host paces video out in order, so
+     * a video message's gaps are lost once a later one has been arriving for [REORDER_US]. A quiet spell
+     * alone is not loss: Wi-Fi holds bursts back for tens of ms, and NACKing after 10 ms of quiet
+     * resent 5-30% of a phone's shards at 0% loss. Messages nothing has overtaken wait [fallbackUs].
+     */
+    fun missing(nowUs: Long, fallbackUs: Long): List<Triple<Long, Int, List<Int>>> = pending.flatMap { (msg, p) ->
+        val overtaken = p.overtakenUs != 0L && nowUs - p.overtakenUs >= REORDER_US
+        if (!overtaken && nowUs - p.lastUs < fallbackUs) emptyList() else p.blocks.withIndex().mapNotNull { (bi, b) ->
             if (b == null || b.data != null) null else {
                 val need = b.k - b.shards.count { it != null }
                 b.shards.indices.filter { b.shards[it] == null }.take(need).takeIf { it.isNotEmpty() }?.let { Triple(msg, bi, it) }
@@ -231,5 +242,9 @@ class Reassembler {
         return out
     }
 
-    companion object { const val SETTLE_US = 50_000L }
+    companion object {
+        const val SETTLE_US = 50_000L
+        /** A later message's shards can pass an earlier one's last few on the way: 5 ms of grace. */
+        const val REORDER_US = 5_000L
+    }
 }
