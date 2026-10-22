@@ -96,6 +96,8 @@ class UdpLink(
                 is Packet.Heartbeat -> {
                     lastServerT = p.t
                     if (p.echo != 0L) rttMs = ((now() - p.echo) / 1000).toInt()
+                    // The host's RTT probe: answered at once, or the host times its resends by our next heartbeat.
+                    else raw(Packet.Heartbeat(now(), p.t).encode())
                 }
                 is Packet.Frag -> {
                     val reliable = p.flags and UdpWire.FLAG_RELIABLE != 0
