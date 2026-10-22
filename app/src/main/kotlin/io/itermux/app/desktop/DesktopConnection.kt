@@ -118,6 +118,7 @@ internal class DesktopConnection(
         closing = false
         kicked = false
         agentReloaded = false
+        serviceInstallTried = false
         phase.value = DesktopPhase.Connecting(DesktopPhase.Step.LOGIN)
         job = scope.launch(Dispatchers.IO) { runLoop() }
     }
@@ -242,6 +243,13 @@ internal class DesktopConnection(
                                 Log.i(TAG, "${host.name}: agent not running, reloaded: $ok")
                                 if (ok) { tries--; continue }
                             }
+                            // Windows: the plugin is current but runs as a logon task. An install over an
+                            // administrator's login sets the service up, which serves the sign-in screen.
+                            if (windowsHost && !serviceInstallTried) {
+                                serviceInstallTried = true
+                                install(remote, target.first, target.second, force = true)?.let { return it }
+                                tries--; continue
+                            }
                             phase.value = DesktopPhase.NeedsAction(listOf("not-logged-in")); delay(1000)
                         }
                         else -> return Outcome.Failed(trf("桌面插件出错：%s", start.detail ?: start.code))
@@ -267,7 +275,9 @@ internal class DesktopConnection(
     @Volatile private var agentReloaded = false
 
     /** The host's shell is cmd.exe or PowerShell (a native Windows host). */
-    /** The host runs Windows (known once the probe answered). */
+    /** One forced install per connection when Windows says nobody is signed in (see the not_logged_in case). */
+    private var serviceInstallTried = false
+        /** The host runs Windows (known once the probe answered). */
     @Volatile var windowsHost = false
         private set
 

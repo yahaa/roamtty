@@ -15,7 +15,8 @@ object WindowsDesktop {
     /**
      * Read-only: the console's signed-in user (works on Home editions, unlike `query user`), the CPU
      * architecture, and the plugin's version line. With the plugin's service running there is a
-     * desktop even when nobody is signed in: the sign-in screen.
+     * desktop even when nobody is signed in: the sign-in screen. So there is for an administrator's
+     * login, whose install sets the service up.
      */
     val probeCommand: String = PowerShell.command("""
         ${'$'}d = 'no'
@@ -24,6 +25,8 @@ object WindowsDesktop {
           if (${'$'}u -and (${'$'}u -split '\\')[-1] -eq ${'$'}env:USERNAME) { ${'$'}d = 'yes' } else { ${'$'}d = 'nologin' }
         } catch {}
         if ((Get-Service $SERVICE -ErrorAction SilentlyContinue).Status -eq 'Running') { ${'$'}d = 'yes' }
+        # An administrator's login can install the service, which then shows the sign-in screen.
+        if (${'$'}d -eq 'nologin' -and ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { ${'$'}d = 'yes' }
         '${HostPluginProbe.DESKTOP}' + ${'$'}d
         '${HostPluginProbe.UNAME}Windows ' + ${'$'}env:PROCESSOR_ARCHITECTURE
         ${'$'}p = "$BIN\roamtty-desktop.exe"; ${'$'}v = ''
