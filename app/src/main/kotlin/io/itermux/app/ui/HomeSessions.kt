@@ -2,7 +2,6 @@ package io.itermux.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -24,14 +23,12 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.session.AgentStatus
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
-import io.itermux.app.trf
 import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.Phase
 import kotlinx.coroutines.flow.combine
@@ -83,8 +80,7 @@ private fun SessionGroup.color() = when (this) {
 /**
  * Every session the app holds, grouped by what its agent is doing (waiting for the user, working, done, then the
  * rest), most active first within a group; a tap opens its terminal. With two groups or more, chips above them filter
- * to one. Finished agents and plain terminals take compact rows, and of the finished only the latest shows until
- * unfolded. On a phone a group's sessions share one panel, split by hairlines; where the page has room for more columns,
+ * to one. Finished agents and plain terminals take compact rows. On a phone a group's sessions share one panel, split by hairlines; where the page has room for more columns,
  * each is a card of its own.
  */
 @Composable
@@ -113,7 +109,6 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
         sessions.filter { (places[it.id]?.first ?: SessionGroup.OTHER) == group }.takeIf { it.isNotEmpty() }?.let { group to it }
     }
     var filter by rememberSaveable { mutableStateOf<String?>(null) }
-    var doneUnfolded by rememberSaveable { mutableStateOf(false) }
     // A filter whose group has emptied shows everything again.
     val only = groups.firstOrNull { it.first.name == filter }?.first
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -133,12 +128,9 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
                 item(key = "group-${group.name}", span = { GridItemSpan(maxLineSpan) }) {
                     SessionGroupHeader(group, members.size, plainOnly(members))
                 }
-                // Finished agents pile up: unless that group is picked, only the latest shows until asked for the rest.
-                val folds = group == SessionGroup.DONE && only == null && members.size > 1
-                val shown = if (folds && !doneUnfolded) members.take(1) else members
-                gridItemsIndexed(shown, key = { _, session -> session.id }) { index, session ->
+                gridItemsIndexed(members, key = { _, session -> session.id }) { index, session ->
                     val radius = 18.dp
-                    val last = index == shown.lastIndex && !folds
+                    val last = index == members.lastIndex
                     val shape = when {
                         !joined || (index == 0 && last) -> RoundedCornerShape(radius)
                         index == 0 -> RoundedCornerShape(topStart = radius, topEnd = radius)
@@ -150,24 +142,8 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
                         modifier = if (joined) Modifier else Modifier.padding(bottom = Spacing.Row),
                         compact = group == SessionGroup.DONE || group == SessionGroup.OTHER, desktop = { desktop(session) })
                 }
-                if (folds) item(key = "fold-${group.name}", span = { GridItemSpan(maxLineSpan) }) {
-                    FoldRow(if (doneUnfolded) tr("收起") else trf("显示全部 %d 个", members.size), joined) { doneUnfolded = !doneUnfolded }
-                }
             }
         }
-    }
-}
-
-/** The line closing a folded group's panel, or a pill of its own between cards. */
-@Composable
-private fun FoldRow(label: String, joined: Boolean, onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val shape = if (joined) RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp) else RoundedCornerShape(18.dp)
-    Column(Modifier.fillMaxWidth().clip(shape).background(colors.groupedContainer)
-        .clickable(role = Role.Button, onClick = onClick).testTag("home-session-fold")) {
-        if (joined) Box(Modifier.padding(start = 14.dp).fillMaxWidth().height(1.dp).background(colors.onSurface.copy(alpha = 0.07f)))
-        Text(label, Modifier.fillMaxWidth().padding(vertical = 10.dp), style = MaterialTheme.typography.labelLarge,
-            color = colors.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 1)
     }
 }
 

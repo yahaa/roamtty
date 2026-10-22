@@ -35,7 +35,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -61,11 +60,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * One session: its tile beside its name, the chip of the host it runs on, the whole folder it is in (as the host has
- * it, never `~`) and the last prompt ("你: …", or "等待输入中…" while an idle agent has had none), then, across the
+ * One session: its tile beside its name, the chip of the host it runs on, the folder it is in (the home as `~`)
+ * and the last prompt ("你: …", or "等待输入中…" while an idle agent has had none), then, across the
  * whole row, what the agent answered or runs and a status line with how long it has been at it and what the agent
- * needs (allow a request, or a follow-up typed right here). [compact] keeps the name, the folder and one line of how it
- * stands, for sessions that need nothing from the user. Long press for its menu.
+ * needs (allow a request, or a follow-up typed right here). [compact] rows, for sessions that need nothing from the
+ * user, are built the same way with only the name, the folder and that status line. Long press for its menu.
  * An agent's session is named by its folder, the agent's badge before it; others by [sessionListTitle].
  */
 @Composable
@@ -136,8 +135,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                     AgentBadge(kind)
                     Spacer(Modifier.width(6.dp))
                 }
-                MarqueeTitle(name, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"),
-                    if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium)
+                MarqueeTitle(name, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"))
                 HostChip(session.host.name, session.host.id, hostOffline && !state.active, "$tagPrefix-host-${session.id}",
                     Modifier.padding(start = Spacing.Tight))
             }
@@ -156,12 +154,12 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
         }
         if (compact) Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SessionIcon(session, 32.dp, status?.state)
+                SessionIcon(session, 40.dp, status?.state)
                 Column(Modifier.weight(1f).padding(start = Spacing.Row)) { titleLine() }
             }
-            // One line of how it stands, under the name: the agent's answer and when, or the connection and what carries
-            // it; its buttons at the end, where every row has them.
-            Row(Modifier.padding(start = 32.dp + Spacing.Row, top = Spacing.Tight).heightIn(min = 28.dp),
+            // One line of how it stands, across the row's whole width: the agent's answer and when, or the connection and
+            // what carries it; its buttons at the end, where every row has them.
+            Row(Modifier.padding(top = Spacing.Tight).heightIn(min = 28.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     if (status != null && live && idle) {
@@ -406,7 +404,7 @@ internal fun ago(seconds: Long): String = when {
  * third of the line between copies) and fades out at the right edge; a title that fits stays still and unfaded.
  */
 @Composable
-internal fun MarqueeTitle(text: String, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.titleMedium) {
+internal fun MarqueeTitle(text: String, modifier: Modifier = Modifier) {
     // The marquee lays the text out at its full width; more than the line gets means it scrolls.
     var full by remember { mutableIntStateOf(0) }
     var line by remember { mutableIntStateOf(0) }
@@ -417,5 +415,5 @@ internal fun MarqueeTitle(text: String, modifier: Modifier = Modifier, style: Te
             endX = size.width), blendMode = BlendMode.DstIn)
     } else Modifier
     Text(text, modifier.onSizeChanged { line = it.width }.then(fade).basicMarquee(iterations = Int.MAX_VALUE),
-        style = style, maxLines = 1, onTextLayout = { full = it.size.width })
+        style = MaterialTheme.typography.titleMedium, maxLines = 1, onTextLayout = { full = it.size.width })
 }

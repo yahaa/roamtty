@@ -877,8 +877,9 @@ internal fun DesktopCardButton(state: DesktopButton, tag: String, onClick: () ->
     var spin by remember { mutableStateOf(false) }
     val busy = state == DesktopButton.CONNECTING || state == DesktopButton.RECOVERING
     LaunchedEffect(busy) { spin = false; if (busy) { delay(300); spin = true } }
+    // The touch target reaches past the button's left side only, so the button lines up with the row's right edge.
     Box(Modifier.size(44.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = tr("打开桌面"), onClick = onClick)
-        .testTag(tag), contentAlignment = Alignment.Center) {
+        .testTag(tag), contentAlignment = Alignment.CenterEnd) {
         Box(Modifier.size(34.dp, 30.dp).clip(RoundedCornerShape(9.dp))
             .background(if (live) Accent.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.07f)), contentAlignment = Alignment.Center) {
             if (spin) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp, color = if (live) Accent else colors.onSurface)
@@ -890,7 +891,7 @@ internal fun DesktopCardButton(state: DesktopButton, tag: String, onClick: () ->
             DesktopButton.POOR, DesktopButton.NEEDS_ACTION -> StatusColors.warning
             else -> null
         }
-        if (badge != null) Box(Modifier.align(Alignment.Center).offset(13.dp, (-11).dp).size(8.dp).clip(CircleShape).background(badge)
+        if (badge != null) Box(Modifier.align(Alignment.CenterEnd).offset(0.dp, (-11).dp).size(8.dp).clip(CircleShape).background(badge)
             .border(1.5.dp, colors.surface, CircleShape).testTag("$tag-badge-${state.name.lowercase()}"))
     }
 }
