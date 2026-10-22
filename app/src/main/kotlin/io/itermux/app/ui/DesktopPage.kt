@@ -51,11 +51,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -333,6 +335,7 @@ private fun BoxScope.DesktopStatusOverlay(connection: DesktopConnection, phase: 
                         modifier = Modifier.testTag("desktop-needs"))
                     Text(tr("满足后会自动连接"), color = InkDim, fontSize = 13.sp)
                     LinearProgressIndicator(Modifier.fillMaxWidth(), color = Accent)
+                    if (connection.windowsHost && phase.needs.firstOrNull() == "not-logged-in") WindowsServiceHint()
                 }
                 else -> {
                     val step = (phase as? DesktopPhase.Connecting)?.step
@@ -366,6 +369,17 @@ private fun BoxScope.DesktopStatusOverlay(connection: DesktopConnection, phase: 
     }
     notice?.let { Text(it, Modifier.align(Alignment.TopCenter).padding(10.dp).clip(CircleShape).background(PanelColor)
         .padding(horizontal = 14.dp, vertical = 6.dp).testTag("desktop-notice"), color = Ink, fontSize = 13.sp) }
+}
+
+/** Windows without the plugin's service: one administrator install reaches the sign-in and lock screens. */
+@Composable
+private fun WindowsServiceHint() {
+    val clipboard = LocalClipboardManager.current
+    Text(tr("在这台电脑上用管理员 PowerShell 运行一次下面的命令，之后电脑重启或锁屏时也能直接连接："), color = InkDim, fontSize = 13.sp)
+    Text(io.itermux.ssh.WindowsDesktop.SERVICE_INSTALL, color = Ink, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
+        modifier = Modifier.testTag("desktop-service-command"))
+    TextButton(onClick = { clipboard.setText(AnnotatedString(io.itermux.ssh.WindowsDesktop.SERVICE_INSTALL)) },
+        Modifier.testTag("desktop-service-copy")) { Text(tr("复制命令")) }
 }
 
 private fun needsText(needs: List<String>): String = when (needs.firstOrNull()) {

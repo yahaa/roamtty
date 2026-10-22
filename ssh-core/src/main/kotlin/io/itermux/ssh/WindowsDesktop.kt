@@ -7,10 +7,15 @@ package io.itermux.ssh
 object WindowsDesktop {
     private const val BIN = "\$env:USERPROFILE\\.roamtty\\bin"
     private const val TASK = "Roamtty Desktop"
+    /** The plugin's Windows service (installed by an administrator): the sign-in and lock screens too. */
+    const val SERVICE = "RoamttyDesktop"
+    /** What an administrator runs once on the PC to install the service. */
+    const val SERVICE_INSTALL = "& \"${'$'}env:USERPROFILE\\.roamtty\\bin\\roamtty-desktop.exe\" install"
 
     /**
      * Read-only: the console's signed-in user (works on Home editions, unlike `query user`), the CPU
-     * architecture, and the plugin's version line.
+     * architecture, and the plugin's version line. With the plugin's service running there is a
+     * desktop even when nobody is signed in: the sign-in screen.
      */
     val probeCommand: String = PowerShell.command("""
         ${'$'}d = 'no'
@@ -18,6 +23,7 @@ object WindowsDesktop {
           ${'$'}u = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).UserName
           if (${'$'}u -and (${'$'}u -split '\\')[-1] -eq ${'$'}env:USERNAME) { ${'$'}d = 'yes' } else { ${'$'}d = 'nologin' }
         } catch {}
+        if ((Get-Service $SERVICE -ErrorAction SilentlyContinue).Status -eq 'Running') { ${'$'}d = 'yes' }
         '${HostPluginProbe.DESKTOP}' + ${'$'}d
         '${HostPluginProbe.UNAME}Windows ' + ${'$'}env:PROCESSOR_ARCHITECTURE
         ${'$'}p = "$BIN\roamtty-desktop.exe"; ${'$'}v = ''

@@ -198,6 +198,7 @@ internal class DesktopConnection(
     private suspend fun loggedIn(remote: RemoteHost): Outcome {
         var probe = remote.probeDesktop()
         probe?.let { saveProbe(it) }
+        if (probe?.uname?.startsWith("Windows") == true) windowsHost = true
         while (probe?.desktop == "nologin" && !closing) {
             phase.value = DesktopPhase.NeedsAction(listOf("not-logged-in"))
             delay(1000)
@@ -266,7 +267,9 @@ internal class DesktopConnection(
     @Volatile private var agentReloaded = false
 
     /** The host's shell is cmd.exe or PowerShell (a native Windows host). */
-    @Volatile private var windowsHost = false
+    /** The host runs Windows (known once the probe answered). */
+    @Volatile var windowsHost = false
+        private set
 
     private fun serveCommand(): String {
         // Resume tokens are base64: no quotes or spaces to escape in either shell.

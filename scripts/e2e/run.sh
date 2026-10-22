@@ -3,6 +3,7 @@
 # real OpenSSH/SFTP server, and performance samples checked against scripts/e2e/budgets.json.
 #
 #   scripts/e2e/run.sh [-s SERIAL] [--no-unit] [--no-build] [--only E2eFeatureTest|E2ePerfTest|Class#method]
+#   E2E_EXTRA_ARGS="-e winHost … -e winPassword …" adds instrumentation arguments (E2eWindowsServiceTest needs a Windows PC).
 #
 # Safe on a personal phone: it installs a separate package (com.roamtty.app.e2e, the `e2e` build type) and never
 # installs, uninstalls or opens the installed Roamtty (com.roamtty.app) or its sessions. The phone must be unlocked;
@@ -118,7 +119,7 @@ adb logcat -c || true
 set +e
 adb shell am instrument -w -r -e e2ePassword "$(cat .private/e2e-password)" -e e2ePort $PORT \
   -e e2eHostKeyType "$KEY_TYPE" -e e2eHostKey "$KEY_BLOB" -e e2eDesktopUrl "http://127.0.0.1:${ROAMTTY_E2E_DESKTOP_PORT:-8797}/" \
-  -e class "$CLASS" $RUNNER > "$OUT/instrument.txt" 2>&1
+  -e class "$CLASS" ${E2E_EXTRA_ARGS:-} $RUNNER > "$OUT/instrument.txt" 2>&1
 set -e
 adb logcat -d -s E2E:I E2E_METRIC:I AndroidRuntime:E > "$OUT/logcat.txt" 2>&1 || true
 adb pull /sdcard/Android/data/$PKG/files/e2e "$OUT/screens" >/dev/null 2>&1 || true
