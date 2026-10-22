@@ -2,8 +2,10 @@ package io.itermux.app.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.res.Configuration
 import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.SurfaceHolder
@@ -105,6 +107,7 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
     var panel by rememberSaveable { mutableStateOf(DesktopPanel.NONE) }
     var mode by remember { mutableStateOf(settings.pointerMode(connection.host.id)) }
     var virtualMouse by rememberSaveable { mutableStateOf(false) }
+    var showStats by remember { mutableStateOf(settings.showStats) }
     val hasPicture = video.first > 0
     BackHandler(panel != DesktopPanel.NONE) { panel = DesktopPanel.NONE }
     BackHandler(panel == DesktopPanel.NONE) { onLeave() }
@@ -125,7 +128,7 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
             Box(m.background(Color.Black)) {
                 if (hasPicture) DesktopScreen(connection, mode, keys = panel == DesktopPanel.NONE)
                 if (virtualMouse && hasPicture) VirtualMouse(connection)
-                DesktopStatusOverlay(connection, phase, hasPicture, onRetry = { connection.start() }, onClose = onDisconnect)
+                DesktopStatusOverlay(connection, phase, hasPicture, showStats, onRetry = { connection.start() }, onClose = onDisconnect)
             }
         }
         if (landscape) Row(Modifier.fillMaxSize()) {
@@ -137,9 +140,10 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
             if (panel != DesktopPanel.KEYBOARD) rail()
         }
         when (panel) {
-            DesktopPanel.OPERATIONS -> OperationsPanel(connection, landscape, mode, virtualMouse,
+            DesktopPanel.OPERATIONS -> OperationsPanel(connection, landscape, mode, virtualMouse, showStats,
                 onMode = { mode = it; settings.setPointerMode(connection.host.id, it) },
                 onVirtualMouse = { virtualMouse = it },
+                onShowStats = { showStats = it; settings.showStats = it },
                 onLeave = { panel = DesktopPanel.NONE; onLeave() },
                 onDisconnect = { panel = DesktopPanel.NONE; onDisconnect() },
                 onFiles = { panel = DesktopPanel.NONE; onFiles() },
@@ -311,10 +315,10 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
     }
 }
 
-/** Connecting steps, needs, failures, the network badge and the recovering card, over the picture. */
+/** Connecting steps, needs, failures, the network figures and the recovering card, over the picture. */
 @Composable
 private fun BoxScope.DesktopStatusOverlay(connection: DesktopConnection, phase: DesktopPhase, hasPicture: Boolean,
-    onRetry: () -> Unit, onClose: () -> Unit) {
+    showStats: Boolean, onRetry: () -> Unit, onClose: () -> Unit) {
     val log by connection.log.collectAsStateWithLifecycle()
     val notice by connection.notice.collectAsStateWithLifecycle()
     val showCard = !hasPicture || phase is DesktopPhase.Failed || phase is DesktopPhase.NeedsAction
@@ -351,7 +355,7 @@ private fun BoxScope.DesktopStatusOverlay(connection: DesktopConnection, phase: 
         }
     }
     if (hasPicture) {
-        NetworkBadge(connection, phase, Modifier.align(Alignment.BottomStart).padding(10.dp))
+        NetworkStats(connection, phase, showStats, Modifier.align(Alignment.TopStart).padding(8.dp))
         val recovering = phase as? DesktopPhase.Recovering
         var longEnough by remember(recovering?.sinceMs) { mutableStateOf(false) }
         LaunchedEffect(recovering?.sinceMs) {
@@ -406,61 +410,74 @@ private fun StepLine(label: String, current: Boolean, done: Boolean) {
     }
 }
 
-/** "采集 9 · 转换 6 · 编码 17" in whole ms; the parts with nothing measured left out. */
-private fun latencyParts(vararg parts: Pair<String, Double?>): String =
-    parts.mapNotNull { (k, v) -> v?.let { "$k ${it.roundToInt()}" } }.joinToString(" · ").ifEmpty { "—" }
+/** The sum of a frame's parts that were measured, null when none was. */
+private fun msSum(vararg parts: Double?): Int? = parts.filterNotNull().takeIf { it.isNotEmpty() }?.sum()?.roundToInt()
 
-@Composable
-private fun NetworkBadge(connection: DesktopConnection, phase: DesktopPhase, modifier: Modifier) {
-    val stats by connection.stats.collectAsStateWithLifecycle()
-    var open by rememberSaveable { mutableStateOf(false) }
-    val poor = (phase as? DesktopPhase.Connected)?.poor == true
-    val dot = when {
-        phase is DesktopPhase.Recovering -> InkDim
-        poor -> StatusColors.warning
-        else -> StatusColors.success
+/** Wi-Fi, 移动数据 or 以太网: what the phone's link to the host starts with. */
+private fun transportName(context: Context): String {
+    val cm = context.getSystemService(ConnectivityManager::class.java)
+    val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return "—"
+    return when {
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> tr("移动数据")
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> tr("以太网")
+        else -> "—"
     }
-    Column(modifier) {
-        if (open) Card(colors = CardDefaults.cardColors(containerColor = PanelColor), modifier = Modifier.padding(bottom = 6.dp).testTag("desktop-stats")) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                listOf(
-                    tr("延迟") to (stats.rttMs?.let { "$it ms" } ?: "—"),
-                    tr("端到端") to (stats.latency?.totalMs?.let { "${it.roundToInt()} ms" } ?: "—"),
-                    tr("主机端") to latencyParts(tr("采集") to stats.latency?.captureMs, tr("转换") to stats.latency?.convertMs,
-                        tr("编码") to stats.latency?.encodeMs),
-                    tr("网络") to (stats.latency?.networkMs?.let { "${it.roundToInt()} ms" } ?: "—"),
-                    tr("手机端") to latencyParts(tr("解码") to stats.latency?.decodeMs, tr("上屏") to stats.latency?.renderMs),
-                    tr("码率") to "${stats.kbps} kbps",
-                    tr("帧率") to "${stats.fps} fps",
-                    tr("分辨率") to if (stats.width > 0) "${stats.width}×${stats.height}" else "—",
-                    tr("链路") to stats.link,
-                    tr("丢包") to (stats.lossPercent?.let { "%.1f %%".format(it) } ?: "—"),
-                    tr("FEC 恢复") to "${stats.fecRecovered}",
-                    tr("解码器") to stats.decoder.ifEmpty { "—" },
-                    tr("编码器") to stats.encoder.ifEmpty { "—" },
-                    tr("已解码") to "${stats.frames}",
-                ).forEach { (k, v) ->
-                    Row { Text(k, color = InkDim, fontSize = 12.sp, modifier = Modifier.width(64.dp)); Text(v, color = Ink, fontSize = 12.sp, fontFamily = FontFamily.Monospace) }
-                }
-            }
+}
+
+/**
+ * The figures over the picture's top left corner, one short line each, the way game streaming shows
+ * them; shown only when 显示网络状态 is on in 操作. They never take a touch: the picture under them
+ * still gets it. Switched off, only a poor or recovering link still says so.
+ */
+@Composable
+private fun NetworkStats(connection: DesktopConnection, phase: DesktopPhase, show: Boolean, modifier: Modifier) {
+    val context = LocalContext.current
+    val stats by connection.stats.collectAsStateWithLifecycle()
+    val poor = (phase as? DesktopPhase.Connected)?.poor == true
+    val recovering = phase is DesktopPhase.Recovering
+    if (!show) {
+        if (poor || recovering) Row(modifier.clip(CircleShape).background(Color(0x99000000)).padding(horizontal = 8.dp, vertical = 3.dp)
+            .testTag("desktop-network-warning"), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(if (recovering) InkDim else StatusColors.warning))
+            Spacer(Modifier.width(5.dp))
+            Text(if (recovering) tr("恢复中") else tr("网络较差"), color = Ink, fontSize = 11.sp)
         }
-        Row(Modifier.clip(CircleShape).background(PanelColor).clickable { open = !open }.padding(horizontal = 10.dp, vertical = 5.dp)
-            .testTag("desktop-network"), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(7.dp).clip(CircleShape).background(dot))
-            Spacer(Modifier.width(6.dp))
-            Text(when {
-                phase is DesktopPhase.Recovering -> tr("恢复中")
-                poor -> tr("网络较差")
-                else -> listOfNotNull(stats.link.takeIf { it == "UDP" }, stats.rttMs?.let { "$it ms" }).joinToString(" · ").ifEmpty { "SSH" }
-            }, color = Ink, fontSize = 12.sp)
-        }
+        return
+    }
+    val transport = remember(stats.frames / 120) { transportName(context) }
+    val l = stats.latency
+    val warn = StatusColors.warning
+    val bad = StatusColors.danger
+    fun ms(v: Int?, slow: Int, verySlow: Int) = when {
+        v == null -> Ink
+        v >= verySlow -> bad
+        v >= slow -> warn
+        else -> Ink
+    }
+    val total = l?.totalMs?.roundToInt()
+    val lines = listOfNotNull(
+        "${if (recovering) tr("恢复中") else stats.link} ${stats.rttMs?.let { "$it ms" } ?: "—"}" to
+            if (poor) warn else ms(stats.rttMs, 80, 150),
+        "${stats.fps} fps  ${"%.1f".format(stats.kbps / 1000.0)} Mbps" to Ink,
+        "${tr("端到端")} ${total?.let { "$it ms" } ?: "—"}" to ms(total, 100, 200),
+        l?.let { "${tr("主机端")} ${msSum(it.captureMs, it.convertMs, it.encodeMs) ?: "—"} · ${tr("网络")} ${it.networkMs?.roundToInt() ?: "—"} · " +
+            "${tr("手机端")} ${msSum(it.decodeMs, it.renderMs) ?: "—"}" to InkDim },
+        stats.lossPercent?.let { "${tr("丢包")} ${"%.1f".format(it)}%" + (if (stats.fecRecovered > 0) "  FEC ${stats.fecRecovered}" else "") to
+            if (it >= 5) warn else Ink },
+        (if (stats.width > 0) "${stats.width}×${stats.height}" else "—") + (stats.encoder.takeIf { it.isNotEmpty() }?.let { " $it" } ?: "") to InkDim,
+        transport to InkDim,
+    )
+    Column(modifier.clip(RoundedCornerShape(6.dp)).background(Color(0x8C000000)).padding(horizontal = 7.dp, vertical = 4.dp)
+        .testTag("desktop-stats")) {
+        lines.forEach { (text, color) -> Text(text, color = color, fontSize = 11.sp, lineHeight = 14.sp, fontFamily = FontFamily.Monospace, maxLines = 1) }
     }
 }
 
 @Composable
 private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: Boolean, mode: PointerMode, virtualMouse: Boolean,
-    onMode: (PointerMode) -> Unit, onVirtualMouse: (Boolean) -> Unit, onLeave: () -> Unit, onDisconnect: () -> Unit,
-    onFiles: () -> Unit, onDismiss: () -> Unit) {
+    showStats: Boolean, onMode: (PointerMode) -> Unit, onVirtualMouse: (Boolean) -> Unit, onShowStats: (Boolean) -> Unit,
+    onLeave: () -> Unit, onDisconnect: () -> Unit, onFiles: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val viewOnly by connection.viewOnly.collectAsStateWithLifecycle()
@@ -482,12 +499,24 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
     Box(Modifier.fillMaxSize().background(Color(0x66000000)).clickable(onClick = onDismiss))
     Card(Modifier.align(if (landscape) Alignment.CenterEnd else Alignment.BottomCenter)
         .then(if (landscape) Modifier.padding(end = 80.dp).width(340.dp).fillMaxHeight(0.92f) else Modifier.fillMaxWidth().fillMaxHeight(0.7f))
-        .testTag("desktop-operations"), colors = CardDefaults.cardColors(containerColor = PanelColor), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        .testTag("desktop-operations"), colors = CardDefaults.cardColors(containerColor = PanelColor.copy(alpha = 1f)), shape = RoundedCornerShape(18.dp)) {
+        // Closing the panel is the ✕ in its corner, where every sheet keeps it; ending the connection is the
+        // red button at the very bottom, away from it (the old top row put 断开 under the thumb that closes).
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(tr("操作"), color = Ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(connection.host.name, color = InkDim, fontSize = 12.sp, maxLines = 1)
+            }
+            IconButton(onClick = onDismiss, Modifier.testTag("desktop-op-close")) {
+                Icon(painterResource(R.drawable.ic_close), tr("关闭"), Modifier.size(22.dp), tint = Ink)
+            }
+        }
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 4.dp)
+            .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PanelButton(tr("退出"), R.drawable.ic_exit, "desktop-op-exit", Modifier.weight(1f), onLeave)
-                PanelButton(tr("文件"), R.drawable.ic_folder, "desktop-op-files", Modifier.weight(1f), onFiles)
-                PanelButton(tr("断开"), R.drawable.ic_close, "desktop-op-disconnect", Modifier.weight(1f), onDisconnect)
+                PanelButton(tr("返回"), R.drawable.ic_exit, "desktop-op-exit", Modifier.weight(1f), tr("连接保持"), onLeave)
+                PanelButton(tr("文件"), R.drawable.ic_folder, "desktop-op-files", Modifier.weight(1f), tr("上传和下载"), onFiles)
             }
             Section(tr("剪贴板")) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -511,6 +540,7 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
             }
             ToggleRow(tr("仅观看"), tr("不向电脑发送任何操作"), viewOnly, "desktop-view-only") { connection.setViewOnly(it) }
             ToggleRow(tr("虚拟鼠标"), tr("悬浮的左键、右键和滚轮"), virtualMouse, "desktop-virtual-mouse") { onVirtualMouse(it) }
+            ToggleRow(tr("显示网络状态"), tr("画面左上角显示延迟、帧率和码率"), showStats, "desktop-show-stats") { onShowStats(it) }
             Section(tr("帧率")) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DesktopSettings.FPS.filter { it <= maxOf(60, refresh) }.forEach { f ->
@@ -535,7 +565,14 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
                     }
                 }
             }
-            ToggleRow(tr("断开后锁定电脑"), tr("连接真正断开时锁屏，退出到后台不算"), lock, "desktop-lock-on-close") { connection.setLockOnClose(it) }
+            ToggleRow(tr("断开后锁定电脑"), tr("断开连接时锁屏，返回不算"), lock, "desktop-lock-on-close") { connection.setLockOnClose(it) }
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, StatusColors.danger.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                .clickable(onClick = onDisconnect).padding(vertical = 12.dp).testTag("desktop-op-disconnect"),
+                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                Icon(painterResource(R.drawable.ic_power), null, Modifier.size(18.dp), tint = StatusColors.danger)
+                Spacer(Modifier.width(8.dp))
+                Text(tr("断开连接"), color = StatusColors.danger, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
         }
     }
 }
@@ -549,12 +586,13 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
 }
 
 @Composable
-private fun PanelButton(label: String, icon: Int, tag: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun PanelButton(label: String, icon: Int, tag: String, modifier: Modifier = Modifier, caption: String? = null, onClick: () -> Unit) {
     Column(modifier.clip(RoundedCornerShape(12.dp)).background(Color(0x14FFFFFF)).clickable(onClick = onClick)
         .padding(vertical = 10.dp, horizontal = 6.dp).testTag(tag), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(painterResource(icon), null, Modifier.size(20.dp), tint = Ink)
         Spacer(Modifier.height(4.dp))
         Text(label, color = Ink, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 2)
+        caption?.let { Text(it, color = InkDim, fontSize = 10.sp, textAlign = TextAlign.Center, maxLines = 1) }
     }
 }
 

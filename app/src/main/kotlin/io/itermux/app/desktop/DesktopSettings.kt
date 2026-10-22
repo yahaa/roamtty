@@ -23,6 +23,11 @@ internal class DesktopSettings(context: Context) {
         get() = prefs.getInt("desktop.keepAlive", 10).takeIf { it in KEEP_ALIVE } ?: 10
         set(value) = prefs.edit { putInt("desktop.keepAlive", value) }
 
+    /** The latency, frame rate and bit rate over the picture's top left corner; off until switched on in 操作. */
+    var showStats: Boolean
+        get() = prefs.getBoolean("desktop.showStats", false)
+        set(value) = prefs.edit { putBoolean("desktop.showStats", value) }
+
     /** Debug and e2e builds only: a base URL that replaces the pinned release, for a plugin not yet published. */
     var pluginBaseUrl: String
         get() = prefs.getString("desktop.pluginBaseUrl", "").orEmpty()

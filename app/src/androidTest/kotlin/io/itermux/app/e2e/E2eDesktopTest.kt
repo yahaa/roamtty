@@ -81,11 +81,23 @@ class E2eDesktopTest {
         E2e.cleanup(if (::service.isInitialized) service else null)
     }
 
-    @After fun tearDown() { DesktopSettings(E2e.context).apply { enabled = false; pluginBaseUrl = ""; udpHostOverride = ""; testLoss = 0.0 } }
+    @After fun tearDown() { DesktopSettings(E2e.context).apply { enabled = false; pluginBaseUrl = ""; udpHostOverride = ""; testLoss = 0.0; showStats = false } }
 
     private fun click(tag: String, timeoutMs: Long = 10_000) {
         E2e.waitTag(compose, tag, timeoutMs)
         compose.onNodeWithTag(tag, useUnmergedTree = true).performClick()
+    }
+
+    /** 显示网络状态 in 操作, then the panel closed with its ✕. */
+    private fun showStats(on: Boolean) {
+        click("desktop-rail-operations")
+        E2e.waitTag(compose, "desktop-operations")
+        compose.onNodeWithTag("desktop-show-stats").performScrollTo()
+        if (DesktopSettings(E2e.context).showStats != on) click("desktop-show-stats")
+        assertEquals(on, DesktopSettings(E2e.context).showStats)
+        click("desktop-op-close")
+        E2e.waitGone(compose, hasTestTag("desktop-operations"))
+        if (on) E2e.waitTag(compose, "desktop-stats") else compose.onNodeWithTag("desktop-stats").assertDoesNotExist()
     }
 
     /** Runs [script] on the fixture over a login of its own; returns its output. */
@@ -177,10 +189,16 @@ class E2eDesktopTest {
         }
         assertEquals("openh264", latency.encoder)
         assertTrue("$latency", latency.totalMs!! in 1.0..1000.0)
-        compose.onNodeWithTag("desktop-network").performClick()
-        E2e.waitTag(compose, "desktop-stats")
+        // The figures stay off the picture until 操作 switches them on, and the switch is remembered.
+        // (The keyboard panel takes the rail's place in portrait: closed for this, open again after.)
+        Espresso.pressBack()
+        E2e.waitGone(compose, hasTestTag("desktop-keyboard"))
+        compose.onNodeWithTag("desktop-stats").assertDoesNotExist()
+        showStats(true)
         E2e.capture(compose, "desktop-03b-latency")
-        compose.onNodeWithTag("desktop-network").performClick()
+        showStats(false)
+        click("desktop-rail-keyboard")
+        E2e.waitTag(compose, "desktop-ime-field")
         // The shortcut bar is hidden until asked for; ⋯ swaps the input method for the 更多 keys.
         compose.onNodeWithTag("desktop-sk-esc").assertDoesNotExist()
         click("desktop-kb-toggle")
@@ -205,10 +223,21 @@ class E2eDesktopTest {
         click("desktop-rail-operations")
         E2e.waitTag(compose, "desktop-operations")
         E2e.capture(compose, "desktop-05-operations")
+        // Ending the connection is far from closing the panel: the ✕ on top, 断开连接 at the bottom.
+        compose.onNodeWithTag("desktop-op-disconnect").performScrollTo()
+        idle(600)
+        E2e.capture(compose, "desktop-05b-operations-bottom")
+        click("desktop-op-close")
+        E2e.waitGone(compose, hasTestTag("desktop-operations"))
+        assertTrue(desktop().phase.value is DesktopPhase.Connected)
+        click("desktop-rail-operations")
+        E2e.waitTag(compose, "desktop-operations")
+        compose.onNodeWithTag("desktop-quality-clear").performScrollTo()
         click("desktop-mode-mouse")
         click("desktop-quality-clear")
         compose.waitUntil(3_000) { desktop().quality.value == "clear" }
         click("desktop-mode-touch")
+        compose.onNodeWithTag("desktop-op-exit").performScrollTo()
 
         // Leaving keeps it: the card shows it connected and coming back is quick.
         click("desktop-op-exit")
@@ -229,6 +258,14 @@ class E2eDesktopTest {
         idle(1_500)
         E2e.waitTag(compose, "desktop-rail-operations")
         E2e.capture(compose, "desktop-08-landscape")
+        // The figures on the picture's left, away from the rail on the right; the panel's ✕ still at its top.
+        showStats(true)
+        click("desktop-rail-operations")
+        E2e.waitTag(compose, "desktop-op-close")
+        E2e.capture(compose, "desktop-08b-landscape-stats-operations")
+        click("desktop-op-close")
+        E2e.waitGone(compose, hasTestTag("desktop-operations"))
+        showStats(false)
         compose.activityRule.scenario.onActivity { it.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
         idle(1_000)
 
@@ -325,9 +362,9 @@ class E2eDesktopTest {
         val back = decodedFrames()
         compose.waitUntil(8_000) { desktop().input(io.itermux.desktop.DesktopProtocol.text("u")); idle(200); decodedFrames() > back }
         assertTrue(desktop().phase.value is DesktopPhase.Connected)
-        compose.onNodeWithTag("desktop-network").performClick()
-        E2e.waitTag(compose, "desktop-stats")
+        showStats(true)
         E2e.capture(compose, "desktop-udp-03-stats")
+        showStats(false)
     }
 
     private fun pointer(): Pair<Int, Int>? = Regex("""x:(\d+) y:(\d+)""").find(remote("DISPLAY=:77 xdotool getmouselocation"))
