@@ -872,23 +872,20 @@ private fun BoxScope.VirtualMouse(connection: DesktopConnection) {
 internal fun DesktopCardButton(state: DesktopButton, tag: String, onClick: () -> Unit) {
     if (state == DesktopButton.HIDDEN) return
     val colors = MaterialTheme.colorScheme
-    val live = state == DesktopButton.CONNECTED || state == DesktopButton.POOR || state == DesktopButton.RECOVERING
-    // 300 ms after a tap before the spinner shows, so a quick open never flashes it.
-    var spin by remember { mutableStateOf(false) }
-    val busy = state == DesktopButton.CONNECTING || state == DesktopButton.RECOVERING
-    LaunchedEffect(busy) { spin = false; if (busy) { delay(300); spin = true } }
+    // Always the desktop's icon, never a spinner: lit while a desktop is open or on its way.
+    val live = state == DesktopButton.CONNECTED || state == DesktopButton.POOR || state == DesktopButton.RECOVERING ||
+        state == DesktopButton.CONNECTING
     // The touch target reaches past the button's left side only, so the button lines up with the row's right edge.
     Box(Modifier.size(44.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = tr("打开桌面"), onClick = onClick)
         .testTag(tag), contentAlignment = Alignment.CenterEnd) {
         Box(Modifier.size(34.dp, 30.dp).clip(RoundedCornerShape(9.dp))
             .background(if (live) Accent.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.07f)), contentAlignment = Alignment.Center) {
-            if (spin) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp, color = if (live) Accent else colors.onSurface)
-            else Icon(painterResource(R.drawable.ic_desktop), contentDescription = tr("桌面"), Modifier.size(16.dp),
+            Icon(painterResource(R.drawable.ic_desktop), contentDescription = tr("桌面"), Modifier.size(16.dp),
                 tint = if (live) Accent else colors.onSurface)
         }
         val badge = when (state) {
             DesktopButton.CONNECTED -> StatusColors.success
-            DesktopButton.POOR, DesktopButton.NEEDS_ACTION -> StatusColors.warning
+            DesktopButton.POOR, DesktopButton.NEEDS_ACTION, DesktopButton.RECOVERING -> StatusColors.warning
             else -> null
         }
         if (badge != null) Box(Modifier.align(Alignment.CenterEnd).offset(0.dp, (-11).dp).size(8.dp).clip(CircleShape).background(badge)
