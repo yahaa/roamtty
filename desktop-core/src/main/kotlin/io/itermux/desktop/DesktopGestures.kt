@@ -73,7 +73,8 @@ sealed interface GestureAction {
  * then hold and drag drags, as on a laptop's touchpad: a tap's release waits [DOUBLE_TAP_MS] for that
  * second touch, so the host sees one press held through the drag, never a click and then a press
  * (a double-click there maximises a window or opens a file instead of dragging it).
- * Both: two fingers scroll, pinching zooms and pans locally. Times are milliseconds; [tick] fires
+ * Both: two fingers scroll, pinching zooms and pans locally, and once zoomed in two fingers move the
+ * picture, scrolling only past its edge. Times are milliseconds; [tick] fires
  * long presses and delayed releases.
  */
 class DesktopGestures(var mode: PointerMode = PointerMode.TOUCH, private val density: Float = 1f) {
@@ -194,14 +195,27 @@ class DesktopGestures(var mode: PointerMode = PointerMode.TOUCH, private val den
         val span = hypot(x1 - x0, y1 - y0)
         if (t.kind == 0) {
             if (abs(span - t.startSpan) > 24f * density) t.kind = 2
-            else if (hypot(cx - t.startCx, cy - t.startCy) > 12f * density) t.kind = 1
+            else if (hypot(cx - t.startCx, cy - t.startCy) > 12f * density) {
+                t.kind = 1
+                // Zoomed in, the picture follows the fingers from where they landed, not from the slop.
+                if (viewport.zoom > 1f) { t.cx = t.startCx; t.cy = t.startCy }
+            }
         }
         val out = mutableListOf<GestureAction>()
         when (t.kind) {
             1 -> {
+                var dx = cx - t.cx
+                var dy = cy - t.cy
+                // Zoomed in, two fingers move the picture; only what is left past its edge scrolls the host.
+                if (viewport.zoom > 1f) {
+                    val next = viewport.panned(dx, dy)
+                    dx -= next.panX - viewport.panX
+                    dy -= next.panY - viewport.panY
+                    if (next != viewport) { viewport = next; out += GestureAction.View(next) }
+                }
                 // Fingers moving down pull the page down, as on a phone: the wheel scrolls up.
-                t.wheelX += (cx - t.cx) * WHEEL_PER_PX / density
-                t.wheelY += (cy - t.cy) * WHEEL_PER_PX / density
+                t.wheelX += dx * WHEEL_PER_PX / density
+                t.wheelY += dy * WHEEL_PER_PX / density
                 val wx = t.wheelX.toInt()
                 val wy = t.wheelY.toInt()
                 if (wx != 0 || wy != 0) {

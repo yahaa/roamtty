@@ -151,4 +151,21 @@ class DesktopGesturesTest {
         val pinch = z.twoMove(850f, 500f, 1150f, 500f)
         assertEquals(1.5f, (pinch.single() as View).viewport.zoom, 0.01f)
     }
+
+    @Test fun zoomedInTwoFingersMoveThePictureThenScroll() {
+        val g = gestures()
+        g.viewport = g.viewport.zoomed(2f, g.viewport.viewWidth / 2, g.viewport.viewHeight / 2)
+        val before = g.viewport
+        g.down(900f, 500f, 0)
+        g.twoDown(900f, 500f, 1100f, 500f)
+        val pan = g.twoMove(860f, 480f, 1060f, 480f)
+        val moved = (pan.single() as View).viewport
+        assertEquals("the picture follows the fingers from where they landed", before.panX - 40f, moved.panX, 0.01f)
+        assertEquals(before.panY - 20f, moved.panY, 0.01f)
+        // Far past the top edge: the picture stops there and the rest scrolls the host.
+        val past = g.twoMove(860f, -2000f, 1060f, -2000f)
+        val edge = (past.first() as View).viewport
+        assertEquals(edge, edge.clamped())
+        assertTrue("past the edge the host scrolls: $past", past.last() is Wheel && (past.last() as Wheel).dy < 0)
+    }
 }

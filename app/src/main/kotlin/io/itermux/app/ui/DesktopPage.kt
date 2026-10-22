@@ -65,6 +65,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -322,36 +323,32 @@ private fun BoxScope.DesktopStatusOverlay(connection: DesktopConnection, phase: 
     val log by connection.log.collectAsStateWithLifecycle()
     val notice by connection.notice.collectAsStateWithLifecycle()
     val showCard = !hasPicture || phase is DesktopPhase.Failed || phase is DesktopPhase.NeedsAction
-    if (showCard) Card(Modifier.align(Alignment.Center).widthIn(max = 420.dp).padding(16.dp).testTag("desktop-status"),
-        colors = CardDefaults.cardColors(containerColor = PanelColor), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(connection.host.name, color = InkDim, fontSize = 13.sp)
-            when (phase) {
-                is DesktopPhase.Failed -> {
-                    Text(phase.message, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("desktop-error"))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onRetry, Modifier.testTag("desktop-retry")) { Text(tr("重试")) }
-                        TextButton(onClick = onClose) { Text(tr("关闭"), color = InkDim) }
-                    }
-                }
-                is DesktopPhase.NeedsAction -> {
-                    Text(needsText(phase.needs), color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.testTag("desktop-needs"))
-                    Text(tr("满足后会自动连接"), color = InkDim, fontSize = 13.sp)
-                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = Accent)
-                    if (connection.windowsHost && phase.needs.firstOrNull() == "not-logged-in") WindowsServiceHint()
-                }
-                else -> {
-                    val step = (phase as? DesktopPhase.Connecting)?.step
-                    Text(tr("正在打开桌面"), color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                    StepLine(tr("登录主机"), step == DesktopPhase.Step.LOGIN, step != null && step != DesktopPhase.Step.LOGIN)
-                    StepLine(if (step == DesktopPhase.Step.INSTALL) tr("安装桌面插件") else tr("启动桌面插件"),
-                        step == DesktopPhase.Step.INSTALL || step == DesktopPhase.Step.START, step == DesktopPhase.Step.FIRST_FRAME)
-                    StepLine(tr("等待画面"), step == DesktopPhase.Step.FIRST_FRAME, false)
-                }
+    if (showCard) when (phase) {
+        is DesktopPhase.Failed -> StatusCard(connection.host.name, tr("无法打开桌面"), footer = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onRetry, Modifier.testTag("desktop-retry")) { Text(tr("重试")) }
+                TextButton(onClick = onClose) { Text(tr("关闭"), color = InkDim) }
             }
-            if (log.isNotEmpty() && !hasPicture) Text(log.takeLast(5).joinToString("\n"), color = InkDim, fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace, maxLines = 5, modifier = Modifier.testTag("desktop-log"))
+        }) {
+            Text(phase.message, color = Ink, fontSize = 14.sp, modifier = Modifier.testTag("desktop-error"))
+        }
+        is DesktopPhase.NeedsAction -> StatusCard(connection.host.name, tr("需要在电脑上操作"),
+            footer = { CardLine(tr("满足后会自动连接"), progress = true) }) {
+            Text(needsText(phase.needs), color = Ink, fontSize = 14.sp, modifier = Modifier.testTag("desktop-needs"))
+            if (connection.windowsHost && phase.needs.firstOrNull() == "not-logged-in") WindowsServiceHint()
+        }
+        else -> {
+            val step = (phase as? DesktopPhase.Connecting)?.step
+            StatusCard(connection.host.name, tr("正在打开桌面"), footer = {
+                // One line, the latest: the card keeps its size however much the install says.
+                Text(log.lastOrNull().orEmpty(), color = InkDim, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth().testTag("desktop-log"))
+            }) {
+                StepLine(tr("登录主机"), step == DesktopPhase.Step.LOGIN, step != null && step != DesktopPhase.Step.LOGIN)
+                StepLine(if (step == DesktopPhase.Step.INSTALL) tr("安装桌面插件") else tr("启动桌面插件"),
+                    step == DesktopPhase.Step.INSTALL || step == DesktopPhase.Step.START, step == DesktopPhase.Step.FIRST_FRAME)
+                StepLine(tr("等待画面"), step == DesktopPhase.Step.FIRST_FRAME, false)
+            }
         }
     }
     if (hasPicture) {
@@ -362,18 +359,49 @@ private fun BoxScope.DesktopStatusOverlay(connection: DesktopConnection, phase: 
             longEnough = false
             if (recovering != null) { delay((2000 - (System.currentTimeMillis() - recovering.sinceMs)).coerceAtLeast(0)); longEnough = true }
         }
-        if (recovering != null && longEnough) Card(Modifier.align(Alignment.Center).testTag("desktop-recovering"),
-            colors = CardDefaults.cardColors(containerColor = PanelColor)) {
-            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(20.dp), color = Accent, strokeWidth = 2.dp)
-                Spacer(Modifier.width(12.dp))
-                Text(tr("连接中断，正在恢复…"), color = Ink)
-            }
+        if (recovering != null && longEnough) StatusCard(connection.host.name, tr("连接中断"), tag = "desktop-recovering",
+            footer = { CardLine(tr("网络恢复后画面会自动回来"), progress = true) }) {
+            Text(tr("正在恢复…"), color = Ink, fontSize = 14.sp)
         }
     }
     notice?.let { Text(it, Modifier.align(Alignment.TopCenter).padding(10.dp).clip(CircleShape).background(PanelColor)
         .padding(horizontal = 14.dp, vertical = 6.dp).testTag("desktop-notice"), color = Ink, fontSize = 13.sp) }
 }
+
+/**
+ * The one shape of every card over the picture: the host, a title, a body that scrolls when long and a
+ * footer line. Fixed in size, so the card never jumps as steps and log lines come and go.
+ */
+@Composable
+private fun BoxScope.StatusCard(host: String, title: String, tag: String = "desktop-status",
+    footer: @Composable () -> Unit, body: @Composable ColumnScope.() -> Unit) {
+    Card(Modifier.align(Alignment.Center).padding(16.dp).size(STATUS_CARD_WIDTH, STATUS_CARD_HEIGHT).testTag(tag),
+        colors = CardDefaults.cardColors(containerColor = PanelColor.copy(alpha = 1f)), shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 14.dp)) {
+            Text(host, color = InkDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            Column(Modifier.weight(1f).fillMaxWidth().padding(top = 14.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp), content = body)
+            Box(Modifier.fillMaxWidth().heightIn(min = 24.dp).padding(top = 8.dp), contentAlignment = Alignment.CenterStart) { footer() }
+        }
+    }
+}
+
+/** A footer's one quiet line, with a small spinner when something is still going on. */
+@Composable
+private fun CardLine(text: String, progress: Boolean = false) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (progress) {
+            CircularProgressIndicator(Modifier.size(12.dp), color = Accent, strokeWidth = 1.5.dp, trackColor = Accent.copy(alpha = 0.25f))
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(text, color = InkDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+private val STATUS_CARD_WIDTH = 296.dp
+private val STATUS_CARD_HEIGHT = 244.dp
 
 /** Windows without the plugin's service: one administrator install reaches the sign-in and lock screens. */
 @Composable
@@ -401,7 +429,7 @@ private fun StepLine(label: String, current: Boolean, done: Boolean) {
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
             when {
                 done -> Icon(painterResource(R.drawable.ic_check), null, Modifier.size(18.dp), tint = StatusColors.success)
-                current -> CircularProgressIndicator(Modifier.size(16.dp), color = Accent, strokeWidth = 2.dp)
+                current -> CircularProgressIndicator(Modifier.size(16.dp), color = Accent, strokeWidth = 2.dp, trackColor = Accent.copy(alpha = 0.25f))
                 else -> Box(Modifier.size(8.dp).clip(CircleShape).background(InkDim))
             }
         }

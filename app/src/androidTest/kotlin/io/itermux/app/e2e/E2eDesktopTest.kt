@@ -149,6 +149,14 @@ class E2eDesktopTest {
         val start = System.nanoTime()
         click(button)
         E2e.waitTag(compose, "desktop-page")
+        // The card keeps one size while steps tick and the install log grows.
+        E2e.waitTag(compose, "desktop-status")
+        val cardAtStart = compose.onNodeWithTag("desktop-status").fetchSemanticsNode().size
+        compose.waitUntil(30_000) { desktop().log.value.size >= 3 || desktop().phase.value !is DesktopPhase.Connecting }
+        if (desktop().phase.value is DesktopPhase.Connecting) runCatching {
+            assertEquals(cardAtStart, compose.onNodeWithTag("desktop-status").fetchSemanticsNode().size)
+            E2e.capture(compose, "desktop-01b-connecting")
+        }
         waitPhase(45_000, "first frame") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
         val firstFrameMs = (System.nanoTime() - start) / 1_000_000
         assertTrue("desktop failed: ${desktop().phase.value} ${desktop().log.value.takeLast(8)}", desktop().phase.value is DesktopPhase.Connected)
@@ -402,6 +410,29 @@ class E2eDesktopTest {
         assertNotNull(before); assertNotNull(after)
         assertEquals("UDP", desktop().stats.value.link)
         assertTrue("pointer $before → $after", after!!.first > before!!.first + 50 && after.second < before.second - 30)
+
+        // Zoomed in, two fingers move the picture and leave the host's pointer alone.
+        compose.onNodeWithTag("desktop-touch").performTouchInput {
+            pinch(center - Offset(50f, 0f), center - Offset(250f, 0f), center + Offset(50f, 0f), center + Offset(250f, 0f), 400)
+        }
+        idle(500)
+        // Unclipped: the zoomed picture runs past the screen.
+        fun surface() = compose.onNodeWithTag("desktop-surface").fetchSemanticsNode().let { it.positionInRoot to it.size }
+        val (zoomed, zoomedSize) = surface()
+        assertTrue("pinch zoomed: $zoomedSize vs $node", zoomedSize.width > node.width * 1.5f)
+        val pointerZoomed = pointer()
+        compose.onNodeWithTag("desktop-touch").performTouchInput {
+            val a = center - Offset(100f, 0f)
+            val b = center + Offset(100f, 0f)
+            down(0, a); down(1, b)
+            repeat(20) { i -> moveTo(0, a + Offset(15f * (i + 1), 8f * (i + 1)), 0); moveTo(1, b + Offset(15f * (i + 1), 8f * (i + 1))) }
+            up(0); up(1)
+        }
+        idle(500)
+        val (panned, _) = surface()
+        E2e.capture(compose, "desktop-mouse-02-panned")
+        assertTrue("two fingers moved the picture: $zoomed → $panned", panned.x > zoomed.x + 100f)
+        assertEquals("the host's pointer stays", pointerZoomed, pointer())
     }
 
     /**
