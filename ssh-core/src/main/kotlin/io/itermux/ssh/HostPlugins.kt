@@ -47,18 +47,31 @@ m=${'$'}(command -v mosh-server 2>/dev/null)"""
 
     /**
      * Read-only: a graphical session this user owns. Linux: an X or Wayland socket of the user's
-     * (Xorg as the user, Xvfb, a compositor) or a logind x11/wayland session. macOS: someone at the console.
+     * (Xorg as the user, Xvfb, a compositor) or a logind x11/wayland session; `unsupported` for GNOME or
+     * KDE on Wayland (they need the desktop portal, which the plugin lacks), unless a real X server runs
+     * beside them. macOS: someone at the console.
      */
     private val desktopProbe = """
         d=no
         case "${'$'}(uname -s 2>/dev/null)" in
           Darwin) if who 2>/dev/null | grep -q console; then d=yes; else d=nologin; fi ;;
           Linux)
-            for s in /tmp/.X11-unix/X* "${'$'}{XDG_RUNTIME_DIR:-/run/user/${'$'}(id -u)}"/wayland-[0-9]*; do [ -S "${'$'}s" ] && [ -O "${'$'}s" ] && d=yes; done
+            u=${'$'}(id -u); x=no; w=no
+            for s in /tmp/.X11-unix/X*; do [ -S "${'$'}s" ] && [ -O "${'$'}s" ] && x=yes; done
+            for s in "${'$'}{XDG_RUNTIME_DIR:-/run/user/${'$'}u}"/wayland-[0-9]*; do [ -S "${'$'}s" ] && [ -O "${'$'}s" ] && w=yes; done
+            [ ${'$'}x = yes ] || [ ${'$'}w = yes ] && d=yes
+            if [ ${'$'}w = yes ] && pgrep -u "${'$'}u" -x 'gnome-shell|kwin_wayland' >/dev/null 2>&1; then
+              if [ ${'$'}x = no ] || pgrep -u "${'$'}u" -x Xwayland >/dev/null 2>&1; then d=unsupported; fi
+            fi
             if [ ${'$'}d = no ] && command -v loginctl >/dev/null 2>&1; then
-              u=${'$'}(id -u)
               for i in ${'$'}(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="${'$'}u" '${'$'}2==u{print ${'$'}1}'); do
-                case "${'$'}(loginctl show-session "${'$'}i" -p Type --value 2>/dev/null)" in x11|wayland) d=yes ;; esac
+                case "${'$'}(loginctl show-session "${'$'}i" -p Type --value 2>/dev/null)" in
+                  x11) d=yes ;;
+                  wayland) case "${'$'}(loginctl show-session "${'$'}i" -p Desktop --value 2>/dev/null)" in
+                      *[Gg][Nn][Oo][Mm][Ee]*|*[Kk][Dd][Ee]*|*[Pp]lasma*) [ ${'$'}d = yes ] || d=unsupported ;;
+                      *) d=yes ;;
+                    esac ;;
+                esac
               done
             fi ;;
         esac
@@ -78,7 +91,7 @@ m=${'$'}(command -v mosh-server 2>/dev/null)"""
     fun parseDesktop(output: String?): HostDesktop? {
         val lines = output?.lineSequence()?.map { it.trim() }?.toList() ?: return null
         fun value(prefix: String) = lines.firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)
-        val desktop = value(DESKTOP)?.takeIf { it in setOf("yes", "no", "nologin") } ?: return null
+        val desktop = value(DESKTOP)?.takeIf { it in setOf("yes", "no", "nologin", "unsupported") } ?: return null
         return HostDesktop(desktop, value(UNAME).orEmpty(), value(DESKTOP_PLUGIN)?.takeIf { it.startsWith("roamtty-desktop ") })
     }
 

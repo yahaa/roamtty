@@ -283,15 +283,20 @@ class SessionService : Service() {
         return START_NOT_STICKY
     }
     private fun notification(): Notification {
-        val desktopHost = desktops.live.firstOrNull()?.host?.id
+        val live = desktops.live
+        // One live desktop: tapping goes back to it. Several: the app opens on its list, where each has its button.
+        val desktopHost = live.singleOrNull()?.host?.id
         val launch = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).apply {
             if (desktopHost != null) putExtra(MainActivity.EXTRA_DESKTOP_HOST, desktopHost)
         }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val close = PendingIntent.getService(this, 1, Intent(this, SessionService::class.java).setAction(DISCONNECT_ALL), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val active = sessions.value.count { it.state.value.active }
-        // A live desktop gets its own line; tapping the notification goes back to it.
-        val desktop = desktops.live.firstOrNull()
-        val text = desktop?.let { trf("%s 桌面 · 已连接", it.host.name) } ?: tr("轻触返回终端 · 长任务建议使用 tmux")
+        // Live desktops get the line, by name.
+        val text = when (live.size) {
+            0 -> tr("轻触返回终端 · 长任务建议使用 tmux")
+            1 -> trf("%s 桌面 · 已连接", live[0].host.name)
+            else -> trf("%d 个桌面已连接 · %s", live.size, live.joinToString("、") { it.host.name })
+        }
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("Roamtty · %d 个 SSH 会话", active))
             .setContentText(text)

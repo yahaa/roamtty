@@ -26,6 +26,11 @@ class UdpLink(
     /** A video message could not be rebuilt: a keyframe is due. */
     private val onVideoLost: () -> Unit,
     private val log: (String) -> Unit = {},
+    /**
+     * A reliable frame the host never acknowledged, handed back in order to go over SSH: after ten
+     * resends, or when the link has gone quiet. Without it a lost key release left the key held down.
+     */
+    private val onGiveUp: (ByteArray) -> Unit = {},
 ) {
     private val crypto = UdpCrypto(key)
     @Volatile private var socket: DatagramSocket = DatagramSocket()
@@ -36,7 +41,7 @@ class UdpLink(
     private val replay = ReplayWindow()
     private val reasm = Reassembler()
     private val lock = Any()
-    private class Unacked(val frags: List<Packet.Frag>, var at: Long, var tries: Int)
+    private class Unacked(val frame: ByteArray, val frags: List<Packet.Frag>, var at: Long, var tries: Int)
     private val unacked = ConcurrentHashMap<Long, Unacked>()
     /** NACKs sent per (msg, block) and when: repeated every max(2×RTT, 30 ms), three times at most. */
     private val nacked = HashMap<Pair<Long, Int>, Pair<Int, Long>>()
@@ -134,7 +139,7 @@ class UdpLink(
     fun send(frame: ByteArray, reliable: Boolean) {
         val id = if (reliable) reliableSeq.getAndIncrement() * 2 + 1 else plainSeq.getAndIncrement() * 2
         val frags = UdpWire.fragment(id, if (reliable) UdpWire.FLAG_RELIABLE else 0, frame, if (reliable && frame.size > UdpWire.SHARD) 0.25f else 0f)
-        if (reliable) unacked[id] = Unacked(frags, now(), 0)
+        if (reliable) unacked[id] = Unacked(frame, frags, now(), 0)
         frags.forEach { raw(it.encode()) }
     }
 
@@ -145,9 +150,11 @@ class UdpLink(
         if (t - lastHeartbeatUs > 250_000) heartbeat()
         val rtt = (rttMs ?: 50).toLong() * 1000
         val resendAfter = maxOf(2 * rtt, 80_000L)
-        for ((id, u) in unacked) {
+        if (lastRxUs != 0L && t - lastRxUs >= ALIVE_US) giveUp()
+        for (id in unacked.keys.sorted()) {
+            val u = unacked[id] ?: continue
             if (t - u.at < resendAfter) continue
-            if (u.tries >= 10) { unacked.remove(id); continue }
+            if (u.tries >= 10) { giveUp(); break }
             u.tries++; u.at = t
             u.frags.forEach { raw(it.encode()) }
         }
@@ -176,6 +183,14 @@ class UdpLink(
             loss = if (tot < 50) 0.0 else (1.0 - rx.toDouble() / tot).coerceAtLeast(0.0)
         }
         if (lost.isNotEmpty()) { lostMessages += lost.size; onVideoLost() }
+    }
+
+    /**
+     * Hands every unacknowledged reliable frame to [onGiveUp], oldest first, so a send that falls back to
+     * SSH goes after them. Everything before the oldest stuck one waits too: the host applies them in order.
+     */
+    fun giveUp() {
+        for (id in unacked.keys.sorted()) unacked.remove(id)?.let { onGiveUp(it.frame) }
     }
 
     /** A new network: a new socket (new local port), three heartbeats straight away. */

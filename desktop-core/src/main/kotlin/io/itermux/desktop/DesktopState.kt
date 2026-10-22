@@ -1,8 +1,11 @@
 package io.itermux.desktop
 
-/** What the read-only probe found on a host: a desktop session, none, or a desktop nobody is logged in to. */
+/**
+ * What the read-only probe found on a host: a desktop session, none, a desktop nobody is logged in to, or
+ * one the plugin cannot capture yet (GNOME or KDE on Wayland).
+ */
 enum class DesktopProbe(val id: String) {
-    YES("yes"), NO("no"), NOLOGIN("nologin");
+    YES("yes"), NO("no"), NOLOGIN("nologin"), UNSUPPORTED("unsupported");
 
     companion object {
         fun decode(value: String?): DesktopProbe? = entries.firstOrNull { it.id == value }
@@ -48,7 +51,7 @@ enum class DesktopButton {
             if (!enabled || !hostOnline || !sessionConnected || !osSupported) return HIDDEN
             val fresh = probe?.takeIf { probedAt != null && now - probedAt < DesktopProbe.CACHE_MS }
             return when (fresh) {
-                DesktopProbe.NO -> HIDDEN
+                DesktopProbe.NO, DesktopProbe.UNSUPPORTED -> HIDDEN
                 DesktopProbe.NOLOGIN -> NEEDS_ACTION
                 DesktopProbe.YES -> OPENABLE
                 null -> if (os == "MACOS" || os == "WINDOWS") OPENABLE else HIDDEN

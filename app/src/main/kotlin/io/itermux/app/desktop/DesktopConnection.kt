@@ -208,6 +208,7 @@ internal class DesktopConnection(
         if (closing) return Outcome.Closed
         if (probe == null) return Outcome.Failed(tr("无法检测这台主机的桌面"))
         if (probe.desktop == "no") return Outcome.Failed(tr("这台主机没有图形桌面"))
+        if (probe.desktop == "unsupported") return Outcome.Failed(tr("暂不支持 GNOME / KDE 的 Wayland 桌面，请改用 X11 会话"))
         val target = PluginManifest.targetFor(probe.uname)?.let { manifest.targets[it]?.let { t -> it to t } }
             ?: return Outcome.Failed(tr("暂不支持这台主机的系统"))
         windowsHost = target.first.startsWith("windows-")
@@ -431,7 +432,8 @@ internal class DesktopConnection(
         val l = UdpLink(address, offer.port, offer.key,
             onFrame = { frame -> runCatching { DesktopProtocol.decode(frame) }.getOrNull()?.let(::handle) },
             onVideoLost = ::askKeyframe,
-            log = { Log.i(TAG, "${host.name}: $it") })
+            log = { Log.i(TAG, "${host.name}: $it") },
+            onGiveUp = { frame -> outgoing?.trySend(frame) })
         val loss = settings.testLoss
         if (loss > 0) { l.dropRate = loss; channel.trySend(DesktopProtocol.config(mapOf("debug_loss" to loss))) }
         withContext(Dispatchers.IO) { l.start() }
@@ -579,7 +581,7 @@ internal class DesktopConnection(
     fun send(bytes: ByteArray) {
         val l = link
         if (l != null && l.alive) l.send(bytes, UdpLink.reliable(bytes))
-        else outgoing?.trySend(bytes)
+        else { l?.giveUp(); outgoing?.trySend(bytes) }
     }
 
     fun input(bytes: ByteArray) {

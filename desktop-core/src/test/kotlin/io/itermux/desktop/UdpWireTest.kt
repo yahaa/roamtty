@@ -122,4 +122,34 @@ class UdpWireTest {
         assertTrue(r.missing(100 * ms, 100 * ms).none { it.first == 4L })
         assertEquals(listOf(1, 2, 3), r.missing(143 * ms, 100 * ms).single { it.first == 4L }.third)
     }
+
+    /** A host that answers heartbeats but never takes a frame: the keys come back, in order, for SSH. */
+    @Test fun unacknowledgedKeysAreHandedBackInOrder() {
+        val server = java.net.DatagramSocket(0, java.net.InetAddress.getLoopbackAddress())
+        val c = UdpCrypto(key)
+        val serverThread = Thread {
+            val buf = ByteArray(2048); val dp = java.net.DatagramPacket(buf, buf.size)
+            var sq = 1L
+            server.soTimeout = 200
+            while (!Thread.currentThread().isInterrupted) {
+                try { server.receive(dp) } catch (_: java.net.SocketTimeoutException) { continue } catch (_: Exception) { return@Thread }
+                val (_, _, plain) = c.open(buf, dp.length) ?: continue
+                val p = Packet.decode(plain) as? Packet.Heartbeat ?: continue
+                val s = c.seal(UdpWire.DIR_S2C, sq++, Packet.Heartbeat(System.nanoTime() / 1000, p.t).encode())
+                server.send(java.net.DatagramPacket(s, s.size, dp.socketAddress))
+            }
+        }.apply { isDaemon = true; start() }
+        val back = java.util.concurrent.LinkedBlockingQueue<ByteArray>()
+        val link = UdpLink(java.net.InetAddress.getLoopbackAddress(), server.localPort, key, onFrame = {}, onVideoLost = {},
+            onGiveUp = { back += it })
+        link.start()
+        val until = System.currentTimeMillis() + 3000
+        while (!link.alive && System.currentTimeMillis() < until) Thread.sleep(20)
+        assertTrue(link.alive)
+        val keys = listOf(DesktopProtocol.key(0xE1, true), DesktopProtocol.key(4, true), DesktopProtocol.key(4, false), DesktopProtocol.key(0xE1, false))
+        keys.forEach { link.send(it, reliable = true) }
+        val got = (keys.indices).mapNotNull { back.poll(5, java.util.concurrent.TimeUnit.SECONDS) }
+        assertEquals(keys.map { it.toList() }, got.map { it.toList() })
+        link.close(); serverThread.interrupt(); server.close()
+    }
 }
