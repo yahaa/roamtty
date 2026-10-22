@@ -17,6 +17,7 @@ import io.itermux.app.session.SessionService
 import io.itermux.app.ui.credentialsFor
 import io.itermux.app.ui.pageLogin
 import io.itermux.desktop.DesktopPhase
+import io.itermux.desktop.HidUsage
 import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -150,9 +151,13 @@ class E2eDesktopTest {
         compose.onNodeWithTag("desktop-ime-field").performImeAction()
         compose.waitUntil(10_000) { "E2E_DESKTOP_你好世界" in remote("cat ~/desktop-typed.txt 2>/dev/null") }
         E2e.capture(compose, "desktop-03-typed")
-        click("desktop-kb-pc")
-        E2e.waitTag(compose, "desktop-key-${0x04}")
-        E2e.capture(compose, "desktop-04-pc-keyboard")
+        // The shortcut bar is hidden until asked for; ⋯ swaps the input method for the 更多 keys.
+        compose.onNodeWithTag("desktop-sk-esc").assertDoesNotExist()
+        click("desktop-kb-toggle")
+        E2e.waitTag(compose, "desktop-sk-esc")
+        click("desktop-kb-more")
+        E2e.waitTag(compose, "desktop-key-${0x3A}")
+        E2e.capture(compose, "desktop-04-more-keys")
         Espresso.pressBack()
         E2e.waitGone(compose, hasTestTag("desktop-keyboard"))
 
@@ -393,13 +398,17 @@ class E2eDesktopTest {
             click("desktop-rail-keyboard")
             E2e.waitTag(compose, "desktop-ime-field")
             val field = compose.onNodeWithTag("desktop-ime-field")
-            // A clean line whatever an earlier test left; then "echo AC", back one, "B", and to the end
-            // of the line (End sits past the edge of the quick row): the file gets ABC.
-            click("desktop-quick-Ctrl+C")
+            // A clean line whatever an earlier test left (Ctrl latched, then a typed c); then "echo AC",
+            // back one, "B", and to the end of the line from the 更多 page: the file gets ABC.
+            click("desktop-kb-toggle")
+            click("desktop-sk-mod-${HidUsage.LEFT_CTRL}")
+            field.performTextInput("c")
             field.performTextInput("echo AC")
-            click("desktop-quick-←")
+            click("desktop-sk-←")
             field.performTextInput("B")
-            compose.onNodeWithTag("desktop-quick-End", useUnmergedTree = true).performScrollTo().performClick()
+            click("desktop-kb-more")
+            click("desktop-key-${HidUsage.END}")
+            click("desktop-kb-more")
             field.performTextInput(" > ~/desktop-keys.txt")
             field.performImeAction()
             compose.waitUntil(10_000) { remote("cat ~/desktop-keys.txt 2>/dev/null").isNotBlank() }

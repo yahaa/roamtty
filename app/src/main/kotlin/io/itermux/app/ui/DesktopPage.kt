@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.key.*
@@ -53,6 +55,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -74,7 +77,6 @@ import io.itermux.desktop.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 import kotlin.math.roundToInt
 
 private val PanelColor = Color(0xF21C1C1E)
@@ -130,7 +132,8 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
             rail()
         } else Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             screen(Modifier.weight(1f).fillMaxWidth())
-            rail()
+            // While typing in portrait the input method takes the rail's place, as in the terminal.
+            if (panel != DesktopPanel.KEYBOARD) rail()
         }
         when (panel) {
             DesktopPanel.OPERATIONS -> OperationsPanel(connection, landscape, mode, virtualMouse,
@@ -264,16 +267,25 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
             val c = cursor ?: return@Canvas
             if (!c.visible) return@Canvas
             val (x, y) = v.toView(c.x.toFloat(), c.y.toFloat())
-            // Drawn at the picture's scale, but never smaller than legible.
-            val s = maxOf(v.scale, 0.9f * density / 2f)
+            // Drawn at the picture's scale, as big as it is on the computer, but never under CURSOR_MIN_DP
+            // tall: a phone shows a 4K desktop at a quarter of its size, where a true-size cursor is a speck.
+            // (A floor of a fixed scale drew HiDPI cursors, 48 px on Windows at 150 %, three times too big.)
+            val minPx = CURSOR_MIN_DP * density
             val shape = c.shape
-            if (shape != null) translate(x - shape.hotX * s, y - shape.hotY * s) {
-                scale(s, s, pivot = Offset.Zero) { drawImage(shape.bitmap.asImageBitmap()) }
+            if (shape != null) {
+                val s = maxOf(v.scale, minPx / shape.bitmap.height.coerceAtLeast(1))
+                translate(x - shape.hotX * s, y - shape.hotY * s) {
+                    scale(s, s, pivot = Offset.Zero) { drawImage(shape.bitmap.asImageBitmap()) }
+                }
             } else {
+                // No image from the host: an arrow the size of a standard 20 px one, outlined to show on white.
+                val u = maxOf(minPx, 20 * v.scale) / 18f
                 val arrow = Path().apply {
-                    moveTo(x, y); lineTo(x, y + 18 * density); lineTo(x + 5 * density, y + 13 * density); lineTo(x + 12 * density, y + 12 * density); close()
+                    moveTo(x, y); lineTo(x, y + 16 * u); lineTo(x + 4 * u, y + 12 * u); lineTo(x + 7 * u, y + 18 * u)
+                    lineTo(x + 9 * u, y + 17 * u); lineTo(x + 6.5f * u, y + 11.5f * u); lineTo(x + 11.5f * u, y + 11.5f * u); close()
                 }
                 drawPath(arrow, Color.White)
+                drawPath(arrow, Color.Black, style = Stroke(width = maxOf(1f, u * 0.8f)))
             }
         }
         Box(Modifier.fillMaxSize().testTag("desktop-touch").pointerInteropFilter { e ->
@@ -541,142 +553,179 @@ private fun ToggleRow(title: String, subtitle: String, checked: Boolean, tag: St
     }
 }
 
-/** A key of the computer keyboard layout (assets/desktop/keyboard-*.json). */
-private data class LayoutKey(val label: String, val hid: Int, val width: Float)
+/** A key of the shortcut bar or the 更多 page: what it shows and the HID usage it sends. */
+private data class PadKey(val label: String, val hid: Int)
 
-private fun loadLayout(context: android.content.Context, os: String): List<List<List<LayoutKey>>> {
-    val name = when (os.lowercase()) { "macos" -> "mac"; "windows" -> "win"; else -> "linux" }
-    val json = JSONObject(context.assets.open("desktop/keyboard-$name.json").bufferedReader().use { it.readText() })
-    val pages = json.getJSONArray("pages")
-    return (0 until pages.length()).map { p ->
-        val rows = pages.getJSONObject(p).getJSONArray("rows")
-        (0 until rows.length()).map { r ->
-            val keys = rows.getJSONArray(r)
-            (0 until keys.length()).map { k -> keys.getJSONObject(k).let { LayoutKey(it.getString("l"), it.getInt("k"), it.optDouble("w", 1.0).toFloat()) } }
-        }
-    }
+/** A computer's modifier names: macOS shows ⌃ ⌥ ⌘, Windows Win, Linux Super. */
+private fun modifierKeys(os: String): List<PadKey> = when (os.lowercase()) {
+    "macos" -> listOf(PadKey("⌃", HidUsage.LEFT_CTRL), PadKey("⌥", HidUsage.LEFT_ALT), PadKey("⌘", HidUsage.LEFT_GUI))
+    "windows" -> listOf(PadKey("Ctrl", HidUsage.LEFT_CTRL), PadKey("Alt", HidUsage.LEFT_ALT), PadKey("Win", HidUsage.LEFT_GUI))
+    else -> listOf(PadKey("Ctrl", HidUsage.LEFT_CTRL), PadKey("Alt", HidUsage.LEFT_ALT), PadKey("Super", HidUsage.LEFT_GUI))
+}
+
+/** The 更多 page's shortcuts for each system: label and keys pressed together. */
+private fun comboKeys(os: String): List<Pair<String, List<Int>>> = when (os.lowercase()) {
+    "macos" -> listOf("⌘Tab" to listOf(HidUsage.LEFT_GUI, HidUsage.TAB), "⌘Space" to listOf(HidUsage.LEFT_GUI, HidUsage.SPACE),
+        "⌘Q" to listOf(HidUsage.LEFT_GUI, HidUsage.letter('q')))
+    "windows" -> listOf("Alt+Tab" to listOf(HidUsage.LEFT_ALT, HidUsage.TAB),
+        "Ctrl+Shift+Esc" to listOf(HidUsage.LEFT_CTRL, HidUsage.LEFT_SHIFT, HidUsage.ESCAPE), "Win+E" to listOf(HidUsage.LEFT_GUI, HidUsage.letter('e')))
+    else -> listOf("Alt+Tab" to listOf(HidUsage.LEFT_ALT, HidUsage.TAB),
+        "Ctrl+Alt+T" to listOf(HidUsage.LEFT_CTRL, HidUsage.LEFT_ALT, HidUsage.letter('t')), "Alt+F4" to listOf(HidUsage.LEFT_ALT, HidUsage.f(4)))
+}
+
+/** A typed character as the key that makes it on a US layout, for shortcuts like Ctrl+C; null if none. */
+private fun charKey(c: Char): Int? = when (c) {
+    in 'a'..'z', in 'A'..'Z' -> HidUsage.letter(c)
+    in '1'..'9' -> 0x1E + (c - '1')
+    '0' -> 0x27
+    ' ' -> HidUsage.SPACE
+    else -> null
 }
 
 /**
- * Two pages: the phone's input method (composed text goes out as text, with a row of shortcut keys)
- * and a computer keyboard whose keys go by position; modifiers latch for one key, or stay on a long press.
+ * The keyboard, as in the terminal: 键盘 brings up the phone's own input method straight away, and
+ * whatever it commits is typed on the host (any language), Backspace and Enter as keys. A shortcut bar
+ * (Esc, Tab, modifiers, arrows) is hidden until asked for; a modifier tapped there latches for the next
+ * key or typed letter, a long press keeps it on. ⋯ swaps the input method for F-keys and navigation.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, landscape: Boolean, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    var page by rememberSaveable { mutableStateOf(0) }
-    val latch = remember { ModifierLatch() }
-    var latchRevision by remember { mutableStateOf(0) }
-    val layout = remember(os) { loadLayout(context, os) }
-    var layoutPage by remember { mutableStateOf(0) }
-    val mac = os.lowercase() == "macos"
-    fun send(events: List<Pair<Int, Boolean>>) { events.forEach { (k, d) -> connection.input(DesktopProtocol.key(k, d)) }; latchRevision++ }
-    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().then(if (landscape) Modifier.padding(end = 72.dp) else Modifier)
-        .background(PanelColor.copy(alpha = 1f)).imePadding().testTag("desktop-keyboard")) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Choice(tr("输入法"), page == 0, "desktop-kb-ime") { page = 0 }
-            Spacer(Modifier.width(6.dp))
-            Choice(tr("电脑键盘"), page == 1, "desktop-kb-pc") { page = 1 }
-            Spacer(Modifier.weight(1f))
-            if (page == 1) {
-                Choice(if (latch.combo) tr("组合键：开") else tr("组合键"), latch.combo, "desktop-kb-combo") {
-                    latch.setCombo(!latch.combo); latchRevision++
-                }
-                if (latch.combo) {
-                    Spacer(Modifier.width(6.dp))
-                    Choice(tr("发送"), false, "desktop-kb-combo-send") { send(latch.sendCombo()) }
-                }
-                Spacer(Modifier.width(6.dp))
-                Choice(if (layoutPage == 0) "Fn" else "ABC", false, "desktop-kb-page") { layoutPage = 1 - layoutPage }
-            }
-            Spacer(Modifier.width(6.dp))
-            Icon(painterResource(R.drawable.ic_close), tr("关闭键盘"), Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onDismiss).padding(6.dp), tint = Ink)
-        }
-        if (page == 0) ImeInput(connection, mac, onDismiss) else {
-            key(latchRevision) {
-                Column(Modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    layout.getOrNull(layoutPage)?.forEach { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            row.forEach { k ->
-                                val isMod = k.hid in HidUsage.MODIFIERS
-                                val state = if (isMod) latch.state(k.hid) else ModifierLatch.State.OFF
-                                val pendingCombo = k.hid in latch.pending
-                                Box(Modifier.weight(k.width).height(if (landscape) 34.dp else 42.dp).clip(RoundedCornerShape(6.dp))
-                                    .background(when {
-                                        state == ModifierLatch.State.LOCKED -> Accent
-                                        state == ModifierLatch.State.ONCE || pendingCombo -> Accent.copy(alpha = 0.4f)
-                                        isMod -> Color(0x22FFFFFF)
-                                        else -> Color(0x33FFFFFF)
-                                    })
-                                    .pointerInput(k.hid, latch.combo) {
-                                        detectTapGestures(onLongPress = { if (isMod && !latch.combo) { latch.hold(k.hid); latchRevision++ } }) {
-                                            if (isMod && !latch.combo) { latch.tap(k.hid); latchRevision++ } else send(latch.press(k.hid))
-                                        }
-                                    }.testTag("desktop-key-${k.hid}"), contentAlignment = Alignment.Center) {
-                                    Text(k.label, color = Ink, fontSize = if (k.label.length > 3) 11.sp else 14.sp, maxLines = 1)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * The phone's input method: finished text is typed on the host as text (any language), Backspace
- * and Enter as keys, while a composition (pinyin) stays here until committed.
- */
-@Composable
-private fun ImeInput(connection: DesktopConnection, mac: Boolean, onDismiss: () -> Unit) {
     val state = rememberTextFieldState()
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    val keyboard = LocalSoftwareKeyboardController.current
+    var bar by rememberSaveable { mutableStateOf(false) }
+    var more by rememberSaveable { mutableStateOf(false) }
+    val latch = remember { ModifierLatch() }
+    var latchRevision by remember { mutableStateOf(0) }
+    val mods = remember(os) { modifierKeys(os) }
+    fun send(events: List<Pair<Int, Boolean>>) { events.forEach { (k, d) -> connection.input(DesktopProtocol.key(k, d)) }; latchRevision++ }
+    fun key(hid: Int) = send(latch.press(hid))
+    fun latched() = mods.any { latch.state(it.hid) != ModifierLatch.State.OFF } || latch.state(HidUsage.LEFT_SHIFT) != ModifierLatch.State.OFF
+    LaunchedEffect(more) {
+        if (more) keyboard?.hide() else { runCatching { focus.requestFocus() }; keyboard?.show() }
+    }
+    // The input method's own hide button closes the keyboard too (not when ⋯ hid it for the 更多 page).
+    val imeVisible = WindowInsets.isImeVisible
+    var imeShown by remember { mutableStateOf(false) }
+    LaunchedEffect(imeVisible, more) {
+        if (imeVisible) imeShown = true
+        else if (imeShown && !more) { delay(150); onDismiss() }
+    }
     // Committed text goes out and the field is cleared in the same main-thread step as the IME's edits,
     // so the next key always lands in an empty field (a cleared TextFieldValue only took effect at the
     // next recomposition, and fast input in between was doubled or lost).
     LaunchedEffect(state) {
         snapshotFlow { state.text.toString() to state.composition }.collect {
             if (state.composition != null || state.text.isEmpty()) return@collect
-            connection.input(DesktopProtocol.text(state.text.toString()))
+            val text = state.text.toString()
             state.clearText()
+            // With a modifier latched, a typed letter is a shortcut (Ctrl + c), not text.
+            val k = text.singleOrNull()?.let(::charKey)
+            if (k != null && latched()) key(k) else connection.input(DesktopProtocol.text(text))
         }
     }
-    fun key(hid: Int, mods: List<Int> = emptyList()) {
-        mods.forEach { connection.input(DesktopProtocol.key(it, true)) }
-        connection.input(DesktopProtocol.key(hid, true)); connection.input(DesktopProtocol.key(hid, false))
-        mods.reversed().forEach { connection.input(DesktopProtocol.key(it, false)) }
-    }
-    val cmd = if (mac) HidUsage.LEFT_GUI else HidUsage.LEFT_CTRL
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        listOf(
-            "Esc" to { key(HidUsage.ESCAPE) }, "Tab" to { key(HidUsage.TAB) },
-            "←" to { key(HidUsage.LEFT) }, "↑" to { key(HidUsage.UP) }, "↓" to { key(HidUsage.DOWN) }, "→" to { key(HidUsage.RIGHT) },
-            (if (mac) "⌘C" else "Ctrl+C") to { key(HidUsage.C, listOf(cmd)) }, (if (mac) "⌘V" else "Ctrl+V") to { key(HidUsage.V, listOf(cmd)) },
-            (if (mac) "⌘Z" else "Ctrl+Z") to { key(HidUsage.Z, listOf(cmd)) }, (if (mac) "⌘A" else "Ctrl+A") to { key(HidUsage.A, listOf(cmd)) },
-            "Del" to { key(HidUsage.DELETE) }, "Home" to { key(HidUsage.HOME) }, "End" to { key(HidUsage.END) },
-        ).forEach { (label, click) -> Choice(label, false, "desktop-quick-$label") { click() } }
-    }
-    BasicTextField(state, modifier = Modifier.fillMaxWidth().padding(8.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))
-        .padding(horizontal = 12.dp, vertical = 10.dp).focusRequester(focus)
-        .onPreviewKeyEvent { e ->
-            // Back reaches the field only once the IME is hidden: it closes the panel (the field would
-            // otherwise take it to drop its focus, and a second Back was needed).
-            if (e.key == Key.Back) { if (e.type == KeyEventType.KeyUp) onDismiss(); return@onPreviewKeyEvent true }
-            // On an empty field the IME sends Backspace and Enter as key events.
-            if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-            when (e.key) {
-                Key.Backspace -> if (state.text.isEmpty()) { key(HidUsage.BACKSPACE); true } else false
-                Key.Enter, Key.NumPadEnter -> { key(HidUsage.ENTER); true }
-                else -> false
+    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().then(if (landscape) Modifier.padding(end = 72.dp) else Modifier)
+        .imePadding().testTag("desktop-keyboard")) {
+        // The text being composed (pinyin) shows here until the input method commits it.
+        if (state.composition != null) Text(state.text.toString(), Modifier.padding(start = 12.dp, bottom = 6.dp).clip(CircleShape)
+            .background(PanelColor).border(1.dp, Accent.copy(alpha = 0.5f), CircleShape).padding(horizontal = 12.dp, vertical = 4.dp)
+            .testTag("desktop-composing"), color = Accent, fontSize = 14.sp)
+        if (!bar && !more) Row(Modifier.fillMaxWidth().padding(end = 8.dp, bottom = 6.dp), horizontalArrangement = Arrangement.End) {
+            Row(Modifier.clip(CircleShape).background(PanelColor).clickable { bar = true }.padding(horizontal = 12.dp, vertical = 6.dp)
+                .testTag("desktop-kb-toggle"), verticalAlignment = Alignment.CenterVertically) {
+                Icon(painterResource(R.drawable.ic_keyboard), null, Modifier.size(16.dp), tint = Ink)
+                Spacer(Modifier.width(6.dp))
+                Text(tr("快捷键") + " ▴", color = Ink, fontSize = 12.sp)
             }
-        }.testTag("desktop-ime-field"),
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Ink), cursorBrush = SolidColor(Accent),
-        lineLimits = TextFieldLineLimits.SingleLine,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send, autoCorrectEnabled = false),
-        onKeyboardAction = { key(HidUsage.ENTER) },
-        decorator = { inner -> Box { if (state.text.isEmpty()) Text(tr("在这里输入，文字直接发到电脑"), color = InkDim); inner() } })
+        } else key(latchRevision) {
+            Row(Modifier.fillMaxWidth().background(PanelColor.copy(alpha = 1f)).padding(horizontal = 6.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    BarKey("Esc", "desktop-sk-esc") { key(HidUsage.ESCAPE) }
+                    BarKey("Tab", "desktop-sk-tab") { key(HidUsage.TAB) }
+                    mods.forEach { m ->
+                        BarKey(m.label, "desktop-sk-mod-${m.hid}", latch.state(m.hid), onLongPress = { latch.hold(m.hid); latchRevision++ }) {
+                            latch.tap(m.hid); latchRevision++
+                        }
+                    }
+                    listOf("←" to HidUsage.LEFT, "↑" to HidUsage.UP, "↓" to HidUsage.DOWN, "→" to HidUsage.RIGHT).forEach { (label, hid) ->
+                        BarKey(label, "desktop-sk-$label", narrow = true) { key(hid) }
+                    }
+                }
+                BarKey(if (more) "ABC" else "⋯", "desktop-kb-more", if (more) ModifierLatch.State.LOCKED else ModifierLatch.State.OFF) { more = !more }
+                if (!more) BarKey("▾", "desktop-kb-hide-bar", narrow = true) { bar = false }
+            }
+        }
+        if (more) key(latchRevision) { MoreKeys(os, latch, onKey = ::key, onShift = { latch.tap(HidUsage.LEFT_SHIFT); latchRevision++ },
+            onCombo = { keys -> send(keys.map { it to true } + keys.reversed().map { it to false }) }) }
+        // Off screen in all but name: the input method needs a focused field to type into.
+        BasicTextField(state, modifier = Modifier.fillMaxWidth().height(1.dp).alpha(0f).focusRequester(focus)
+            .onPreviewKeyEvent { e ->
+                // Back reaches the field only once the IME is hidden: it closes the panel (the field would
+                // otherwise take it to drop its focus, and a second Back was needed).
+                if (e.key == Key.Back) { if (e.type == KeyEventType.KeyUp) onDismiss(); return@onPreviewKeyEvent true }
+                // On an empty field the IME sends Backspace and Enter as key events.
+                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (e.key) {
+                    Key.Backspace -> if (state.text.isEmpty()) { key(HidUsage.BACKSPACE); true } else false
+                    Key.Enter, Key.NumPadEnter -> { key(HidUsage.ENTER); true }
+                    else -> false
+                }
+            }.testTag("desktop-ime-field"),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Transparent), cursorBrush = SolidColor(Color.Transparent),
+            lineLimits = TextFieldLineLimits.SingleLine,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send, autoCorrectEnabled = false),
+            onKeyboardAction = { key(HidUsage.ENTER) })
+    }
+}
+
+/** A key of the shortcut bar; a modifier shows whether it is latched (outlined) or held (filled). */
+@Composable
+private fun BarKey(label: String, tag: String, latched: ModifierLatch.State = ModifierLatch.State.OFF, narrow: Boolean = false,
+    onLongPress: (() -> Unit)? = null, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(Modifier.height(36.dp).widthIn(min = if (narrow) 32.dp else 42.dp).clip(shape)
+        .background(when (latched) { ModifierLatch.State.LOCKED -> Accent; ModifierLatch.State.ONCE -> Accent.copy(alpha = 0.25f); else -> Color(0x1AFFFFFF) })
+        .border(1.dp, if (latched == ModifierLatch.State.ONCE) Accent else Color.Transparent, shape)
+        .pointerInput(onLongPress) { detectTapGestures(onLongPress = onLongPress?.let { { _ -> it() } }) { onClick() } }
+        .padding(horizontal = 10.dp).testTag(tag), contentAlignment = Alignment.Center) {
+        Text(label, color = when (latched) { ModifierLatch.State.LOCKED -> Color(0xFF1C1C1E); ModifierLatch.State.ONCE -> Accent; else -> Ink },
+            fontSize = 13.sp, fontWeight = if (latched == ModifierLatch.State.LOCKED) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+    }
+}
+
+/** The 更多 page in place of the input method: F1–F12, navigation, Shift, arrows and a few shortcuts. */
+@Composable
+private fun MoreKeys(os: String, latch: ModifierLatch, onKey: (Int) -> Unit, onShift: () -> Unit, onCombo: (List<Int>) -> Unit) {
+    val keys = (1..12).map { PadKey("F$it", HidUsage.f(it)) } + listOf(PadKey("Home", HidUsage.HOME), PadKey("End", HidUsage.END),
+        PadKey("PgUp", HidUsage.PAGE_UP), PadKey("PgDn", HidUsage.PAGE_DOWN), PadKey("Del", HidUsage.DELETE), PadKey("Ins", HidUsage.INSERT),
+        PadKey("Shift", HidUsage.LEFT_SHIFT), PadKey("PrtSc", HidUsage.PRINT_SCREEN), PadKey("←", HidUsage.LEFT), PadKey("↑", HidUsage.UP),
+        PadKey("↓", HidUsage.DOWN), PadKey("→", HidUsage.RIGHT))
+    Column(Modifier.fillMaxWidth().background(PanelColor.copy(alpha = 1f)).padding(horizontal = 8.dp).padding(bottom = 10.dp).navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        keys.chunked(6).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                row.forEach { k ->
+                    val shift = k.hid == HidUsage.LEFT_SHIFT
+                    val s = if (shift) latch.state(k.hid) else ModifierLatch.State.OFF
+                    Box(Modifier.weight(1f).height(42.dp).clip(RoundedCornerShape(8.dp))
+                        .background(when (s) { ModifierLatch.State.OFF -> Color(0x1FFFFFFF); else -> Accent.copy(alpha = 0.4f) })
+                        .clickable { if (shift) onShift() else onKey(k.hid) }.testTag("desktop-key-${k.hid}"), contentAlignment = Alignment.Center) {
+                        Text(k.label, color = Ink, fontSize = 13.sp, maxLines = 1)
+                    }
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            comboKeys(os).forEach { (label, combo) ->
+                Box(Modifier.weight(1f).height(42.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x29FFFFFF))
+                    .clickable { onCombo(combo) }.testTag("desktop-combo-$label"), contentAlignment = Alignment.Center) {
+                    Text(label, color = Ink, fontSize = 13.sp, maxLines = 1)
+                }
+            }
+        }
+    }
 }
 
 /** A floating mouse: drag its pad to move the cursor, buttons for left and right, a strip to scroll. */
@@ -749,3 +798,6 @@ internal fun DesktopCardButton(state: DesktopButton, tag: String, onClick: () ->
             .border(1.5.dp, colors.surface, CircleShape).testTag("$tag-badge-${state.name.lowercase()}"))
     }
 }
+
+/** The smallest the remote cursor is drawn, in dp: about a phone's own text cursor height. */
+private const val CURSOR_MIN_DP = 11f
