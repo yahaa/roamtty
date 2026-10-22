@@ -728,6 +728,7 @@ private object EnglishText {
         "继续问 %s…" to "Ask %s…",
         "刚刚" to "now",
         "%d分钟前" to "%dm ago",
+        "显示全部 %d 个" to "Show all %d",
         "%d小时前" to "%dh ago",
         "%d天前" to "%dd ago",
         "启动 %s" to "Start %s",
