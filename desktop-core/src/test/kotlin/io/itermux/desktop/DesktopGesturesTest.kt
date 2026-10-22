@@ -33,31 +33,39 @@ class DesktopGesturesTest {
     @Test fun touchLongPressRightClicks() {
         val g = gestures()
         g.down(1000f, 500f, 0)
-        assertEquals(500L, g.longPressAt)
+        assertEquals(500L, g.tickAt)
         assertTrue(g.tick(499).isEmpty())
         assertEquals(listOf(MoveTo(1512, 982), Button(2, true), Button(2, false)), g.tick(500))
-        assertTrue(g.up(1000f, 500f, 700).isEmpty())
+        assertNull(g.tickAt)
+        assertTrue("a long press does not drag", g.move(1100f, 500f, 600).isEmpty())
+        assertTrue(g.up(1100f, 500f, 700).isEmpty())
     }
 
-    @Test fun tapThenHoldDrags() {
-        val g = gestures()
-        g.down(1000f, 500f, 0); g.up(1000f, 500f, 50)
-        assertEquals(listOf(MoveTo(1512, 982), Button(1, true)), g.down(1000f, 500f, 200))
-        assertNull("a drag is never a long press", g.longPressAt)
-        assertEquals(listOf(MoveTo(1512 + 196, 982)), g.move(1100f, 500f, 260))
-        assertEquals(listOf(Button(1, false)), g.up(1100f, 500f, 300))
-    }
-
-    @Test fun oneFingerPansOnlyWhenZoomed() {
+    @Test fun touchDragHoldsTheButtonFromWhereTheFingerLanded() {
         val g = gestures()
         g.down(1000f, 500f, 0)
-        assertTrue(g.move(1100f, 500f, 50).isEmpty())
-        g.up(1100f, 500f, 60)
+        assertTrue("within the slop nothing happens yet", g.move(1005f, 500f, 20).isEmpty())
+        assertEquals(listOf(MoveTo(1512, 982), Button(1, true), MoveTo(1512 + 39, 982)), g.move(1020f, 500f, 40))
+        assertNull("a drag is never a long press", g.tickAt)
+        assertEquals(listOf(MoveTo(1512 + 196, 982)), g.move(1100f, 500f, 80))
+        assertEquals(listOf(Button(1, false)), g.up(1100f, 500f, 120))
+    }
+
+    @Test fun touchDragsWhenZoomedToo() {
+        val g = gestures()
         g.viewport = view.zoomed(2f, 1000f, 500f)
-        g.down(1000f, 500f, 1000)
-        val out = g.move(1100f, 500f, 1050)
-        assertTrue(out.single() is View)
-        assertEquals(100f, (out.single() as View).viewport.panX, 0.01f)
+        g.down(1000f, 500f, 0)
+        val out = g.move(1100f, 500f, 50)
+        assertEquals(Button(1, true), out[1])
+        assertTrue(out.none { it is View })
+    }
+
+    @Test fun twoTapsAreADoubleClickInTouchMode() {
+        val g = gestures()
+        g.down(1000f, 500f, 0)
+        assertEquals(3, g.up(1000f, 500f, 50).size)
+        assertTrue(g.down(1000f, 500f, 150).isEmpty())
+        assertEquals(listOf(MoveTo(1512, 982), Button(1, true), Button(1, false)), g.up(1000f, 500f, 200))
     }
 
     @Test fun mouseModeMovesRelativelyAndClicksInPlace() {
@@ -67,9 +75,64 @@ class DesktopGesturesTest {
         assertEquals(1, moves.size)
         // 50 view px / scale × speed.
         assertEquals((50 / view.scale * DesktopGestures.MOUSE_SPEED).toInt(), (moves.single() as MoveBy).dx)
-        g.up(150f, 100f, 40)
+        assertTrue("moving is no tap", g.up(150f, 100f, 40).isEmpty())
         g.down(150f, 100f, 1000)
-        assertEquals(listOf(Button(1, true), Button(1, false)), g.up(150f, 100f, 1050))
+        // The press goes out at once; its release waits for a possible second touch.
+        assertEquals(listOf(Button(1, true)), g.up(150f, 100f, 1050))
+        assertEquals(1050L + DesktopGestures.DOUBLE_TAP_MS, g.tickAt)
+        assertTrue(g.tick(1300).isEmpty())
+        assertEquals(listOf(Button(1, false)), g.tick(1350))
+        assertNull(g.tickAt)
+    }
+
+    @Test fun mouseTapThenHoldDragsWithOnePress() {
+        val g = gestures(PointerMode.MOUSE)
+        g.down(100f, 100f, 0)
+        assertEquals(listOf(Button(1, true)), g.up(100f, 100f, 50))
+        assertTrue("the tap's press carries on", g.down(300f, 300f, 200).isEmpty())
+        assertNull("no release, no long press", g.tickAt)
+        assertTrue(g.move(350f, 300f, 250).single() is MoveBy)
+        assertEquals(listOf(Button(1, false)), g.up(350f, 300f, 300))
+        assertNull(g.tickAt)
+    }
+
+    @Test fun mouseTwoTapsDoubleClick() {
+        val g = gestures(PointerMode.MOUSE)
+        g.down(100f, 100f, 0)
+        g.up(100f, 100f, 50)
+        g.down(100f, 100f, 150)
+        assertEquals(listOf(Button(1, false), Button(1, true), Button(1, false)), g.up(100f, 100f, 200))
+        assertNull(g.tickAt)
+    }
+
+    @Test fun mouseLateTouchReleasesTheTapFirst() {
+        val g = gestures(PointerMode.MOUSE)
+        g.down(100f, 100f, 0)
+        g.up(100f, 100f, 50)
+        // The tick was late: the next touch lets the button go before anything else.
+        assertEquals(listOf(Button(1, false)), g.down(100f, 100f, 600))
+        assertEquals(1100L, g.tickAt)
+    }
+
+    @Test fun cancelLetsEverythingGo() {
+        val g = gestures(PointerMode.MOUSE)
+        g.down(100f, 100f, 0)
+        g.up(100f, 100f, 50)
+        assertEquals(listOf(Button(1, false)), g.cancel())
+        assertNull(g.tickAt)
+        val t = gestures()
+        t.down(1000f, 500f, 0)
+        t.move(1100f, 500f, 50)
+        assertEquals(listOf(Button(1, false)), t.cancel())
+    }
+
+    @Test fun theFingerLeftAfterTwoDoesNothing() {
+        val g = gestures()
+        g.down(900f, 500f, 0)
+        g.twoDown(900f, 500f, 1100f, 500f)
+        g.twoUp()
+        assertTrue(g.move(1300f, 500f, 100).isEmpty())
+        assertTrue(g.up(1300f, 500f, 150).isEmpty())
     }
 
     @Test fun twoFingersScrollOrZoom() {

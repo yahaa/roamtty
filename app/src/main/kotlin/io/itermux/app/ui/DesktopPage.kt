@@ -201,7 +201,7 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
         gestures.viewport = viewport
     }
     val scope = rememberCoroutineScope()
-    var longPress by remember { mutableStateOf<Job?>(null) }
+    var pending by remember { mutableStateOf<Job?>(null) }
     val focus = remember { FocusRequester() }
     // A hardware keyboard types into the picture whenever no panel holds the focus.
     LaunchedEffect(keys) { if (keys) runCatching { focus.requestFocus() } }
@@ -218,14 +218,17 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
             }
         }
     }
-    fun scheduleLongPress() {
-        longPress?.cancel()
-        val at = gestures.longPressAt ?: return
-        longPress = scope.launch {
+    fun scheduleTick() {
+        pending?.cancel()
+        val at = gestures.tickAt ?: return
+        pending = scope.launch {
             delay((at - SystemClock.uptimeMillis()).coerceAtLeast(0))
             apply(gestures.tick(SystemClock.uptimeMillis()))
+            scheduleTick()
         }
     }
+    // Leaving the page mid-drag or right after a tap must not leave the host's button down.
+    DisposableEffect(Unit) { onDispose { pending?.cancel(); apply(gestures.cancel()) } }
 
     Box(Modifier.fillMaxSize().onSizeChanged { area = it }
         .focusRequester(focus).focusable().onKeyEvent { event ->
@@ -290,16 +293,16 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
         Box(Modifier.fillMaxSize().testTag("desktop-touch").pointerInteropFilter { e ->
             val t = e.eventTime
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { apply(gestures.down(e.x, e.y, t)); scheduleLongPress() }
+                MotionEvent.ACTION_DOWN -> { apply(gestures.down(e.x, e.y, t)); scheduleTick() }
                 MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) {
-                    longPress?.cancel()
                     apply(gestures.twoDown(e.getX(0), e.getY(0), e.getX(1), e.getY(1)))
+                    scheduleTick()
                 }
                 MotionEvent.ACTION_MOVE -> if (e.pointerCount >= 2) apply(gestures.twoMove(e.getX(0), e.getY(0), e.getX(1), e.getY(1)))
-                    else { apply(gestures.move(e.x, e.y, t)); if (gestures.longPressAt == null) longPress?.cancel() }
+                    else { apply(gestures.move(e.x, e.y, t)); if (gestures.tickAt == null) pending?.cancel() }
                 MotionEvent.ACTION_POINTER_UP -> if (e.pointerCount == 2) gestures.twoUp()
-                MotionEvent.ACTION_UP -> { longPress?.cancel(); apply(gestures.up(e.x, e.y, t)) }
-                MotionEvent.ACTION_CANCEL -> { longPress?.cancel(); apply(gestures.cancel()) }
+                MotionEvent.ACTION_UP -> { apply(gestures.up(e.x, e.y, t)); scheduleTick() }
+                MotionEvent.ACTION_CANCEL -> { pending?.cancel(); apply(gestures.cancel()) }
             }
             true
         })

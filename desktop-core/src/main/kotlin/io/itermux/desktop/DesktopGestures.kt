@@ -68,9 +68,13 @@ sealed interface GestureAction {
 
 /**
  * Turns touches into desktop input (plan §5.2). Touch mode: tap = left click where the finger is,
- * long press = right click, tap then hold and drag = drag, one finger pans a zoomed screen.
- * Mouse mode: one finger moves the cursor relatively, tap and long press click where it is.
- * Both: two fingers scroll, pinching zooms locally. Times are milliseconds; [tick] fires long presses.
+ * long press = right click, one finger dragging = a left-button drag from where it landed.
+ * Mouse mode: one finger moves the cursor relatively, tap and long press click where it is, and a tap
+ * then hold and drag drags, as on a laptop's touchpad: a tap's release waits [DOUBLE_TAP_MS] for that
+ * second touch, so the host sees one press held through the drag, never a click and then a press
+ * (a double-click there maximises a window or opens a file instead of dragging it).
+ * Both: two fingers scroll, pinching zooms and pans locally. Times are milliseconds; [tick] fires
+ * long presses and delayed releases.
  */
 class DesktopGestures(var mode: PointerMode = PointerMode.TOUCH, private val density: Float = 1f) {
     var viewport = Viewport(1f, 1f, 1, 1)
@@ -83,9 +87,12 @@ class DesktopGestures(var mode: PointerMode = PointerMode.TOUCH, private val den
     private var moved = false
     private var longPressed = false
     private var dragging = false
-    private var lastTapUpAt = Long.MIN_VALUE / 2
-    private var lastTapX = 0f
-    private var lastTapY = 0f
+    /** Mouse mode: the left button is still down after a tap, until this time. */
+    private var releaseAt: Long? = null
+    /** Mouse mode: this touch began while a tap still held the button. */
+    private var afterTap = false
+    /** A second finger came and went: the rest of this touch does nothing. */
+    private var spent = false
     private var twoFinger: TwoFinger? = null
     private var down = false
     private var relRemainderX = 0f
@@ -97,27 +104,27 @@ class DesktopGestures(var mode: PointerMode = PointerMode.TOUCH, private val den
         var wheelY = 0f
     }
 
-    /** When [tick] next needs calling to recognise a long press; null when none is pending. */
-    val longPressAt: Long? get() = if (down && !moved && !longPressed && !dragging && twoFinger == null) downAt + LONG_PRESS_MS else null
+    private val longPressAt: Long? get() =
+        if (down && !moved && !longPressed && !dragging && !afterTap && !spent && twoFinger == null) downAt + LONG_PRESS_MS else null
+
+    /** When [tick] next needs calling, for a long press or a tap's release; null when nothing is pending. */
+    val tickAt: Long? get() = listOfNotNull(longPressAt, releaseAt).minOrNull()
 
     fun down(x: Float, y: Float, time: Long): List<GestureAction> {
+        val out = mutableListOf<GestureAction>()
+        val held = releaseAt
+        releaseAt = null
         down = true
         downX = x; downY = y; lastX = x; lastY = y; downAt = time
-        moved = false; longPressed = false; dragging = false
-        // A tap a moment ago, close by: this press holds the button for a drag.
-        val near = hypot(x - lastTapX, y - lastTapY) < 40f * density
-        if (time - lastTapUpAt < DOUBLE_TAP_MS && near) {
-            dragging = true
-            val out = mutableListOf<GestureAction>()
-            if (mode == PointerMode.TOUCH) out += moveTo(x, y)
-            out += GestureAction.Button(1, true)
-            return out
-        }
-        return emptyList()
+        moved = false; longPressed = false; dragging = false; afterTap = false; spent = false
+        // Mouse mode, a tap a moment ago: its press carries on into whatever this touch does.
+        if (held != null && time < held && mode == PointerMode.MOUSE) afterTap = true
+        else if (held != null) out += GestureAction.Button(1, false)
+        return out
     }
 
     fun move(x: Float, y: Float, time: Long): List<GestureAction> {
-        if (!down || twoFinger != null) return emptyList()
+        if (!down || twoFinger != null || spent) return emptyList()
         val dx = x - lastX
         val dy = y - lastY
         lastX = x; lastY = y
@@ -125,10 +132,13 @@ class DesktopGestures(var mode: PointerMode = PointerMode.TOUCH, private val den
         moved = true
         return when {
             longPressed -> emptyList()
-            dragging -> if (mode == PointerMode.TOUCH) listOf(moveTo(x, y)) else rel(dx, dy)
-            mode == PointerMode.MOUSE -> rel(dx, dy)
-            viewport.zoom > 1f -> listOf(GestureAction.View(viewport.panned(dx, dy).also { viewport = it }))
-            else -> emptyList()
+            mode == PointerMode.MOUSE -> { if (afterTap) dragging = true; rel(dx, dy) }
+            dragging -> listOf(moveTo(x, y))
+            else -> {
+                // The press goes where the finger landed, so the drag picks up what was under it.
+                dragging = true
+                listOf(moveTo(downX, downY), GestureAction.Button(1, true), moveTo(x, y))
+            }
         }
     }
 
@@ -140,22 +150,26 @@ class DesktopGestures(var mode: PointerMode = PointerMode.TOUCH, private val den
             dragging = false
             return listOf(GestureAction.Button(1, false))
         }
-        if (longPressed || moved) return emptyList()
-        lastTapUpAt = time
-        lastTapX = x; lastTapY = y
-        val out = mutableListOf<GestureAction>()
+        if (afterTap) {
+            afterTap = false
+            // A second tap without a drag: a double-click.
+            return listOf(GestureAction.Button(1, false), GestureAction.Button(1, true), GestureAction.Button(1, false))
+        }
+        if (longPressed || moved || spent) return emptyList()
+        if (mode == PointerMode.MOUSE) {
+            releaseAt = time + DOUBLE_TAP_MS
+            return listOf(GestureAction.Button(1, true))
+        }
         // Where the finger landed: lifting drifts a few pixels.
-        if (mode == PointerMode.TOUCH) out += moveTo(downX, downY)
-        out += GestureAction.Button(1, true)
-        out += GestureAction.Button(1, false)
-        return out
+        return listOf(moveTo(downX, downY), GestureAction.Button(1, true), GestureAction.Button(1, false))
     }
 
     fun tick(time: Long): List<GestureAction> {
-        val at = longPressAt ?: return emptyList()
-        if (time < at) return emptyList()
-        longPressed = true
         val out = mutableListOf<GestureAction>()
+        releaseAt?.let { if (time >= it) { releaseAt = null; out += GestureAction.Button(1, false) } }
+        val at = longPressAt ?: return out
+        if (time < at) return out
+        longPressed = true
         if (mode == PointerMode.TOUCH) out += moveTo(downX, downY)
         out += GestureAction.Button(2, true)
         out += GestureAction.Button(2, false)
@@ -165,7 +179,7 @@ class DesktopGestures(var mode: PointerMode = PointerMode.TOUCH, private val den
     /** A second finger landed: whatever one finger was doing ends. */
     fun twoDown(x0: Float, y0: Float, x1: Float, y1: Float): List<GestureAction> {
         val out = mutableListOf<GestureAction>()
-        if (dragging) { out += GestureAction.Button(1, false); dragging = false }
+        if (dragging || afterTap) { out += GestureAction.Button(1, false); dragging = false; afterTap = false }
         val cx = (x0 + x1) / 2
         val cy = (y0 + y1) / 2
         val span = hypot(x1 - x0, y1 - y0)
@@ -205,11 +219,12 @@ class DesktopGestures(var mode: PointerMode = PointerMode.TOUCH, private val den
     }
 
     /** Fewer than two fingers again: the gesture is over until every finger lifts. */
-    fun twoUp() { twoFinger = null; moved = true }
+    fun twoUp() { twoFinger = null; spent = true }
 
+    /** The touch was taken away, or the screen is going: nothing may stay pressed. */
     fun cancel(): List<GestureAction> {
-        val out = if (dragging) listOf(GestureAction.Button(1, false)) else emptyList()
-        down = false; dragging = false; twoFinger = null
+        val out = if (dragging || afterTap || releaseAt != null) listOf(GestureAction.Button(1, false)) else emptyList()
+        down = false; dragging = false; afterTap = false; releaseAt = null; twoFinger = null
         return out
     }
 
