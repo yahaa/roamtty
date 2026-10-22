@@ -16,10 +16,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,18 +38,25 @@ import io.itermux.ssh.HostSystem
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.TerminalTransport
 
+/**
+ * A host in the hosts list, built like a session row: its system's tile beside its name and address, then a status
+ * line with whether it answers and what it can do (tmux or psmux, mosh, a remote desktop). [shape] and [divider] join
+ * the rows of a one-column list into one panel.
+ */
 @Composable internal fun HostCard(host: Host, openDetail: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit,
     managePlugins: () -> Unit = {}, reachability: HostReachability = HostReachability.Checking,
-    openTerminal: () -> Unit = {}, launchAgent: () -> Unit = {}) {
+    openTerminal: () -> Unit = {}, launchAgent: () -> Unit = {}, shape: Shape = MaterialTheme.shapes.medium, divider: Boolean = false) {
     var menu by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
-    ListCard(onClick = openDetail, onClickLabel = tr("查看详情"), modifier = Modifier.testTag("host-card-${host.id}")) {
+    ListCard(onClick = openDetail, onClickLabel = tr("查看详情"), modifier = Modifier.testTag("host-card-${host.id}"), shape = shape,
+        divider = divider) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HostSystemIcon(host.os)
             Column(Modifier.weight(1f).padding(start = Spacing.Row, end = Spacing.Tight)) {
                 Text(host.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${host.username}@${host.address}:${host.port}", style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${host.username}@${host.address}:${host.port}", Modifier.padding(top = 2.dp),
+                    style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace,
+                    color = colors.onSurfaceVariant.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Box {
                 IconButton(onClick = { menu = true }, modifier = Modifier.testTag("host-menu-${host.id}")) {
@@ -80,14 +89,13 @@ import io.itermux.ssh.TerminalTransport
         Row(Modifier.padding(top = Spacing.Row), horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}").padding(end = 2.dp))
-            // Once probed, the card lists only the plugins the host actually has.
+            // Only what the host can do: once probed, the plugins it actually has; before, the multiplexer it is set to use.
             val plugins = host.installedPlugins
-            if (plugins == null) MetaTag(modeLabel(host.mode == SessionMode.TMUX.name, host.multiplexer))
-            else HostPlugin.entries.filter { it in plugins }.forEach {
-                MetaTag(it.id, Modifier.testTag("host-plugin-${it.id}-${host.id}"))
+            val shown = plugins?.let { installed -> HostPlugin.entries.filter { it in installed } }
+                ?: listOfNotNull(host.multiplexer.takeIf { host.mode == SessionMode.TMUX.name })
+            shown.forEach {
+                MetaTag(if (it == HostPlugin.DESKTOP) tr("远程桌面") else it.id, Modifier.testTag("host-plugin-${it.id}-${host.id}"))
             }
-            MetaTag(authLabel(host.auth))
-            if (host.os == "UNKNOWN") MetaTag(tr("待检测系统"))
         }
     }
 }
@@ -117,11 +125,15 @@ internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active
 
 /** The card used by the host and session lists: one shape, one surface, whole-card tap target. */
 @Composable internal fun ListCard(onClick: () -> Unit, onClickLabel: String, modifier: Modifier = Modifier,
-    bottomPadding: Dp = Spacing.Page, content: @Composable ColumnScope.() -> Unit) {
+    bottomPadding: Dp = Spacing.Page, shape: Shape = MaterialTheme.shapes.medium, divider: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit) {
     // The tag and click live on the same node so the card reads as one merged, labelled button.
-    Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.groupedContainer) {
-        Column(modifier.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
-            .padding(start = Spacing.Page, top = 14.dp, end = 4.dp, bottom = bottomPadding), content = content)
+    Surface(Modifier.fillMaxWidth(), shape = shape, color = MaterialTheme.colorScheme.groupedContainer) {
+        Column(modifier.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)) {
+            if (divider) Box(Modifier.padding(start = 14.dp).fillMaxWidth().height(1.dp)
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)))
+            Column(Modifier.padding(start = Spacing.Page, top = 14.dp, end = 4.dp, bottom = bottomPadding), content = content)
+        }
     }
 }
 

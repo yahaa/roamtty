@@ -9,6 +9,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
 import io.itermux.app.MainActivity
+import io.itermux.app.ui.TerminalToolbox
 import io.itermux.app.data.Host
 import io.itermux.app.desktop.DesktopConnection
 import io.itermux.app.desktop.DesktopSettings
@@ -297,6 +298,41 @@ class E2eDesktopTest {
         E2e.waitTag(compose, "home-session-${session.id}")
         compose.waitForIdle()
         assertFalse(E2e.exists(compose, hasTestTag("home-session-desktop-${session.id}")))
+    }
+
+    /**
+     * The terminal's dock opens the host's desktop, and a dock the pet opened goes back to the pet on its own after a
+     * quiet spell.
+     */
+    @Test fun d07_terminalDockOpensTheDesktopAndHidesItself() {
+        val host = runBlocking { E2e.save(E2e.host("desktop-dock")) }
+        hostId = host.id
+        val session = runBlocking {
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+        }
+        runBlocking { E2e.connected(session) }
+        compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
+        E2e.waitTag(compose, "home-session-desktop-${session.id}", 15_000)
+        click("home-session-${session.id}")
+        E2e.waitTag(compose, "terminal")
+        // Waiting for idle runs the compose clock through any countdown, so this one steps the clock by hand.
+        val hide = TerminalToolbox.dockHideMillis
+        try {
+            TerminalToolbox.dockHideMillis = 1_500
+            compose.mainClock.autoAdvance = false
+            compose.onNodeWithTag("restore-dock").performClick()
+            compose.mainClock.advanceTimeBy(500)
+            compose.onNodeWithTag("terminal-desktop").assertExists()
+            E2e.capture(compose, "desktop-dock-01-button")
+            // Left alone, it goes back to the pet.
+            compose.mainClock.advanceTimeBy(1_500)
+            compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
+        } finally { compose.mainClock.autoAdvance = true; TerminalToolbox.dockHideMillis = hide }
+        click("restore-dock")
+        click("terminal-desktop")
+        E2e.waitTag(compose, "desktop-page")
+        waitPhase(45_000, "first frame") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
+        assertTrue("${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)
     }
 
     /**
