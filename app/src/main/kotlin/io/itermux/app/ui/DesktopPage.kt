@@ -867,30 +867,21 @@ private fun BoxScope.VirtualMouse(connection: DesktopConnection) {
     }
 }
 
-/** The desktop button at the end of a session card's bottom row (plan §4.3). */
+/** The desktop button at the end of a session card's bottom row (plan §4.3): an icon tag beside its other tags. */
 @Composable
 internal fun DesktopCardButton(state: DesktopButton, tag: String, onClick: () -> Unit) {
     if (state == DesktopButton.HIDDEN) return
-    val colors = MaterialTheme.colorScheme
     // Always the desktop's icon, never a spinner: lit while a desktop is open or on its way.
     val live = state == DesktopButton.CONNECTED || state == DesktopButton.POOR || state == DesktopButton.RECOVERING ||
         state == DesktopButton.CONNECTING
-    // The touch target reaches past the button's left side only, so the button lines up with the row's right edge.
-    Box(Modifier.size(44.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = tr("打开桌面"), onClick = onClick)
-        .testTag(tag), contentAlignment = Alignment.CenterEnd) {
-        Box(Modifier.size(34.dp, 30.dp).clip(RoundedCornerShape(9.dp))
-            .background(if (live) Accent.copy(alpha = 0.22f) else colors.onSurface.copy(alpha = 0.07f)), contentAlignment = Alignment.Center) {
-            Icon(painterResource(R.drawable.ic_desktop), contentDescription = tr("桌面"), Modifier.size(16.dp),
-                tint = if (live) Accent else colors.onSurface)
-        }
-        val badge = when (state) {
-            DesktopButton.CONNECTED -> StatusColors.success
-            DesktopButton.POOR, DesktopButton.NEEDS_ACTION, DesktopButton.RECOVERING -> StatusColors.warning
-            else -> null
-        }
-        if (badge != null) Box(Modifier.align(Alignment.CenterEnd).offset(0.dp, (-11).dp).size(8.dp).clip(CircleShape).background(badge)
-            .border(1.5.dp, colors.surface, CircleShape).testTag("$tag-badge-${state.name.lowercase()}"))
+    val badge = when (state) {
+        DesktopButton.CONNECTED -> StatusColors.success
+        DesktopButton.POOR, DesktopButton.NEEDS_ACTION, DesktopButton.RECOVERING -> StatusColors.warning
+        else -> null
     }
+    if (live) IconTag(R.drawable.ic_desktop, tr("打开桌面"), tag, onClick, tint = Accent, wash = Accent.copy(alpha = 0.16f),
+        badge = badge, badgeTag = "$tag-badge-${state.name.lowercase()}")
+    else IconTag(R.drawable.ic_desktop, tr("打开桌面"), tag, onClick, badge = badge, badgeTag = "$tag-badge-${state.name.lowercase()}")
 }
 
 /** The smallest the remote cursor is drawn, in dp: about a phone's own text cursor height. */

@@ -483,7 +483,17 @@ fun ItermuxScreen(
                                 onDelete = { host -> deleteHost = host },
                                 onBrowseFiles = ::browseFiles,
                                 onManagePlugins = ::managePlugins,
-                                onLaunch = { host, forAgent -> launchRequest = LaunchRequest(host, forAgent) })
+                                onLaunch = { host, forAgent -> launchRequest = LaunchRequest(host, forAgent) },
+                                desktop = { host ->
+                                    val idle = remember { MutableStateFlow<DesktopPhase>(DesktopPhase.Idle) }
+                                    val desktopPhase by (desktops[host.id]?.phase ?: idle).collectAsStateWithLifecycle()
+                                    val offline = !hostConnected(host) && hostReachability.statusOf(host) == HostReachability.Offline
+                                    // A host needs no open session for its desktop: the desktop logs in on its own.
+                                    val button = DesktopButton.derive(desktopEnabled, !offline, true,
+                                        HostSystem.fromStored(host.os).let { if (it.isLinux) "LINUX" else it.name }, desktopSupported(host),
+                                        DesktopProbe.decode(host.desktop), host.desktopProbedAt, System.currentTimeMillis(), desktopPhase)
+                                    DesktopCardButton(button, "host-desktop-${host.id}") { openDesktop(host) }
+                                })
                         }
                     }
                 } else if (page == AppPage.HOST) {

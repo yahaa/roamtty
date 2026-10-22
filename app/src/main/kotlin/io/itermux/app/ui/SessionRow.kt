@@ -309,12 +309,9 @@ private fun RowAction(label: String, tag: String, icon: Int? = null, fill: Color
     val colors = MaterialTheme.colorScheme
     val background = fill ?: if (plain) Color.Transparent else colors.onSurface.copy(alpha = 0.07f)
     val content = if (fill != null) Color(0xFF1D1A12) else if (plain) colors.onSurfaceVariant else colors.onSurface
-    // Only the icon, in a round button; the label is what TalkBack reads.
+    // Only the icon: a tag among the row's tags; the label is what TalkBack reads.
     if (icon != null && iconOnly) {
-        Box(Modifier.size(28.dp).clip(CircleShape).background(background).clickable(role = Role.Button, onClick = onClick)
-            .testTag(tag), contentAlignment = Alignment.Center) {
-            Icon(painterResource(icon), contentDescription = label, Modifier.size(14.dp), tint = content)
-        }
+        IconTag(icon, label, tag, onClick)
         return
     }
     Row(Modifier.height(28.dp).clip(CircleShape).background(background).clickable(role = Role.Button, onClick = onClick)

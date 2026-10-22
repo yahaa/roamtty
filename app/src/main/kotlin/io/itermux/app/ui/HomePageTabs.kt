@@ -63,7 +63,8 @@ internal fun HomeSessionsTab(sessions: List<TerminalConnection>, hasHosts: Boole
 @Composable
 internal fun HomeHostsTab(hosts: List<Host>, search: String, gridState: LazyGridState, reachability: (Host) -> HostReachability,
     onAdd: () -> Unit, onOpen: (Host) -> Unit, onEdit: (Host) -> Unit, onDelete: (Host) -> Unit, onBrowseFiles: (Host) -> Unit,
-    onManagePlugins: (Host) -> Unit, onLaunch: (host: Host, forAgent: Boolean) -> Unit) {
+    onManagePlugins: (Host) -> Unit, onLaunch: (host: Host, forAgent: Boolean) -> Unit,
+    desktop: @Composable (Host) -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         HomeListHeader(trf("主机 · %d", hosts.size), tr("添加主机"), "add-host", onAdd)
         val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
@@ -89,7 +90,7 @@ internal fun HomeHostsTab(hosts: List<Host>, search: String, gridState: LazyGrid
                     }
                     HostCard(host, { onOpen(host) }, { onEdit(host) }, { onDelete(host) }, { onBrowseFiles(host) }, { onManagePlugins(host) },
                         reachability(host), openTerminal = { onLaunch(host, false) }, launchAgent = { onLaunch(host, true) },
-                        shape = shape, divider = joined && index > 0)
+                        shape = shape, divider = joined && index > 0, desktop = { desktop(host) })
                 }
             }
         }
