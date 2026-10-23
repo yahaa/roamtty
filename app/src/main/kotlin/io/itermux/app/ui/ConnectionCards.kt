@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -62,8 +63,9 @@ import io.itermux.ssh.TerminalTransport
 /**
  * A host in the hosts list, as a screen: its desktop's last picture (before one was taken, its system's colours; for a
  * host without a desktop, a plain "no desktop" state), with a frosted strip along the bottom holding its system, name,
- * login, whether it answers, its plugins and its menu. The picture opens the desktop; the strip, or the picture of a host that has none or
- * is offline, opens its details. A long press opens the menu.
+ * login, plugins and menu; whether it answers and what its desktop is doing sit in pills at the top left. The picture
+ * opens the desktop; the strip, or the picture of a host that has none or is offline, opens its details. A long press
+ * opens the menu.
  */
 @Composable internal fun HostCard(host: Host, openDetail: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit,
     managePlugins: () -> Unit = {}, reachability: HostReachability = HostReachability.Checking,
@@ -84,8 +86,8 @@ import io.itermux.ssh.TerminalTransport
         }
     }
     val shape = RoundedCornerShape(20.dp)
-    val strip = 78.dp
-    Box(Modifier.fillMaxWidth().aspectRatio(16f / 10.4f).clip(shape).background(colors.groupedContainer)
+    val strip = 62.dp
+    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9.6f).clip(shape).background(colors.groupedContainer)
         .then(if (live) Modifier.border(2.dp, if (desktop == DesktopButton.CONNECTED) ScreenColors.success else ScreenColors.warning, shape)
             else Modifier)
         .testTag("host-item-${host.id}")) {
@@ -100,7 +102,15 @@ import io.itermux.ssh.TerminalTransport
                 else -> HostScreenNoDesktop(strip)
             }
         }
-        if (hasDesktop) HostDesktopPill(desktop, Modifier.align(Alignment.TopStart).padding(12.dp).testTag("host-desktop-${host.id}"))
+        // Top left: whether it answers, then what its desktop is doing.
+        Row(Modifier.align(Alignment.TopStart).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.clip(CircleShape).background(if (hasDesktop) ScreenColors.pill else colors.onSurface.copy(alpha = 0.07f))
+                .padding(horizontal = 10.dp, vertical = 4.dp)) {
+                HostReachabilityLabel(reachability, Modifier.semantics(mergeDescendants = true) {}.testTag("host-status-${host.id}"),
+                    onImage = hasDesktop)
+            }
+            if (hasDesktop) HostDesktopPill(desktop, Modifier.testTag("host-desktop-${host.id}"))
+        }
         val onImage = hasDesktop
         val system = HostSystem.fromStored(host.os)
         Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(strip)
@@ -111,11 +121,10 @@ import io.itermux.ssh.TerminalTransport
             Column(Modifier.weight(1f).padding(start = 10.dp, end = Spacing.Tight)) {
                 Text(host.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = when { !onImage -> colors.onSurface; offline -> Color.White.copy(alpha = 0.6f); else -> Color.White })
-                Text("${host.username}@${host.address}:${host.port}", Modifier.padding(vertical = 1.dp),
+                Text("${host.username}@${host.address}:${host.port}", Modifier.padding(top = 1.dp),
                     style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = if (onImage) Color.White.copy(alpha = 0.62f) else colors.onSurfaceVariant.copy(alpha = 0.75f))
-                HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}"), onImage = onImage)
             }
             // What keeps and carries its sessions: once probed, the plugins it has (before, the multiplexer it is set to use).
             val shown = host.installedPlugins?.let { installed -> HostPlugin.entries.filter { it in installed && it != HostPlugin.DESKTOP } }
@@ -171,6 +180,8 @@ private object ScreenColors {
     val success = Color(0xFF7FD19B)
     val warning = Color(0xFFF2C46D)
     val danger = Color(0xFFF2A39B)
+    /** The pills over the picture's corner. */
+    val pill = Color(0x99141416)
     /** The frosted strip's tint over the blurred picture. */
     val strip = Color(0x5E161618)
 }
@@ -237,9 +248,9 @@ private val grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSatur
     }
 }
 
-/** The desktop's state in a dark pill over the picture's corner: connected, on its way, weak, or waiting on the user. */
+/** The desktop's state in a dark pill over the picture's corner, after its icon: connected, on its way, weak, or waiting on the user. */
 @Composable private fun HostDesktopPill(state: DesktopButton, modifier: Modifier) {
-    val (dot, label) = when (state) {
+    val (tint, label) = when (state) {
         DesktopButton.CONNECTED -> ScreenColors.success to tr("已连接")
         DesktopButton.CONNECTING -> Color.White.copy(alpha = 0.7f) to tr("连接中")
         DesktopButton.POOR -> ScreenColors.warning to tr("网络较差")
@@ -247,11 +258,11 @@ private val grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSatur
         DesktopButton.NEEDS_ACTION -> ScreenColors.warning to tr("需要登录")
         else -> return
     }
-    Row(modifier.clip(CircleShape).background(Color(0x99141416)).padding(horizontal = 10.dp, vertical = 4.dp),
+    Row(modifier.clip(CircleShape).background(ScreenColors.pill).padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(7.dp).clip(CircleShape).background(dot))
+        Icon(painterResource(R.drawable.ic_desktop), contentDescription = tr("桌面"), Modifier.size(13.dp), tint = tint)
         Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = tint, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 
