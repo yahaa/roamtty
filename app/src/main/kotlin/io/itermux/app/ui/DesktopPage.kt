@@ -58,6 +58,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.res.painterResource
@@ -540,7 +541,7 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
             clipNote = if (text.isEmpty()) tr("远程剪贴板为空") else trf("已复制远程剪贴板（%d 字）", text.length)
         }
     }
-    val refresh = (context.display?.refreshRate ?: 60f).roundToInt()
+    val refresh = (LocalView.current.display?.refreshRate ?: 60f).roundToInt()
     val metered = remember { context.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered }
     Box(Modifier.fillMaxSize().background(Color(0x66000000)).clickable(onClick = onDismiss))
     Card(Modifier.align(if (landscape) Alignment.CenterEnd else Alignment.BottomCenter)

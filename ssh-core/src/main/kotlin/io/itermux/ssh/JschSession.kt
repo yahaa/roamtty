@@ -209,12 +209,12 @@ class JschSession(
         return plugins
     }
 
-    /** tmux where a POSIX shell has it, else psmux on a native Windows shell; null when neither runs. */
-    private suspend fun findMultiplexer(ssh: Session): HostPlugin? = multiplexer.value ?: when {
+    /** Check each fresh login: the multiplexer may have been removed while the connection was down. */
+    private suspend fun findMultiplexer(ssh: Session): HostPlugin? = when {
         hasTmux(ssh) -> HostPlugin.TMUX
         Psmux.parseProbe(runCommand(ssh, Psmux.probeCommand)) == true -> HostPlugin.PSMUX
         else -> null
-    }?.also { mutableMultiplexer.value = it }
+    }.also { mutableMultiplexer.value = it }
 
     private fun tcpKeepaliveFactory() = object : SocketFactory {
         override fun createSocket(host: String, port: Int): Socket {

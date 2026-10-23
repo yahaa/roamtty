@@ -79,7 +79,7 @@ private fun SessionGroup.color() = when (this) {
 
 /**
  * Every session the app holds, grouped by what its agent is doing (waiting for the user, working, done, then the
- * rest), most active first within a group; a tap opens its terminal. With two groups or more, chips above them filter
+ * rest), most recently used first within a group; a tap opens its terminal. With two groups or more, chips above them filter
  * to one. Sessions without an agent's report take compact rows. On a phone a group's sessions share one panel, split by hairlines; where the page has room for more columns,
  * each is a card of its own.
  */

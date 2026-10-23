@@ -42,6 +42,7 @@ import io.itermux.app.data.Host
 import io.itermux.app.data.newSessionMode
 import io.itermux.app.data.multiplexer
 import io.itermux.app.data.prefersMosh
+import io.itermux.app.data.recentFirst
 import io.itermux.app.session.*
 import io.itermux.app.desktop.DesktopSettings
 import io.itermux.desktop.DesktopButton
@@ -73,7 +74,10 @@ fun ItermuxScreen(
     val scope = rememberCoroutineScope()
     val hostFlow = remember(app) { app.database.hosts().observe() }
     val loadedHosts by hostFlow.collectAsStateWithLifecycle(initialValue = null)
-    val hosts = loadedHosts.orEmpty()
+    val recentUsage = app.recentUsage
+    val recentHosts by recentUsage.hostIds.collectAsStateWithLifecycle()
+    val recentSessions by recentUsage.sessionIds.collectAsStateWithLifecycle()
+    val hosts = remember(loadedHosts, recentHosts) { loadedHosts.orEmpty().recentFirst(recentHosts) { it.id } }
     val sessionFlow = remember(service) { service?.sessions ?: MutableStateFlow(emptyList()) }
     val sessions by sessionFlow.collectAsStateWithLifecycle()
     val sessionStates by remember(sessions) {
@@ -84,9 +88,17 @@ fun ItermuxScreen(
     val anySession = sessions.isNotEmpty()
     LaunchedEffect(anySession) { if (anySession) TerminalFonts.preload(context) }
     val hostReachability = remember { HostReachabilityTracker() }
-    // The session list and drawer show live sessions first; terminal tabs keep their open order.
-    val sessionsByActivity = remember(sessions, sessionStates) {
-        sessions.sortedBy { activityRank(sessionStates[it.id] ?: it.state.value) }
+    // Recent use leads within each home group and in the drawer; terminal tabs keep their open order.
+    val sessionsByRecency = remember(sessions, sessionStates, recentSessions) {
+        sessions.sortedBy { activityRank(sessionStates[it.id] ?: it.state.value) }.recentFirst(recentSessions) { it.id }
+    }
+    LaunchedEffect(loadedHosts, sessions, service) {
+        val savedHosts = loadedHosts ?: return@LaunchedEffect
+        val bound = service ?: return@LaunchedEffect
+        bound.awaitRestoration()
+        val restored = bound.sessions.value
+        // A newly saved host can already have a session before Room emits its updated host list.
+        recentUsage.retain((savedHosts.map { it.id } + restored.map { it.host.id }).toSet(), restored.map { it.id }.toSet())
     }
     var page by rememberSaveable { mutableStateOf(AppPage.HOME) }
     val configuration = LocalConfiguration.current
@@ -122,6 +134,19 @@ fun ItermuxScreen(
     BackHandler(page == AppPage.SETTINGS && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    // Only visible navigation counts as use. Reconnects, polling and recomposition never update this order.
+    LaunchedEffect(page, selected, detailHostId, desktopHostId, service) {
+        when (page) {
+            AppPage.TERMINAL, AppPage.FILES -> {
+                val bound = service ?: return@LaunchedEffect
+                bound.awaitRestoration()
+                bound.sessions.value.find { it.id == selected }?.let { recentUsage.useSession(it.id, it.host.id) }
+            }
+            AppPage.HOST -> detailHostId?.let(recentUsage::useHost)
+            AppPage.DESKTOP -> desktopHostId?.let(recentUsage::useHost)
+            else -> Unit
+        }
+    }
     /** The home page's tabs: sessions first, then hosts. */
     val homePager = rememberPagerState { 2 }
     /** Shows session [id] on the terminal page, or on [on]. */
@@ -151,11 +176,22 @@ fun ItermuxScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val hostGridState = rememberLazyGridState()
+    var previousHostOrder by remember { mutableStateOf(recentHosts) }
+    LaunchedEffect(recentHosts) {
+        if (recentHosts != previousHostOrder) {
+            hostGridState.requestScrollToItem(0)
+            previousHostOrder = recentHosts
+        }
+    }
     BackHandler(page == AppPage.HOME && homePager.currentPage != 0 && !searchExpanded && !drawerState.isOpen) {
         scope.launch { homePager.animateScrollToPage(0) }
     }
+    var previousLandscape by rememberSaveable { mutableStateOf(landscape) }
     LaunchedEffect(landscape) {
-        hostGridState.scrollToItem(hostGridState.firstVisibleItemIndex)
+        if (landscape != previousLandscape) {
+            hostGridState.scrollToItem(hostGridState.firstVisibleItemIndex)
+            previousLandscape = landscape
+        }
     }
     val searchFocus = remember { FocusRequester() }
     BackHandler(navigationVisible && searchExpanded && !imeVisible && !drawerState.isOpen) {
@@ -385,7 +421,7 @@ fun ItermuxScreen(
         val colors = MaterialTheme.colorScheme
         ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != AppPage.FILES && page != AppPage.HOST && !desktopVisible,
             drawerContent = {
-                ItermuxDrawer(page, hosts.size, sessionsByActivity,
+                ItermuxDrawer(page, hosts.size, sessionsByRecency,
                     onHosts = { page = AppPage.HOME; homePager.requestScrollToPage(1); scope.launch { drawerState.close() } },
                     onOpenSession = { showSession(it); scope.launch { drawerState.close() } },
                     onSettings = {
@@ -451,7 +487,7 @@ fun ItermuxScreen(
                         ProbeHostReachability(hostReachability, hosts,
                             connected = hosts.filter { it.endpointKey in connectedEndpoints }.map { it.id }.toSet())
                         HorizontalPager(homePager, Modifier.weight(1f).testTag("home-pager"), key = { HOME_TAB_TAGS[it] }) { tab ->
-                            if (tab == 0) HomeSessionsTab(sessionsByActivity, hosts.isNotEmpty(), search,
+                            if (tab == 0) HomeSessionsTab(sessionsByRecency, hosts.isNotEmpty(), search,
                                 onNewSession = { newSessionOpen = true },
                                 onOpen = { showSession(it.id) },
                                 onClose = ::closeSession,
@@ -465,7 +501,7 @@ fun ItermuxScreen(
                                     val connection = desktops[host.id]
                                     val idle = remember { MutableStateFlow<DesktopPhase>(DesktopPhase.Idle) }
                                     val desktopPhase by (connection?.phase ?: idle).collectAsStateWithLifecycle()
-                                    val sessionState = sessionStates[session.id] ?: session.state.value
+                                    val sessionState by session.state.collectAsStateWithLifecycle()
                                     val offline = !hostConnected(host) && hostReachability.statusOf(host) == HostReachability.Offline
                                     val button = DesktopButton.derive(desktopEnabled, !offline, sessionState.phase == Phase.CONNECTED,
                                         HostSystem.fromStored(host.os).let { if (it.isLinux) "LINUX" else it.name }, desktopSupported(host),
