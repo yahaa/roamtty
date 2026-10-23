@@ -92,13 +92,13 @@ import io.itermux.ssh.TerminalTransport
         Row(Modifier.padding(top = Spacing.Tight, end = 10.dp).heightIn(min = 28.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}").padding(end = 2.dp))
-            // Only what keeps and carries its sessions: once probed, the plugins it actually has (before, the multiplexer it
-            // is set to use); its desktop is the icon tag at the end.
+            Spacer(Modifier.weight(1f))
+            // At the end, only what keeps and carries its sessions: once probed, the plugins it actually has (before, the
+            // multiplexer it is set to use), then its desktop as an icon tag.
             val plugins = host.installedPlugins
             val shown = plugins?.let { installed -> HostPlugin.entries.filter { it in installed && it != HostPlugin.DESKTOP } }
                 ?: listOfNotNull(host.multiplexer.takeIf { host.mode == SessionMode.TMUX.name })
             shown.forEach { MetaTag(it.id, Modifier.testTag("host-plugin-${it.id}-${host.id}")) }
-            Spacer(Modifier.weight(1f))
             desktop()
         }
     }
