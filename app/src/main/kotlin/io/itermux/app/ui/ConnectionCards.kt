@@ -48,17 +48,20 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.data.Host
+import io.itermux.app.data.installedPlugins
+import io.itermux.app.data.multiplexer
 import io.itermux.app.session.AgentStatus
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.SessionMode
 import io.itermux.ssh.HostSystem
+import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.TerminalTransport
 
 /**
  * A host in the hosts list, as a screen: its desktop's last picture (before one was taken, its system's colours; for a
  * host without a desktop, a plain "no desktop" state), with a frosted strip along the bottom holding its system, name,
- * whether it answers and its menu. The picture opens the desktop; the strip, or the picture of a host that has none or
+ * whether it answers, its plugins and its menu. The picture opens the desktop; the strip, or the picture of a host that has none or
  * is offline, opens its details. A long press opens the menu.
  */
 @Composable internal fun HostCard(host: Host, openDetail: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit,
@@ -108,6 +111,16 @@ import io.itermux.ssh.TerminalTransport
                 Text(host.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = when { !onImage -> colors.onSurface; offline -> Color.White.copy(alpha = 0.6f); else -> Color.White })
                 HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}"), onImage = onImage)
+            }
+            // What keeps and carries its sessions: once probed, the plugins it has (before, the multiplexer it is set to use).
+            val shown = host.installedPlugins?.let { installed -> HostPlugin.entries.filter { it in installed && it != HostPlugin.DESKTOP } }
+                ?: listOfNotNull(host.multiplexer.takeIf { host.mode == SessionMode.TMUX.name })
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                shown.forEach {
+                    if (onImage) MetaTag(it.id, Modifier.testTag("host-plugin-${it.id}-${host.id}"), color = Color.White.copy(alpha = 0.85f),
+                        wash = Color.White.copy(alpha = 0.14f))
+                    else MetaTag(it.id, Modifier.testTag("host-plugin-${it.id}-${host.id}"))
+                }
             }
             Box {
                 IconButton(onClick = { menu = true }, modifier = Modifier.testTag("host-menu-${host.id}")) {

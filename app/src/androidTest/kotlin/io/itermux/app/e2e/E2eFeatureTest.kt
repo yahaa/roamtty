@@ -184,6 +184,7 @@ class E2eFeatureTest {
         assertTrue("tmux detected: ${saved.plugins}", HostPlugin.TMUX in HostPlugin.decode(saved.plugins).orEmpty())
         assertNotNull(app.database.hosts().pin(E2e.endpoint))
         compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${saved.id}"))
+        compose.onNodeWithTag("host-plugin-tmux-${saved.id}", useUnmergedTree = true).assertExists()
         // The card's reachability probe measures DNS + TCP connect time.
         compose.waitUntil(15_000) {
             "在线" in compose.text("host-status-${saved.id}")

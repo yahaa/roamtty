@@ -245,11 +245,12 @@ internal fun StatusLabel(phase: Phase, modifier: Modifier = Modifier, hostOfflin
 
 /** Small neutral pill for secondary attributes such as session mode or authentication. */
 @Composable
-internal fun MetaTag(text: String, modifier: Modifier = Modifier) {
-    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+internal fun MetaTag(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    wash: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = color,
         maxLines = 1, overflow = TextOverflow.Ellipsis,
         modifier = modifier.clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+            .background(wash)
             .padding(horizontal = 6.dp, vertical = 2.dp))
 }
 

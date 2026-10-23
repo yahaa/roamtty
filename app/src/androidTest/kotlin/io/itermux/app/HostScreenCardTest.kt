@@ -44,9 +44,9 @@ class HostScreenCardTest {
 
     @Test fun pictureOpensTheDesktopAndTheStripOrAHostWithoutOneOpensDetails() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val pictured = Host(name = "pictured", address = "10.0.0.1", username = "me", os = "UBUNTU")
+        val pictured = Host(name = "pictured", address = "10.0.0.1", username = "me", os = "UBUNTU", plugins = "tmux,mosh,desktop")
         val offline = Host(name = "offline", address = "10.0.0.2", username = "me", os = "MACOS")
-        val headless = Host(name = "headless", address = "10.0.0.3", username = "me", os = "DEBIAN")
+        val headless = Host(name = "headless", address = "10.0.0.3", username = "me", os = "DEBIAN", plugins = "tmux")
         DesktopThumbnails.save(context, pictured.id, gradient())
         val opened = mutableListOf<String>()
         val prefs = context.getSharedPreferences("app-settings", Context.MODE_PRIVATE)
@@ -67,6 +67,11 @@ class HostScreenCardTest {
             }
             compose.waitUntil(5_000) { runCatching { compose.onNodeWithText("已连接").assertIsDisplayed() }.isSuccess }
             compose.onNodeWithText("没有图形桌面").assertIsDisplayed()
+            // The strip names what carries the sessions, the desktop plugin aside.
+            compose.onNodeWithTag("host-plugin-tmux-${pictured.id}", useUnmergedTree = true).assertIsDisplayed()
+            compose.onNodeWithTag("host-plugin-mosh-${pictured.id}", useUnmergedTree = true).assertIsDisplayed()
+            compose.onNodeWithTag("host-plugin-desktop-${pictured.id}", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag("host-plugin-tmux-${headless.id}", useUnmergedTree = true).assertIsDisplayed()
             File(context.getExternalFilesDir(null), "host-screen-cards.png").outputStream().use {
                 compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
             }
