@@ -12,4 +12,5 @@ class ItermuxApp : Application() {
     val database by lazy { AppDatabase.open(this) }
     val vault by lazy { SecretVault() }
     val pins by lazy { RoomPinStore(database) }
+    internal val recentUsage by lazy { RecentUsage(getSharedPreferences("recent-usage", MODE_PRIVATE)) }
 }
