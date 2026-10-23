@@ -7,9 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +30,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import io.itermux.app.R
+import io.itermux.desktop.DesktopButton
 
 /** The home page's sessions tab: its header, then the sessions matching [search], or why there are none. */
 @Composable
@@ -64,7 +63,9 @@ internal fun HomeSessionsTab(sessions: List<TerminalConnection>, hasHosts: Boole
 internal fun HomeHostsTab(hosts: List<Host>, search: String, gridState: LazyGridState, reachability: (Host) -> HostReachability,
     onAdd: () -> Unit, onOpen: (Host) -> Unit, onEdit: (Host) -> Unit, onDelete: (Host) -> Unit, onBrowseFiles: (Host) -> Unit,
     onManagePlugins: (Host) -> Unit, onLaunch: (host: Host, forAgent: Boolean) -> Unit,
-    desktop: @Composable (Host) -> Unit = {}) {
+    /** What each host's desktop is doing, HIDDEN for one without a desktop. */
+    desktop: @Composable (Host) -> DesktopButton = { DesktopButton.HIDDEN }, onDesktop: (Host) -> Unit = {},
+    onDisconnectDesktop: (Host) -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         HomeListHeader(trf("主机 · %d", hosts.size), tr("添加主机"), "add-host", onAdd)
         val filtered = hosts.filter { "${it.name} ${it.address} ${it.username}".contains(search, true) }
@@ -73,25 +74,14 @@ internal fun HomeHostsTab(hosts: List<Host>, search: String, gridState: LazyGrid
             artwork = { ItermuxLogo(Modifier.size(56.dp).testTag("empty-logo"), contentDescription = "Roamtty") },
             action = { Button(onClick = onAdd) { Text(tr("添加主机")) } })
         else if (filtered.isEmpty()) EmptyState(tr("没有匹配的主机"), tr("试试其他名称或地址"), Modifier.fillMaxSize())
-        else BoxWithConstraints(Modifier.fillMaxSize()) {
-            // On a phone the hosts share one panel, split by hairlines, as the sessions do; wider, each is a card.
-            val joined = maxWidth - Spacing.Page * 2 < 320.dp * 2 + Spacing.Row
-            LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = gridState, modifier = Modifier.fillMaxSize().testTag("host-grid"),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.Row),
-                verticalArrangement = Arrangement.spacedBy(if (joined) 0.dp else Spacing.Row),
-                contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
-                itemsIndexed(filtered, key = { _, host -> host.id }) { index, host ->
-                    val radius = 18.dp
-                    val shape = when {
-                        !joined || filtered.size == 1 -> RoundedCornerShape(radius)
-                        index == 0 -> RoundedCornerShape(topStart = radius, topEnd = radius)
-                        index == filtered.lastIndex -> RoundedCornerShape(bottomStart = radius, bottomEnd = radius)
-                        else -> RectangleShape
-                    }
-                    HostCard(host, { onOpen(host) }, { onEdit(host) }, { onDelete(host) }, { onBrowseFiles(host) }, { onManagePlugins(host) },
-                        reachability(host), openTerminal = { onLaunch(host, false) }, launchAgent = { onLaunch(host, true) },
-                        shape = shape, divider = joined && index > 0, desktop = { desktop(host) })
-                }
+        // Each host is a screen card of its own; where the page has room, side by side.
+        else LazyVerticalGrid(columns = GridCells.Adaptive(320.dp), state = gridState, modifier = Modifier.fillMaxSize().testTag("host-grid"),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Row),
+            contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
+            items(filtered, key = { host -> host.id }) { host ->
+                HostCard(host, { onOpen(host) }, { onEdit(host) }, { onDelete(host) }, { onBrowseFiles(host) }, { onManagePlugins(host) },
+                    reachability(host), openTerminal = { onLaunch(host, false) }, launchAgent = { onLaunch(host, true) },
+                    desktop = desktop(host), openDesktop = { onDesktop(host) }, disconnectDesktop = { onDisconnectDesktop(host) })
             }
         }
     }

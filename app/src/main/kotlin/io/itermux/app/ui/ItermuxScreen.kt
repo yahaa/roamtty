@@ -1,5 +1,6 @@
 package io.itermux.app.ui
 
+import io.itermux.app.desktop.DesktopThumbnails
 import io.itermux.app.appSettings
 import io.itermux.app.tr
 
@@ -487,13 +488,14 @@ fun ItermuxScreen(
                                 desktop = { host ->
                                     val idle = remember { MutableStateFlow<DesktopPhase>(DesktopPhase.Idle) }
                                     val desktopPhase by (desktops[host.id]?.phase ?: idle).collectAsStateWithLifecycle()
-                                    val offline = !hostConnected(host) && hostReachability.statusOf(host) == HostReachability.Offline
-                                    // A host needs no open session for its desktop: the desktop logs in on its own.
-                                    val button = DesktopButton.derive(desktopEnabled, !offline, true,
+                                    // A host needs no open session for its desktop: the desktop logs in on its own. An
+                                    // offline one keeps its picture, so it is derived as if online; its card knows better.
+                                    DesktopButton.derive(desktopEnabled, true, true,
                                         HostSystem.fromStored(host.os).let { if (it.isLinux) "LINUX" else it.name }, desktopSupported(host),
                                         DesktopProbe.decode(host.desktop), host.desktopProbedAt, System.currentTimeMillis(), desktopPhase)
-                                    DesktopCardButton(button, "host-desktop-${host.id}") { openDesktop(host) }
-                                })
+                                },
+                                onDesktop = ::openDesktop,
+                                onDisconnectDesktop = { host -> service?.desktops?.close(host.id) })
                         }
                     }
                 } else if (page == AppPage.HOST) {
@@ -628,6 +630,7 @@ fun ItermuxScreen(
                 scope.launch {
                     sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }
                     app.database.hosts().delete(host.id)
+                    DesktopThumbnails.remove(app, host.id)
                     deleteHost = null
                 }
             }

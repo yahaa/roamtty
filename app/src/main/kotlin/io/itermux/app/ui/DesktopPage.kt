@@ -74,6 +74,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.desktop.DesktopConnection
+import io.itermux.app.desktop.DesktopThumbnails
 import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.tr
 import io.itermux.app.trf
@@ -234,6 +235,23 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
             scheduleTick()
         }
     }
+    // The hosts list shows each desktop's last picture: one soon after it appears, then every few seconds, and on leaving.
+    val context = LocalContext.current
+    var surfaceView by remember { mutableStateOf<SurfaceView?>(null) }
+    LaunchedEffect(surfaceView, video) {
+        val view = surfaceView ?: return@LaunchedEffect
+        if (video.first <= 0) return@LaunchedEffect
+        delay(1500)
+        while (true) {
+            DesktopThumbnails.captureAndSave(context, connection.host.id, view, video.first, video.second)
+            delay(10_000)
+        }
+    }
+    DisposableEffect(surfaceView) {
+        onDispose {
+            surfaceView?.let { DesktopThumbnails.captureAndSave(context, connection.host.id, it, video.first, video.second) }
+        }
+    }
     // Leaving the page mid-drag or right after a tap must not leave the host's button down.
     DisposableEffect(Unit) { onDispose { pending?.cancel(); apply(gestures.cancel()) } }
 
@@ -251,7 +269,7 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
         val v = viewport
         // A fixed buffer of the video's size: zooming only moves and scales the surface, never reallocates it.
         AndroidView(factory = { ctx ->
-            SurfaceView(ctx).apply {
+            SurfaceView(ctx).also { surfaceView = it }.apply {
                 holder.addCallback(object : SurfaceHolder.Callback {
                     override fun surfaceCreated(holder: SurfaceHolder) { connection.decoder.attach(holder.surface) }
                     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) { connection.decoder.attach(holder.surface) }
