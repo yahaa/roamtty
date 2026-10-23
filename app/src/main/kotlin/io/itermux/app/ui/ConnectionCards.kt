@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -61,7 +62,7 @@ import io.itermux.ssh.TerminalTransport
 /**
  * A host in the hosts list, as a screen: its desktop's last picture (before one was taken, its system's colours; for a
  * host without a desktop, a plain "no desktop" state), with a frosted strip along the bottom holding its system, name,
- * whether it answers, its plugins and its menu. The picture opens the desktop; the strip, or the picture of a host that has none or
+ * login, whether it answers, its plugins and its menu. The picture opens the desktop; the strip, or the picture of a host that has none or
  * is offline, opens its details. A long press opens the menu.
  */
 @Composable internal fun HostCard(host: Host, openDetail: () -> Unit, edit: () -> Unit, delete: () -> Unit, browseFiles: () -> Unit,
@@ -83,8 +84,8 @@ import io.itermux.ssh.TerminalTransport
         }
     }
     val shape = RoundedCornerShape(20.dp)
-    val strip = 58.dp
-    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9.4f).clip(shape).background(colors.groupedContainer)
+    val strip = 78.dp
+    Box(Modifier.fillMaxWidth().aspectRatio(16f / 10.4f).clip(shape).background(colors.groupedContainer)
         .then(if (live) Modifier.border(2.dp, if (desktop == DesktopButton.CONNECTED) ScreenColors.success else ScreenColors.warning, shape)
             else Modifier)
         .testTag("host-item-${host.id}")) {
@@ -110,6 +111,10 @@ import io.itermux.ssh.TerminalTransport
             Column(Modifier.weight(1f).padding(start = 10.dp, end = Spacing.Tight)) {
                 Text(host.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = when { !onImage -> colors.onSurface; offline -> Color.White.copy(alpha = 0.6f); else -> Color.White })
+                Text("${host.username}@${host.address}:${host.port}", Modifier.padding(vertical = 1.dp),
+                    style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (onImage) Color.White.copy(alpha = 0.62f) else colors.onSurfaceVariant.copy(alpha = 0.75f))
                 HostReachabilityLabel(reachability, Modifier.testTag("host-status-${host.id}"), onImage = onImage)
             }
             // What keeps and carries its sessions: once probed, the plugins it has (before, the multiplexer it is set to use).

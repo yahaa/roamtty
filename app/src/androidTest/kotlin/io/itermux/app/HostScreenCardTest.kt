@@ -67,6 +67,7 @@ class HostScreenCardTest {
             }
             compose.waitUntil(5_000) { runCatching { compose.onNodeWithText("已连接").assertIsDisplayed() }.isSuccess }
             compose.onNodeWithText("没有图形桌面").assertIsDisplayed()
+            compose.onNodeWithText("me@10.0.0.1:22").assertIsDisplayed()
             // The strip names what carries the sessions, the desktop plugin aside.
             compose.onNodeWithTag("host-plugin-tmux-${pictured.id}", useUnmergedTree = true).assertIsDisplayed()
             compose.onNodeWithTag("host-plugin-mosh-${pictured.id}", useUnmergedTree = true).assertIsDisplayed()
