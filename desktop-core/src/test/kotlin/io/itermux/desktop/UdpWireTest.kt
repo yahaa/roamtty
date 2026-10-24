@@ -123,6 +123,35 @@ class UdpWireTest {
         assertEquals(listOf(1, 2, 3), r.missing(143 * ms, 100 * ms).single { it.first == 4L }.third)
     }
 
+    /** A reliable message that went quiet is forgotten, not done: its resend is delivered, not acknowledged unseen. */
+    @Test fun anExpiredReliableMessageCanStillArrive() {
+        val r = Reassembler()
+        val frags = UdpWire.fragment(9, UdpWire.FLAG_RELIABLE, ByteArray(UdpWire.SHARD * 3) { 7 }, 0f)
+        assertNull(r.push(frags[0], 0))
+        assertTrue(r.expire(1_000_000, 300_000).isEmpty())
+        assertFalse(r.isDone(9))
+        var out: Reassembler.Delivered? = null
+        frags.forEach { f -> r.push(f, 1_000_001)?.let { out = it } }
+        assertEquals(UdpWire.SHARD * 3, out!!.bytes.size)
+        assertTrue(r.isDone(9))
+        // An expired video message is lost for good.
+        val video = UdpWire.fragment(10, UdpWire.FLAG_VIDEO, ByteArray(UdpWire.SHARD * 3), 0f)
+        r.push(video[0], 2_000_000)
+        assertEquals(listOf(10L), r.expire(3_000_000, 300_000))
+        assertTrue(r.isDone(10))
+    }
+
+    /** Shards of a block already rebuilt still count as received, so a lossless message reports no loss. */
+    @Test fun lateShardsOfARebuiltBlockCount() {
+        val r = Reassembler()
+        val frags = UdpWire.fragment(3, UdpWire.FLAG_VIDEO, ByteArray(UdpWire.SHARD * 2 * UdpWire.MAX_K) { it.toByte() }, 0.25f)
+        assertTrue(frags.maxOf { it.blocks } > 1)
+        frags.forEach { r.push(it, 0) }
+        val report = r.takeReports().single()
+        assertEquals(frags.size, report.total)
+        assertEquals(frags.size, report.received)
+    }
+
     /** A host that answers heartbeats but never takes a frame: the keys come back, in order, for SSH. */
     @Test fun unacknowledgedKeysAreHandedBackInOrder() {
         val server = java.net.DatagramSocket(0, java.net.InetAddress.getLoopbackAddress())

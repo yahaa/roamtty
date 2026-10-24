@@ -175,7 +175,10 @@ class Reassembler {
         if (p.blocks.size != f.blocks) return null
         p.lastUs = nowUs
         val b = p.blocks[f.block] ?: Block(f.k, f.len, arrayOfNulls(n)).also { p.blocks[f.block] = it; p.total += n }
-        if (b.data != null || b.shards.size != n || b.shards[f.index] != null) return null
+        if (b.shards.size != n) return null
+        // A shard of a block already rebuilt still arrived: count it, or the host's rate control sees loss.
+        if (b.data != null) { p.received++; return null }
+        if (b.shards[f.index] != null) return null
         b.shards[f.index] = f.shard
         p.received++
         if (b.shards.count { it != null } >= b.k) {
@@ -219,12 +222,16 @@ class Reassembler {
         }
     }
 
-    /** Gives up on messages quiet for [timeoutUs]; returns the video ones lost. */
+    /**
+     * Gives up on messages quiet for [timeoutUs]; returns the video ones lost. A reliable message is only
+     * forgotten, not marked done: the sender keeps resending it until it is acknowledged, so a resend must
+     * start it over rather than be acknowledged unseen.
+     */
     fun expire(nowUs: Long, timeoutUs: Long): List<Long> {
         val stale = pending.filter { nowUs - it.value.lastUs > timeoutUs }.keys.toList()
         return stale.mapNotNull { m ->
             val p = pending.remove(m)!!
-            finish(m, p, 0, nowUs)
+            if (p.flags and UdpWire.FLAG_RELIABLE == 0) finish(m, p, 0, nowUs)
             m.takeIf { p.flags and UdpWire.FLAG_VIDEO != 0 }
         }
     }

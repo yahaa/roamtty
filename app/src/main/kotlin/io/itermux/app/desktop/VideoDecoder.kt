@@ -25,6 +25,7 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
     private var codec: MediaCodec? = null
     private var surface: Surface? = null
     private var size = 0 to 0
+    private var askLowLatency = true
     private val pending = ArrayDeque<ServerMessage.Video>()
     private val freeInputs = ArrayDeque<Int>()
     @Volatile var decoderName: String = ""
@@ -62,6 +63,13 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
 
     private fun configure(video: ServerMessage.Video): Boolean {
         release()
+        // Some decoders (the emulator's goldfish among them) refuse a format asking for low latency: retry
+        // without, and don't ask again.
+        if (askLowLatency && configure(video, lowLatency = true)) return true
+        return configure(video, lowLatency = false).also { if (it) askLowLatency = false }
+    }
+
+    private fun configure(video: ServerMessage.Video, lowLatency: Boolean): Boolean {
         val s = surface ?: return false
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, video.width, video.height)
         // SPS and PPS as codec-specific data: some decoders (the emulator's among them) never start without them.
@@ -69,31 +77,34 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
             units.firstOrNull { it.second == 7 }?.let { format.setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(it.first)) }
             units.firstOrNull { it.second == 8 }?.let { format.setByteBuffer("csd-1", java.nio.ByteBuffer.wrap(it.first)) }
         }
-        if (Build.VERSION.SDK_INT >= 30) format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
         format.setInteger(MediaFormat.KEY_PRIORITY, 0)
         if (Build.VERSION.SDK_INT >= 23) format.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
-        // Vendor low-latency switches (Qualcomm, Exynos, HiSilicon, MediaTek); unknown keys are ignored.
-        format.setInteger("vendor.qti-ext-dec-low-latency.enable", 1)
-        format.setInteger("vendor.qti-ext-dec-picture-order.enable", 1)
-        format.setInteger("vendor.rtc-ext-dec-low-latency.enable", 1)
-        format.setInteger("vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-req", 1)
-        format.setInteger("vendor.low-latency.enable", 1)
+        if (lowLatency) {
+            if (Build.VERSION.SDK_INT >= 30) format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            // Vendor low-latency switches (Qualcomm, Exynos, HiSilicon, MediaTek); unknown keys are ignored.
+            format.setInteger("vendor.qti-ext-dec-low-latency.enable", 1)
+            format.setInteger("vendor.qti-ext-dec-picture-order.enable", 1)
+            format.setInteger("vendor.rtc-ext-dec-low-latency.enable", 1)
+            format.setInteger("vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-req", 1)
+            format.setInteger("vendor.low-latency.enable", 1)
+        }
         val name = pickDecoder()
         return try {
             val c = if (name != null) MediaCodec.createByCodecName(name) else MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            // Set before configure fails, so release() frees it.
+            codec = c
             c.setCallback(callback, handler)
             // The frame number rides in the timestamp; the render time is on System.nanoTime's clock.
             c.setOnFrameRenderedListener({ codec, frame, nanos -> if (codec === this.codec) onRendered(frame, nanos / 1000) }, handler)
             c.configure(format, s, null, 0)
             c.setVideoScalingMode(MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT)
             c.start()
-            codec = c
             decoderName = c.name
             size = video.width to video.height
-            Log.i(TAG, "decoder ${c.name} ${video.width}x${video.height}")
+            Log.i(TAG, "decoder ${c.name} ${video.width}x${video.height}" + if (lowLatency) "" else " (no low-latency)")
             true
         } catch (e: Exception) {
-            Log.w(TAG, "decoder configure failed", e)
+            Log.w(TAG, "decoder configure failed (low latency $lowLatency)", e)
             release()
             false
         }

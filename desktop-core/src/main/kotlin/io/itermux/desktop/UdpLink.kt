@@ -137,7 +137,8 @@ class UdpLink(
 
     /** Sends a whole protocol frame; [reliable] ones are resent until the host acknowledges them. */
     fun send(frame: ByteArray, reliable: Boolean) {
-        val id = if (reliable) reliableSeq.getAndIncrement() * 2 + 1 else plainSeq.getAndIncrement() * 2
+        // Ids are u32 on the wire (RACKs come back as u32): wrap the same way here, so they still match.
+        val id = (if (reliable) reliableSeq.getAndIncrement() * 2 + 1 else plainSeq.getAndIncrement() * 2) and 0xFFFFFFFFL
         val frags = UdpWire.fragment(id, if (reliable) UdpWire.FLAG_RELIABLE else 0, frame, if (reliable && frame.size > UdpWire.SHARD) 0.25f else 0f)
         if (reliable) unacked[id] = Unacked(frame, frags, now(), 0)
         frags.forEach { raw(it.encode()) }
