@@ -144,6 +144,45 @@ class UdpPluginIntegrationTest {
         s.p.destroy()
     }
 
+    /**
+     * A clipboard many shards long, over a lossy link both ways: the host RACKs it only once it is
+     * whole (roamtty-desktop#7), so it lands on the desktop, and the copy coming back arrives whole.
+     */
+    @Test fun bigClipboardOverLossyUdp() {
+        assumeTrue("plugin fixture not configured", bin != null && home != null && display != null && File(bin).canExecute())
+        val s = serve()
+        val udp = s.hello.udp!!
+        val frames = AtomicLong()
+        val clips = ConcurrentLinkedQueue<String>()
+        lateinit var link: UdpLink
+        link = UdpLink(java.net.InetAddress.getLoopbackAddress(), udp.port, udp.key, onFrame = { f ->
+            when (val m = DesktopProtocol.decode(f)) {
+                is ServerMessage.Video -> { frames.incrementAndGet(); link.send(DesktopProtocol.ack(m.frame, 0, 0), reliable = false) }
+                is ServerMessage.State -> m.clip?.let { clips += it }
+                else -> {}
+            }
+        }, onVideoLost = {})
+        link.start()
+        waitFor(5000, "first video over UDP") { frames.get() > 0 }
+        s.send(DesktopProtocol.config(mapOf("debug_loss" to 0.2)))
+        link.dropRate = 0.2
+        Thread.sleep(300)
+        val rnd = java.util.Random(7)
+        val text = buildString { while (length < 30_000) append("剪贴板-${rnd.nextInt(1_000_000)} line\n") }
+        link.send(DesktopProtocol.clipSet(text), reliable = true)
+        waitFor(10_000, "clipboard set on the desktop") {
+            val p = ProcessBuilder("xclip", "-o", "-selection", "clipboard").apply { environment()["DISPLAY"] = display }.start()
+            val out = p.inputStream.readBytes().toString(Charsets.UTF_8)
+            p.waitFor()
+            out == text
+        }
+        link.send(DesktopProtocol.req(DesktopProtocol.REQ_CLIP_GET), reliable = true)
+        waitFor(10_000, "clipboard back from the desktop") { clips.any { it == text } }
+        println("clipboard run: ${text.toByteArray().size} bytes, nacks=${link.nacks} loss=${"%.3f".format(link.loss)}")
+        link.close()
+        s.p.destroy()
+    }
+
     /** No loss on the way: the phone asks for nothing again, whatever the pacing and the frame sizes. */
     @Test fun noNacksWithoutLoss() {
         assumeTrue("plugin fixture not configured", bin != null && home != null && display != null && File(bin).canExecute())
