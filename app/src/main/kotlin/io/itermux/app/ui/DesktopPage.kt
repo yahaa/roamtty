@@ -80,6 +80,7 @@ import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.desktop.*
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -135,7 +136,8 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
             }
         }
         if (landscape) Row(Modifier.fillMaxSize()) {
-            screen(Modifier.weight(1f).fillMaxHeight())
+            // The cutout's side only: on the other the picture runs to the screen edge.
+            screen(Modifier.weight(1f).fillMaxHeight().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start)))
             rail()
         } else Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             screen(Modifier.weight(1f).fillMaxWidth())
@@ -173,12 +175,13 @@ private fun DesktopRail(landscape: Boolean, panel: DesktopPanel, onPanel: (Deskt
         val (label, icon, click) = items[i]
         Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = click).padding(horizontal = 6.dp, vertical = 8.dp)
             .widthIn(min = 56.dp).testTag(tags[i]), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(painterResource(icon), contentDescription = null, Modifier.size(22.dp), tint = if (selected[i]) Accent else Ink)
+            Icon(painterResource(icon), contentDescription = null, Modifier.size(if (landscape) 24.dp else 22.dp), tint = if (selected[i]) Accent else Ink)
             Spacer(Modifier.height(3.dp))
-            Text(label, fontSize = 11.sp, color = if (selected[i]) Accent else InkDim, maxLines = 1)
+            Text(label, fontSize = if (landscape) 12.sp else 11.sp, color = if (selected[i]) Accent else InkDim, maxLines = 1)
         }
     }
-    if (landscape) Column(Modifier.fillMaxHeight().width(72.dp).background(RailColor).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End)),
+    // A cutout on the rail's side widens the rail to the screen edge instead of squeezing its buttons.
+    if (landscape) Column(Modifier.fillMaxHeight().background(RailColor).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End)).width(72.dp),
         verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) { items.indices.forEach { content(it) } }
     else Row(Modifier.fillMaxWidth().background(RailColor).padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
         items.indices.forEach { content(it) }
@@ -215,15 +218,30 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
     // A hardware keyboard types into the picture whenever no panel holds the focus.
     LaunchedEffect(keys) { if (keys) runCatching { focus.requestFocus() } }
 
+    fun send(a: GestureAction) {
+        when (a) {
+            is GestureAction.MoveTo -> connection.input(DesktopProtocol.abs(displayIndex, a.x, a.y))
+            is GestureAction.MoveBy -> connection.input(DesktopProtocol.rel(a.dx, a.dy))
+            is GestureAction.Button -> connection.input(DesktopProtocol.button(a.button, a.down))
+            is GestureAction.Wheel -> connection.input(DesktopProtocol.wheel(a.dx, a.dy))
+            is GestureAction.View -> viewport = a.viewport
+        }
+    }
+    // Windows' XAML surfaces (Task View, Start, the taskbar) drop a press that lands the instant the
+    // pointer jumped there, or a release right on its press: those steps go out CLICK_GAP_MS apart.
+    val queue = remember { ArrayDeque<GestureAction>() }
+    var draining by remember { mutableStateOf<Job?>(null) }
     fun apply(actions: List<GestureAction>) {
-        val d = displayIndex
-        actions.forEach { a ->
-            when (a) {
-                is GestureAction.MoveTo -> connection.input(DesktopProtocol.abs(d, a.x, a.y))
-                is GestureAction.MoveBy -> connection.input(DesktopProtocol.rel(a.dx, a.dy))
-                is GestureAction.Button -> connection.input(DesktopProtocol.button(a.button, a.down))
-                is GestureAction.Wheel -> connection.input(DesktopProtocol.wheel(a.dx, a.dy))
-                is GestureAction.View -> viewport = a.viewport
+        // The local zoom is no input: it never waits behind a click.
+        actions.forEach { if (it is GestureAction.View) viewport = it.viewport else queue.addLast(it) }
+        if (draining?.isActive == true) return
+        draining = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            while (queue.isNotEmpty()) {
+                val a = queue.removeFirst()
+                send(a)
+                val next = queue.firstOrNull()
+                if (a is GestureAction.MoveTo && next is GestureAction.Button && next.down ||
+                    a is GestureAction.Button && a.down && next is GestureAction.Button && !next.down && next.button == a.button) delay(CLICK_GAP_MS)
             }
         }
     }
@@ -254,7 +272,13 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
         }
     }
     // Leaving the page mid-drag or right after a tap must not leave the host's button down.
-    DisposableEffect(Unit) { onDispose { pending?.cancel(); apply(gestures.cancel()) } }
+    DisposableEffect(Unit) {
+        onDispose {
+            // The scope is going too: whatever waits goes now.
+            pending?.cancel(); draining?.cancel()
+            (queue + gestures.cancel()).forEach(::send); queue.clear()
+        }
+    }
 
     Box(Modifier.fillMaxSize().onSizeChanged { area = it }
         .focusRequester(focus).focusable().onKeyEvent { event ->
@@ -905,3 +929,5 @@ internal fun DesktopCardButton(state: DesktopButton, tag: String, onClick: () ->
 
 /** The smallest the remote cursor is drawn, in dp: about a phone's own text cursor height. */
 private const val CURSOR_MIN_DP = 11f
+/** How far apart a tap's move, press and release go out (see `DesktopScreen`). */
+private const val CLICK_GAP_MS = 35L
