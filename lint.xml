@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- "A newer version is available" depends on the day lint runs, not on the code; upgrades are their own change. -->
+    <issue id="GradleDependency" severity="ignore" />
+    <issue id="AndroidGradlePluginVersion" severity="ignore" />
+    <!-- The splash icon must be 432dp: that is the size Android 12+ draws it at. -->
+    <issue id="VectorRaster">
+        <ignore path="app/src/main/res/drawable/ic_startup.xml" />
+    </issue>
+    <!-- The agents' marks are drawn once at 24dp; simplifying them would change how they look. -->
+    <issue id="VectorPath">
+        <ignore path="app/src/main/res/drawable/ic_agent_claude.xml" />
+        <ignore path="app/src/main/res/drawable/ic_agent_codex.xml" />
+    </issue>
+</lint>

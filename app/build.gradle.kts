@@ -31,6 +31,7 @@ android {
         versionName = appVersionName
         testInstrumentationRunner = "io.itermux.app.ItermuxTestRunner"
     }
+    lint { warningsAsErrors = true }
     if (signingFile.exists()) signingConfigs.create("localRelease") {
         storeFile = rootProject.file(signingValues.getProperty("storeFile"))
         storePassword = signingValues.getProperty("storePassword")
