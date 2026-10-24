@@ -80,7 +80,6 @@ import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.desktop.*
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -218,30 +217,15 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
     // A hardware keyboard types into the picture whenever no panel holds the focus.
     LaunchedEffect(keys) { if (keys) runCatching { focus.requestFocus() } }
 
-    fun send(a: GestureAction) {
-        when (a) {
-            is GestureAction.MoveTo -> connection.input(DesktopProtocol.abs(displayIndex, a.x, a.y))
-            is GestureAction.MoveBy -> connection.input(DesktopProtocol.rel(a.dx, a.dy))
-            is GestureAction.Button -> connection.input(DesktopProtocol.button(a.button, a.down))
-            is GestureAction.Wheel -> connection.input(DesktopProtocol.wheel(a.dx, a.dy))
-            is GestureAction.View -> viewport = a.viewport
-        }
-    }
-    // Windows' XAML surfaces (Task View, Start, the taskbar) drop a press that lands the instant the
-    // pointer jumped there, or a release right on its press: those steps go out CLICK_GAP_MS apart.
-    val queue = remember { ArrayDeque<GestureAction>() }
-    var draining by remember { mutableStateOf<Job?>(null) }
     fun apply(actions: List<GestureAction>) {
-        // The local zoom is no input: it never waits behind a click.
-        actions.forEach { if (it is GestureAction.View) viewport = it.viewport else queue.addLast(it) }
-        if (draining?.isActive == true) return
-        draining = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            while (queue.isNotEmpty()) {
-                val a = queue.removeFirst()
-                send(a)
-                val next = queue.firstOrNull()
-                if (a is GestureAction.MoveTo && next is GestureAction.Button && next.down ||
-                    a is GestureAction.Button && a.down && next is GestureAction.Button && !next.down && next.button == a.button) delay(CLICK_GAP_MS)
+        val d = displayIndex
+        actions.forEach { a ->
+            when (a) {
+                is GestureAction.MoveTo -> connection.input(DesktopProtocol.abs(d, a.x, a.y))
+                is GestureAction.MoveBy -> connection.input(DesktopProtocol.rel(a.dx, a.dy))
+                is GestureAction.Button -> connection.input(DesktopProtocol.button(a.button, a.down))
+                is GestureAction.Wheel -> connection.input(DesktopProtocol.wheel(a.dx, a.dy))
+                is GestureAction.View -> viewport = a.viewport
             }
         }
     }
@@ -272,13 +256,7 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
         }
     }
     // Leaving the page mid-drag or right after a tap must not leave the host's button down.
-    DisposableEffect(Unit) {
-        onDispose {
-            // The scope is going too: whatever waits goes now.
-            pending?.cancel(); draining?.cancel()
-            (queue + gestures.cancel()).forEach(::send); queue.clear()
-        }
-    }
+    DisposableEffect(Unit) { onDispose { pending?.cancel(); apply(gestures.cancel()) } }
 
     Box(Modifier.fillMaxSize().onSizeChanged { area = it }
         .focusRequester(focus).focusable().onKeyEvent { event ->
@@ -929,5 +907,3 @@ internal fun DesktopCardButton(state: DesktopButton, tag: String, onClick: () ->
 
 /** The smallest the remote cursor is drawn, in dp: about a phone's own text cursor height. */
 private const val CURSOR_MIN_DP = 11f
-/** How far apart a tap's move, press and release go out (see `DesktopScreen`). */
-private const val CLICK_GAP_MS = 35L
