@@ -304,6 +304,20 @@
       "source": "device",
       "about": "UDP blocked to the picture running over SSH (3 s silence plus a stats tick)",
       "optional": true
+    },
+    "desktop_audio_backlog_ms": {
+      "max": 420,
+      "unit": "ms",
+      "source": "device",
+      "about": "host sound waiting to be heard on the phone, worst of 10 samples after it settled; the drop line is the jitter target + 120 (E2eAudioTest)",
+      "optional": true
+    },
+    "desktop_audio_dropped": {
+      "max": 2,
+      "unit": "count",
+      "source": "device",
+      "about": "sound packets dropped to catch up over 3 s of steady playback (E2eAudioTest)",
+      "optional": true
     }
   }
 }

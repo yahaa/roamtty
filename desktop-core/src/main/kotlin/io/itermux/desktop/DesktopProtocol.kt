@@ -30,6 +30,7 @@ object DesktopProtocol {
     const val CURSOR_POS = 0x82
     const val CURSOR_SHAPE = 0x83
     const val STATE = 0x84
+    const val AUDIO = 0x85
 
     const val REQ_KEYFRAME = 1
     const val REQ_PAUSE = 2
@@ -118,6 +119,7 @@ object DesktopProtocol {
                 ServerMessage.CursorShape(hash, w, h, b.short.toInt() and 0xFFFF, b.short.toInt() and 0xFFFF,
                     frame.payload.copyOfRange(16, frame.payload.size))
             }
+            AUDIO -> ServerMessage.Audio(b.int.toLong() and 0xFFFFFFFFL, b.long, frame.payload, 12)
             STATE -> ServerMessage.State(JSONObject(String(frame.payload, Charsets.UTF_8)))
             PING -> ServerMessage.Ping(b.long)
             PONG -> ServerMessage.Pong(b.long, b.long, b.long)
@@ -136,7 +138,9 @@ class UdpOffer(val port: Int, val key: ByteArray)
 
 data class Hello(val proto: Int, val version: String, val os: String, val session: String, val resumeToken: String,
     val displays: List<DisplayInfo>, val encoders: List<String>, val hardware: String, val needs: List<String>,
-    val udp: UdpOffer? = null) {
+    val udp: UdpOffer? = null,
+    /** The sound codecs the host can send (`opus`); empty before plugin 0.9.0. */
+    val audio: List<String> = emptyList()) {
     companion object {
         fun parse(json: JSONObject) = Hello(
             proto = json.getInt("proto"), version = json.optString("ver"), os = json.optString("os"),
@@ -149,7 +153,8 @@ data class Hello(val proto: Int, val version: String, val os: String, val sessio
             needs = json.optJSONArray("needs").strings(),
             udp = json.optJSONObject("udp")?.let { u ->
                 java.util.Base64.getDecoder().decode(u.getString("key")).takeIf { it.size == 16 }?.let { UdpOffer(u.getInt("port"), it) }
-            })
+            },
+            audio = json.optJSONArray("audio").strings())
     }
 }
 
@@ -169,6 +174,8 @@ sealed interface ServerMessage {
         val keyframe get() = flags and DesktopProtocol.VIDEO_KEY != 0
         val refine get() = flags and DesktopProtocol.VIDEO_REFINE != 0
     }
+    /** One 20 ms Opus packet of 48 kHz stereo, from [offset] on; [seq] goes up by one per packet the host made. */
+    class Audio(val seq: Long, val captureUs: Long, val data: ByteArray, val offset: Int) : ServerMessage
     data class CursorPos(val x: Int, val y: Int, val visible: Boolean, val shape: Long) : ServerMessage
     class CursorShape(val hash: Long, val width: Int, val height: Int, val hotX: Int, val hotY: Int, val rgba: ByteArray) : ServerMessage
     class State(val json: JSONObject) : ServerMessage {
@@ -177,6 +184,8 @@ sealed interface ServerMessage {
         val needs: List<String>? get() = json.optJSONArray("needs")?.strings()
         val locked: Boolean? get() = if (json.has("locked")) json.optBoolean("locked") else null
         val error: String? get() = json.optString("error").ifEmpty { null }
+        /** `unavailable` when the host cannot capture its sound. */
+        val audio: String? get() = json.optString("audio").ifEmpty { null }
     }
     data class Ping(val t1: Long) : ServerMessage
     data class Pong(val t1: Long, val t2: Long, val t3: Long) : ServerMessage

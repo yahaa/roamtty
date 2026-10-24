@@ -528,6 +528,7 @@ private fun NetworkStats(connection: DesktopConnection, phase: DesktopPhase, sho
         stats.lossPercent?.let { "${tr("丢包")} ${"%.1f".format(it)}%" + (if (stats.fecRecovered > 0) "  FEC ${stats.fecRecovered}" else "") to
             if (it >= 5) warn else Ink },
         (if (stats.width > 0) "${stats.width}×${stats.height}" else "—") + (stats.encoder.takeIf { it.isNotEmpty() }?.let { " $it" } ?: "") to InkDim,
+        stats.audioMs?.let { "${tr("声音")} ${tr("缓冲")} $it ms" to InkDim },
         transport to InkDim,
     )
     Column(modifier.clip(RoundedCornerShape(6.dp)).background(Color(0x8C000000)).padding(horizontal = 7.dp, vertical = 4.dp)
@@ -544,6 +545,8 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
     val scope = rememberCoroutineScope()
     val viewOnly by connection.viewOnly.collectAsStateWithLifecycle()
     val lock by connection.lockOnClose.collectAsStateWithLifecycle()
+    val audio by connection.audio.collectAsStateWithLifecycle()
+    val audioAvailable by connection.audioAvailable.collectAsStateWithLifecycle()
     val quality by connection.quality.collectAsStateWithLifecycle()
     val fps by connection.fps.collectAsStateWithLifecycle()
     val hello by connection.hello.collectAsStateWithLifecycle()
@@ -600,6 +603,8 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
                     Choice(tr("鼠标指针"), mode == PointerMode.MOUSE, "desktop-mode-mouse", Modifier.weight(1f)) { onMode(PointerMode.MOUSE) }
                 }
             }
+            ToggleRow(tr("声音"), if (audioAvailable == false) tr("这台电脑暂时无法传回声音") else tr("在手机上播放电脑的声音"), audio,
+                "desktop-audio") { connection.setAudio(it) }
             ToggleRow(tr("仅观看"), tr("不向电脑发送任何操作"), viewOnly, "desktop-view-only") { connection.setViewOnly(it) }
             ToggleRow(tr("虚拟鼠标"), tr("悬浮的左键、右键和滚轮"), virtualMouse, "desktop-virtual-mouse") { onVirtualMouse(it) }
             ToggleRow(tr("显示网络状态"), tr("画面左上角显示延迟、帧率和码率"), showStats, "desktop-show-stats") { onShowStats(it) }
