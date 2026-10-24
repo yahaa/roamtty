@@ -67,6 +67,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -138,7 +139,9 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
             // The cutout's side only: on the other the picture runs to the screen edge.
             screen(Modifier.weight(1f).fillMaxHeight().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start)))
             rail()
-        } else Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        // The rail takes most of a gesture bar's inset itself; the keyboard panel keeps it all.
+        } else Column(Modifier.fillMaxSize().windowInsetsPadding(if (panel == DesktopPanel.KEYBOARD) WindowInsets.safeDrawing
+            else WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
             screen(Modifier.weight(1f).fillMaxWidth())
             // While typing in portrait the input method takes the rail's place, as in the terminal.
             if (panel != DesktopPanel.KEYBOARD) rail()
@@ -180,11 +183,21 @@ private fun DesktopRail(landscape: Boolean, panel: DesktopPanel, onPanel: (Deskt
         }
     }
     // A cutout on the rail's side widens the rail to the screen edge instead of squeezing its buttons.
+    // 操作 stays in the bottom corner: leftmost in portrait, lowest in landscape.
     if (landscape) Column(Modifier.fillMaxHeight().background(RailColor).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End)).width(72.dp),
-        verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) { items.indices.forEach { content(it) } }
-    else Row(Modifier.fillMaxWidth().background(RailColor).padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+        verticalArrangement = Arrangement.SpaceEvenly, horizontalAlignment = Alignment.CenterHorizontally) { items.indices.reversed().forEach { content(it) } }
+    else Row(Modifier.fillMaxWidth().background(RailColor).padding(top = 4.dp, bottom = portraitRailBottom()), horizontalArrangement = Arrangement.SpaceEvenly) {
         items.indices.forEach { content(it) }
     }
+}
+
+/** Under the portrait rail: just clear of a gesture bar's handle, all of a 3-button bar (it can be tapped). */
+@Composable
+private fun portraitRailBottom(): Dp {
+    val density = LocalDensity.current
+    val nav = WindowInsets.navigationBars.getBottom(density)
+    val tappable = WindowInsets.tappableElement.getBottom(density)
+    return with(density) { maxOf(tappable.toDp(), nav.toDp() - 12.dp, 4.dp) }
 }
 
 /** The picture, the cursor drawn locally, and every touch turned into input. */
