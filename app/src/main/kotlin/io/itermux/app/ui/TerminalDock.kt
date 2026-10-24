@@ -5,6 +5,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
@@ -18,10 +21,13 @@ import kotlin.math.roundToInt
 /**
  * Center on the upper golden section of the current safe viewport, then clamp to its edges.
  * The default [endInset] keeps floating controls close to the screen edge, just off the rounded corner.
+ * While [held], the centre stays where it was, so a keyboard coming or going does not move it from under a finger.
  */
 @Composable
-internal fun TerminalDockPlacement(modifier: Modifier = Modifier, endInset: Dp = 8.dp,
+internal fun TerminalDockPlacement(modifier: Modifier = Modifier, endInset: Dp = 8.dp, held: Boolean = false,
     content: @Composable (Dp) -> Unit) {
+    val heldCenter = remember { floatArrayOf(Float.NaN) }
+    val holding by rememberUpdatedState(held)
     BoxWithConstraints(modifier.fillMaxHeight().windowInsetsPadding(WindowInsets.displayCutout.union(WindowInsets.statusBars)
         .only(WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End))) {
         val availableHeight = (maxHeight - 8.dp).coerceAtLeast(0.dp)
@@ -30,7 +36,9 @@ internal fun TerminalDockPlacement(modifier: Modifier = Modifier, endInset: Dp =
             val inset = endInset.roundToPx().coerceAtMost(constraints.maxWidth)
             val child = measurables.single().measure(Constraints(
                 maxWidth = constraints.maxWidth - inset, maxHeight = constraints.maxHeight - 2 * margin))
-            val top = (constraints.maxHeight * 0.382f - child.height / 2f).roundToInt()
+            val center = heldCenter[0].takeIf { holding && !it.isNaN() } ?: (constraints.maxHeight * 0.382f)
+            heldCenter[0] = center
+            val top = (center - child.height / 2f).roundToInt()
                 .coerceIn(margin, (constraints.maxHeight - margin - child.height).coerceAtLeast(margin))
             layout(constraints.maxWidth, constraints.maxHeight) {
                 child.placeRelative(constraints.maxWidth - inset - child.width, top)

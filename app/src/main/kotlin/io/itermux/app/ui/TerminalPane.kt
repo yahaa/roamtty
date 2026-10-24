@@ -546,7 +546,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
             AnimatedVisibility(toolboxAwake || petRing.center != null || petArrowsShown, enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 2 },
                 exit = fadeOut(tween(400)) + slideOutHorizontally(tween(400)) { it / 3 }) {
                 // Up above the pet, Down below it and Left to its left; the pet stays put between them.
-                TerminalDockPlacement { Column(Modifier.onGloballyPositioned { petArrowBounds = it.boundsInRoot() },
+                // Held in place while the pet is held, so its ring stays around it as the keyboard comes or goes.
+                TerminalDockPlacement(held = petRing.center != null) { Column(Modifier.onGloballyPositioned { petArrowBounds = it.boundsInRoot() },
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     PetArrowKey(petArrowsShown, R.drawable.ic_expand_up, tr("发送上方向键"), "pet-arrow-up") {
                         petArrow(KeyEvent.KEYCODE_DPAD_UP)

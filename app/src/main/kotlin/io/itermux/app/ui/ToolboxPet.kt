@@ -129,8 +129,11 @@ internal fun ToolboxPet(description: String, onHoldStart: (Offset) -> Unit = {},
                 holdStart(center)
                 val released = drag(down.id) { change ->
                     change.consume()
-                    val offset = change.position - Offset(size.width / 2f, size.height / 2f)
-                    scope.launch { follow.snapTo(offset) }
+                    val local = change.position - Offset(size.width / 2f, size.height / 2f)
+                    scope.launch { follow.snapTo(local) }
+                    // From where the hold began on screen, so the pet moving under the finger does not point the ring
+                    // at another item.
+                    val offset = coordinates?.localToRoot(change.position)?.minus(center) ?: local
                     holdMove(offset)
                 }
                 holdEnd(released)
