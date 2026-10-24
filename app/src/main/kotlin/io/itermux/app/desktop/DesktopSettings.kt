@@ -55,6 +55,10 @@ internal class DesktopSettings(context: Context) {
     fun fps(hostId: String): Int = prefs.getInt("desktop.$hostId.fps", 60)
     fun setFps(hostId: String, fps: Int) = prefs.edit { putInt("desktop.$hostId.fps", fps) }
 
+    /** The host's sound on the phone; on unless switched off for this host. */
+    fun audio(hostId: String): Boolean = prefs.getBoolean("desktop.$hostId.audio", true)
+    fun setAudio(hostId: String, on: Boolean) = prefs.edit { putBoolean("desktop.$hostId.audio", on) }
+
     fun lockOnClose(hostId: String): Boolean = prefs.getBoolean("desktop.$hostId.lock", false)
     fun setLockOnClose(hostId: String, lock: Boolean) = prefs.edit { putBoolean("desktop.$hostId.lock", lock) }
 

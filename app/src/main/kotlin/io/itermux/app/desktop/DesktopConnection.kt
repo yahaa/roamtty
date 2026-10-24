@@ -32,7 +32,9 @@ internal data class DesktopStats(val rttMs: Int? = null, val fps: Int = 0, val k
     /** UDP only: share of shards lost before FEC, frames FEC rebuilt, frames lost outright. */
     val lossPercent: Double? = null, val fecRecovered: Long = 0, val lostFrames: Long = 0,
     /** Where the last second's frames spent their time, host to screen. */
-    val latency: LatencyMeter.Latency? = null)
+    val latency: LatencyMeter.Latency? = null,
+    /** Sound waiting to be heard on the phone, while sound plays. */
+    val audioMs: Int? = null)
 
 /**
  * One host's desktop (plan §4.1): its own SSH login, the plugin's `serve` on an exec channel, frames
@@ -71,12 +73,17 @@ internal class DesktopConnection(
     val lockOnClose = MutableStateFlow(settings.lockOnClose(host.id))
     val quality = MutableStateFlow(settings.quality(host.id))
     val fps = MutableStateFlow(settings.fps(host.id))
+    /** The host's sound: wanted by the user (this host's setting), and only sent by plugins that can. */
+    val audio = MutableStateFlow(settings.audio(host.id))
+    /** Null until the host said; false when it has no sound to send (an older plugin, or no audio server). */
+    val audioAvailable = MutableStateFlow<Boolean?>(null)
     /** The video size of the last frame: the page's surface is fixed to it. */
     val videoSize = MutableStateFlow(0 to 0)
 
     val decoder = VideoDecoder(onDecoded = ::decoded, onRendered = { frame, us -> latency.onRendered(frame, us) },
         onNeedKeyframe = { askKeyframe() })
     private val latency = LatencyMeter()
+    private val player = AudioPlayer()
 
     @Volatile private var outgoing: Channel<ByteArray>? = null
     /** The UDP transport once the host offered one; frames go over it while it is alive (plan §7.3 P2). */
@@ -357,6 +364,8 @@ internal class DesktopConnection(
         startUdp(hello, channel)
         val config = mutableMapOf<String, Any>("display" to display.value, "fps" to fps.value, "quality" to quality.value,
             "lock_on_close" to lockOnClose.value)
+        audioAvailable.value = "opus" in hello.audio
+        if (audioAvailable.value == true && audio.value) config["audio"] = true
         channel.trySend(DesktopProtocol.config(config))
         if (viewOnly.value) channel.trySend(DesktopProtocol.req(DesktopProtocol.REQ_VIEW_ONLY_ON))
         if ((phase.value as? DesktopPhase.Connected)?.paused == true) channel.trySend(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE))
@@ -411,6 +420,7 @@ internal class DesktopConnection(
                 stream = null
                 link?.close()
                 link = null
+                player.stop()
                 stats.value = stats.value.copy(link = "SSH", lossPercent = null)
             }
         }
@@ -457,6 +467,7 @@ internal class DesktopConnection(
     }
 
     private var statsAt = System.currentTimeMillis()
+    private var audioPacketsSeen = 0L
 
     private fun tick() {
         val now = System.currentTimeMillis()
@@ -496,7 +507,8 @@ internal class DesktopConnection(
                 decoder = decoder.decoderName, frames = decoder.decodedFrames, link = if (udp) "UDP" else "SSH",
                 lossPercent = if (udp) l!!.loss * 100 else null, fecRecovered = l?.fecRecovered ?: 0, lostFrames = l?.lostMessages ?: 0,
                 // A still screen sends no frames: the last measured second stands.
-                latency = latency.take() ?: stats.value.latency)
+                latency = latency.take() ?: stats.value.latency,
+                audioMs = player.packets.takeIf { it != audioPacketsSeen }?.let { audioPacketsSeen = it; player.queuedMs })
             frameWindow = 0
             byteWindow = 0
             statsAt = now
@@ -536,6 +548,7 @@ internal class DesktopConnection(
                 if (m.width > 0 && m.height > 0) shapes[m.hash] = CursorImage(Bitmap.createBitmap(pixels, m.width, m.height, Bitmap.Config.ARGB_8888), m.hotX, m.hotY)
                 cursor.value?.let { c -> cursor.value = c.copy(shape = c.shape ?: shapes[m.hash]) }
             }
+            is ServerMessage.Audio -> if (audio.value && (phase.value as? DesktopPhase.Connected)?.paused != true) player.submit(m)
             is ServerMessage.CursorPos -> cursor.value = RemoteCursor(m.x, m.y, m.visible, shapes[m.shape])
             is ServerMessage.State -> {
                 if (m.kicked) { kicked = true; stream?.close() }
@@ -543,6 +556,7 @@ internal class DesktopConnection(
                 m.needs?.let { if (it.isNotEmpty()) phase.value = DesktopPhase.NeedsAction(it) }
                 m.locked?.let { notice.value = if (it) tr("请在本机解锁") else null }
                 m.error?.let { line(it) }
+                m.audio?.let { Log.i(TAG, "${host.name}: host audio $it: ${m.json.optString("detail")}"); audioAvailable.value = false; player.stop() }
                 m.json.optJSONObject("timing")?.let(latency::onHostTiming)
             }
             is ServerMessage.Ping -> send(DesktopProtocol.pong(m.t1, System.nanoTime() / 1000, System.nanoTime() / 1000))
@@ -602,11 +616,22 @@ internal class DesktopConnection(
     fun setQuality(value: String) { quality.value = value; settings.setQuality(host.id, value); send(DesktopProtocol.config(mapOf("quality" to value))) }
     fun setFps(value: Int) { fps.value = value; settings.setFps(host.id, value); send(DesktopProtocol.config(mapOf("fps" to value))) }
     fun setDisplay(index: Int) { display.value = index; send(DesktopProtocol.config(mapOf("display" to index))) }
+    fun setAudio(on: Boolean) {
+        audio.value = on
+        settings.setAudio(host.id, on)
+        if (!on) player.stop()
+        if (audioAvailable.value != null) {
+            // Asking again after the host said it has no sound lets it try once more (a device plugged in since).
+            if (on && audioAvailable.value == false && "opus" in hello.value?.audio.orEmpty()) audioAvailable.value = true
+            send(DesktopProtocol.config(mapOf("audio" to on)))
+        }
+    }
     fun setLockOnClose(on: Boolean) { lockOnClose.value = on; settings.setLockOnClose(host.id, on); send(DesktopProtocol.config(mapOf("lock_on_close" to on))) }
 
     /** The page went away: no pictures, the link kept for the keep-alive time. */
     fun pause() {
         send(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE))
+        player.stop()
         (phase.value as? DesktopPhase.Connected)?.let { phase.value = it.copy(paused = true) }
         keepAlive?.cancel()
         val minutes = settings.keepAliveMinutes
@@ -652,11 +677,12 @@ internal class DesktopConnection(
         if (job?.isActive != true) { phase.value = DesktopPhase.Idle; onEnded(this) }
     }
 
-    fun release() { decoder.close() }
+    fun release() { decoder.close(); player.stop() }
 
     /** e2e only: drop this share of UDP datagrams on the phone side (1.0 blocks UDP). */
     internal fun testUdpDrop(rate: Double) { link?.dropRate = rate }
     internal val udpLink: UdpLink? get() = link
+    internal val audioPlayer: AudioPlayer get() = player
 
     companion object {
         private const val TAG = "RoamttyDesktop"

@@ -47,6 +47,10 @@ class DesktopProtocolTest {
 
         val state = DesktopProtocol.decode(DesktopProtocol.read(golden("state.bin").inputStream())!!) as ServerMessage.State
         assertTrue(state.kicked)
+
+        val audio = DesktopProtocol.decode(DesktopProtocol.read(golden("audio.bin").inputStream())!!) as ServerMessage.Audio
+        assertEquals(9L to 30L, audio.seq to audio.captureUs)
+        assertArrayEquals(byteArrayOf(0xFC.toByte(), 0xFF.toByte(), 0xFE.toByte()), audio.data.copyOfRange(audio.offset, audio.data.size))
     }
 
     @Test fun helloParses() {
@@ -57,6 +61,7 @@ class DesktopProtocolTest {
         assertTrue(start.hello.displays.single().primary)
         assertEquals(listOf("h264"), start.hello.encoders)
         assertTrue(start.hello.needs.isEmpty())
+        assertEquals(listOf("opus"), start.hello.audio)
     }
 
     @Test fun startErrorsParse() {
