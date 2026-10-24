@@ -1,7 +1,6 @@
 package com.termux.view;
 
 import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -904,7 +903,6 @@ public final class TerminalView extends View {
 
     @SuppressLint("ClickableViewAccessibility")
     @Override
-    @TargetApi(23)
     public boolean onTouchEvent(MotionEvent event) {
         if (mEmulator == null) return true;
         if (mCursorDrag.onTouch(event)) {
@@ -1078,6 +1076,7 @@ public final class TerminalView extends View {
      * https://cs.android.com/android/platform/superproject/+/android-11.0.0_r40:frameworks/base/services/core/jni/com_android_server_input_InputManagerService.cpp;l=616
      */
     @Override
+    @SuppressWarnings("deprecation") // ACTION_MULTIPLE still carries text from some IMEs and hardware keyboards.
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (mEmulator == null) return true;
         if (!event.isSystem()) noteUserInput();
@@ -1506,13 +1505,11 @@ public final class TerminalView extends View {
 
 
     /** A terminal is never an autofill target: the system must not offer saved passwords or hints for it. */
-    @RequiresApi(api = Build.VERSION_CODES.O)
     @Override
     public int getAutofillType() {
         return AUTOFILL_TYPE_NONE;
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.O)
     @Override
     public int getImportantForAutofill() {
         return IMPORTANT_FOR_AUTOFILL_NO;
@@ -1644,7 +1641,6 @@ public final class TerminalView extends View {
      * Define functions required for long hold toolbar.
      */
     private final Runnable mShowFloatingToolbar = new Runnable() {
-        @RequiresApi(api = Build.VERSION_CODES.M)
         @Override
         public void run() {
             if (getTextSelectionActionMode() != null) {
@@ -1653,7 +1649,6 @@ public final class TerminalView extends View {
         }
     };
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
     private void showFloatingToolbar() {
         if (getTextSelectionActionMode() != null) {
             int delay = ViewConfiguration.getDoubleTapTimeout();
@@ -1661,7 +1656,6 @@ public final class TerminalView extends View {
         }
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
     void hideFloatingToolbar() {
         if (getTextSelectionActionMode() != null) {
             removeCallbacks(mShowFloatingToolbar);
@@ -1670,7 +1664,7 @@ public final class TerminalView extends View {
     }
 
     public void updateFloatingToolbarVisibility(MotionEvent event) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && getTextSelectionActionMode() != null) {
+        if (getTextSelectionActionMode() != null) {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_MOVE:
                     hideFloatingToolbar();

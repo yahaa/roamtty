@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import androidx.core.content.edit
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -40,7 +41,8 @@ internal class DownloadDirectory(context: Context) {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             if (resolver.persistedUriPermissions.none { it.uri == tree && it.isWritePermission }) return@runCatching false
             // Retain earlier grants: another session may still be downloading into that directory.
-            preferences.edit().putString("tree", tree.toString()).putString("label", name).commit()
+            preferences.edit(commit = true) { putString("tree", tree.toString()); putString("label", name) }
+            true
         }.getOrDefault(false)
     }
 

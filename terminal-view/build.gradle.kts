@@ -3,6 +3,7 @@ android {
     namespace = "com.termux.view"
     compileSdk = 36
     defaultConfig { minSdk = 26 }
+    lint { warningsAsErrors = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     testOptions { unitTests.isReturnDefaultValues = true }
 }

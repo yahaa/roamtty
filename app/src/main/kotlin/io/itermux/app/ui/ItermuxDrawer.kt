@@ -10,7 +10,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -32,7 +33,7 @@ internal fun ItermuxDrawer(
     onClose: () -> Unit
 ) {
     // Reserve a visible, tappable scrim even on phones narrower than the default 360 dp sheet.
-    val drawerWidth = (LocalConfiguration.current.screenWidthDp.dp * 0.82f).coerceAtMost(360.dp)
+    val drawerWidth = (with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } * 0.82f).coerceAtMost(360.dp)
     ModalDrawerSheet(modifier = Modifier.width(drawerWidth).fillMaxHeight().testTag("navigation-drawer")) {
         Column(Modifier.fillMaxHeight()) {
             Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 24.dp, bottom = 20.dp),

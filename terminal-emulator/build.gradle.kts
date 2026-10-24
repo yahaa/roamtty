@@ -3,6 +3,7 @@ android {
     namespace = "com.termux.terminal"
     compileSdk = 36
     defaultConfig { minSdk = 26; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner" }
+    lint { warningsAsErrors = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     testOptions { unitTests.isReturnDefaultValues = true }
 }

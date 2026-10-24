@@ -1,5 +1,6 @@
 package io.itermux.app.ui
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,7 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -33,8 +35,12 @@ import io.itermux.ssh.formatRemoteSize
 private enum class TransferMood { RUNNING, SUCCESS, PROBLEM }
 
 /** Shared-storage prefixes say nothing to the reader; "Documents/…" is what the Files app shows. */
+@SuppressLint("SdCardPath") // Only trims the prefix for display; nothing is read from that path.
 internal fun readableFolder(path: String): String =
     path.substringBeforeLast('/').removePrefix("/storage/emulated/0/").removePrefix("/sdcard/").ifEmpty { "/" }
+
+@Composable
+private fun dialogMaxHeight() = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() } * 0.52f
 
 @Composable
 internal fun TransferStatusDialog(status: TransferStatus, onCancel: () -> Unit, onDismiss: () -> Unit) {
@@ -42,7 +48,7 @@ internal fun TransferStatusDialog(status: TransferStatus, onCancel: () -> Unit, 
     val result = status.result
     val downloads = status.downloads
     val totalBytes = status.total
-    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.52f).dp
+    val maxHeight = dialogMaxHeight()
     val active = downloads.firstOrNull { it.phase == DownloadPhase.RUNNING }
     val completed = downloads.count { it.phase == DownloadPhase.COMPLETE }
     val failed = downloads.count { it.phase == DownloadPhase.FAILED }
@@ -141,7 +147,7 @@ internal fun ImageInsertDialog(status: TransferStatus, onCancel: () -> Unit, onD
     val inserted = images.count { it.outcome == ImageOutcome.INSERTED }
     val inEditor = images.count { it.outcome == ImageOutcome.IN_EDITOR }
     val failed = images.count { it.outcome == ImageOutcome.FAILED }
-    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.52f).dp
+    val maxHeight = dialogMaxHeight()
     AlertDialog(onDismissRequest = { if (!running) onDismiss() }, modifier = Modifier.testTag("image-insert-dialog"),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
