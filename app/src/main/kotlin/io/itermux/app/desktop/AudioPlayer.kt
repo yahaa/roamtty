@@ -6,6 +6,7 @@ import android.media.AudioTrack
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.util.Log
+import io.itermux.desktop.AudioJitter
 import io.itermux.desktop.ServerMessage
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -14,26 +15,29 @@ import java.util.concurrent.TimeUnit
 
 /**
  * The host's sound (AUDIO frames): Opus packets through the platform's decoder onto a low-latency
- * AudioTrack, on a thread of its own that starts with the first packet. Each start after a silence
- * gets [CUSHION_MS] of silence in front, which absorbs the network's jitter; whenever more than
- * [MAX_QUEUED_MS] is waiting (a stall that then arrived in one burst) the oldest packets are dropped,
- * so the sound stays within a few tens of milliseconds of the picture.
+ * AudioTrack, on a thread of its own that starts with the first packet. [AudioJitter] decides per
+ * packet (from when it arrived and its number) whether a cushion of silence goes first, whether it is
+ * dropped to catch up, and how fast the track plays to absorb the two clocks' drift.
  */
 internal class AudioPlayer {
-    private val queue = LinkedBlockingDeque<ServerMessage.Audio>()
+    /** Packets with the time they arrived (ms): the jitter is the network's, not this thread's. */
+    private val queue = LinkedBlockingDeque<Pair<Long, ServerMessage.Audio>>()
     @Volatile private var thread: Thread? = null
     @Volatile var packets = 0L
         private set
     @Volatile var dropped = 0L
         private set
-    /** Times the track ran dry and got a fresh cushion (the first start included). */
+    /** Times a cushion of silence went in (the first start included). */
     @Volatile var cushions = 0L
         private set
     /** The track's sample rate as the drift control set it last. */
     @Volatile var playbackRate = RATE
         private set
-    /** Sound waiting to be heard, in ms: the queue plus what the track still holds. */
+    /** Sound waiting to be heard, in ms: what the track still holds. */
     @Volatile var queuedMs = 0
+        private set
+    /** The backlog the jitter buffer aims for now. */
+    @Volatile var targetMs = 0
         private set
     /** The last full second of decoded sound: the left channel's RMS level and its zero crossings (twice its pitch). */
     @Volatile var level = Level(0, 0)
@@ -45,7 +49,7 @@ internal class AudioPlayer {
     private var lastLeft = 0
 
     fun submit(packet: ServerMessage.Audio) {
-        queue.offerLast(packet)
+        queue.offerLast(System.nanoTime() / 1_000_000 to packet)
         while (queue.size > MAX_PACKETS) { queue.pollFirst(); dropped++ }
         if (thread == null) synchronized(this) { if (thread == null) thread = Thread(::run, "desktop-audio").apply { start() } }
     }
@@ -60,66 +64,54 @@ internal class AudioPlayer {
 
     private fun run() {
         val codec = try { openDecoder() } catch (e: Exception) { Log.w(TAG, "no Opus decoder", e); return }
+        val startThreshold = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
         val minBuffer = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         val track = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
             .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-            .setBufferSizeInBytes(maxOf(minBuffer, msToBytes(MAX_QUEUED_MS)))
+            .setBufferSizeInBytes(maxOf(minBuffer, msToBytes(if (startThreshold) AudioJitter.MAX_TARGET_MS + AudioJitter.DROP_ABOVE_MS + 100 else 240)))
             .setTransferMode(AudioTrack.MODE_STREAM)
             .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             .build()
+        // A track that ran dry (the host fell silent) leaves the mixer and comes back only once this much
+        // is written: by default its whole buffer, which a backlog held under the drop line never reached.
+        if (startThreshold) runCatching { track.setStartThresholdInFrames(RATE / 1000 * AudioJitter.PACKET_MS) }
         Log.i(TAG, "audio started: ${codec.name}, track buffer ${track.bufferSizeInFrames} frames")
+        val jitter = AudioJitter()
         val info = MediaCodec.BufferInfo()
         var written = 0L // frames written to the track
-        var lastSeq = -1L
-        var lastArrival = 0L
         var underruns = 0
-        var smoothed = CUSHION_MS.toDouble()
         var rate = RATE
         var pcm = ByteArray(0)
+        fun inTrack() = (written - (track.playbackHeadPosition.toLong() and 0xFFFFFFFFL)).coerceAtLeast(0)
         try {
             track.play()
             while (!Thread.currentThread().isInterrupted) {
-                val p = queue.pollFirst(200, TimeUnit.MILLISECONDS) ?: continue
-                // Starting, or the track ran dry (the host fell silent, or the network stalled): a cushion
-                // first. Not whenever the play head reaches what was written: it moves in the mixer's steps,
-                // which reads as empty for a moment in normal playback.
-                val now = System.nanoTime() / 1_000_000
+                val (arrived, next) = queue.pollFirst(200, TimeUnit.MILLISECONDS) ?: continue
+                // Ran dry: the track's own count, not the play head reaching what was written (it moves
+                // in the mixer's steps, which reads as empty for a moment in normal playback).
                 val ran = track.underrunCount
-                if (lastSeq < 0 || ran > underruns || now - lastArrival > GAP_MS) {
-                    val silence = ByteArray(msToBytes(CUSHION_MS))
+                val decision = jitter.arrive(arrived, next.seq, (inTrack() * 1000 / RATE).toInt(), ran > underruns)
+                underruns = ran
+                targetMs = jitter.targetMs
+                if (decision == AudioJitter.Decision.Drop) { dropped++; continue }
+                val cushion = (decision as AudioJitter.Decision.Play).cushionMs
+                if (cushion > 0) {
+                    val silence = ByteArray(msToBytes(cushion))
                     track.write(silence, 0, silence.size)
                     written += silence.size / 4
                     cushions++
                 }
-                underruns = ran
-                lastArrival = now
-                // Too far behind: drop the oldest until the backlog is down to the cushion again.
-                var backlog = (written - (track.playbackHeadPosition.toLong() and 0xFFFFFFFFL)).coerceAtLeast(0) * 1000 / RATE + queue.size * PACKET_MS
-                var next: ServerMessage.Audio = p
-                if (backlog > MAX_QUEUED_MS) {
-                    while (backlog > CUSHION_MS + PACKET_MS) {
-                        next = queue.pollFirst() ?: break
-                        dropped++
-                        backlog -= PACKET_MS
-                    }
-                }
-                queuedMs = backlog.toInt()
-                // The two clocks never quite agree (a virtual machine's sink was 1.3% fast against the
-                // emulator): the track plays a little faster or slower to hold the backlog near its
-                // target, at most 3%, instead of dropping a packet every second or two.
-                smoothed += (backlog - smoothed) * 0.05
-                val want = (RATE * (1 + ((smoothed - TARGET_MS) * 0.0005).coerceIn(-0.03, 0.03))).toInt()
-                if (kotlin.math.abs(want - rate) >= RATE / 1000 && track.setPlaybackRate(want) == AudioTrack.SUCCESS) rate = want
+                val want = (RATE * jitter.rate).toInt()
+                if (want != rate && track.setPlaybackRate(want) == AudioTrack.SUCCESS) rate = want
                 playbackRate = rate
-                lastSeq = next.seq
                 packets++
                 val input = codec.dequeueInputBuffer(20_000)
                 if (input >= 0) {
                     codec.getInputBuffer(input)!!.apply { clear(); put(next.data, next.offset, next.data.size - next.offset) }
-                    codec.queueInputBuffer(input, 0, next.data.size - next.offset, next.seq * PACKET_MS * 1000, 0)
+                    codec.queueInputBuffer(input, 0, next.data.size - next.offset, next.seq * AudioJitter.PACKET_MS * 1000, 0)
                 }
                 while (true) {
                     val out = codec.dequeueOutputBuffer(info, if (input >= 0) 5_000 else 0)
@@ -133,6 +125,7 @@ internal class AudioPlayer {
                     }
                     codec.releaseOutputBuffer(out, false)
                 }
+                queuedMs = (inTrack() * 1000 / RATE).toInt()
             }
         } catch (_: InterruptedException) {
         } catch (e: Exception) {
@@ -180,15 +173,8 @@ internal class AudioPlayer {
     companion object {
         private const val TAG = "RoamttyDesktop"
         const val RATE = 48_000
-        const val PACKET_MS = 20
         /** The encoder's look-ahead the decoder drops at the start (the plugin's libopus in AUDIO mode). */
         const val PRE_SKIP = 312
-        const val CUSHION_MS = 60
-        const val MAX_QUEUED_MS = 200
-        /** Where the drift control holds the backlog: the cushion plus the packet being decoded. */
-        private const val TARGET_MS = CUSHION_MS + PACKET_MS
-        /** No packet for this long: the host went silent (it sends nothing then), or the network stalled. */
-        private const val GAP_MS = 100
         private const val MAX_PACKETS = 50
     }
 }

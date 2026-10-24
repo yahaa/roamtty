@@ -156,9 +156,11 @@ w.writeframes(b"".join(struct.pack("<hh", int(8000 * math.sin(i * 440 * 2 * math
         val packetsBefore = player.packets
         val queued = (1..10).map { idle(300); player.queuedMs }
         E2e.metric("desktop_audio_backlog_ms", queued.max(), "ms")
+        E2e.metric("desktop_audio_target_ms", player.targetMs, "ms")
         E2e.metric("desktop_audio_dropped", player.dropped - dropsBefore, "count")
-        val state = "queued $queued, dropped ${player.dropped} of ${player.packets}, cushions ${player.cushions}, rate ${player.playbackRate}"
-        assertTrue(state, queued.max() <= 200)
+        val state = "queued $queued, dropped ${player.dropped} of ${player.packets}, cushions ${player.cushions}, target ${player.targetMs}, rate ${player.playbackRate}"
+        // As deep as the network's jitter, never past the drop line above it.
+        assertTrue(state, queued.max() <= player.targetMs + 120 && player.targetMs <= 300)
         assertTrue(state, (player.dropped - dropsBefore) * 50 <= player.packets - packetsBefore)
         android.util.Log.i("RoamttyE2e", state)
         E2e.capture(compose, "audio-01-playing")

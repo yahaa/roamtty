@@ -306,10 +306,10 @@
       "optional": true
     },
     "desktop_audio_backlog_ms": {
-      "max": 200,
+      "max": 420,
       "unit": "ms",
       "source": "device",
-      "about": "host sound waiting to be heard on the phone, worst of 10 samples after it settled (E2eAudioTest)",
+      "about": "host sound waiting to be heard on the phone, worst of 10 samples after it settled; the drop line is the jitter target + 120 (E2eAudioTest)",
       "optional": true
     },
     "desktop_audio_dropped": {
