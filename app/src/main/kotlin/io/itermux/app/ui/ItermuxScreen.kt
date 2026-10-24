@@ -1,5 +1,6 @@
 package io.itermux.app.ui
 
+import io.itermux.app.desktop.DesktopThumbnails
 import io.itermux.app.appSettings
 import io.itermux.app.tr
 
@@ -41,7 +42,12 @@ import io.itermux.app.data.Host
 import io.itermux.app.data.newSessionMode
 import io.itermux.app.data.multiplexer
 import io.itermux.app.data.prefersMosh
+import io.itermux.app.data.recentFirst
 import io.itermux.app.session.*
+import io.itermux.app.desktop.DesktopSettings
+import io.itermux.desktop.DesktopButton
+import io.itermux.desktop.DesktopPhase
+import io.itermux.desktop.DesktopProbe
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
@@ -56,6 +62,9 @@ fun ItermuxScreen(
     service: SessionService?,
     pendingShareImages: List<Uri> = emptyList(),
     onShareImagesConsumed: () -> Unit = {},
+    /** A host whose desktop the notification asked to show. */
+    pendingDesktopHost: String? = null,
+    onDesktopHostConsumed: () -> Unit = {},
     onChromeChange: (Boolean, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -65,7 +74,10 @@ fun ItermuxScreen(
     val scope = rememberCoroutineScope()
     val hostFlow = remember(app) { app.database.hosts().observe() }
     val loadedHosts by hostFlow.collectAsStateWithLifecycle(initialValue = null)
-    val hosts = loadedHosts.orEmpty()
+    val recentUsage = app.recentUsage
+    val recentHosts by recentUsage.hostIds.collectAsStateWithLifecycle()
+    val recentSessions by recentUsage.sessionIds.collectAsStateWithLifecycle()
+    val hosts = remember(loadedHosts, recentHosts) { loadedHosts.orEmpty().recentFirst(recentHosts) { it.id } }
     val sessionFlow = remember(service) { service?.sessions ?: MutableStateFlow(emptyList()) }
     val sessions by sessionFlow.collectAsStateWithLifecycle()
     val sessionStates by remember(sessions) {
@@ -76,9 +88,17 @@ fun ItermuxScreen(
     val anySession = sessions.isNotEmpty()
     LaunchedEffect(anySession) { if (anySession) TerminalFonts.preload(context) }
     val hostReachability = remember { HostReachabilityTracker() }
-    // The session list and drawer show live sessions first; terminal tabs keep their open order.
-    val sessionsByActivity = remember(sessions, sessionStates) {
-        sessions.sortedBy { activityRank(sessionStates[it.id] ?: it.state.value) }
+    // Recent use leads within each home group and in the drawer; terminal tabs keep their open order.
+    val sessionsByRecency = remember(sessions, sessionStates, recentSessions) {
+        sessions.sortedBy { activityRank(sessionStates[it.id] ?: it.state.value) }.recentFirst(recentSessions) { it.id }
+    }
+    LaunchedEffect(loadedHosts, sessions, service) {
+        val savedHosts = loadedHosts ?: return@LaunchedEffect
+        val bound = service ?: return@LaunchedEffect
+        bound.awaitRestoration()
+        val restored = bound.sessions.value
+        // A newly saved host can already have a session before Room emits its updated host list.
+        recentUsage.retain((savedHosts.map { it.id } + restored.map { it.host.id }).toSet(), restored.map { it.id }.toSet())
     }
     var page by rememberSaveable { mutableStateOf(AppPage.HOME) }
     val configuration = LocalConfiguration.current
@@ -90,15 +110,43 @@ fun ItermuxScreen(
     var detailHostId by rememberSaveable { mutableStateOf<String?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val lightTheme = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
+    /** The host whose desktop is shown on [AppPage.DESKTOP]. */
+    var desktopHostId by rememberSaveable { mutableStateOf<String?>(null) }
+    val desktopSettings = remember(context) { DesktopSettings(context) }
+    var desktopEnabled by remember { mutableStateOf(desktopSettings.enabled) }
+    DisposableEffect(settings) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "desktop.enabled") desktopEnabled = desktopSettings.enabled
+        }
+        settings.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { settings.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    val desktopTargets = remember(context) { runCatching { DesktopSettings.manifest(context).targets.keys }.getOrDefault(emptySet()) }
+    val desktopFlow = remember(service) { service?.desktops?.connections ?: MutableStateFlow(emptyMap()) }
+    val desktops by desktopFlow.collectAsStateWithLifecycle()
+    val desktopVisible = page == AppPage.DESKTOP
     val terminalVisible = page == AppPage.TERMINAL && sessions.isNotEmpty()
     val navigationVisible = page == AppPage.HOME
     // The file browser wears the terminal's chrome: a transparent status bar and no navigation bar.
-    val terminalChrome = terminalVisible || page == AppPage.FILES
+    val terminalChrome = terminalVisible || page == AppPage.FILES || desktopVisible
     // Older IMEs reveal system bars without changing window focus. Restore immersive mode on close.
     LaunchedEffect(terminalChrome, imeVisible, lightTheme, landscape) { onChromeChange(terminalChrome, lightTheme) }
     BackHandler(page == AppPage.SETTINGS && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    // Only visible navigation counts as use. Reconnects, polling and recomposition never update this order.
+    LaunchedEffect(page, selected, detailHostId, desktopHostId, service) {
+        when (page) {
+            AppPage.TERMINAL, AppPage.FILES -> {
+                val bound = service ?: return@LaunchedEffect
+                bound.awaitRestoration()
+                bound.sessions.value.find { it.id == selected }?.let { recentUsage.useSession(it.id, it.host.id) }
+            }
+            AppPage.HOST -> detailHostId?.let(recentUsage::useHost)
+            AppPage.DESKTOP -> desktopHostId?.let(recentUsage::useHost)
+            else -> Unit
+        }
+    }
     /** The home page's tabs: sessions first, then hosts. */
     val homePager = rememberPagerState { 2 }
     /** Shows session [id] on the terminal page, or on [on]. */
@@ -128,11 +176,22 @@ fun ItermuxScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val hostGridState = rememberLazyGridState()
+    var previousHostOrder by remember { mutableStateOf(recentHosts) }
+    LaunchedEffect(recentHosts) {
+        if (recentHosts != previousHostOrder) {
+            hostGridState.requestScrollToItem(0)
+            previousHostOrder = recentHosts
+        }
+    }
     BackHandler(page == AppPage.HOME && homePager.currentPage != 0 && !searchExpanded && !drawerState.isOpen) {
         scope.launch { homePager.animateScrollToPage(0) }
     }
+    var previousLandscape by rememberSaveable { mutableStateOf(landscape) }
     LaunchedEffect(landscape) {
-        hostGridState.scrollToItem(hostGridState.firstVisibleItemIndex)
+        if (landscape != previousLandscape) {
+            hostGridState.scrollToItem(hostGridState.firstVisibleItemIndex)
+            previousLandscape = landscape
+        }
     }
     val searchFocus = remember { FocusRequester() }
     BackHandler(navigationVisible && searchExpanded && !imeVisible && !drawerState.isOpen) {
@@ -267,6 +326,40 @@ fun ItermuxScreen(
         begin(ConnectRequest(host, SessionMode.TMUX, attach = name))
     }
 
+    /** The phone's screen in pixels and its density, which cap the desktop's encode size. */
+    fun startDesktop(host: Host, password: String = "", passphrase: String = "") {
+        val bound = service ?: run { toast(tr("会话服务尚未就绪，请稍后重试")); return }
+        val metrics = context.resources.displayMetrics
+        val (w, h) = if (Build.VERSION.SDK_INT >= 30) context.getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics.bounds.let { it.width() to it.height() }
+            else metrics.widthPixels to metrics.heightPixels
+        bound.openDesktop(host, password, passphrase, w, h, metrics.densityDpi)
+        desktopHostId = host.id
+        page = AppPage.DESKTOP
+    }
+    /** The desktop button: straight in when it is already open, else log in (asking for an unsaved secret first). */
+    fun openDesktop(host: Host) {
+        val bound = service ?: run { toast(tr("会话服务尚未就绪，请稍后重试")); return }
+        val existing = bound.desktops[host.id]
+        if (existing != null && existing.active) {
+            desktopHostId = host.id
+            page = AppPage.DESKTOP
+            return
+        }
+        if (host.needsTypedSecret(app)) connectRequest = ConnectRequest(host, SessionMode.SHELL, desktop = true)
+        else startDesktop(host)
+    }
+    fun desktopSupported(host: Host): Boolean {
+        val system = HostSystem.fromStored(host.os)
+        val family = when { system.isLinux -> "linux-"; system == HostSystem.MACOS -> "macos-"; system == HostSystem.WINDOWS -> "windows-"; else -> return false }
+        return desktopTargets.any { it.startsWith(family) }
+    }
+    LaunchedEffect(pendingDesktopHost, service) {
+        val id = pendingDesktopHost ?: return@LaunchedEffect
+        val bound = service ?: return@LaunchedEffect
+        if (bound.desktops[id] != null) { desktopHostId = id; page = AppPage.DESKTOP }
+        onDesktopHostConsumed()
+    }
+
     fun managePlugins(host: Host) {
         if (host.needsTypedSecret(app))
             connectRequest = ConnectRequest(host, host.newSessionMode, plugins = true)
@@ -326,9 +419,9 @@ fun ItermuxScreen(
             return@MaterialTheme
         }
         val colors = MaterialTheme.colorScheme
-        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != AppPage.FILES && page != AppPage.HOST,
+        ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = !terminalVisible && page != AppPage.FILES && page != AppPage.HOST && !desktopVisible,
             drawerContent = {
-                ItermuxDrawer(page, hosts.size, sessionsByActivity,
+                ItermuxDrawer(page, hosts.size, sessionsByRecency,
                     onHosts = { page = AppPage.HOME; homePager.requestScrollToPage(1); scope.launch { drawerState.close() } },
                     onOpenSession = { showSession(it); scope.launch { drawerState.close() } },
                     onSettings = {
@@ -343,11 +436,11 @@ fun ItermuxScreen(
             // The terminal fills the display, including the area beside a camera cutout and under the
             // transparent portrait status bar. Only desktop window chrome reserves an edge; the terminal
             // keeps its text and controls clear of the status bar and cutouts itself.
-            val contentInsets = if (terminalVisible) WindowInsets.captionBar else WindowInsets.safeDrawing
+            val contentInsets = if (terminalVisible) WindowInsets.captionBar else if (desktopVisible) WindowInsets(0) else WindowInsets.safeDrawing
             // The terminal applies the keyboard inset itself, in one step (see TerminalPane).
-            val imeInsets = if (terminalVisible) WindowInsets(0) else WindowInsets.ime
+            val imeInsets = if (terminalVisible || desktopVisible) WindowInsets(0) else WindowInsets.ime
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).windowInsetsPadding(imeInsets)) {
-                if ((!imeVisible || searchExpanded) && !terminalVisible && page != AppPage.FILES && page != AppPage.HOST) AppToolbar(
+                if ((!imeVisible || searchExpanded) && !terminalVisible && page != AppPage.FILES && page != AppPage.HOST && !desktopVisible) AppToolbar(
                     navigation = {
                         // As wide as the search on the right, so the home tabs sit in the middle of the screen.
                         Box(Modifier.width(48.dp)) {
@@ -394,7 +487,7 @@ fun ItermuxScreen(
                         ProbeHostReachability(hostReachability, hosts,
                             connected = hosts.filter { it.endpointKey in connectedEndpoints }.map { it.id }.toSet())
                         HorizontalPager(homePager, Modifier.weight(1f).testTag("home-pager"), key = { HOME_TAB_TAGS[it] }) { tab ->
-                            if (tab == 0) HomeSessionsTab(sessionsByActivity, hosts.isNotEmpty(), search,
+                            if (tab == 0) HomeSessionsTab(sessionsByRecency, hosts.isNotEmpty(), search,
                                 onNewSession = { newSessionOpen = true },
                                 onOpen = { showSession(it.id) },
                                 onClose = ::closeSession,
@@ -402,6 +495,18 @@ fun ItermuxScreen(
                                 hostOffline = { session ->
                                     hosts.firstOrNull { it.id == session.host.id }
                                         ?.let { !hostConnected(it) && hostReachability.statusOf(it) == HostReachability.Offline } == true
+                                },
+                                desktop = { session ->
+                                    val host = hosts.firstOrNull { it.id == session.host.id } ?: session.host
+                                    val connection = desktops[host.id]
+                                    val idle = remember { MutableStateFlow<DesktopPhase>(DesktopPhase.Idle) }
+                                    val desktopPhase by (connection?.phase ?: idle).collectAsStateWithLifecycle()
+                                    val sessionState by session.state.collectAsStateWithLifecycle()
+                                    val offline = !hostConnected(host) && hostReachability.statusOf(host) == HostReachability.Offline
+                                    val button = DesktopButton.derive(desktopEnabled, !offline, sessionState.phase == Phase.CONNECTED,
+                                        HostSystem.fromStored(host.os).let { if (it.isLinux) "LINUX" else it.name }, desktopSupported(host),
+                                        DesktopProbe.decode(host.desktop), host.desktopProbedAt, System.currentTimeMillis(), desktopPhase)
+                                    DesktopCardButton(button, "home-session-desktop-${session.id}") { openDesktop(host) }
                                 })
                             else HomeHostsTab(hosts, search, hostGridState,
                                 reachability = { host ->
@@ -415,7 +520,18 @@ fun ItermuxScreen(
                                 onDelete = { host -> deleteHost = host },
                                 onBrowseFiles = ::browseFiles,
                                 onManagePlugins = ::managePlugins,
-                                onLaunch = { host, forAgent -> launchRequest = LaunchRequest(host, forAgent) })
+                                onLaunch = { host, forAgent -> launchRequest = LaunchRequest(host, forAgent) },
+                                desktop = { host ->
+                                    val idle = remember { MutableStateFlow<DesktopPhase>(DesktopPhase.Idle) }
+                                    val desktopPhase by (desktops[host.id]?.phase ?: idle).collectAsStateWithLifecycle()
+                                    // A host needs no open session for its desktop: the desktop logs in on its own. An
+                                    // offline one keeps its picture, so it is derived as if online; its card knows better.
+                                    DesktopButton.derive(desktopEnabled, true, true,
+                                        HostSystem.fromStored(host.os).let { if (it.isLinux) "LINUX" else it.name }, desktopSupported(host),
+                                        DesktopProbe.decode(host.desktop), host.desktopProbedAt, System.currentTimeMillis(), desktopPhase)
+                                },
+                                onDesktop = ::openDesktop,
+                                onDisconnectDesktop = { host -> service?.desktops?.close(host.id) })
                         }
                     }
                 } else if (page == AppPage.HOST) {
@@ -432,7 +548,10 @@ fun ItermuxScreen(
                             onEdit = { editHostId = detailHost.id; editorOpen = true },
                             onManagePlugins = { managePlugins(detailHost) },
                             onDelete = { deleteHost = detailHost },
-                            modifier = Modifier.weight(1f))
+                            modifier = Modifier.weight(1f),
+                            onDesktop = { openDesktop(detailHost) }.takeIf {
+                                desktopEnabled && desktopSupported(detailHost) && DesktopProbe.decode(detailHost.desktop) != DesktopProbe.NO
+                            })
                     } else if (loadedHosts != null) LaunchedEffect(Unit) { page = AppPage.HOME } // deleted, or gone after a restore
                 } else if (page == AppPage.FILES) {
                     val filesSession = sessions.find { it.id == selected }
@@ -450,6 +569,17 @@ fun ItermuxScreen(
                         EmptyState(tr("会话不存在"), tr("连接已关闭，请从主机列表重新打开文件。"), Modifier.fillMaxSize(),
                             action = { FilledTonalButton(onClick = { page = AppPage.HOME }) { Text(tr("返回主机列表")) } })
                     }
+                } else if (page == AppPage.DESKTOP) {
+                    // The registry itself, not only the collected map: right after the service binds again (rotation),
+                    // the map still holds the empty value it had before.
+                    val connection = desktops[desktopHostId] ?: desktopHostId?.let { service?.desktops?.get(it) }
+                    if (connection != null) key(connection) {
+                        DesktopPage(connection, onLeave = { page = AppPage.HOME },
+                            onDisconnect = { service?.desktops?.close(connection.host.id); page = AppPage.HOME },
+                            onFiles = { browseFiles(hosts.firstOrNull { it.id == connection.host.id } ?: connection.host) },
+                            modifier = Modifier.weight(1f))
+                    // A recreated activity (rotation) binds the service again first; only a desktop that is really gone goes home.
+                    } else if (service != null) LaunchedEffect(Unit) { page = AppPage.HOME }
                 } else if (page == AppPage.SETTINGS) {
                     SettingsPage(theme, { option ->
                         theme = option
@@ -484,7 +614,10 @@ fun ItermuxScreen(
                             onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
                             onReverify = { reverify = active },
                             // Closing ends the terminal page too: back to where it was opened from.
-                            onClose = { leaveTerminal(); closeSession(active) })
+                            onClose = { leaveTerminal(); closeSession(active) },
+                            onDesktop = (hosts.firstOrNull { it.id == active.host.id } ?: active.host).let { h ->
+                                { openDesktop(h) }.takeIf { desktopEnabled && desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES }
+                            })
                     }
                 }
             }
@@ -533,13 +666,16 @@ fun ItermuxScreen(
                 scope.launch {
                     sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }
                     app.database.hosts().delete(host.id)
+                    DesktopThumbnails.remove(app, host.id)
                     deleteHost = null
                 }
             }
         }
         connectRequest?.let { request -> CredentialsDialog(request, { connectRequest = null }) { password, phrase ->
             connectRequest = null
-            if (request.plugins) pluginTarget = PluginTarget(request.host, password, phrase) else start(request, password, phrase)
+            if (request.plugins) pluginTarget = PluginTarget(request.host, password, phrase)
+            else if (request.desktop) startDesktop(request.host, password, phrase)
+            else start(request, password, phrase)
         } }
         terminatePrompt?.let { PromptDialog(it) }
         pluginTarget?.let { target ->

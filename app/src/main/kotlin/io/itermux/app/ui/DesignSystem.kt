@@ -4,6 +4,7 @@ import io.itermux.app.tr
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
@@ -244,10 +245,30 @@ internal fun StatusLabel(phase: Phase, modifier: Modifier = Modifier, hostOfflin
 
 /** Small neutral pill for secondary attributes such as session mode or authentication. */
 @Composable
-internal fun MetaTag(text: String, modifier: Modifier = Modifier) {
-    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+internal fun MetaTag(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    wash: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = color,
         maxLines = 1, overflow = TextOverflow.Ellipsis,
         modifier = modifier.clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+            .background(wash)
             .padding(horizontal = 6.dp, vertical = 2.dp))
+}
+
+/**
+ * A button drawn as a [MetaTag]: its height, corners and wash, holding only an icon, so it sits in a row of tags as one
+ * of them. [label] is what TalkBack reads; [badge] puts a status dot in its top corner. The touch target reaches past
+ * the tag's left side only, so the tag lines up with the row's right edge.
+ */
+@Composable
+internal fun IconTag(icon: Int, label: String, tag: String, onClick: () -> Unit, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    wash: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f), badge: Color? = null, badgeTag: String? = null) {
+    Box(Modifier.size(40.dp, 36.dp).clickable(role = Role.Button, onClickLabel = label, onClick = onClick).testTag(tag),
+        contentAlignment = Alignment.CenterEnd) {
+        Box(Modifier.size(28.dp, 20.dp).clip(RoundedCornerShape(6.dp)).background(wash), contentAlignment = Alignment.Center) {
+            Icon(painterResource(icon), contentDescription = label, Modifier.size(13.dp), tint = tint)
+        }
+        if (badge != null) Box(Modifier.align(Alignment.CenterEnd).offset(3.dp, (-10).dp).size(7.dp).clip(CircleShape)
+            .background(badge).border(1.5.dp, MaterialTheme.colorScheme.groupedContainer, CircleShape)
+            .then(if (badgeTag != null) Modifier.testTag(badgeTag) else Modifier))
+    }
 }

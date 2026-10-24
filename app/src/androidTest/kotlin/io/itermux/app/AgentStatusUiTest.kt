@@ -76,7 +76,7 @@ class AgentStatusUiTest {
                     agentHooks = CodingAgent.CODEX)
             }
             fun exists(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
-            // Idle without a prompt: the prompt's line says it awaits one, the folder moves to the status line and the
+            // Idle without a prompt: a compact row says it awaits one, its folder under the name, and the
             // host keeps its chip beside the name.
             compose.waitUntil(30_000) { exists("home-session-awaiting-${session.id}") }
             compose.onNodeWithTag("home-session-awaiting-${session.id}", useUnmergedTree = true).assertTextEquals(tr("等待输入中…"))
@@ -94,8 +94,8 @@ class AgentStatusUiTest {
                 working.directory.isNotEmpty()) { "$working" }
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("home-session-${session.id}").fetchSemanticsNodes().isNotEmpty() }
             val row = compose.onNodeWithTag("home-session-${session.id}")
-            // Under 运行中, named by its folder, the prompt beneath, the command across the row, the whole folder on the
-            // status line.
+            // Under 运行中, named by its folder, the folder and the prompt beneath, the command across the row and the
+            // status line last.
             compose.waitUntil(10_000) { exists("home-session-group-working") && exists("home-session-working-${session.id}") }
             val folder = working.directory.trimEnd('/').substringAfterLast('/')
             compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals(folder)

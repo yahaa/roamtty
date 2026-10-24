@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -66,7 +67,9 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHostDetail: () -> Unit, onReconnect: (() -> Unit)?, onRestart: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit) {
+fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHostDetail: () -> Unit, onReconnect: (() -> Unit)?, onRestart: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit,
+    /** Opens the host's desktop; null when it has none to open. */
+    onDesktop: (() -> Unit)? = null) {
     val state by session.state.collectAsStateWithLifecycle()
     val transferStatus by session.transfers.status.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
@@ -114,6 +117,23 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         sessionMenu = false
         if (!dockPinned) dockExpanded = false
         sticky.clear()
+    }
+    // A dock the pet opened (not pinned) goes back to the pet after a quiet spell; a touch on it starts the spell over,
+    // and an open menu holds it.
+    // Timed by frames, not an animation: with animations turned off in the system settings one would end at once.
+    var dockTouches by remember { mutableIntStateOf(0) }
+    val dockCountdown = remember { mutableFloatStateOf(1f) }
+    val dockCountsDown = floatingDock && !menu && !sessionMenu && TerminalToolbox.dockHideMillis > 0
+    LaunchedEffect(dockCountsDown, dockTouches) {
+        dockCountdown.floatValue = 1f
+        if (!dockCountsDown) return@LaunchedEffect
+        val hideAfter = TerminalToolbox.dockHideMillis.toFloat()
+        val start = withFrameMillis { it }
+        while (dockCountdown.floatValue > 0f) {
+            dockCountdown.floatValue = (1f - (withFrameMillis { it } - start) / hideAfter).coerceAtLeast(0f)
+        }
+        sticky.clear()
+        dockExpanded = false
     }
     // The collapsed toolbox fades out after a quiet spell and returns on the next touch.
     var toolboxAwake by remember { mutableStateOf(true) }
@@ -327,7 +347,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 dockPinned = false
                 settings.dockPinned = false
             }, modifier = Modifier.testTag("collapse-dock")) {
-                Icon(painterResource(R.drawable.ic_close), contentDescription = tr("收起操作栏"), modifier = Modifier.size(20.dp))
+                // A floating dock's close button counts down the quiet spell before the dock goes on its own.
+                val ring = MaterialTheme.colorScheme.primary
+                val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                Box(Modifier.size(32.dp).drawBehind {
+                    if (dockPinned || TerminalToolbox.dockHideMillis <= 0) return@drawBehind
+                    val stroke = Stroke(2.dp.toPx())
+                    drawCircle(track, style = stroke)
+                    drawArc(ring, -90f, 360f * dockCountdown.floatValue, false, style = stroke)
+                }, contentAlignment = Alignment.Center) {
+                    Icon(painterResource(R.drawable.ic_close), contentDescription = tr("收起操作栏"), modifier = Modifier.size(20.dp))
+                }
             }
         }, sessionControl = { sessionModifier ->
             SessionSwitcher(session, sessionTitle, state.phase, sessions, sessionMenu, sessionModifier,
@@ -337,6 +367,11 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 onRestart = { sessionMenu = false; restartConfirm = true },
                 onSelect = { sessionMenu = false; onSelectSession(it) })
         }, primaryControls = {
+            // This host's desktop, beside the session it belongs to.
+            if (onDesktop != null) IconButton(onClick = { sticky.clear(); hideKeyboard(); onDesktop() },
+                modifier = Modifier.testTag("terminal-desktop")) {
+                Icon(painterResource(R.drawable.ic_desktop), contentDescription = tr("打开桌面"))
+            }
             fileControls()
             IconButton(
                 onClick = { hideKeyboard(); commonCommandsOpen = true },
@@ -499,7 +534,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
         if (floatingDock) {
             TerminalDockPlacement { height ->
-                Surface(shape = terminalDockShape(terminalDockTwoColumns(landscape, imeVisible, height)),
+                Surface(modifier = Modifier.pointerInput(Unit) {
+                    awaitPointerEventScope { while (true) { awaitPointerEvent(PointerEventPass.Initial); dockTouches++ } }
+                }, shape = terminalDockShape(terminalDockTwoColumns(landscape, imeVisible, height)),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f), shadowElevation = 4.dp
                 ) { dock(height) }
             }
@@ -592,6 +629,8 @@ internal object TerminalToolbox {
     @Volatile var enterKeyTypingPauseMillis = 700L
     /** Idle timeout of the Up/Down keys a double tap brings above and below the pet; 0 keeps them. */
     @Volatile var petArrowsHideMillis = 4_000L
+    /** Idle timeout of the dock the pet opens (a pinned one stays); 0 keeps it. */
+    @Volatile var dockHideMillis = 5_000L
 }
 
 internal const val KeyboardHideAfterEnterMillis = 15_000L

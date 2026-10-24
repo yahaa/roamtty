@@ -1,0 +1,150 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>主机列表 v2</title>
+<style>
+:root {
+  --page: #1b1c1e; --bg: #252628; --card: #333230; --on: #ECE7DF; --dim: #B4AEA4; --faint: #8a857d;
+  --hair: rgba(236,231,223,.07); --wash: rgba(236,231,223,.07);
+  --warn: #F2B84B; --ok: #6CC287; --work: #D97757;
+  --claude: #D97757; --codex: #9AA7FF;
+  --h-dev: #4FB6A8; --h-mac: #B394F0; --h-tx: #6AA7F5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--on); font: 14px/1.45 system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+header { padding: 20px 16px 8px; max-width: 1500px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 6px; }
+header p { margin: 0; color: var(--dim); }
+nav { position: sticky; top: 0; z-index: 5; background: var(--page); padding: 10px 16px; display: flex; gap: 6px; overflow-x: auto; max-width: 1500px; margin: 0 auto; }
+nav a { flex: none; padding: 6px 12px; border-radius: 99px; background: var(--wash); color: var(--on); text-decoration: none; font-size: 13px; }
+main { display: flex; flex-wrap: wrap; gap: 28px 24px; padding: 8px 16px 40px; max-width: 1500px; margin: 0 auto; }
+section { width: 380px; max-width: 100%; scroll-margin-top: 56px; }
+section h2 { font-size: 16px; margin: 0 0 4px; }
+section h2 small { color: var(--warn); font-weight: 500; font-size: 12px; margin-left: 6px; }
+.note { color: var(--dim); font-size: 13px; margin: 0 0 10px; min-height: 58px; }
+.pros { font-size: 12.5px; color: var(--dim); margin: 10px 0 0; padding-left: 18px; }
+.pros li { margin: 2px 0; }
+.phone { background: var(--bg); border-radius: 28px; padding: 14px 12px 18px; border: 1px solid #3a3a3c; }
+.tabs { display: flex; justify-content: center; gap: 28px; font-size: 19px; font-weight: 600; padding: 4px 0 12px; }
+.tabs span:last-child { color: var(--faint); font-weight: 500; }
+.chips { display: flex; gap: 6px; overflow: hidden; padding-bottom: 4px; }
+.chip { flex: none; display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 99px; background: var(--wash); font-size: 12.5px; color: var(--dim); }
+.chip b { color: var(--on); }
+.chip.sel { background: rgba(236,231,223,.12); box-shadow: inset 0 0 0 1px rgba(236,231,223,.3); color: var(--on); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.gh { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 14px 6px 8px; }
+.ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; }
+.panel { border-radius: 18px; overflow: hidden; background: var(--card); }
+.row { position: relative; padding: 12px 14px; }
+.row + .row::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; height: 1px; background: var(--hair); }
+.row.wait::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--warn); }
+.top { display: flex; align-items: center; gap: 12px; }
+.tile { position: relative; width: 40px; height: 40px; border-radius: 11px; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.tile .sd { position: absolute; right: -2px; top: -2px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--card); }
+.tile .os { position: absolute; right: -5px; bottom: -5px; width: 19px; height: 19px; border-radius: 6px; border: 2px solid var(--card); display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff; }
+.body { flex: 1; min-width: 0; }
+.tl { display: flex; align-items: center; gap: 6px; }
+.badge { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; flex: none; }
+.name { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.time { font-size: 12px; color: var(--faint); flex: none; }
+.sub { font-size: 12.5px; color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub i { color: var(--faint); font-style: normal; }
+.act { font: 12px/1.4 ui-monospace, "JetBrains Mono", monospace; color: var(--dim); margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply { font-size: 12.5px; color: var(--dim); margin-top: 8px; }
+.st { display: flex; align-items: center; margin-top: 8px; min-height: 28px; gap: 6px; }
+.lab { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; flex: none; }
+.right { flex: 1; min-width: 0; display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+.loc { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tag { font-size: 10.5px; padding: 2px 6px; border-radius: 5px; background: var(--wash); color: var(--dim); flex: none; }
+.btn { height: 28px; padding: 0 10px; border-radius: 99px; display: flex; align-items: center; font-size: 12px; font-weight: 500; flex: none; background: var(--wash); }
+.btn.fill { background: var(--warn); color: #1D1A12; }
+.btn.plain { background: none; color: var(--dim); padding: 0 4px; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; }
+/* host pieces */
+.hchip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 2px 8px 2px 6px; border-radius: 99px; flex: none; }
+.eyebrow { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; margin-bottom: 1px; }
+.eyebrow i { color: var(--faint); font-weight: 400; font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foot { display: flex; align-items: center; gap: 8px; margin: 10px -14px -12px; padding: 8px 14px; background: rgba(0,0,0,.16); font-size: 12px; }
+.foot .os { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff; flex: none; }
+.foot b { font-weight: 600; }
+.foot code { font: 11.5px ui-monospace, monospace; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.hh { display: flex; align-items: center; gap: 10px; padding: 14px 6px 8px; }
+.hh .os { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; }
+.hh b { font-size: 14px; }
+.hh small { color: var(--faint); font-size: 12px; }
+.hh .cnt { margin-left: auto; color: var(--faint); font-size: 12px; }
+.seg { display: flex; background: var(--wash); border-radius: 99px; padding: 2px; margin-bottom: 4px; width: max-content; font-size: 12.5px; }
+.seg span { padding: 4px 12px; border-radius: 99px; color: var(--dim); }
+.seg span.on { background: rgba(236,231,223,.14); color: var(--on); }
+@media (max-width: 420px) { section { width: 100%; } }
+</style>
+<style>
+.os{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;flex:none;position:relative}
+.os.sm{width:34px;height:34px;border-radius:10px}
+.osu{width:18px;height:18px;border-radius:50%;background:#e95420;position:relative}.osu:after{content:"";position:absolute;inset:4px;border:2px solid #fff;border-radius:50%}
+.osw{width:16px;height:16px;display:grid;grid-template-columns:1fr 1fr;gap:1.5px}.osw i{background:#1a8cf0}
+.osm{width:14px;height:16px;background:#ddd;border-radius:7px 7px 6px 6px}
+.osl{font:700 13px ui-monospace,monospace;color:var(--dim)}
+.ib{width:30px;height:28px;border-radius:9px;background:var(--wash);display:grid;place-items:center;color:var(--on);flex:none}
+.ib svg{width:15px;height:15px}.ib.live{background:rgba(235,165,128,.22);color:#EBA580}
+.ib.off{opacity:.35}
+.addr{font:11.5px/1.5 ui-monospace,"JetBrains Mono",monospace;color:var(--faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lat{font-size:12px;font-weight:500;display:flex;align-items:center;gap:6px;flex:none}
+.more{width:24px;display:grid;place-items:center;color:var(--faint);flex:none}
+.sbadge{position:absolute;right:-3px;top:-3px;width:11px;height:11px;border-radius:50%;border:2px solid var(--card)}
+.cnt{font-size:12px;color:var(--faint);flex:none}
+.new2{outline:1.5px dashed rgba(235,165,128,.7);outline-offset:2px;border-radius:9px}
+.sub2{display:flex;align-items:center;gap:6px;margin-top:3px;font-size:12px;color:var(--faint);min-width:0}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="t" viewBox="0 0 24 24"><path d="M5 7l4 4-4 4M11 16h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="d" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></g></symbol>
+<symbol id="a" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9.5 13.5h0M14.5 13.5h0"/></g></symbol>
+<symbol id="m" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></g></symbol>
+</defs></svg>
+<header><h1>主机列表 v2 · 和新会话列表同一套样式</h1>
+<p>现在：每台主机一张独立卡片，名字 + user@ip:port + 在线 + 标签，打开终端/桌面都要进 ⋮ 菜单。下面三个方案都沿用会话列表 v7 的样式（面板 + 细线、状态行在最下面、按钮在状态行最右边）。示例：4 台主机，其中 macbook 的桌面已连接、tencent 离线且没装桌面插件。
+<span style="color:#EBA580">橙色虚线</span> = 新加的按钮。<a href="session-list-v7.html" style="color:var(--h-tx)">← 会话列表 v7</a></p></header>
+<nav id="nav"></nav><main id="main"></main>
+<script>
+const H = [
+  { name: "dev-ubuntu", os: "u", addr: "desktop@100.64.0.10:22", st: "on", ms: 12, sess: 2, tags: ["tmux", "密码"], desk: true },
+  { name: "macbook", os: "m", addr: "zihua@100.64.0.4:22", st: "on", ms: 38, sess: 1, tags: ["tmux", "密钥"], desk: true, live: true },
+  { name: "dev-windows", os: "w", addr: "desktop@100.64.0.13:22", st: "on", ms: 309, sess: 0, tags: ["密码"], desk: true },
+  { name: "tencent", os: "l", addr: "root@43.163.113.102:22", st: "off", sess: 0, tags: ["tmux", "密钥"], desk: false },
+];
+const osTile = (h, sm) => `<div class="os ${sm ? "sm" : ""}" style="background:${{u:"#5a3328",m:"#3c3c40",w:"#22374f",l:"rgba(236,231,223,.1)"}[h.os]}">${{u:'<div class="osu"></div>',m:'<div class="osm"></div>',w:'<div class="osw"><i></i><i></i><i></i><i></i></div>',l:'<span class="osl">$_</span>'}[h.os]}</div>`;
+const col = h => h.st === "off" ? "var(--faint)" : h.ms > 200 ? "var(--warn)" : "var(--ok)";
+const lat = h => `<span class="lat" style="color:${col(h)}"><span class="dot" style="width:8px;height:8px;background:${col(h)}"></span>${h.st === "off" ? "离线 · 5分钟前检测" : "在线 · " + h.ms + " ms"}</span>`;
+const ib = (id, cls = "") => `<span class="ib ${cls}"><svg><use href="#${id}"/></svg></span>`;
+const btns = (h, agent) => `<span class="new2" style="display:flex;gap:6px">${ib("t")}${h.desk ? ib("d", h.live ? "live" : "") : ""}${agent ? ib("a") : ""}</span>`;
+const more = `<span class="more"><svg width="16" height="16"><use href="#m"/></svg></span>`;
+const sess = h => h.sess ? `<span class="cnt">· ${h.sess} 个会话</span>` : "";
+const tags = h => h.tags.map(t => `<span class="tag">${t}</span>`).join("");
+
+// H1: one line per host, buttons on the right
+const h1 = h => `<div class="row" style="padding:11px 12px 11px 14px;${h.st === "off" ? "opacity:.6" : ""}"><div class="top" style="gap:12px">${osTile(h, true)}<div class="body">
+  <div class="tl"><span class="name" style="font-size:15px">${h.name}</span></div>
+  <div class="sub2">${lat(h).replace('class="lat"', 'class="lat" style="font-size:11.5px"')}${sess(h)}</div></div>${btns(h)}</div></div>`;
+// H2: like a session row: name / address / status line with buttons
+const h2 = (h, agent) => `<div class="row" style="${h.st === "off" ? "opacity:.6" : ""}"><div class="top">${osTile(h)}<div class="body">
+  <div class="tl"><span class="name">${h.name}</span>${more}</div><div class="addr">${h.addr}</div></div></div>
+  <div class="st">${lat(h)}${sess(h)}<div class="right">${agent ? "" : tags(h)}${btns(h, agent)}</div></div></div>`;
+const panel = rows => `<div class="panel">${rows}</div>`;
+const gh = (l, n, c, fill) => `<div class="gh" style="color:${c}"><span class="ring" ${fill ? `style="background:${c}"` : ""}></span>${l} <span style="opacity:.8">${n}</span></div>`;
+const phone = inner => `<div class="phone"><div class="tabs"><span style="color:var(--faint);font-weight:500">会话</span><span style="color:var(--on);font-weight:600">主机</span></div>
+  <div style="display:flex;justify-content:space-between;color:var(--dim);font-size:13px;padding:2px 6px 6px"><span>主机 · 4</span><span style="font-size:20px;line-height:1">+</span></div>${inner}</div>`;
+const on = H.filter(h => h.st === "on"), off = H.filter(h => h.st === "off");
+const V = [
+  { id: "H1", t: "H1 · 紧凑列表", body: phone(panel(H.map(h1).join(""))),
+    note: "一台主机一行：系统图标 / 名字 / 在线 · 延迟 · 会话数，右边 [终端][桌面]。点行 = 主机详情，长按 = 编辑 / 文件 / 插件 / 删除。地址和标签只在详情页。",
+    pros: ["一屏 8 台以上，主机多时最好找", "终端、桌面一键直达", "看不到 user@ip 和认证方式"] },
+  { id: "H2", t: "H2 · 和会话行同构", rec: true, body: phone(panel(H.map(h => h2(h)).join(""))),
+    note: "和会话列表的行一个结构：标题行 = 名字 + ⋮；第二行 = 等宽地址 user@ip:port（对应会话的目录行）；状态行 = 在线 · 延迟 · 会话数，右边标签和 [终端][桌面]。",
+    pros: ["和会话列表一套语言，切 Tab 不跳戏", "地址、认证方式都还在", "按钮位置和会话列表一致：状态行最右边", "一屏约 5–6 台（现在约 4 台）"] },
+  { id: "H3", t: "H3 · H2 + 在线/离线分组", body: phone(gh("在线", on.length, "var(--ok)") + panel(on.map(h => h2(h, true)).join("")) + gh("离线", off.length, "var(--faint)") + panel(off.map(h => h2(h)).join(""))),
+    note: "在 H2 的基础上，像会话列表一样按状态分组：在线 / 离线，离线的沉到底部。按钮多一个 [Agent]（直接启动 AI Agent），标签移到详情页。",
+    pros: ["离线主机不挡路", "和会话列表的分组标题同款", "Agent 按钮让状态行偏挤，可以不要"] },
+];
+document.getElementById("nav").innerHTML = V.map(v => `<a href="#${v.id}">${v.t}</a>`).join("") + `<a href="toolbar-v2.html">终端操作栏 →</a>`;
+document.getElementById("main").innerHTML = V.map(v => `<section id="${v.id}"><h2>${v.t}${v.rec ? "<small>推荐</small>" : ""}</h2><p class="note">${v.note}</p>${v.body}
+  <ul class="pros">${v.pros.map(p => `<li>${p}</li>`).join("")}</ul></section>`).join("")
+  + `<section><h2>参考：现在的 App</h2><p class="note">每台主机一张独立卡片，终端/桌面在 ⋮ 菜单里。</p><img src="hosts-v2-current.png" style="width:100%;border-radius:20px;border:1px solid #3a3a3c"></section>`;
+</script></body></html>

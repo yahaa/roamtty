@@ -767,6 +767,53 @@ class E2eFeatureTest {
         assertEquals(8, service.sessions.value.count { it.host.id == host.id })
     }
 
+    /**
+     * The session list: agents waiting or finished get the full row (finished: the prompt, the answer above a status
+     * line of how long it worked and when), plain terminals compact rows (name, folder, connection); every finished
+     * agent shows.
+     */
+    @Test fun f24_sessionListRows() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("会话列表", mode = SessionMode.TMUX))
+        val hook = "sh ~/.roamtty/agent-hook.sh claude"
+        suspend fun open(command: String?) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            service.open(host, SessionMode.TMUX, io.itermux.ssh.Credentials(E2e.password.toByteArray())).also { session ->
+                if (command != null) session.runWhenConnected(command, agentHooks = io.itermux.app.session.CodingAgent.CLAUDE)
+            }
+        }
+        fun done(folder: String, answer: String) = "mkdir -p ~/$folder && cd ~/$folder && " +
+            "printf '{\"prompt\":\"tidy $folder\"}' | $hook prompt; " +
+            "printf '{\"last_assistant_message\":\"$answer\"}' | $hook stop; sleep 600"
+        val waiting = open("mkdir -p ~/work/roamtty && cd ~/work/roamtty && " +
+            "printf '{\"prompt\":\"build the release apk\"}' | $hook prompt; " +
+            "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"./gradlew assembleRelease\"}}' | $hook tool; " +
+            "printf '{\"notification_type\":\"permission_prompt\",\"message\":\"Claude needs your permission\"}' | $hook notify; sleep 600")
+        val older = open(done("docs", "README updated."))
+        Thread.sleep(1_500)
+        val latest = open(done("blog", "Fixed 12 broken image links."))
+        val plain = open(null)
+        listOf(waiting, older, latest, plain).forEach { assertEquals(Phase.CONNECTED, E2e.connected(it)) }
+        sessionsTab()
+        compose.waitUntil(40_000) {
+            E2e.exists(compose, hasTestTag("home-session-approve-${waiting.id}")) &&
+                E2e.exists(compose, hasTestTag("home-session-group-done"))
+        }
+        fun tag(name: String) = compose.onNodeWithTag(name, useUnmergedTree = true)
+        // Every row has its folder under its name (the fixture's home is not under /home, so it stays whole).
+        compose.waitUntil(20_000) { E2e.exists(compose, hasTestTag("home-session-location-${waiting.id}")) }
+        assertTrue(compose.text("home-session-location-${waiting.id}").endsWith("/work/roamtty"))
+        tag("home-session-prompt-${waiting.id}").assertExists()
+        // Both finished agents show: the prompt, the answer, and a status line of how long it worked.
+        compose.waitUntil(20_000) { listOf(older, latest).all { E2e.exists(compose, hasTestTag("home-session-reply-${it.id}")) } }
+        listOf(older, latest).forEach {
+            tag("home-session-prompt-${it.id}").assertExists()
+            tag("home-session-done-${it.id}").assertExists()
+            tag("home-session-follow-up-${it.id}").assertExists()
+        }
+        E2e.capture(compose, "f24-session-list")
+        compose.onNodeWithTag("home-sessions-list").performScrollToNode(hasTestTag("home-session-${plain.id}"))
+        tag("home-session-tag-tmux-${plain.id}").assertExists()
+    }
+
     /** 删除主机 removes the host, its saved credentials and closes its sessions. */
     @Test fun f21_deleteHostClosesItsSessions() = runBlocking<Unit> {
         val host = E2e.save(E2e.host("删除"))

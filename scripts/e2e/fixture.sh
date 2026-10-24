@@ -11,6 +11,11 @@ USER_NAME=roamtty_e2e
 FIXTURE=/tmp/roamtty-e2e # also spelled out literally in the rm commands below
 HOME_DIR="$FIXTURE/home"
 PASSWORD_FILE="$ROOT/.private/e2e-password"
+# The remote desktop runs on an Xvfb display of the fixture account; the plugin comes from a local
+# release directory (scripts/package.sh in roamtty-desktop), served on loopback as its download URL.
+DESKTOP_DISPLAY="${ROAMTTY_E2E_DISPLAY:-77}"
+DESKTOP_DIST="${ROAMTTY_DESKTOP_DIST:-$ROOT/../roamtty-desktop/dist}"
+DESKTOP_PORT="${ROAMTTY_E2E_DESKTOP_PORT:-8797}"
 KEYS="$ROOT/ssh-core/src/test/resources/keys"
 
 running() { sudo test -f "$FIXTURE/sshd.pid" && sudo kill -0 "$(sudo cat "$FIXTURE/sshd.pid")" 2>/dev/null; }
@@ -99,7 +104,7 @@ PrintLastLog no
 MaxStartups 50:30:100
 MaxSessions 30
 Subsystem sftp internal-sftp
-SetEnv PATH=$FIXTURE/bin
+SetEnv PATH=$FIXTURE/bin ROAMTTY_DESKTOP_TEST=1
 LogLevel ERROR
 EOF
   # mosh needs UDP, which adb reverse cannot carry, so the fixture hides mosh-server and terminals use SSH.
@@ -116,6 +121,7 @@ EOF
   done
   sudo /usr/sbin/sshd -t -f "$FIXTURE/sshd_config"
   seed_home
+  start_desktop
   if running; then sudo kill -HUP "$(sudo cat "$FIXTURE/sshd.pid")"
   else sudo /usr/sbin/sshd -f "$FIXTURE/sshd_config" -E "$FIXTURE/sshd.log"; fi
   for _ in $(seq 1 20); do ss -ltn | grep -q "127.0.0.1:$PORT " && break; sleep 0.2; done
@@ -123,7 +129,26 @@ EOF
   echo "E2E fixture ready: $USER_NAME@127.0.0.1:$PORT (tmux, SFTP; mosh hidden)"
 }
 
+start_desktop() {
+  # Every run installs the plugin from scratch, as a first use does.
+  sudo rm -rf /tmp/roamtty-e2e/home/.roamtty
+  if command -v Xvfb >/dev/null && command -v xterm >/dev/null; then
+    sudo -u "$USER_NAME" env HOME="$HOME_DIR" setsid Xvfb ":$DESKTOP_DISPLAY" -screen 0 1280x800x24 -nolisten tcp >/dev/null 2>&1 < /dev/null &
+    for _ in $(seq 1 25); do [ -S "/tmp/.X11-unix/X$DESKTOP_DISPLAY" ] && break; sleep 0.2; done
+    sudo -u "$USER_NAME" env HOME="$HOME_DIR" DISPLAY=":$DESKTOP_DISPLAY" setsid xterm -geometry 100x30+0+0 -fa Monospace -fs 14 \
+      -e bash --noprofile --norc >/dev/null 2>&1 < /dev/null &
+    echo "E2E desktop: Xvfb :$DESKTOP_DISPLAY with xterm"
+  else
+    echo "E2E desktop skipped: install Xvfb and xterm" >&2
+  fi
+  if [ -f "$DESKTOP_DIST/manifest.json" ]; then
+    (cd "$DESKTOP_DIST" && setsid python3 -m http.server "$DESKTOP_PORT" --bind 127.0.0.1 >/dev/null 2>&1 < /dev/null &)
+    echo "E2E desktop plugin: http://127.0.0.1:$DESKTOP_PORT/ from $DESKTOP_DIST"
+  fi
+}
+
 stop() {
+  pkill -f "http.server $DESKTOP_PORT --bind 127.0.0.1" 2>/dev/null || true
   if running; then sudo kill "$(sudo cat "$FIXTURE/sshd.pid")"; fi
   # Only the fixture account's own processes (its tmux server and shells).
   if id "$USER_NAME" >/dev/null 2>&1; then sudo pkill -u "$USER_NAME" 2>/dev/null || true; fi

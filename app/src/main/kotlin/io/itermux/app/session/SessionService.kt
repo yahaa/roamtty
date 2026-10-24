@@ -17,6 +17,8 @@ import io.itermux.app.*
 import io.itermux.app.data.Host
 import io.itermux.app.data.installedPlugins
 import io.itermux.app.data.prefersMosh
+import io.itermux.app.desktop.DesktopConnection
+import io.itermux.app.desktop.DesktopRegistry
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +37,9 @@ class SessionService : Service() {
     private val stateWatchers = mutableMapOf<String, Job>()
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val app get() = application as ItermuxApp
+    /** Remote desktops, one per host; see [DesktopRegistry]. */
+    internal val desktops by lazy { DesktopRegistry(app, scope) { scope.launch { watchDesktops() } } }
+    private var desktopWatcher: Job? = null
     inner class LocalBinder : Binder() { val service get() = this@SessionService }
     override fun onBind(intent: Intent?) = binder
     override fun onCreate() {
@@ -93,6 +98,7 @@ class SessionService : Service() {
             onHostSystemDetected = { updateHostSystem(host, it) },
             preferMosh = preferMosh,
             onPluginsDetected = { updatePlugins(host, it) },
+            onDesktopDetected = { updateDesktop(host, it) },
             onAgentReport = ::saveSessions
         )
         mutableSessions.value += connection
@@ -108,6 +114,27 @@ class SessionService : Service() {
     private suspend fun updatePlugins(host: Host, plugins: Set<HostPlugin>) {
         app.database.hosts().updatePlugins(
             host.id, host.address, host.port, host.username, HostPlugin.encode(plugins))
+    }
+
+    internal suspend fun updateDesktop(host: Host, desktop: HostDesktop) {
+        app.database.hosts().updateDesktop(host.id, host.address, host.port, host.username, desktop.desktop, System.currentTimeMillis())
+    }
+
+    /** Opens (or returns) [host]'s desktop and keeps the service in the foreground while it lives. */
+    internal fun openDesktop(host: Host, password: String, passphrase: String, width: Int, height: Int, dpi: Int): DesktopConnection {
+        val connection = desktops.open(host, password, passphrase, width, height, dpi)
+        ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
+        watchDesktops()
+        return connection
+    }
+
+    private fun watchDesktops() {
+        desktopWatcher?.cancel()
+        desktopWatcher = scope.launch {
+            val all = desktops.connections.value.values.toList()
+            if (all.isEmpty()) { refreshNotification(); return@launch }
+            kotlinx.coroutines.flow.merge(*all.map { it.phase }.toTypedArray()).collect { refreshNotification() }
+        }
     }
 
     /** Keeps the foreground notification and wake lock in step with an active connection. */
@@ -143,6 +170,7 @@ class SessionService : Service() {
             onHostSystemDetected = { updateHostSystem(host, it) },
             preferMosh = current.prefersMosh,
             onPluginsDetected = { updatePlugins(host, it) },
+            onDesktopDetected = { updateDesktop(host, it) },
             lastAgentStatus = existing.lastAgentStatus.value,
             onAgentReport = ::saveSessions
         )
@@ -234,7 +262,7 @@ class SessionService : Service() {
                 val changed = current != null && current != network
                 android.util.Log.i("RoamttyConn", "default network $network available, changed=$changed")
                 current = network
-                if (changed) scope.launch { verifyConnections() }
+                if (changed) scope.launch { verifyConnections(); desktops.networkChanged() }
             }
             // No replacement network (airplane mode, Wi-Fi gone without mobile data) sends no onAvailable.
             override fun onLost(network: Network) { android.util.Log.i("RoamttyConn", "default network $network lost"); scope.launch { verifyConnections() } }
@@ -245,7 +273,7 @@ class SessionService : Service() {
         }.getOrNull()
     }
 
-    fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; refreshNotification() }
+    fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; desktops.closeAll(); refreshNotification() }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == DISCONNECT_ALL) { disconnectAll(); stopSelf(); return START_NOT_STICKY }
         ServiceCompat.startForeground(this, NOTIFICATION, notification(),
@@ -255,12 +283,23 @@ class SessionService : Service() {
         return START_NOT_STICKY
     }
     private fun notification(): Notification {
-        val launch = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val live = desktops.live
+        // One live desktop: tapping goes back to it. Several: the app opens on its list, where each has its button.
+        val desktopHost = live.singleOrNull()?.host?.id
+        val launch = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).apply {
+            if (desktopHost != null) putExtra(MainActivity.EXTRA_DESKTOP_HOST, desktopHost)
+        }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val close = PendingIntent.getService(this, 1, Intent(this, SessionService::class.java).setAction(DISCONNECT_ALL), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val active = sessions.value.count { it.state.value.active }
+        // Live desktops get the line, by name.
+        val text = when (live.size) {
+            0 -> tr("轻触返回终端 · 长任务建议使用 tmux")
+            1 -> trf("%s 桌面 · 已连接", live[0].host.name)
+            else -> trf("%d 个桌面已连接 · %s", live.size, live.joinToString("、") { it.host.name })
+        }
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("Roamtty · %d 个 SSH 会话", active))
-            .setContentText(tr("轻触返回终端 · 长任务建议使用 tmux"))
+            .setContentText(text)
             .setOngoing(true).setSilent(true).setContentIntent(launch)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .addAction(0, tr("全部断开"), close).build()
@@ -269,7 +308,7 @@ class SessionService : Service() {
     // break long connections again. Every inactive state, explicit disconnect and onDestroy release it.
     @SuppressLint("WakelockTimeout")
     private fun refreshNotification() {
-        val active = sessions.value.any { it.state.value.active }
+        val active = sessions.value.any { it.state.value.active } || desktops.live.isNotEmpty()
         // A foreground notification alone does not keep the CPU running with the screen off.
         if (active && !wakeLock.isHeld) wakeLock.acquire()
         if (!active && wakeLock.isHeld) wakeLock.release()
@@ -281,6 +320,7 @@ class SessionService : Service() {
     override fun onDestroy() {
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         mutableSessions.value.forEach { it.disconnect() }
+        desktops.closeAll()
         scope.cancel()
         if (wakeLock.isHeld) wakeLock.release()
         super.onDestroy()

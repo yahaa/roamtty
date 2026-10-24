@@ -46,6 +46,9 @@ class JschSession(
     private val mutableDetectedPlugins = MutableStateFlow<Set<HostPlugin>?>(null)
     /** tmux/mosh availability, probed with the system on every authenticated connection. */
     val detectedPlugins = mutableDetectedPlugins.asStateFlow()
+    private val mutableDetectedDesktop = MutableStateFlow<HostDesktop?>(null)
+    /** The read-only desktop probe that runs with the plugin probe; null until it answered. */
+    val detectedDesktop = mutableDetectedDesktop.asStateFlow()
     private val mutableNativeWindows = MutableStateFlow<Boolean?>(null)
     /** True once a plugin probe found cmd.exe or PowerShell, not a POSIX shell; null until probed. */
     val nativeWindows = mutableNativeWindows.asStateFlow()
@@ -186,22 +189,32 @@ class JschSession(
         CoroutineScope(Dispatchers.IO).launch { runCatching { probeHostSystem(ssh) } }
 
     /** POSIX shells first; a host without one may still answer through PowerShell. */
-    private suspend fun probePlugins(ssh: Session): Set<HostPlugin>? =
-        HostPluginProbe.parse(runCommand(ssh, HostPluginProbe.command, HostPluginProbe.script))
+    private suspend fun probePlugins(ssh: Session): Set<HostPlugin>? {
+        val output = runCommand(ssh, HostPluginProbe.command, HostPluginProbe.script)
+        HostPluginProbe.parseDesktop(output)?.let { mutableDetectedDesktop.value = it }
+        return HostPluginProbe.parse(output)
             ?.also { mutableNativeWindows.value = false; mutableDetectedPlugins.value = it }
             ?: probeWindowsPlugins(ssh)
+    }
 
-    private suspend fun probeWindowsPlugins(ssh: Session): Set<HostPlugin>? =
-        Psmux.parseProbe(runCommand(ssh, Psmux.probeCommand))
-            ?.let { found -> if (found) setOf(HostPlugin.PSMUX) else emptySet() }
-            ?.also { mutableNativeWindows.value = true; mutableDetectedPlugins.value = it }
+    private suspend fun probeWindowsPlugins(ssh: Session): Set<HostPlugin>? {
+        val found = Psmux.parseProbe(runCommand(ssh, Psmux.probeCommand))
+            ?.let { found -> if (found) setOf(HostPlugin.PSMUX) else emptySet() } ?: return null
+        mutableNativeWindows.value = true
+        // The desktop side of a native Windows shell: the console user and the plugin, read-only.
+        val desktop = HostPluginProbe.parseDesktop(runCommand(ssh, WindowsDesktop.probeCommand))
+        desktop?.let { mutableDetectedDesktop.value = it }
+        val plugins = if (desktop?.pluginVersion != null) found + HostPlugin.DESKTOP else found
+        mutableDetectedPlugins.value = plugins
+        return plugins
+    }
 
-    /** tmux where a POSIX shell has it, else psmux on a native Windows shell; null when neither runs. */
-    private suspend fun findMultiplexer(ssh: Session): HostPlugin? = multiplexer.value ?: when {
+    /** Check each fresh login: the multiplexer may have been removed while the connection was down. */
+    private suspend fun findMultiplexer(ssh: Session): HostPlugin? = when {
         hasTmux(ssh) -> HostPlugin.TMUX
         Psmux.parseProbe(runCommand(ssh, Psmux.probeCommand)) == true -> HostPlugin.PSMUX
         else -> null
-    }?.also { mutableMultiplexer.value = it }
+    }.also { mutableMultiplexer.value = it }
 
     private fun tcpKeepaliveFactory() = object : SocketFactory {
         override fun createSocket(host: String, port: Int): Socket {
@@ -445,6 +458,30 @@ class JschSession(
             execute(ssh, HostPluginProbe.command, script, timeoutMs, onLine = onLine)?.first
         override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int? =
             execute(ssh, command, null, timeoutMs, onLine = onLine)?.first
+        override suspend fun probeDesktop(): HostDesktop? {
+            probePlugins(ssh)
+            return mutableDetectedDesktop.value
+        }
+        override suspend fun upload(remotePath: String, source: InputStream) = files.upload(remotePath, source)
+        override suspend fun openStream(command: String): RemoteStream? = withContext(Dispatchers.IO) {
+            val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
+            try {
+                exec.setCommand(command)
+                val output = exec.inputStream
+                val input = exec.outputStream
+                val errors = exec.errStream
+                exec.connect(connectTimeoutMs)
+                object : RemoteStream {
+                    override val input: InputStream = output
+                    override val output: OutputStream = input
+                    override val errors: InputStream = errors
+                    override val closed: Boolean get() = exec.isClosed
+                    override val exitStatus: Int? get() = exec.exitStatus.takeIf { exec.isClosed && it >= 0 }
+                    override fun close() { exec.disconnect() }
+                }
+            } catch (e: CancellationException) { exec.disconnect(); throw e }
+            catch (_: Exception) { exec.disconnect(); null }
+        }
     }
 
     /**

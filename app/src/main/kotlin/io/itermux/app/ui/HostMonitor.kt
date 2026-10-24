@@ -121,6 +121,10 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
             // Keep showing the reconnect notice until this login gets past connecting.
             val state = launch { ssh.state.collect { if (it.phase != Phase.CONNECTING || !connection.value.active) connection.value = it } }
             ssh.administer { remote ->
+                // Opening the host page refreshes its desktop probe (read-only, one shell call).
+                runCatching { remote.probeDesktop()?.let { d ->
+                    app.database.hosts().updateDesktop(host.id, host.address, host.port, host.username, d.desktop, System.currentTimeMillis())
+                } }
                 this@HostMonitor.remote = remote
                 ready.value = true
                 try { if (sampleMetrics) sample(remote) else awaitCancellation() }

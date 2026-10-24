@@ -1,0 +1,127 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>会话行桌面按钮</title>
+<style>
+:root {
+  --page: #1b1c1e; --bg: #252628; --card: #333230; --on: #ECE7DF; --dim: #B4AEA4; --faint: #8a857d;
+  --hair: rgba(236,231,223,.07); --wash: rgba(236,231,223,.07);
+  --warn: #F2B84B; --ok: #6CC287; --work: #D97757;
+  --claude: #D97757; --codex: #9AA7FF;
+  --h-dev: #4FB6A8; --h-mac: #B394F0; --h-tx: #6AA7F5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--on); font: 14px/1.45 system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+header { padding: 20px 16px 8px; max-width: 1500px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 6px; }
+header p { margin: 0; color: var(--dim); }
+nav { position: sticky; top: 0; z-index: 5; background: var(--page); padding: 10px 16px; display: flex; gap: 6px; overflow-x: auto; max-width: 1500px; margin: 0 auto; }
+nav a { flex: none; padding: 6px 12px; border-radius: 99px; background: var(--wash); color: var(--on); text-decoration: none; font-size: 13px; }
+main { display: flex; flex-wrap: wrap; gap: 28px 24px; padding: 8px 16px 40px; max-width: 1500px; margin: 0 auto; }
+section { width: 380px; max-width: 100%; scroll-margin-top: 56px; }
+section h2 { font-size: 16px; margin: 0 0 4px; }
+section h2 small { color: var(--warn); font-weight: 500; font-size: 12px; margin-left: 6px; }
+.note { color: var(--dim); font-size: 13px; margin: 0 0 10px; min-height: 58px; }
+.pros { font-size: 12.5px; color: var(--dim); margin: 10px 0 0; padding-left: 18px; }
+.pros li { margin: 2px 0; }
+.phone { background: var(--bg); border-radius: 28px; padding: 14px 12px 18px; border: 1px solid #3a3a3c; }
+.tabs { display: flex; justify-content: center; gap: 28px; font-size: 19px; font-weight: 600; padding: 4px 0 12px; }
+.tabs span:last-child { color: var(--faint); font-weight: 500; }
+.chips { display: flex; gap: 6px; overflow: hidden; padding-bottom: 4px; }
+.chip { flex: none; display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 99px; background: var(--wash); font-size: 12.5px; color: var(--dim); }
+.chip b { color: var(--on); }
+.chip.sel { background: rgba(236,231,223,.12); box-shadow: inset 0 0 0 1px rgba(236,231,223,.3); color: var(--on); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.gh { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 14px 6px 8px; }
+.ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; }
+.panel { border-radius: 18px; overflow: hidden; background: var(--card); }
+.row { position: relative; padding: 12px 14px; }
+.row + .row::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; height: 1px; background: var(--hair); }
+.row.wait::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--warn); }
+.top { display: flex; align-items: center; gap: 12px; }
+.tile { position: relative; width: 40px; height: 40px; border-radius: 11px; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.tile .sd { position: absolute; right: -2px; top: -2px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--card); }
+.tile .os { position: absolute; right: -5px; bottom: -5px; width: 19px; height: 19px; border-radius: 6px; border: 2px solid var(--card); display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff; }
+.body { flex: 1; min-width: 0; }
+.tl { display: flex; align-items: center; gap: 6px; }
+.badge { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; flex: none; }
+.name { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.time { font-size: 12px; color: var(--faint); flex: none; }
+.sub { font-size: 12.5px; color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub i { color: var(--faint); font-style: normal; }
+.act { font: 12px/1.4 ui-monospace, "JetBrains Mono", monospace; color: var(--dim); margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply { font-size: 12.5px; color: var(--dim); margin-top: 8px; }
+.st { display: flex; align-items: center; margin-top: 8px; min-height: 28px; gap: 6px; }
+.lab { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; flex: none; }
+.right { flex: 1; min-width: 0; display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+.loc { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tag { font-size: 10.5px; padding: 2px 6px; border-radius: 5px; background: var(--wash); color: var(--dim); flex: none; }
+.btn { height: 28px; padding: 0 10px; border-radius: 99px; display: flex; align-items: center; font-size: 12px; font-weight: 500; flex: none; background: var(--wash); }
+.btn.fill { background: var(--warn); color: #1D1A12; }
+.btn.plain { background: none; color: var(--dim); padding: 0 4px; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; }
+/* host pieces */
+.hchip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 2px 8px 2px 6px; border-radius: 99px; flex: none; }
+.eyebrow { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; margin-bottom: 1px; }
+.eyebrow i { color: var(--faint); font-weight: 400; font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foot { display: flex; align-items: center; gap: 8px; margin: 10px -14px -12px; padding: 8px 14px; background: rgba(0,0,0,.16); font-size: 12px; }
+.foot .os { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff; flex: none; }
+.foot b { font-weight: 600; }
+.foot code { font: 11.5px ui-monospace, monospace; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.hh { display: flex; align-items: center; gap: 10px; padding: 14px 6px 8px; }
+.hh .os { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; }
+.hh b { font-size: 14px; }
+.hh small { color: var(--faint); font-size: 12px; }
+.hh .cnt { margin-left: auto; color: var(--faint); font-size: 12px; }
+.seg { display: flex; background: var(--wash); border-radius: 99px; padding: 2px; margin-bottom: 4px; width: max-content; font-size: 12.5px; }
+.seg span { padding: 4px 12px; border-radius: 99px; color: var(--dim); }
+.seg span.on { background: rgba(236,231,223,.14); color: var(--on); }
+@media (max-width: 420px) { section { width: 100%; } }
+</style>
+<style>
+.t2{height:24px;display:inline-flex;align-items:center;gap:4px;padding:0 8px;border-radius:6px;background:rgba(236,231,223,.06);color:var(--dim);font-size:12px;flex:none;position:relative}
+.t2.ico{width:30px;padding:0;justify-content:center}
+.t2.live{background:rgba(235,165,128,.16);color:#EBA580}
+.t2 .bd{position:absolute;right:-3px;top:-3px;width:8px;height:8px;border-radius:50%;border:1.5px solid var(--card)}
+.t2.out{background:none;box-shadow:inset 0 0 0 1px rgba(236,231,223,.18);color:var(--on)}
+.t2.out.live{box-shadow:inset 0 0 0 1px rgba(235,165,128,.6);color:#EBA580;background:rgba(235,165,128,.08)}
+.t2 .sd{width:6px;height:6px;border-radius:50%;flex:none}
+.cur{width:34px;height:30px;border-radius:9px;display:grid;place-items:center;background:rgba(236,231,223,.07);color:var(--on);position:relative;flex:none}
+.cur.live{background:rgba(235,165,128,.22);color:#EBA580}
+.cur .bd{position:absolute;right:-3px;top:-3px;width:8px;height:8px;border-radius:50%;border:1.5px solid var(--card)}
+.states{display:grid;grid-template-columns:62px 1fr;gap:8px 10px;align-items:center;margin-top:10px;font-size:12px;color:var(--dim)}
+.states .r{display:flex;gap:6px;justify-content:flex-end;align-items:center}
+.reply2{width:28px;height:28px;border-radius:99px;background:var(--wash);display:grid;place-items:center;color:var(--on)}
+</style></head><body>
+<header><h1>会话行的桌面按钮 · 和 tag 统一风格</h1>
+<p>问题：现在的桌面按钮是 34×30 的亮底方块，比 tmux / mosh 这些 tag 高、颜色重，放在一排里很突兀。下面三个方案都把它做成和 tag <b>同高（24dp）、同圆角（6dp）</b>的样子，只是表达“可点”的方式不同。每个方案下面列出五种连接状态的样子（都不转圈）。</p></header>
+<main><section><h2>现在</h2><p class="note">34×30 圆角方块，比 tag 高、底色更亮、图标更大，和左边 tmux / mosh 不是一套。</p><div class="phone" style="padding-top:8px"><div class="panel"><div class="row"><div class="top"><div class="tile" style="background:rgba(217,119,87,.16);color:var(--claude)">✳<span class="sd" style="background:var(--ok)"></span></div><div class="body">
+<div class="tl"><span class="badge" style="color:var(--claude);background:rgba(217,119,87,.14)">Claude</span><span class="name">roamtty</span><span class="hchip" style="color:var(--h-tx);background:rgba(106,167,245,.14)"><span class="dot" style="background:var(--h-tx)"></span>dev</span></div>
+<div class="pl" style="font:11.5px ui-monospace,monospace;color:var(--faint);margin-top:2px">🗀 ~/work/roamtty</div><div class="sub"><i>你: </i>把会话列表的桌面按钮改成 tag 风格</div></div></div>
+<div class="reply">已改好，三个方案见设计稿。</div>
+<div class="st"><span class="lab" style="color:var(--ok)">✻ 4m12s <span style="color:var(--faint);font-weight:400">· 1分钟前</span></span><div class="right"><span class="t2">tmux</span><span class="t2">mosh</span><span class="reply2"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="flex:none"><path d="M4 5h16v11H9l-5 4z"/></svg></span><span class="cur live"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span class="bd" style="background:var(--ok)"></span></span></div></div></div><div class="row"><div class="top"><div class="tile" style="background:rgba(236,231,223,.1);color:var(--dim);font-size:13px">$_</div><div class="body">
+<div class="tl"><span class="name">会话 1</span><span class="hchip" style="color:var(--h-mac);background:rgba(179,148,240,.14)"><span class="dot" style="background:var(--h-mac)"></span>mac</span></div>
+<div class="pl" style="font:11.5px ui-monospace,monospace;color:var(--faint);margin-top:2px">🗀 ~/work/roamtty-ios</div></div></div>
+<div class="st"><span class="lab" style="color:var(--ok)"><span class="dot" style="width:8px;height:8px;background:var(--ok)"></span>已连接</span><div class="right"><span class="t2">tmux</span><span class="t2">mosh</span><span class="cur "><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span></div></div></div></div></div>
+<ul class="pros"></ul></section><section><h2>A · 图标 + 文字 tag<small>推荐</small></h2><p class="note">和 tmux / mosh 同高（24dp）、同圆角（6dp）、同底色，多一个小电脑图标和“桌面”两个字。已连接时变成橙色 tag，右上角绿点。追问改成同款纯图标 tag，整行右侧是一排同样高度的小 tag。</p><div class="phone" style="padding-top:8px"><div class="panel"><div class="row"><div class="top"><div class="tile" style="background:rgba(217,119,87,.16);color:var(--claude)">✳<span class="sd" style="background:var(--ok)"></span></div><div class="body">
+<div class="tl"><span class="badge" style="color:var(--claude);background:rgba(217,119,87,.14)">Claude</span><span class="name">roamtty</span><span class="hchip" style="color:var(--h-tx);background:rgba(106,167,245,.14)"><span class="dot" style="background:var(--h-tx)"></span>dev</span></div>
+<div class="pl" style="font:11.5px ui-monospace,monospace;color:var(--faint);margin-top:2px">🗀 ~/work/roamtty</div><div class="sub"><i>你: </i>把会话列表的桌面按钮改成 tag 风格</div></div></div>
+<div class="reply">已改好，三个方案见设计稿。</div>
+<div class="st"><span class="lab" style="color:var(--ok)">✻ 4m12s <span style="color:var(--faint);font-weight:400">· 1分钟前</span></span><div class="right"><span class="t2">tmux</span><span class="t2">mosh</span><span class="t2 ico"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="flex:none"><path d="M4 5h16v11H9l-5 4z"/></svg></span><span class="t2 live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面<span class="bd" style="background:var(--ok)"></span></span></div></div></div><div class="row"><div class="top"><div class="tile" style="background:rgba(236,231,223,.1);color:var(--dim);font-size:13px">$_</div><div class="body">
+<div class="tl"><span class="name">会话 1</span><span class="hchip" style="color:var(--h-mac);background:rgba(179,148,240,.14)"><span class="dot" style="background:var(--h-mac)"></span>mac</span></div>
+<div class="pl" style="font:11.5px ui-monospace,monospace;color:var(--faint);margin-top:2px">🗀 ~/work/roamtty-ios</div></div></div>
+<div class="st"><span class="lab" style="color:var(--ok)"><span class="dot" style="width:8px;height:8px;background:var(--ok)"></span>已连接</span><div class="right"><span class="t2">tmux</span><span class="t2">mosh</span><span class="t2 "><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面</span></div></div></div></div><div class="states"><span>未连接</span><span class="r"><span class="t2 "><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面</span></span><span>连接中</span><span class="r"><span class="t2 live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面</span></span><span>已连接</span><span class="r"><span class="t2 live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面<span class="bd" style="background:var(--ok)"></span></span></span><span>网络差</span><span class="r"><span class="t2 live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面<span class="bd" style="background:var(--warn)"></span></span></span><span>需要操作</span><span class="r"><span class="t2 "><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面<span class="bd" style="background:var(--warn)"></span></span></span></div></div>
+<ul class="pros"><li>读起来像“tmux · mosh · 桌面”，一眼知道是什么</li><li>可点的 tag 和普通 tag 长得太像，需要靠图标区分</li></ul></section><section><h2>B · 纯图标 tag</h2><p class="note">同高同圆角同底色，只放图标（30×24）。追问也改成同款图标 tag。最省地方。</p><div class="phone" style="padding-top:8px"><div class="panel"><div class="row"><div class="top"><div class="tile" style="background:rgba(217,119,87,.16);color:var(--claude)">✳<span class="sd" style="background:var(--ok)"></span></div><div class="body">
+<div class="tl"><span class="badge" style="color:var(--claude);background:rgba(217,119,87,.14)">Claude</span><span class="name">roamtty</span><span class="hchip" style="color:var(--h-tx);background:rgba(106,167,245,.14)"><span class="dot" style="background:var(--h-tx)"></span>dev</span></div>
+<div class="pl" style="font:11.5px ui-monospace,monospace;color:var(--faint);margin-top:2px">🗀 ~/work/roamtty</div><div class="sub"><i>你: </i>把会话列表的桌面按钮改成 tag 风格</div></div></div>
+<div class="reply">已改好，三个方案见设计稿。</div>
+<div class="st"><span class="lab" style="color:var(--ok)">✻ 4m12s <span style="color:var(--faint);font-weight:400">· 1分钟前</span></span><div class="right"><span class="t2">tmux</span><span class="t2">mosh</span><span class="t2 ico"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="flex:none"><path d="M4 5h16v11H9l-5 4z"/></svg></span><span class="t2 ico live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span class="bd" style="background:var(--ok)"></span></span></div></div></div><div class="row"><div class="top"><div class="tile" style="background:rgba(236,231,223,.1);color:var(--dim);font-size:13px">$_</div><div class="body">
+<div class="tl"><span class="name">会话 1</span><span class="hchip" style="color:var(--h-mac);background:rgba(179,148,240,.14)"><span class="dot" style="background:var(--h-mac)"></span>mac</span></div>
+<div class="pl" style="font:11.5px ui-monospace,monospace;color:var(--faint);margin-top:2px">🗀 ~/work/roamtty-ios</div></div></div>
+<div class="st"><span class="lab" style="color:var(--ok)"><span class="dot" style="width:8px;height:8px;background:var(--ok)"></span>已连接</span><div class="right"><span class="t2">tmux</span><span class="t2">mosh</span><span class="t2 ico "><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span></div></div></div></div><div class="states"><span>未连接</span><span class="r"><span class="t2 ico "><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span></span><span>连接中</span><span class="r"><span class="t2 ico live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span></span><span>已连接</span><span class="r"><span class="t2 ico live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span class="bd" style="background:var(--ok)"></span></span></span><span>网络差</span><span class="r"><span class="t2 ico live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span class="bd" style="background:var(--warn)"></span></span></span><span>需要操作</span><span class="r"><span class="t2 ico "><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span class="bd" style="background:var(--warn)"></span></span></span></div></div>
+<ul class="pros"><li>最紧凑，右侧整齐</li><li>只有图标，新用户要猜</li></ul></section><section><h2>C · 描边按钮 tag</h2><p class="note">同高同圆角，但用细描边代替底色，表示“这是能点的”；连接中直接写“连接中”（不转圈），已连接是橙色描边 + 绿点。</p><div class="phone" style="padding-top:8px"><div class="panel"><div class="row"><div class="top"><div class="tile" style="background:rgba(217,119,87,.16);color:var(--claude)">✳<span class="sd" style="background:var(--ok)"></span></div><div class="body">
+<div class="tl"><span class="badge" style="color:var(--claude);background:rgba(217,119,87,.14)">Claude</span><span class="name">roamtty</span><span class="hchip" style="color:var(--h-tx);background:rgba(106,167,245,.14)"><span class="dot" style="background:var(--h-tx)"></span>dev</span></div>
+<div class="pl" style="font:11.5px ui-monospace,monospace;color:var(--faint);margin-top:2px">🗀 ~/work/roamtty</div><div class="sub"><i>你: </i>把会话列表的桌面按钮改成 tag 风格</div></div></div>
+<div class="reply">已改好，三个方案见设计稿。</div>
+<div class="st"><span class="lab" style="color:var(--ok)">✻ 4m12s <span style="color:var(--faint);font-weight:400">· 1分钟前</span></span><div class="right"><span class="t2">tmux</span><span class="t2">mosh</span><span class="t2 ico"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="flex:none"><path d="M4 5h16v11H9l-5 4z"/></svg></span><span class="t2 out live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面<span class="sd" style="background:var(--ok)"></span></span></div></div></div><div class="row"><div class="top"><div class="tile" style="background:rgba(236,231,223,.1);color:var(--dim);font-size:13px">$_</div><div class="body">
+<div class="tl"><span class="name">会话 1</span><span class="hchip" style="color:var(--h-mac);background:rgba(179,148,240,.14)"><span class="dot" style="background:var(--h-mac)"></span>mac</span></div>
+<div class="pl" style="font:11.5px ui-monospace,monospace;color:var(--faint);margin-top:2px">🗀 ~/work/roamtty-ios</div></div></div>
+<div class="st"><span class="lab" style="color:var(--ok)"><span class="dot" style="width:8px;height:8px;background:var(--ok)"></span>已连接</span><div class="right"><span class="t2">tmux</span><span class="t2">mosh</span><span class="t2 out "><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面</span></div></div></div></div><div class="states"><span>未连接</span><span class="r"><span class="t2 out "><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面</span></span><span>连接中</span><span class="r"><span class="t2 out live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>连接中<span class="sd" style="background:#EBA580"></span></span></span><span>已连接</span><span class="r"><span class="t2 out live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面<span class="sd" style="background:var(--ok)"></span></span></span><span>网络差</span><span class="r"><span class="t2 out live"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面<span class="sd" style="background:var(--warn)"></span></span></span><span>需要操作</span><span class="r"><span class="t2 out "><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>桌面<span class="sd" style="background:var(--warn)"></span></span></span></div></div>
+<ul class="pros"><li>和纯展示的 tag 有区分，又是同一套尺寸</li><li>描边比底色多一点视觉重量</li></ul></section></main></body></html>

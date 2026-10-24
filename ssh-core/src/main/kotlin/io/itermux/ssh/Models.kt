@@ -218,4 +218,20 @@ interface RemoteHost {
     suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int?
     /** Runs a command through the server's configured shell, without requiring a POSIX shell. */
     suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int?
+    /** Runs the plugin probe again and returns its desktop part. */
+    suspend fun probeDesktop(): HostDesktop? = null
+    /** SFTP upload; a relative [remotePath] is under the login's home. Fails if the file exists. */
+    suspend fun upload(remotePath: String, source: java.io.InputStream): Unit = throw UnsupportedOperationException()
+    /** A long-running command whose stdin/stdout carry a binary protocol; null when it could not start. */
+    suspend fun openStream(command: String): RemoteStream? = null
+}
+
+/** One exec channel kept open: [input] reads the command's stdout, [output] writes its stdin. */
+interface RemoteStream : java.io.Closeable {
+    val input: java.io.InputStream
+    val output: java.io.OutputStream
+    val errors: java.io.InputStream
+    val closed: Boolean
+    /** Set once the command exited. */
+    val exitStatus: Int?
 }

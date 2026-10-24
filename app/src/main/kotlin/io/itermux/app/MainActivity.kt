@@ -23,11 +23,14 @@ import java.time.Instant
 private const val SPLASH_MIN_MS = 1600L
 
 class MainActivity : ComponentActivity() {
+    companion object { const val EXTRA_DESKTOP_HOST = "io.itermux.DESKTOP_HOST" }
     private var service by mutableStateOf<SessionService?>(null)
     private var bound = false
     private var terminalChrome = false
     private var lightTheme = false
     private var pendingShareImages by mutableStateOf<List<Uri>>(emptyList())
+    /** The notification's desktop line was tapped: the host whose desktop page to show. */
+    private var pendingDesktopHost by mutableStateOf<String?>(null)
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             service = (binder as SessionService.LocalBinder).service.also {
@@ -57,12 +60,15 @@ class MainActivity : ComponentActivity() {
         }
         pendingShareImages = savedInstanceState?.getStringArrayList("pendingShareImages")?.map(Uri::parse)
             ?: ShareImageIntents.takeImageUris(intent)
+        if (savedInstanceState == null) pendingDesktopHost = intent.getStringExtra(EXTRA_DESKTOP_HOST)
         setContent {
             ItermuxScreen(
                 application as ItermuxApp,
                 service,
                 pendingShareImages = pendingShareImages,
                 onShareImagesConsumed = { pendingShareImages = emptyList() },
+                pendingDesktopHost = pendingDesktopHost,
+                onDesktopHostConsumed = { pendingDesktopHost = null },
             ) { visible, light ->
                 terminalChrome = visible
                 lightTheme = light
@@ -74,6 +80,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingShareImages = pendingShareImages + ShareImageIntents.takeImageUris(intent)
+        intent.getStringExtra(EXTRA_DESKTOP_HOST)?.let { pendingDesktopHost = it }
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putStringArrayList("pendingShareImages", ArrayList(pendingShareImages.map(Uri::toString)))

@@ -1,0 +1,6 @@
+{"name":"cold_start_p50_ms","value":762,"unit":"ms"}
+{"name":"cold_start_max_ms","value":780,"unit":"ms"}
+{"name":"desktop_install_first_frame_ms","value":2676,"unit":"ms"}
+{"name":"desktop_static_frames_3s","value":0,"unit":"count"}
+{"name":"desktop_rtt_ms","value":3,"unit":"ms"}
+{"name":"desktop_resume_first_frame_ms","value":192,"unit":"ms"}

@@ -81,7 +81,6 @@ class HostSystemUiTest {
             fillEditor(name, port = "1")
             awaitSaved()
             assertEquals("UNKNOWN", savedHost(name).os)
-            compose.onNodeWithText("待检测系统").assertExists()
         } finally { removeHost(name) }
     }
 

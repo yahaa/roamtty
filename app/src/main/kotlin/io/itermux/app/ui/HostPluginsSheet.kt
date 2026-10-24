@@ -224,6 +224,7 @@ private fun pluginDescription(plugin: HostPlugin) = when (plugin) {
     HostPlugin.TMUX -> tr("会话保持：断网或关闭 App 后远端任务继续运行，重连即可恢复原会话。")
     HostPlugin.MOSH -> tr("移动网络优化：基于 UDP，切换网络或锁屏后自动恢复。需放行 UDP 60000–61000。")
     HostPlugin.PSMUX -> tr("Windows 版 tmux：断网或关闭 App 后远端任务继续运行，重连即可恢复原会话。")
+    HostPlugin.DESKTOP -> tr("远程桌面：在会话卡片上点桌面按钮即可安装。")
 }
 
 /** Which package manager installs plugins on this kind of host, and whether it needs sudo. */

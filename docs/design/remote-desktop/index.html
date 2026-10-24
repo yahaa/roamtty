@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>远程桌面设计稿</title>
+<style>
+:root {
+  --page: #1b1c1e; --bg: #252728; --surface: #303230; --card: #353632; --card-hi: #3D3E39; --hi2: #484944;
+  --on: #F3F0EA; --dim: #C7C4BD; --faint: #A3A099; --line: #50514B;
+  --pri: #EFA783; --on-pri: #442315; --pri-cont: #5B3C30; --on-pri-cont: #F9D9C9;
+  --ok: #7FD19B; --warn: #F2C46D; --err: #FFB4A8; --mac: #B394F0; --dev: #4FB6A8;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--on); font: 14px/1.45 Roboto, "Noto Sans SC", "PingFang SC", system-ui, sans-serif; }
+header { padding: 20px 16px 8px; max-width: 1500px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 6px; }
+header p { margin: 0; color: var(--dim); max-width: 860px; }
+nav { position: sticky; top: 0; z-index: 9; background: var(--page); padding: 10px 16px; display: flex; gap: 6px; overflow-x: auto; max-width: 1500px; margin: 0 auto; }
+nav a { flex: none; padding: 6px 12px; border-radius: 99px; background: rgba(243,240,234,.08); color: var(--on); text-decoration: none; font-size: 13px; }
+.group { max-width: 1500px; margin: 0 auto; padding: 18px 16px 6px; scroll-margin-top: 52px; }
+.group > h2 { font-size: 17px; margin: 0 0 4px; }
+.group > p { margin: 0 0 14px; color: var(--dim); }
+.row { display: flex; flex-wrap: wrap; gap: 28px 24px; }
+figure { margin: 0; max-width: 100%; }
+figcaption { margin-top: 10px; max-width: 100%; }
+figcaption b { display: block; font-size: 15px; margin-bottom: 2px; }
+figcaption span { color: var(--dim); font-size: 13px; }
+.fit { position: relative; overflow: hidden; padding: 8px; }
+.phone { position: relative; overflow: hidden; background: var(--bg); border-radius: 30px; box-shadow: 0 0 0 7px #0d0d0e, 0 0 0 8px #3a3a3a; transform-origin: 0 0; }
+.portrait { width: 390px; height: 844px; }
+.land { width: 844px; height: 390px; background: #000; }
+.ico { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.sm { width: 18px; height: 18px; }
+.lg { width: 30px; height: 30px; }
+.toolbar { height: 56px; display: flex; align-items: center; padding: 0 6px; gap: 4px; }
+.toolbar .t { flex: 1; font-size: 22px; font-weight: 600; padding-left: 6px; }
+.ibtn { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; color: var(--on); background: none; border: 0; padding: 0; }
+.panel { background: var(--card); border-radius: 22px; margin: 0 16px; }
+.prow { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-top: 1px solid var(--line); }
+.prow:first-child { border-top: 0; }
+.prow .grow { flex: 1; min-width: 0; }
+.prow .s { color: var(--dim); font-size: 12.5px; }
+.label { color: var(--dim); font-size: 13px; padding: 16px 32px 8px; }
+.chip { font-size: 12px; padding: 3px 9px; border-radius: 8px; background: var(--hi2); color: var(--on); white-space: nowrap; }
+.chip.ok { background: rgba(127,209,155,.16); color: var(--ok); }
+.chip.warn { background: rgba(242,196,109,.16); color: var(--warn); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); display: inline-block; flex: none; }
+.btn { height: 52px; border-radius: 26px; border: 0; font: inherit; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; }
+.btn.pri { background: var(--pri); color: var(--on-pri); }
+.btn.sec { background: var(--card-hi); color: var(--on); }
+.btn.text { background: none; color: var(--pri); }
+.scrim { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: 28px 28px 0 0; padding: 10px 20px 24px; }
+.handle { width: 40px; height: 4px; border-radius: 2px; background: var(--faint); margin: 0 auto 18px; opacity: .6; }
+.sheet h3 { margin: 0; font-size: 22px; }
+.sheet .sub { color: var(--dim); font-size: 13.5px; margin: 4px 0 18px; }
+.check { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; }
+.check .ico { margin-top: 1px; }
+.muted { color: var(--dim); }
+.spin { width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid rgba(239,167,131,.25); border-top-color: var(--pri); flex: none; animation: s 1s linear infinite; }
+@keyframes s { to { transform: rotate(360deg); } }
+.seg { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 3px; }
+.seg span { flex: 1; text-align: center; padding: 7px 0; border-radius: 9px; font-size: 13.5px; color: var(--dim); }
+.seg span.on { background: var(--hi2); color: var(--on); font-weight: 600; }
+/* remote screen */
+.remote { position: absolute; width: 600px; height: 390px; overflow: hidden; background: #24465a; font-size: 9px; color: #e8eef2; }
+.r-bar { height: 16px; background: rgba(10,16,20,.45); display: flex; align-items: center; gap: 10px; padding: 0 8px; }
+.r-bar .ctl { margin-left: auto; display: flex; gap: 4px; align-items: center; background: rgba(239,167,131,.9); color: #3b1d10; border-radius: 4px; padding: 0 5px; font-weight: 600; }
+.win { position: absolute; border-radius: 7px; overflow: hidden; box-shadow: 0 6px 22px rgba(0,0,0,.45); }
+.win .tb { height: 20px; display: flex; align-items: center; gap: 5px; padding: 0 8px; }
+.win .tb i { width: 7px; height: 7px; border-radius: 50%; background: #8a8f94; display: block; }
+.dock { position: absolute; left: 50%; transform: translateX(-50%); bottom: 5px; height: 30px; padding: 4px 6px; border-radius: 10px; background: rgba(255,255,255,.18); display: flex; gap: 5px; }
+.dock i { width: 22px; height: 22px; border-radius: 6px; display: block; }
+.cursor { position: absolute; width: 16px; height: 22px; filter: drop-shadow(0 1px 1px rgba(0,0,0,.6)); }
+.gutter { position: absolute; top: 0; bottom: 0; width: 122px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 14px 0; color: var(--on); }
+.pill { background: rgba(48,50,48,.92); border-radius: 26px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.pill .ibtn { width: 48px; height: 48px; }
+.pill .ibtn.on { background: var(--pri-cont); color: var(--on-pri-cont); }
+.net { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11.5px; color: var(--dim); }
+.keys { display: flex; gap: 6px; padding: 6px 8px; background: var(--surface); overflow: hidden; }
+.keys span { flex: none; min-width: 44px; height: 32px; padding: 0 10px; border-radius: 9px; background: var(--card-hi); display: grid; place-items: center; font-size: 13px; }
+.keys span.on { background: var(--pri); color: var(--on-pri); font-weight: 600; }
+.ring { width: 64px; height: 64px; border-radius: 50%; border: 6px solid var(--hi2); display: grid; place-items: center; font-weight: 600; font-size: 15px; margin: 0 auto 6px; }
+/* session list (sl-) */
+.sl-top { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 6px; }
+.sl-tabs { display: flex; gap: 26px; font-size: 23px; }
+.sl-tabs span { color: var(--faint); padding-bottom: 4px; }
+.sl-tabs span.on { color: var(--on); font-weight: 700; border-bottom: 3px solid var(--on); }
+.sl-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px 0 18px; color: var(--dim); font-size: 15px; }
+.sl-strip { display: flex; gap: 8px; align-items: center; padding: 4px 16px 6px; overflow: hidden; height: 46px; position: relative; }
+.sl-chip { flex: none; height: 34px; border-radius: 17px; background: var(--card); display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 13.5px; color: var(--on); white-space: nowrap; }
+.sl-chip.conn { background: var(--pri-cont); color: var(--on-pri-cont); padding-left: 5px; }
+.sl-chip.off { opacity: .45; }
+.sl-chip.all { background: none; box-shadow: inset 0 0 0 1px var(--line); color: var(--dim); padding-right: 6px; }
+.sl-chip.press { box-shadow: 0 0 0 2px var(--pri); }
+.sl-chip .w { color: var(--warn); font-size: 12px; }
+.sl-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+.sl-thumb { position: relative; overflow: hidden; background: #24465a; flex: none; }
+.sl-thumb::before { content: ""; position: absolute; left: 22%; top: 12%; width: 66%; height: 70%; background: #f7f5f2; border-radius: 2px; }
+.sl-thumb::after { content: ""; position: absolute; left: 22%; top: 12%; width: 66%; height: 15%; background: #2f6fc4; border-radius: 2px 2px 0 0; }
+.sl-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(239,167,131,.25); border-top-color: var(--pri); flex: none; animation: s 1s linear infinite; }
+.sl-filters { display: flex; gap: 6px; padding: 2px 16px 2px; overflow: hidden; }
+.sl-pf { flex: none; height: 30px; padding: 0 11px; border-radius: 99px; background: rgba(243,240,234,.06); display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); }
+.sl-pf b { color: var(--on); }
+.sl-pf.on { background: rgba(243,240,234,.12); box-shadow: inset 0 0 0 1px rgba(243,240,234,.3); color: var(--on); }
+.sl-gh { display: flex; align-items: center; gap: 8px; padding: 12px 22px 7px; font-size: 13.5px; }
+.sl-ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; }
+.sl-cards { margin: 0 16px; border-radius: 18px; overflow: hidden; background: var(--card); }
+.sl-card { display: flex; gap: 12px; padding: 13px 14px; border-top: 1px solid #4a4b46; }
+.sl-card:first-child { border-top: 0; }
+.sl-tile { width: 46px; height: 46px; border-radius: 13px; display: grid; place-items: center; position: relative; flex: none; font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
+.sl-tile i { position: absolute; right: -3px; bottom: -3px; width: 13px; height: 13px; border-radius: 50%; border: 2.5px solid var(--card); }
+.sl-main { flex: 1; min-width: 0; }
+.sl-l1 { display: flex; align-items: center; gap: 7px; }
+.sl-ag { font-size: 12px; padding: 1px 7px; border-radius: 7px; }
+.sl-ttl { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sl-hostc { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: rgba(243,240,234,.06); white-space: nowrap; }
+.sl-sum { color: var(--dim); font-style: italic; font-size: 13px; margin: 2px 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sl-l3 { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--faint); }
+.sl-l3 .p { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sl-tag { font-size: 11.5px; padding: 2px 7px; border-radius: 7px; background: var(--hi2); color: var(--on); }
+.sl-rb { width: 34px; height: 30px; border-radius: 15px; background: var(--card-hi); display: grid; place-items: center; flex: none; }
+.tip { position: absolute; z-index: 6; background: var(--on); color: #2b2a27; border-radius: 14px; padding: 10px 12px; font-size: 13.5px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+.tip::before { content: ""; position: absolute; top: -6px; left: 30px; width: 12px; height: 12px; background: var(--on); transform: rotate(45deg); }
+.toast { position: absolute; left: 50%; transform: translateX(-50%); background: #e8e4dc; color: #2b2a27; border-radius: 12px; padding: 10px 14px; font-size: 13.5px; white-space: nowrap; box-shadow: 0 6px 20px rgba(0,0,0,.4); z-index: 6; }
+/* flow */
+.flow { background: var(--surface); border-radius: 20px; padding: 16px; overflow-x: auto; }
+.lane { display: flex; align-items: center; gap: 8px; padding: 7px 0; min-width: max-content; }
+.lane + .lane { border-top: 1px dashed #4a4b46; }
+.node { background: var(--card-hi); border-radius: 12px; padding: 8px 12px; font-size: 13px; white-space: nowrap; }
+.node small { display: block; color: var(--dim); font-size: 11.5px; }
+.node.start { background: var(--pri-cont); color: var(--on-pri-cont); }
+.node.end { box-shadow: inset 0 0 0 1.5px var(--ok); }
+.node.stop { box-shadow: inset 0 0 0 1.5px var(--faint); color: var(--dim); }
+.arr { color: var(--faint); font-size: 16px; }
+.cond { color: var(--warn); font-size: 12.5px; white-space: nowrap; min-width: 120px; }
+/* spec tables */
+.spec { max-width: 1500px; margin: 0 auto; padding: 0 16px; }
+.spec h3 { font-size: 15px; margin: 22px 0 8px; }
+.spec .tbl { overflow-x: auto; background: var(--surface); border-radius: 16px; }
+.spec table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 13px; }
+.spec th, .spec td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #44453f; vertical-align: top; }
+.spec tr:last-child td { border-bottom: 0; }
+.spec th { color: var(--dim); font-weight: 500; background: rgba(0,0,0,.12); }
+.spec td:first-child { white-space: nowrap; font-weight: 600; }
+.spec code { background: rgba(243,240,234,.08); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
+.sl-cards { overflow: visible; }
+.sl-db { position: relative; width: 34px; height: 30px; border-radius: 15px; background: var(--card-hi); display: grid; place-items: center; flex: none; color: var(--on); }
+.sl-db.conn { background: var(--pri-cont); color: var(--on-pri-cont); }
+.sl-db.hot { box-shadow: 0 0 0 2px var(--pri); }
+.sl-db.press { box-shadow: 0 0 0 2px var(--pri), 0 0 0 7px rgba(239,167,131,.25); }
+.sl-db > b { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--card); }
+.sl-tipb { position: absolute; right: -8px; bottom: 42px; width: 250px; background: var(--on); color: #2b2a27; border-radius: 14px; padding: 10px 12px; font-size: 13px; line-height: 1.45; box-shadow: 0 6px 20px rgba(0,0,0,.5); z-index: 7; text-align: left; }
+.sl-tipb::after { content: ""; position: absolute; right: 18px; bottom: -6px; width: 12px; height: 12px; background: var(--on); transform: rotate(45deg); }
+.sl-tipb b { display: block; font-size: 13.5px; }
+.sl-tipb span { display: block; color: #5f5b54; margin: 2px 0 6px; }
+.sl-tipb em { display: block; text-align: right; font-style: normal; color: #9E462C; font-weight: 600; }
+/* captions: title above the frame, notes below */
+figure { display: flex; flex-direction: column; }
+figcaption { display: contents; }
+figcaption b { order: -1; margin: 0 0 4px 8px; }
+figcaption span, figcaption ul { margin-top: 8px; }
+/* desktop page (d-) — UU-style right rail */
+.d-cursor { position: absolute; width: 16px; height: 22px; z-index: 3; }
+.d-rail { position: absolute; right: 0; top: 0; bottom: 0; width: 112px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; z-index: 5; }
+.d-ri { background: none; border: 0; color: var(--dim); display: flex; flex-direction: column; align-items: center; gap: 4px; font: inherit; font-size: 11.5px; width: 92px; padding: 6px 0; border-radius: 12px; }
+.d-ri .ico { width: 24px; height: 24px; color: var(--on); }
+.d-ri.on, .d-ri.on .ico { color: var(--pri); }
+.d-net { position: absolute; left: 0; bottom: 14px; width: 122px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--dim); z-index: 5; }
+.d-net.warn { color: var(--warn); }
+.d-net.warn .dot { background: var(--warn); }
+.d-panel { position: absolute; right: 112px; top: 0; bottom: 0; width: 330px; background: rgba(48,50,48,.97); border-radius: 20px 0 0 20px; padding: 12px 16px; z-index: 6; overflow: hidden; }
+.d-ph { display: flex; align-items: center; margin-bottom: 10px; }
+.d-ph b { font-size: 15px; }
+.d-ph small { display: block; color: var(--dim); font-size: 11.5px; }
+.d-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.d-tiles span { background: var(--card-hi); border-radius: 12px; padding: 8px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; text-align: center; line-height: 1.2; }
+.d-tiles span.pri { background: var(--pri-cont); color: var(--on-pri-cont); }
+.d-sec { color: var(--dim); font-size: 12px; margin: 10px 2px 5px; }
+.seg.two span { line-height: 1.2; padding: 5px 0; }
+.seg small { display: block; font-size: 10.5px; opacity: .75; }
+.d-row { display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; padding: 8px 2px; border-top: 1px solid #4a4b46; margin-top: 6px; }
+.d-row + .d-row { margin-top: 0; }
+.d-tg { width: 34px; height: 20px; border-radius: 10px; background: var(--hi2); position: relative; flex: none; }
+.d-tg::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #cfcac2; }
+.d-radio { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 4px solid var(--pri); margin-right: 8px; vertical-align: -2px; }
+.d-panel.portrait-sheet { left: 0; right: 0; top: auto; bottom: 72px; width: auto; height: 330px; border-radius: 22px 22px 0 0; }
+.d-tabbar { position: absolute; left: 0; right: 0; bottom: 0; height: 72px; display: flex; justify-content: space-around; align-items: center; background: #161718; border-top: 1px solid #2a2b2c; }
+.d-tabbar .d-ri { width: auto; padding: 6px 10px; }
+.d-vmouse { position: absolute; width: 104px; height: 150px; background: rgba(238,236,232,.94); border-radius: 52px 52px 46px 46px; color: #333; z-index: 6; display: flex; flex-direction: column; box-shadow: 0 6px 18px rgba(0,0,0,.5); }
+.d-vmouse .x { position: absolute; top: -6px; right: -10px; width: 24px; height: 24px; border-radius: 50%; background: #2b2b2b; color: #eee; display: grid; place-items: center; }
+.d-vm-top { display: flex; height: 64px; border-bottom: 1px solid #bbb; }
+.d-vm-top span { flex: 1; display: grid; place-items: center; font-size: 11px; padding-top: 18px; }
+.d-vm-top i { width: 1px; background: #bbb; }
+.d-vm-wheel { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); width: 14px; height: 30px; border-radius: 7px; border: 2px solid #888; background: #fff; }
+.d-vm-bot { flex: 1; display: grid; place-items: center; font-size: 10.5px; color: #666; }
+.d-kb { position: absolute; left: 0; right: 0; top: 170px; bottom: 0; background: #141516; z-index: 6; }
+.d-kbtabs { display: flex; align-items: center; height: 36px; background: #1f2021; font-size: 14px; }
+.d-kbtabs span { flex: 1; text-align: center; color: var(--dim); }
+.d-kbtabs span.on { color: var(--pri); text-decoration: underline; text-underline-offset: 6px; }
+.d-kbtabs .x { flex: none; width: 48px; color: var(--on); }
+.d-keys { padding: 5px 30px 0; display: flex; flex-direction: column; gap: 4px; }
+.d-keys div { display: flex; gap: 4px; }
+.d-keys em { flex: 1; font-style: normal; height: 28px; border-radius: 6px; background: #2c2d2f; display: grid; place-items: center; font-size: 13px; }
+.d-keys em.wide { flex: 2; }
+.d-keys em.wide2 { flex: 2; background: none; color: var(--dim); }
+.d-keys em.on { background: var(--pri); color: var(--on-pri); }
+.d-dots { display: flex; gap: 6px; justify-content: center; margin-top: 5px; }
+.d-dots i { width: 18px; height: 3px; border-radius: 2px; background: #555; }
+.d-dots i.on { background: #ddd; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></symbol>
+  <symbol id="spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/></symbol>
+  <symbol id="term" viewBox="0 0 24 24"><rect x="3" y="5" width="15" height="12" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v10"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="desk" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="desk-off" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M4 3l16 16"/></symbol>
+  <symbol id="laptop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M3 18h18"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="checkc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.8 2.8L16.2 9.5"/></symbol>
+  <symbol id="circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="key" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+  <symbol id="pad" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M4 14h16M12 14v7"/></symbol>
+  <symbol id="tap" viewBox="0 0 24 24"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11l4.2.8a2 2 0 0 1 1.6 2.3L17 19a2 2 0 0 1-2 1.6h-4.4a2 2 0 0 1-1.6-.8L5.5 15a1.5 1.5 0 0 1 2.3-2L9 14"/></symbol>
+  <symbol id="clip" viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4h6v3H9z"/></symbol>
+  <symbol id="shot" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M12 9l.9 2.1L15 12l-2.1.9L12 15l-.9-2.1L9 12l2.1-.9z"/></symbol>
+  <symbol id="chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="rotate" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M3 14a9 9 0 0 0 5 6M21 10a9 9 0 0 0-5-6"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="wifi" viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01"/></symbol>
+  <symbol id="cell" viewBox="0 0 24 24"><path d="M4 20v-3M9 20v-7M14 20V9M19 20V4"/></symbol>
+  <symbol id="power" viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0"/></symbol>
+</svg>
+
+<template id="remote-tpl">
+  <div class="r-bar"><b>访达</b><span>文件</span><span>编辑</span><span>窗口</span><span class="ctl">● Roamtty 远程控制中</span><span>10:42</span></div>
+  <div class="win" style="left:28px;top:118px;width:300px;height:210px;background:#1e1f22">
+    <div class="tb" style="background:#2b2d30"><i></i><i></i><i></i><span style="margin-left:6px;color:#aab">app.tsx — web</span></div>
+    <div style="padding:8px 10px;display:flex;flex-direction:column;gap:6px">
+      <div style="width:60%;height:5px;background:#c792ea;border-radius:2px"></div>
+      <div style="width:80%;height:5px;background:#82aaff;border-radius:2px;margin-left:12px"></div>
+      <div style="width:55%;height:5px;background:#c3e88d;border-radius:2px;margin-left:12px"></div>
+      <div style="width:70%;height:5px;background:#89ddff;border-radius:2px;margin-left:24px"></div>
+      <div style="width:40%;height:5px;background:#f78c6c;border-radius:2px;margin-left:24px"></div>
+      <div style="width:66%;height:5px;background:#82aaff;border-radius:2px;margin-left:12px"></div>
+      <div style="width:30%;height:5px;background:#c792ea;border-radius:2px"></div>
+    </div>
+  </div>
+  <div class="win" style="left:150px;top:36px;width:400px;height:270px;background:#f7f5f2;color:#222">
+    <div class="tb" style="background:#e4e1dc"><i></i><i></i><i></i>
+      <span style="margin-left:10px;flex:1;background:#fff;border-radius:5px;padding:1px 8px;color:#555">localhost:5173/dashboard</span></div>
+    <div style="height:26px;background:#2f6fc4;color:#fff;display:flex;align-items:center;padding:0 10px;font-weight:600;font-size:10px">我的应用 · 预览</div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:10px">
+      <div style="height:56px;border-radius:6px;background:#fff;border:1px solid #ddd;padding:6px"><div style="color:#777">访问量</div><div style="font-size:14px;font-weight:700">12,408</div></div>
+      <div style="height:56px;border-radius:6px;background:#fff;border:1px solid #ddd;padding:6px"><div style="color:#777">转化率</div><div style="font-size:14px;font-weight:700">3.2%</div></div>
+      <div style="height:56px;border-radius:6px;background:#fff;border:1px solid #ddd;padding:6px"><div style="color:#777">订单</div><div style="font-size:14px;font-weight:700">286</div></div>
+    </div>
+    <div style="margin:0 10px;height:118px;border-radius:6px;background:#fff;border:1px solid #ddd;position:relative">
+      <svg viewBox="0 0 380 118" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true"><polyline points="10,95 60,80 110,86 160,55 210,62 260,38 310,44 370,20" fill="none" stroke="#2f6fc4" stroke-width="2.5"/></svg>
+    </div>
+  </div>
+  <div class="dock"><i style="background:#6aa7f5"></i><i style="background:#4fb6a8"></i><i style="background:#e88bb8"></i><i style="background:#f2c46d"></i><i style="background:#b394f0"></i><i style="background:#8f98f0"></i></div>
+</template>
+<template id="cursor-tpl"><svg viewBox="0 0 16 22" aria-hidden="true"><path d="M1 1l13 12.5-6 .4 3.6 6.8-2.6 1.3-3.6-6.9L1 19z" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/></svg></template>
+
+<header>
+  <h1>远程桌面 · 设计稿与交互稿</h1>
+  <p>配套 issue #184 方案 v3。主入口：会话卡片右下角的桌面按钮，点一下就打开；第一次用就地引导安装，装完自动打开。还没有会话的主机从主机页「桌面」按钮打开。系统强制的授权只引导一次，授权后自动继续；桌面页横屏全屏，工具放在两侧黑边里不挡画面；网络差或切换网络时保留上一帧并说明状态，不会无声卡住。配色沿用 App 现有深色主题。</p>
+</header>
+<nav>
+  <a href="#g0">流程总览</a><a href="#gE">主入口：卡片桌面按钮</a><a href="#g1">首次连接</a><a href="#g2">桌面页</a><a href="#g3">键盘与网络</a><a href="#g4">竖屏</a><a href="#g5">交互规格</a><a href="session-entry.html">入口方案对比（存档）</a>
+</nav>
+
+<!-- ============ 流程总览 ============ -->
+<section class="group" id="g0">
+  <h2>流程总览</h2>
+  <p>主入口是会话卡片右下角的桌面按钮；还没有会话的主机，从主机页「桌面」按钮进入。两个入口后面的流程完全相同。每一行是一条路径，从左往右走。</p>
+  <div class="flow">
+    <div class="lane"><span class="cond">已连接（后台保持中）</span><span class="node start">点卡片右下角桌面按钮</span><span class="arr">→</span><span class="node end">桌面页<small>≤ 1 s，直接回到上次画面</small></span></div>
+    <div class="lane"><span class="cond">已装插件、条件齐全</span><span class="node start">点桌面按钮</span><span class="arr">→</span><span class="node">按钮转圈<small>超过 300 ms 才出现</small></span><span class="arr">→</span><span class="node">连接中页<small>SSH · 插件 · 首帧</small></span><span class="arr">→</span><span class="node end">桌面页<small>≤ 2 s</small></span></div>
+    <div class="lane"><span class="cond">未装插件</span><span class="node start">点桌面按钮</span><span class="arr">→</span><span class="node">只读探测</span><span class="arr">→</span><span class="node">安装卡片<small>安装并打开</small></span><span class="arr">→</span><span class="node">安装进度<small>约 5 s</small></span><span class="arr">→</span><span class="node">连接中页</span><span class="arr">→</span><span class="node end">桌面页</span></div>
+    <div class="lane"><span class="cond">macOS 缺授权</span><span class="node start">（安装后或任意时候）</span><span class="arr">→</span><span class="node">授权页<small>每秒检测，逐项变绿</small></span><span class="arr">→</span><span class="node end">自动进入桌面页</span><span class="arr" style="margin-left:14px">或</span><span class="node stop">稍后再说<small>按钮带黄点</small></span></div>
+    <div class="lane"><span class="cond">这台主机没有会话</span><span class="node start">主机页「桌面」按钮</span><span class="arr">→</span><span class="node">（同上各条路径）</span></div>
+    <div class="lane"><span class="cond">没有图形桌面</span><span class="node start">主机页「桌面」按钮</span><span class="arr">→</span><span class="node">只读探测</span><span class="arr">→</span><span class="node stop">说明卡片<small>不安装；该主机的卡片不再显示桌面按钮</small></span></div>
+    <div class="lane"><span class="cond">主机离线 / 认证失败</span><span class="node start">（离线时按钮不显示）</span><span class="arr">→</span><span class="node stop">认证问题复用现有连接弹窗</span></div>
+    <div class="lane"><span class="cond">桌面页内</span><span class="node">弱网</span><span class="arr">→</span><span class="node">"网络较差"角标<small>停顿 > 300 ms</small></span><span class="node" style="margin-left:12px">切换网络</span><span class="arr">→</span><span class="node">恢复卡片<small>> 2 s 才显示</small></span><span class="node" style="margin-left:12px">返回</span><span class="arr">→</span><span class="node end">会话列表<small>按钮显示"已连接"，后台保持 10 分钟</small></span></div>
+  </div>
+</section>
+
+<!-- ============ 入口：会话卡片右下角的桌面按钮 ============ -->
+<section class="group" id="gE">
+  <h2>主入口：会话卡片右下角的桌面按钮</h2>
+  <p>只要会话所在的主机能开桌面，这张会话卡片底行最右边就多一个小的桌面按钮（与"追问"同款圆角按钮）。原则：<b>点一下就打开</b>；第一次用时就地引导安装，装完自动打开，不需要回到列表再点。同一台主机的多个会话都显示，点哪个都打开这台主机的同一个桌面。</p>
+  <div class="row">
+    <figure><div class="fit"><div class="phone portrait" data-sl="E1"></div></div>
+      <figcaption><b>E1 会话列表：卡片右下角的桌面按钮</b><span>MacBook 和 Windows PC 能开桌面，所以它们的会话有按钮；dev box 没有桌面，卡片不变。MacBook 的桌面已连接，它名下的两张卡片按钮都显示"已连接"。</span></figcaption></figure>
+    <figure><div class="fit"><div class="phone portrait" data-sl="E2"></div></div>
+      <figcaption><b>E2 按钮的状态与位置</b><span>只用图标，状态用底色和角标表示；无论哪种状态，点一下都是"打开桌面"，缺什么就在打开的路上补什么。</span></figcaption></figure>
+    <figure><div class="fit"><div class="phone portrait" data-sl="E3"></div></div>
+      <figcaption><b>E3 首次点按：引导安装，装完自动打开</b><span>按钮转圈，只读探测确认有桌面后弹出安装卡片，只有一个"安装并打开"。装完不回列表，直接进入桌面页（macOS 中间多一步本机授权）。</span></figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ 首次使用 ============ -->
+<section class="group" id="g1">
+  <h2>首次连接：安装插件 → 授权 → 画面</h2>
+  <p>从卡片按钮或任何次要入口进入，整个流程只有一次"安装并打开"，装完自动打开；macOS 多一步本机授权；没有图形桌面的主机在安装前就会被拦下。01 是次要入口（主机页）。</p>
+  <div class="row">
+
+  <figure>
+    <div class="fit"><div class="phone portrait">
+      <div class="toolbar"><button class="ibtn" aria-label="返回"><svg class="ico"><use href="#back"/></svg></button><div class="t">MacBook</div><button class="ibtn" aria-label="更多"><svg class="ico"><use href="#more"/></svg></button></div>
+      <div style="display:flex;gap:16px;padding:6px 16px 18px;align-items:center">
+        <div style="width:72px;height:72px;border-radius:18px;background:#E9DDC8;color:#3b3328;display:grid;place-items:center"><svg class="ico lg"><use href="#laptop"/></svg></div>
+        <div><div style="font-size:17px">zihua@100.64.0.4</div><div class="muted">macOS 26.6</div><div style="color:var(--ok);display:flex;align-items:center;gap:6px;margin-top:2px"><span class="dot"></span>在线 · 12 ms</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:0 16px">
+        <button class="btn pri" style="height:70px;border-radius:18px;flex-direction:column;gap:4px;font-size:14px"><svg class="ico"><use href="#spark"/></svg>AI Agent</button>
+        <button class="btn sec" style="height:70px;border-radius:18px;flex-direction:column;gap:4px;font-size:14px"><svg class="ico"><use href="#term"/></svg>终端</button>
+        <button class="btn sec" style="height:70px;border-radius:18px;flex-direction:column;gap:4px;font-size:14px"><svg class="ico"><use href="#folder"/></svg>文件</button>
+        <button class="btn sec" style="height:70px;border-radius:18px;flex-direction:column;gap:4px;font-size:14px;box-shadow:inset 0 0 0 2px var(--pri)"><svg class="ico"><use href="#desk"/></svg>桌面</button>
+      </div>
+      <div class="label">实时监控</div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:0 16px">
+        <div style="background:var(--card);border-radius:20px;padding:14px 0;text-align:center"><div class="ring" style="border-color:var(--pri)">23%</div>CPU</div>
+        <div style="background:var(--card);border-radius:20px;padding:14px 0;text-align:center"><div class="ring" style="border-color:var(--dev)">61%</div>内存</div>
+        <div style="background:var(--card);border-radius:20px;padding:14px 0;text-align:center"><div class="ring" style="border-color:var(--mac)">48%</div>磁盘</div>
+      </div>
+      <div class="label">插件</div>
+      <div class="panel">
+        <div class="prow"><svg class="ico" style="color:var(--pri)"><use href="#term"/></svg><div class="grow">tmux<div class="s">会话保持</div></div><span class="chip">已安装</span></div>
+        <div class="prow"><svg class="ico" style="color:var(--pri)"><use href="#desk"/></svg><div class="grow">桌面<div class="s">远程桌面 · 点「桌面」时自动安装</div></div><span class="chip">未安装</span></div>
+      </div>
+    </div></div>
+    <figcaption><b>01 次要入口：主机页「桌面」按钮</b><span>主机页操作按钮从 3 个改为 4 个（图标在上、文字在下）；插件列表多一行"桌面"。终端页工具栏也有桌面图标。行为与点卡片上的桌面按钮相同。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone portrait">
+      <div style="opacity:.35">
+        <div class="toolbar"><span class="ibtn"><svg class="ico"><use href="#back"/></svg></span><div class="t">MacBook</div></div>
+        <div style="margin:10px 16px;height:90px;background:var(--card);border-radius:20px"></div>
+        <div style="margin:10px 16px;height:70px;background:var(--card);border-radius:20px"></div>
+        <div style="margin:10px 16px;height:150px;background:var(--card);border-radius:20px"></div>
+      </div>
+      <div class="scrim"></div>
+      <div class="sheet" style="top:300px">
+        <div class="handle"></div>
+        <h3>开启远程桌面</h3>
+        <div class="sub">MacBook · zihua@100.64.0.4</div>
+        <div class="check"><svg class="ico" style="color:var(--ok)"><use href="#check"/></svg><div>已检测到图形桌面<div class="muted" style="font-size:13px">macOS 26.6 · Apple 芯片 · 用户已登录</div></div></div>
+        <div class="check"><svg class="ico" style="color:var(--ok)"><use href="#lock"/></svg><div>不开端口，画面经 SSH 加密传输</div></div>
+        <div class="check"><svg class="ico" style="color:var(--warn)"><use href="#info"/></svg><div>首次需要在 Mac 上允许两项权限<div class="muted" style="font-size:13px">屏幕录制、辅助功能，只需一次</div></div></div>
+        <div class="muted" style="font-size:13px;margin:14px 0 18px">将安装桌面插件（1.1 MB）到 ~/.roamtty/bin，无需 root，可随时在插件页卸载。</div>
+        <button class="btn pri">安装并打开</button>
+        <button class="btn text" style="margin-top:6px">取消</button>
+      </div>
+    </div></div>
+    <figcaption><b>02 首次：安装桌面插件</b><span>先只读探测，确认有桌面才弹出这个卡片。一个主按钮，没有选项；macOS 提前告诉用户后面要授权。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone portrait">
+      <div style="opacity:.35">
+        <div class="toolbar"><span class="ibtn"><svg class="ico"><use href="#back"/></svg></span><div class="t">MacBook</div></div>
+        <div style="margin:10px 16px;height:90px;background:var(--card);border-radius:20px"></div>
+        <div style="margin:10px 16px;height:70px;background:var(--card);border-radius:20px"></div>
+      </div>
+      <div class="scrim"></div>
+      <div class="sheet" style="top:300px">
+        <div class="handle"></div>
+        <h3>正在安装桌面插件</h3>
+        <div class="sub">MacBook · 约 5 秒</div>
+        <div style="height:6px;border-radius:3px;background:var(--hi2);margin-bottom:14px"><div style="width:72%;height:100%;border-radius:3px;background:var(--pri)"></div></div>
+        <div class="check"><svg class="ico" style="color:var(--ok)"><use href="#checkc"/></svg><div class="grow" style="flex:1">检测系统</div><span class="muted" style="font-size:13px">macOS · arm64</span></div>
+        <div class="check"><svg class="ico" style="color:var(--ok)"><use href="#checkc"/></svg><div style="flex:1">下载插件</div><span class="muted" style="font-size:13px">主机直接下载 · 1.1 MB</span></div>
+        <div class="check"><svg class="ico" style="color:var(--ok)"><use href="#checkc"/></svg><div style="flex:1">校验完整性</div><span class="muted" style="font-size:13px">SHA-256 一致</span></div>
+        <div class="check"><span class="spin" style="margin:1px"></span><div style="flex:1">注册登录项</div><span class="muted" style="font-size:13px">随登录启动</span></div>
+        <div class="check" style="opacity:.55"><svg class="ico"><use href="#circle"/></svg><div style="flex:1">打开桌面</div></div>
+        <div class="prow" style="padding:12px 0 0;margin-top:10px"><span class="grow muted">查看安装日志</span><svg class="ico sm muted"><use href="#chev"/></svg></div>
+        <button class="btn sec" style="margin-top:16px">取消</button>
+      </div>
+    </div></div>
+    <figcaption><b>03 安装进度</b><span>步骤和耗时一目了然；主机下载失败会自动改为"手机下载后上传"，这一行文字随之变化，用户不用处理。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone portrait">
+      <div class="toolbar"><button class="ibtn" aria-label="关闭"><svg class="ico"><use href="#x"/></svg></button></div>
+      <div style="padding:4px 24px 0">
+        <div style="font-size:26px;font-weight:700;line-height:1.25">在 Mac 上允许<br>两项权限</div>
+        <div class="muted" style="margin:10px 0 22px">这是 macOS 的安全要求，只需一次。Mac 上已自动打开对应的系统设置页。</div>
+      </div>
+      <div class="panel">
+        <div class="prow" style="padding:16px"><div style="width:34px;height:34px;border-radius:10px;background:rgba(127,209,155,.16);color:var(--ok);display:grid;place-items:center"><svg class="ico"><use href="#check"/></svg></div><div class="grow">屏幕录制<div class="s">用于把画面传到手机</div></div><span class="chip ok">已允许</span></div>
+        <div class="prow" style="padding:16px;align-items:flex-start"><div style="width:34px;height:34px;border-radius:10px;background:var(--pri-cont);display:grid;place-items:center"><span class="spin"></span></div>
+          <div class="grow">辅助功能<div class="s">用于在 Mac 上点击和输入</div>
+            <div style="margin-top:10px;font-size:12.5px;color:var(--dim)">系统设置 › 隐私与安全性 › 辅助功能</div>
+            <div style="margin-top:8px;background:var(--bg);border-radius:12px;padding:10px 12px;display:flex;align-items:center;gap:10px">
+              <div style="width:24px;height:24px;border-radius:6px;background:var(--pri);color:var(--on-pri);display:grid;place-items:center"><svg class="ico sm"><use href="#desk"/></svg></div>
+              <span style="flex:1">Roamtty Desktop</span>
+              <span style="width:38px;height:22px;border-radius:11px;background:var(--hi2);position:relative;box-shadow:0 0 0 2px var(--pri)"><span style="position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#ddd"></span></span>
+            </div>
+          </div><span class="chip warn">等待中</span></div>
+      </div>
+      <div style="position:absolute;left:0;right:0;bottom:24px;padding:0 20px">
+        <div style="display:flex;gap:10px;align-items:center;justify-content:center;color:var(--dim);margin-bottom:12px"><span class="spin"></span>允许后自动进入桌面，不用回到这里</div>
+        <button class="btn text">不在 Mac 旁边？稍后再说</button>
+      </div>
+    </div></div>
+    <figcaption><b>04 macOS：本机授权两项（仅一次）</b><span>App 每秒检测一次，每项实时变绿，两项都通过后直接进入桌面。固定签名保证插件升级后不用重新授权。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone portrait">
+      <div style="opacity:.35">
+        <div class="toolbar"><span class="ibtn"><svg class="ico"><use href="#back"/></svg></span><div class="t">dev box</div></div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:90px 16px 0">
+          <div style="height:70px;border-radius:18px;background:var(--pri)"></div><div style="height:70px;border-radius:18px;background:var(--card-hi)"></div><div style="height:70px;border-radius:18px;background:var(--card-hi)"></div><div style="height:70px;border-radius:18px;background:var(--card-hi);opacity:.5"></div>
+        </div>
+      </div>
+      <div class="scrim"></div>
+      <div class="sheet" style="top:420px;text-align:center">
+        <div class="handle"></div>
+        <div style="width:64px;height:64px;border-radius:20px;background:var(--card-hi);display:grid;place-items:center;margin:4px auto 14px;color:var(--dim)"><svg class="ico lg"><use href="#desk-off"/></svg></div>
+        <h3>这台主机没有图形桌面</h3>
+        <div class="muted" style="margin:10px 6px 6px">远程桌面需要主机已登录图形桌面（macOS、Windows 或带桌面的 Linux）。服务器和无头主机暂不支持。</div>
+        <div class="muted" style="font-size:12.5px;margin-bottom:22px">没有安装任何东西。</div>
+        <button class="btn sec">知道了</button>
+      </div>
+    </div></div>
+    <figcaption><b>05 没有图形桌面：不安装，直接说明</b><span>探测结果会缓存，之后主机页的「桌面」按钮置灰（背景中第 4 个按钮），点击仍显示这段说明。</span></figcaption>
+  </figure>
+
+  </div>
+</section>
+
+<!-- ============ 桌面页 ============ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="d-ops" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="3.5"/><rect x="3" y="13" width="18" height="7" rx="3.5"/><circle cx="16.5" cy="7.5" r="1.6"/><circle cx="7.5" cy="16.5" r="1.6"/></symbol>
+  <symbol id="d-showdesk" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M6.5 8h3M6.5 11h3"/></symbol>
+  <symbol id="d-windows" viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="3" y="13" width="8" height="7" rx="1.5"/><rect x="13" y="13" width="8" height="7" rx="1.5"/></symbol>
+  <symbol id="d-exit" viewBox="0 0 24 24"><path d="M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h5"/><path d="M14 8l4 4-4 4M18 12H9"/></symbol>
+  <symbol id="d-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+  <symbol id="d-mouse" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 3v6M6 9h12"/></symbol>
+  <symbol id="d-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+</svg>
+
+<section class="group" id="g2">
+  <h2>桌面页（横屏全屏）· 参考 UU 远程</h2>
+  <p>结构照 UU 远程手机端：远程画面居中，右侧黑边里一条竖栏放 4 个带文字的入口：<b>操作、键盘、显示桌面、所有窗口</b>。不常用的功能都收进"操作"面板。左侧黑边只在左下角显示网络状态。光标在手机本地绘制。</p>
+  <div class="row">
+
+  <figure>
+    <div class="fit"><div class="phone land">
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px">
+        <div style="width:64px;height:64px;border-radius:20px;background:var(--surface);display:grid;place-items:center;color:var(--pri)"><svg class="ico lg"><use href="#desk"/></svg></div>
+        <div style="font-size:18px;font-weight:600">MacBook</div>
+        <div style="display:flex;align-items:center;gap:10px;font-size:13.5px">
+          <span style="display:flex;align-items:center;gap:6px;color:var(--ok)"><svg class="ico sm"><use href="#checkc"/></svg>SSH 已连接</span>
+          <span style="width:28px;height:1px;background:var(--line)"></span>
+          <span style="display:flex;align-items:center;gap:6px;color:var(--ok)"><svg class="ico sm"><use href="#checkc"/></svg>插件已启动</span>
+          <span style="width:28px;height:1px;background:var(--line)"></span>
+          <span style="display:flex;align-items:center;gap:6px;color:var(--on)"><span class="spin" style="width:16px;height:16px"></span>等待首帧</span>
+        </div>
+        <button class="btn text" style="width:auto;height:36px;font-size:14px">取消</button>
+      </div>
+    </div></div>
+    <figcaption><b>D1 连接中</b><span>目标 2 秒内出画面。三步状态让等待可见；如果之前连过（同一次 App 运行内），这里直接显示上一帧加遮罩。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone land">
+      <div class="remote" data-remote style="left:122px;top:0"></div>
+      <div class="d-cursor" style="left:430px;top:178px"></div>
+      <div class="d-net"><span class="dot"></span>12 ms</div>
+      <div class="d-rail" data-rail=""></div>
+    </div></div>
+    <figcaption><b>D2 桌面主界面</b><span>右侧竖栏：操作（打开操作面板）、键盘（电脑键盘 / 输入法）、显示桌面（macOS 显示桌面，Windows 为 Win+D）、所有窗口（macOS 调度中心，Windows 为 Win+Tab）。退出：操作 › 退出，或系统返回手势（黑边处可用）。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone land">
+      <div class="remote" data-remote style="left:122px;top:0"></div>
+      <div class="d-net"><span class="dot"></span>12 ms</div>
+      <div class="d-panel">
+        <div class="d-ph"><div><b>MacBook</b><small>1512×982 · 60 帧 · UDP 12 ms</small></div></div>
+        <div class="d-tiles">
+          <span><svg class="ico"><use href="#d-exit"/></svg>退出</span>
+          <span><svg class="ico"><use href="#clip"/></svg>剪贴板</span>
+          <span><svg class="ico"><use href="#folder"/></svg>文件</span>
+          <span><svg class="ico"><use href="#d-eye"/></svg>仅观看</span>
+        </div>
+        <div class="d-sec">操作方式</div>
+        <div class="seg"><span class="on">屏幕触控</span><span>鼠标指针</span></div>
+        <div class="d-row"><span>虚拟鼠标</span><span class="d-tg"></span></div>
+        <div class="d-row"><span>显示</span><span class="muted">60 帧 · 清晰 <svg class="ico sm" style="vertical-align:-4px"><use href="#chev"/></svg></span></div>
+        <div class="d-row"><span>断开后锁定电脑</span><span class="d-tg"></span></div>
+      </div>
+      <div class="d-rail" data-rail="操作"></div>
+    </div></div>
+    <figcaption><b>D3 操作面板</b><span>从竖栏左侧滑出，盖住画面右半部分，点画面空白处收起。第一排是常用动作；下面是操作方式（屏幕触控 / 鼠标指针）、虚拟鼠标、显示设置、断开后锁定电脑。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone land">
+      <div class="remote" data-remote style="left:122px;top:0"></div>
+      <div class="d-net"><span class="dot"></span>12 ms</div>
+      <div class="d-panel">
+        <div class="d-ph"><svg class="ico" style="margin-right:6px"><use href="#d-back"/></svg><b style="flex:1;text-align:center;margin-right:28px">显示</b></div>
+        <div class="d-sec">帧率</div>
+        <div class="seg"><span>30 帧</span><span class="on">60 帧</span><span>90 帧</span><span>120 帧</span></div>
+        <div class="d-sec">画质</div>
+        <div class="seg two"><span>自动<small>--</small></span><span>流畅<small>1M</small></span><span class="on">清晰<small>4M</small></span><span>原画<small>12M</small></span></div>
+        <div class="muted" style="font-size:11.5px;margin:5px 2px 0">使用移动数据时，预计约 30 MB / 分钟</div>
+        <div class="d-sec">显示器</div>
+        <div class="d-row" style="margin-top:0"><span><span class="d-radio"></span>内建显示器</span><span class="muted">1512×982</span></div>
+      </div>
+      <div class="d-rail" data-rail="操作"></div>
+    </div></div>
+    <figcaption><b>D4 操作 › 显示</b><span>帧率上限不超过手机刷新率；画质下面标出码率，并按当前档位估算流量（参考 UU）。多显示器时这里列出全部，点选切换。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone land">
+      <div class="remote" data-remote style="left:122px;top:0"></div>
+      <div class="d-cursor" style="left:330px;top:150px"></div>
+      <div class="d-net"><span class="dot"></span>12 ms</div>
+      <div class="d-vmouse" style="left:520px;top:150px">
+        <span class="x"><svg class="ico sm"><use href="#x"/></svg></span>
+        <div class="d-vm-top"><span>左键</span><i></i><span>右键</span></div>
+        <div class="d-vm-wheel"></div>
+        <div class="d-vm-bot">拖动这里移动</div>
+      </div>
+      <div class="d-rail" data-rail=""></div>
+    </div></div>
+    <figcaption><b>D5 虚拟鼠标</b><span>在操作面板里打开（参考 UU）。一个可拖动的悬浮鼠标：左键、右键、中间滚轮；配合"鼠标指针"方式用手指在画面上移动光标。适合需要精确点小按钮、拖选文字的场景。</span></figcaption>
+  </figure>
+
+  </div>
+</section>
+
+<!-- ============ 键盘与网络 ============ -->
+<section class="group" id="g3">
+  <h2>键盘与网络状态</h2>
+  <p>键盘面板照 UU：底部全宽，分"输入法"和"电脑键盘"两页；画面上移，只露出光标附近。网络差时先告诉用户发生了什么、已经降到什么档位。</p>
+  <div class="row">
+
+  <figure>
+    <div class="fit"><div class="phone land">
+      <div style="position:absolute;left:0;top:0;width:844px;height:170px;overflow:hidden">
+        <div class="remote" data-remote style="left:122px;top:-120px"></div>
+      </div>
+      <div class="d-kb">
+        <div class="d-kbtabs"><span>输入法</span><span class="on">电脑键盘</span><span class="x"><svg class="ico sm"><use href="#x"/></svg></span></div>
+        <div class="d-keys">
+          <div><em class="wide2">☐ 组合键</em><em class="wide">Control</em><em class="wide">Shift</em><em class="wide">Option</em><em class="wide on">⌘</em></div>
+          <div><em>1</em><em>2</em><em>3</em><em>4</em><em>5</em><em>6</em><em>7</em><em>8</em><em>9</em><em>0</em></div>
+          <div><em>Q</em><em>W</em><em>E</em><em>R</em><em>T</em><em>Y</em><em>U</em><em>I</em><em>O</em><em>P</em></div>
+          <div><em>A</em><em>S</em><em>D</em><em>F</em><em>G</em><em>H</em><em>J</em><em>K</em><em>L</em><em>⌫</em></div>
+          <div><em>Z</em><em>X</em><em>C</em><em>V</em><em>B</em><em>N</em><em>M</em><em class="wide">Space</em><em class="wide">Enter</em></div>
+        </div>
+        <div class="d-dots"><i class="on"></i><i></i></div>
+      </div>
+    </div></div>
+    <figcaption><b>D6 键盘 › 电脑键盘</b><span>第一页：修饰键 + 字母数字；左右滑到第二页：Esc、Tab、F1–F12、方向键、Home/End/PgUp/PgDn、Delete。修饰键点一下锁定一次（⌘ 已锁定）；勾选"组合键"后可连按多个键再一起发出。macOS 显示 Control/Option/⌘，Windows 显示 Ctrl/Alt/Win。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone land">
+      <div style="position:absolute;left:0;top:0;width:844px;height:150px;overflow:hidden">
+        <div class="remote" data-remote style="left:122px;top:-120px"></div>
+      </div>
+      <div class="d-kb" style="top:150px">
+        <div class="d-kbtabs"><span class="on">输入法</span><span>电脑键盘</span><span class="x"><svg class="ico sm"><use href="#x"/></svg></span></div>
+        <div class="keys" style="background:none;padding:6px 10px"><span>Esc</span><span>Tab</span><span>Ctrl</span><span>⌥</span><span>⌘</span><span>←</span><span>↑</span><span>↓</span><span>→</span><span>复制</span><span>粘贴</span><span>撤销</span></div>
+        <div style="height:150px;background:#1f2021;display:grid;place-items:center;color:var(--faint);font-size:13px;border-top:1px solid #333">系统输入法（中英文都可以，组字完成后才发送）</div>
+      </div>
+    </div></div>
+    <figcaption><b>D7 键盘 › 输入法</b><span>用手机自己的输入法打字，适合输入中文和整段文字；上方保留一排常用快捷键。复用终端现有的输入法处理。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone land">
+      <div class="remote" data-remote style="left:122px;top:0"></div>
+      <div class="d-cursor" style="left:430px;top:178px"></div>
+      <div style="position:absolute;left:134px;top:24px;display:flex;align-items:center;gap:6px;background:rgba(30,30,30,.88);color:var(--warn);border-radius:99px;padding:5px 12px;font-size:12.5px;z-index:4"><span class="dot" style="background:var(--warn)"></span>网络较差 · 已降到 720p30</div>
+      <div style="position:absolute;right:134px;top:24px;width:206px;background:rgba(20,20,20,.86);border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.75;z-index:4">
+        <div style="display:flex;justify-content:space-between"><span class="muted">延迟</span><span style="color:var(--warn)">186 ms</span></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">丢包</span><span>4.8%（FEC 恢复 96%）</span></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">码率</span><span>1.4 Mbps</span></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">档位</span><span>720p · 30 fps</span></div>
+        <div style="display:flex;justify-content:space-between"><span class="muted">链路</span><span>UDP · Tailscale 直连</span></div>
+      </div>
+      <div class="d-net warn"><span class="dot"></span>186 ms</div>
+      <div class="d-rail" data-rail=""></div>
+    </div></div>
+    <figcaption><b>D8 弱网：角标 + 统计</b><span>画面停顿超过 300 ms 才出现角标，恢复后自动消失；左下角网络状态变黄。点左下角网络状态展开统计浮层，再点收起。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone land">
+      <div class="remote" data-remote style="left:122px;top:0"></div>
+      <div style="position:absolute;left:122px;top:0;width:600px;height:390px;background:rgba(0,0,0,.58);z-index:4"></div>
+      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(48,50,48,.96);border-radius:20px;padding:18px 22px;display:flex;gap:14px;align-items:center;z-index:5;width:340px">
+        <span class="spin" style="width:26px;height:26px"></span>
+        <div><div style="font-weight:600">已切换到移动数据，正在恢复…</div><div class="muted" style="font-size:12.5px;margin-top:2px">保留上一帧 · 通常 1 秒内恢复</div></div>
+      </div>
+      <div class="d-net" style="color:var(--faint)"><span class="dot" style="background:var(--faint)"></span>切换中</div>
+      <div class="d-rail" data-rail=""></div>
+    </div></div>
+    <figcaption><b>D9 切换网络：保留画面，自动恢复</b><span>Wi-Fi ↔ 移动数据切换时连接不断开；超过 2 秒才显示这张卡片。UDP 不可用时文案改为"正在重新连接"，通常 1–3 秒。</span></figcaption>
+  </figure>
+
+  </div>
+</section>
+
+<!-- ============ 竖屏 ============ -->
+<section class="group" id="g4">
+  <h2>竖屏</h2>
+  <p>照 UU：画面在上方按宽度铺满，底部一排标签栏放和横屏竖栏相同的 4 个入口，面板从底部弹出。"鼠标指针"方式下，画面下方的黑色区域也能当触控板用。</p>
+  <div class="row">
+
+  <figure>
+    <div class="fit"><div class="phone portrait" style="background:#000">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;font-size:13px;color:var(--dim)"><span style="font-size:16px;color:var(--on);font-weight:600">MacBook</span><span style="display:flex;align-items:center;gap:6px"><span class="dot"></span>12 ms</span></div>
+      <div style="position:relative;width:390px;height:254px;overflow:hidden">
+        <div class="remote" data-remote style="left:0;top:0;transform:scale(.65);transform-origin:0 0"></div>
+      </div>
+      <div style="position:absolute;left:0;right:0;top:330px;bottom:72px;display:grid;place-items:center;color:#5b5b57;font-size:12.5px">（鼠标指针方式下可当触控板）</div>
+      <div class="d-tabbar" data-tabbar=""></div>
+    </div></div>
+    <figcaption><b>D10 竖屏</b><span>双指捏合放大画面，放大后可拖动查看；底部标签栏与横屏竖栏同样的 4 个入口。</span></figcaption>
+  </figure>
+
+  <figure>
+    <div class="fit"><div class="phone portrait" style="background:#000">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;font-size:13px;color:var(--dim)"><span style="font-size:16px;color:var(--on);font-weight:600">MacBook</span><span style="display:flex;align-items:center;gap:6px"><span class="dot"></span>12 ms</span></div>
+      <div style="position:relative;width:390px;height:254px;overflow:hidden">
+        <div class="remote" data-remote style="left:0;top:0;transform:scale(.65);transform-origin:0 0"></div>
+      </div>
+      <div class="d-panel portrait-sheet">
+        <div class="d-tiles">
+          <span><svg class="ico"><use href="#d-exit"/></svg>退出</span>
+          <span><svg class="ico"><use href="#clip"/></svg>剪贴板</span>
+          <span><svg class="ico"><use href="#folder"/></svg>文件</span>
+          <span><svg class="ico"><use href="#d-eye"/></svg>仅观看</span>
+        </div>
+        <div class="d-sec">操作方式</div>
+        <div class="seg"><span class="on">屏幕触控</span><span>鼠标指针</span></div>
+        <div class="d-row"><span>虚拟鼠标</span><span class="d-tg"></span></div>
+        <div class="d-row"><span>显示</span><span class="muted">60 帧 · 清晰 <svg class="ico sm" style="vertical-align:-4px"><use href="#chev"/></svg></span></div>
+        <div class="d-row"><span>断开后锁定电脑</span><span class="d-tg"></span></div>
+      </div>
+      <div class="d-tabbar" data-tabbar="操作"></div>
+    </div></div>
+    <figcaption><b>D11 竖屏 › 操作</b><span>与横屏操作面板内容相同，从底部弹出，标签栏保持可见。</span></figcaption>
+  </figure>
+
+  </div>
+</section>
+
+<script>
+(function () {
+  var ITEMS = [['操作', 'd-ops'], ['键盘', 'key'], ['显示桌面', 'd-showdesk'], ['所有窗口', 'd-windows']];
+  function item(it, on) { return '<button class="d-ri' + (on ? ' on' : '') + '" aria-label="' + it[0] + '"><svg class="ico"><use href="#' + it[1] + '"/></svg><span>' + it[0] + '</span></button>'; }
+  document.querySelectorAll('[data-rail]').forEach(function (el) {
+    var on = el.getAttribute('data-rail'); el.innerHTML = ITEMS.map(function (it) { return item(it, it[0] === on); }).join('');
+  });
+  document.querySelectorAll('[data-tabbar]').forEach(function (el) {
+    var on = el.getAttribute('data-tabbar'); el.innerHTML = ITEMS.slice().reverse().map(function (it) { return item(it, it[0] === on); }).join('');
+  });
+  var cur = '<svg viewBox="0 0 16 22" aria-hidden="true"><path d="M1 1l13 12.5-6 .4 3.6 6.8-2.6 1.3-3.6-6.9L1 19z" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+  document.querySelectorAll('.d-cursor').forEach(function (el) { el.innerHTML = cur; });
+})();
+</script>
+
+<!-- ============ 交互规格 ============ -->
+<section class="group" id="g5">
+  <h2>交互规格</h2>
+  <p>开发按这里实现；上面的画面是这些规则的示意。</p>
+</section>
+<div class="spec">
+  <h3>1. 桌面按钮的显示规则</h3>
+  <div class="tbl"><table>
+    <tr><th>项</th><th>规则</th></tr>
+    <tr><td>出现在哪</td><td>会话卡片底行最右边，"追问"按钮右侧；没有"追问"的普通终端会话，按钮同样在最右边。会话所在主机"能开桌面"时才显示</td></tr>
+    <tr><td>哪些主机算"能开桌面"</td><td>① 探测结果缓存为"有桌面"；② 还没探测过但系统是 macOS / Windows（主机已记录系统类型）。Linux 主机在探测确认有桌面后才显示按钮。探测为"无桌面"的主机不显示</td></tr>
+    <tr><td>何时探测</td><td>只读、无副作用：该主机的会话连上时顺带执行（复用已有连接）、打开主机页时。结果缓存 7 天；插件已安装的主机每次连接都会刷新</td></tr>
+    <tr><td>不显示的情况</td><td>主机离线、会话未连接（断开或失败）、主机没有桌面</td></tr>
+    <tr><td>同一主机多个会话</td><td>每张卡片都显示按钮，打开的是这台主机同一个桌面；状态在这些卡片上同步</td></tr>
+    <tr><td>尺寸</td><td>看得见的按钮 34×30 dp，圆角 15，图标 17 dp；可点区域 44×44 dp；角标 8 dp；与"追问"间距 7 dp</td></tr>
+    <tr><td>无障碍</td><td>朗读为"打开 MacBook 的桌面"，带状态："已连接""需要授权"等</td></tr>
+  </table></div>
+
+  <h3>2. 操作与导航</h3>
+  <div class="tbl"><table>
+    <tr><th>操作</th><th>结果</th></tr>
+    <tr><td>点按桌面按钮</td><td><b>能直接打开就直接打开</b>：进入该会话所在主机的桌面，不打开会话本身（点卡片其他位置仍是打开会话）。已连接：直接进入，≤ 1 s。已装插件：按钮转圈（超过 300 ms 才显示）→ 桌面页。没装插件：弹出安装卡片，装完自动进入桌面页。缺授权 / 无人登录：直接打开对应的引导，满足后自动进入。按钮没有长按操作</td></tr>
+        <tr><td>退出桌面页</td><td>操作 › 退出，或系统返回手势：回到进入前的页面。桌面连接在后台保持 10 分钟（画面停止传输），按钮显示"已连接"；10 分钟后自动断开，插件端会话保留</td></tr>
+    <tr><td>次要入口</td><td>主机页「桌面」按钮（还没有会话的主机就从这里打开）、终端页工具栏的桌面图标：行为与点按卡片上的桌面按钮完全相同</td></tr>
+    <tr><td>通知栏</td><td>现有常驻通知里，已连接的桌面增加一行"MacBook 桌面 · 已连接"，点按回到桌面页</td></tr>
+    <tr><td>同一主机重复打开</td><td>每台主机最多一个桌面，重复点按回到已有的那个</td></tr>
+  </table></div>
+
+  <h3>3. 连接状态</h3>
+  <div class="tbl"><table>
+    <tr><th>状态</th><th>卡片上的按钮</th><th>桌面页</th><th>离开条件</th></tr>
+    <tr><td>未连接</td><td>默认底色 + 桌面图标</td><td>—</td><td>点按 → 连接中</td></tr>
+    <tr><td>连接中</td><td>图标换成转圈</td><td>连接中页（三步进度）</td><td>首帧到达 → 已连接；失败 → 未连接并提示原因</td></tr>
+    <tr><td>需要安装</td><td>同"未连接"</td><td>安装卡片 → 进度</td><td>装好 → 连接中；取消 → 未连接</td></tr>
+    <tr><td>需要操作</td><td>右上角黄色角标</td><td>授权页或"请在本机登录"说明</td><td>条件满足（每秒检测）→ 自动连接</td></tr>
+    <tr><td>已连接</td><td>橙色底 + 右上角绿色角标</td><td>画面</td><td>返回 → 后台保持；断开 → 未连接</td></tr>
+    <tr><td>网络较差</td><td>橙色底 + 黄色角标</td><td>"网络较差 · 已降到 720p30"角标</td><td>连续 5 s 正常后恢复</td></tr>
+    <tr><td>恢复中</td><td>橙色底 + 转圈</td><td>保留上一帧；超过 2 s 显示恢复卡片</td><td>UDP ≤ 1 s、SSH ≤ 3 s 内恢复；30 s 未恢复 → 未连接并提示</td></tr>
+    <tr><td>后台保持</td><td>同"已连接"</td><td>—</td><td>10 分钟 → 未连接</td></tr>
+    <tr><td>离线</td><td>不显示</td><td>—</td><td>主机恢复在线（沿用主机在线检测）</td></tr>
+  </table></div>
+
+  <h3>4. 桌面页操作</h3>
+  <div class="tbl"><table>
+    <tr><th>手势 / 入口</th><th>屏幕触控（默认，与 UU 一致）</th><th>鼠标指针</th></tr>
+    <tr><td>单指轻点</td><td>在手指位置左键单击</td><td>在光标位置左键单击</td></tr>
+    <tr><td>单指滑动</td><td>放大时拖动画面；未放大时无操作</td><td>相对移动光标（画面外的黑色区域也可以）</td></tr>
+    <tr><td>单指长按</td><td>右键</td><td>右键</td></tr>
+    <tr><td>轻点后立即按住拖动</td><td colspan="2">按住左键拖拽 / 框选</td></tr>
+    <tr><td>双指滑动</td><td colspan="2">滚轮（像素级平滑滚动）</td></tr>
+    <tr><td>双指捏合</td><td colspan="2">放大 / 缩小画面（手机本地完成，不改远端分辨率）；放大后光标靠近边缘时画面自动跟随</td></tr>
+    <tr><td>虚拟鼠标</td><td colspan="2">操作面板里打开；悬浮鼠标可拖动，含左键、右键、滚轮；关闭后记住位置</td></tr>
+    <tr><td>竖栏：显示桌面</td><td colspan="2">macOS 发"显示桌面"，Windows 发 Win+D，Linux 发 Super+D</td></tr>
+    <tr><td>竖栏：所有窗口</td><td colspan="2">macOS 发"调度中心"，Windows 发 Win+Tab，Linux 发 Super</td></tr>
+    <tr><td>退出</td><td colspan="2">操作 › 退出，或系统返回手势（只在两侧黑边处触发；画面区域设为手势排除区）</td></tr>
+    <tr><td>外接鼠标 / 键盘</td><td colspan="2">鼠标走指针捕获（相对移动），键盘按键直通；被 Android 截获的组合键用电脑键盘面板补发</td></tr>
+  </table></div>
+
+  <h3>5. 时间与阈值</h3>
+  <div class="tbl"><table>
+    <tr><th>项</th><th>值</th></tr>
+    <tr><td>按钮转圈出现</td><td>点按后 300 ms 仍未进入桌面页才转圈，避免闪一下</td></tr>
+    <tr><td>首帧目标</td><td>已连接 ≤ 1 s；新连接 ≤ 2 s；首次安装（含下载）≤ 15 s</td></tr>
+    <tr><td>授权检测</td><td>每 1 s 一次，离开授权页即停止</td></tr>
+    <tr><td>"网络较差"角标</td><td>画面停顿 > 300 ms 出现；连续 5 s 正常后消失</td></tr>
+    <tr><td>恢复卡片</td><td>中断 > 2 s 出现；30 s 未恢复则断开并提示</td></tr>
+    <tr><td>后台保持</td><td>离开桌面页后保持 10 分钟（可在设置中改为 5 / 10 / 30 分钟）</td></tr>
+  </table></div>
+
+  <h3>6. 异常与文案</h3>
+  <div class="tbl"><table>
+    <tr><th>情况</th><th>表现与文案</th></tr>
+    <tr><td>主机离线</td><td>按钮不显示；从主机页点按时提示："MacBook 离线，无法打开桌面"</td></tr>
+    <tr><td>SSH 认证失败 / 指纹变化</td><td>复用现有连接弹窗（密码、指纹确认），确认后继续</td></tr>
+    <tr><td>没有图形桌面</td><td>说明卡片："这台主机没有图形桌面"；不安装任何东西，该主机的会话卡片不再显示桌面按钮</td></tr>
+    <tr><td>Windows / macOS 无人登录</td><td>按钮黄色角标；点按显示"请先在这台电脑上登录桌面"</td></tr>
+    <tr><td>插件下载失败</td><td>主机下载失败自动改为手机下载；都失败时："下载桌面插件失败"，按钮"重试"</td></tr>
+    <tr><td>macOS 授权过期（每月提示）</td><td>按钮黄色角标；点按打开授权页，文案"macOS 要求每月确认一次屏幕录制权限，请在 Mac 上点「允许」"</td></tr>
+    <tr><td>远程锁屏</td><td>画面照常显示锁屏；顶部提示"远程电脑已锁屏，请在本机解锁"（首期不支持远程输入密码解锁）</td></tr>
+    <tr><td>插件版本过旧</td><td>连接前静默升级，不提示；升级失败按"下载失败"处理</td></tr>
+  </table></div>
+</div>
+
+<script>
+// Session-list frames: desktop button at the bottom-right of each session card
+(function () {
+  var HOSTS = { mac: ['MacBook', 'var(--mac)'], dev: ['dev box', 'var(--dev)'], win: ['Windows PC', '#6AA7F5'] };
+  var DESK = { mac: 'conn', win: 'idle' }; // dev box has no desktop: no button
+  var BASE = [
+    { g: 'wait', agent: 'codex', title: 'roamtty', sum: '需要你确认：允许执行 git push？', host: 'dev', st: ['var(--warn)', '等待确认'], path: '~/work/roamtty' },
+    { g: 'work', agent: 'claude', title: 'web', sum: '正在修改登录页样式…', host: 'mac', st: ['#8FA2FF', '进行中'], path: '~/work/web' },
+    { g: 'done', agent: 'claude', title: 'api', sum: '已完成：修改 3 个文件', host: 'mac', st: ['var(--ok)', '空闲'], path: '~/work/api' },
+    { g: 'term', agent: null, title: '会话 4', sum: '', host: 'win', st: ['var(--ok)', '已连接'], path: 'C:\\Users\\zihua' }
+  ];
+  var GROUPS = { wait: ['等待确认', 'var(--warn)', true], work: ['进行中', '#8FA2FF'], done: ['已完成', 'var(--ok)'], term: ['终端', 'var(--dim)'] };
+  var SYM = '<svg width="0" height="0" style="position:absolute" aria-hidden="true">' +
+    '<symbol id="sl-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h11M4 17h7"/></symbol>' +
+    '<symbol id="sl-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>' +
+    '<symbol id="sl-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>' +
+    '<symbol id="sl-reply" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></symbol>' +
+    '<symbol id="sl-star" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></symbol>' +
+    '<symbol id="sl-cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.5-8 5.5 5.5 0 0 1 10.6-1.5A4.5 4.5 0 0 1 17 18z"/></symbol>' +
+    '<symbol id="sl-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>' +
+    '<symbol id="sl-hist" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5M4 4v4.5h4.5M12 8v4l3 2"/></symbol>' +
+    '</svg>';
+  document.body.insertAdjacentHTML('afterbegin', SYM);
+  function ico(id, cls) { return '<svg class="ico ' + (cls || '') + '"><use href="#' + id + '"/></svg>'; }
+
+  // the desktop button; state: idle | spin | conn | weak | need ; flags: press
+  function deskBtn(state, o) {
+    o = o || {};
+    var cls = 'sl-db' + (state === 'conn' || state === 'weak' ? ' conn' : '') + (o.press ? ' press' : '');
+    var inner = state === 'spin' ? '<span class="sl-spin"></span>' : ico('desk', 'sm');
+    var badge = state === 'conn' ? '<b style="background:var(--ok)"></b>' : (state === 'weak' || state === 'need') ? '<b style="background:var(--warn)"></b>' : '';
+    return '<span class="' + cls + '" role="button" aria-label="打开 ' + (o.name || '') + ' 的桌面">' + inner + badge + '</span>';
+  }
+  function tile(s) {
+    if (s.agent === 'claude') return '<div class="sl-tile" style="background:rgba(217,119,87,.18);color:#D97757">' + ico('sl-star') + '<i style="background:' + s.st[0] + '"></i></div>';
+    if (s.agent === 'codex') return '<div class="sl-tile" style="background:rgba(111,134,255,.2);color:#6F86FF">' + ico('sl-cloud') + '<i style="background:' + s.st[0] + '"></i></div>';
+    return '<div class="sl-tile" style="background:var(--hi2);color:var(--on)">$_</div>';
+  }
+  function card(s, ov) {
+    var h = HOSTS[s.host];
+    var chip = s.agent ? '<span class="sl-ag" style="background:' + (s.agent === 'claude' ? 'rgba(217,119,87,.2);color:#D97757' : 'rgba(111,134,255,.2);color:#8FA2FF') + '">' + (s.agent === 'claude' ? 'Claude' : 'Codex') + '</span>' : '';
+    var state = (ov && ov.state && ov.state[s.host]) || DESK[s.host];
+    var flags = { name: h[0], press: ov && ov.press === s.title };
+    return '<div class="sl-card">' + tile(s) + '<div class="sl-main"><div class="sl-l1">' + chip + '<span class="sl-ttl">' + s.title + '</span>' +
+      '<span class="sl-hostc"><span class="sl-dot" style="background:' + h[1] + '"></span>' + h[0] + '</span></div>' +
+      (s.sum ? '<div class="sl-sum">' + s.sum + '</div>' : '<div style="height:8px"></div>') +
+      '<div class="sl-l3"><span class="sl-dot" style="background:' + s.st[0] + '"></span><span style="color:' + s.st[0] + '">' + s.st[1] + '</span>' +
+      '<span class="p">' + s.path + '</span><span class="sl-tag">tmux</span>' + (s.agent ? '<span class="sl-rb">' + ico('sl-reply', 'sm') + '</span>' : '') +
+      (state ? deskBtn(state, flags) : '') + '</div></div></div>';
+  }
+  function list(data, ov) {
+    var out = '';
+    ['wait', 'work', 'done', 'term'].forEach(function (g) {
+      var ss = data.filter(function (s) { return s.g === g; });
+      var G = GROUPS[g];
+      out += '<div class="sl-gh" style="color:' + G[1] + '"><span class="sl-ring" style="' + (G[2] ? 'background:currentColor' : '') + '"></span>' + G[0] + '<span style="opacity:.8">' + ss.length + '</span></div>';
+      out += '<div class="sl-cards">' + ss.map(function (s) { return card(s, ov); }).join('') + '</div>';
+    });
+    return out;
+  }
+  function chrome() {
+    return '<div class="sl-top"><span class="ibtn">' + ico('sl-menu') + '</span><div class="sl-tabs"><span class="on">会话</span><span>主机</span></div><span class="ibtn">' + ico('sl-search') + '</span></div>' +
+      '<div class="sl-head"><span>会话 · 4</span><span class="ibtn">' + ico('sl-plus') + '</span></div>' +
+      '<div class="sl-filters"><span class="sl-pf on">全部 <b>4</b></span><span class="sl-pf"><span class="sl-dot" style="background:var(--warn)"></span>等待确认 <b>1</b></span><span class="sl-pf"><span class="sl-dot" style="background:#8FA2FF"></span>进行中 <b>1</b></span><span class="sl-pf"><span class="sl-dot" style="background:var(--ok)"></span>已完成 <b>1</b></span></div>';
+  }
+  function sheet(top, inner) { return '<div class="scrim"></div><div class="sheet" style="top:' + top + 'px">' + '<div class="handle"></div>' + inner + '</div>'; }
+  function srow(icon, color, title, sub, right, dim) {
+    return '<div class="prow" style="padding:12px 4px;' + (dim ? 'opacity:.45' : '') + '"><div style="width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:' + color + '">' + icon + '</div>' +
+      '<div class="grow">' + title + (sub ? '<div class="s">' + sub + '</div>' : '') + '</div>' + (right || '') + '</div>';
+  }
+
+  var F = {};
+  F.E1 = chrome() + list(BASE);
+
+  // E2: states + anatomy
+  function sample(btn, t, d) {
+    return '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-top:1px solid #44453f"><div style="display:flex;gap:7px;align-items:center;width:84px;justify-content:flex-end"><span class="sl-rb">' + ico('sl-reply', 'sm') + '</span>' + btn + '</div>' +
+      '<div style="font-size:13.5px;flex:1"><b>' + t + '</b><div class="muted" style="font-size:12.5px">' + d + '</div></div></div>';
+  }
+  F.E2 = '<div class="toolbar"><div class="t" style="font-size:19px">桌面按钮</div></div>' +
+    '<div style="margin:0 16px 4px;background:var(--card);border-radius:18px;padding:12px 14px 14px">' +
+      '<div class="sl-l3" style="font-size:12.5px"><span class="sl-dot" style="background:var(--ok)"></span><span style="color:var(--ok)">空闲</span><span class="p">~/work/api</span><span class="sl-tag">tmux</span><span class="sl-rb">' + ico('sl-reply', 'sm') + '</span>' + deskBtn('idle') + '</div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:7px;margin-top:6px;font-size:11.5px;color:var(--dim)"><span style="width:34px;text-align:center">追问</span><span style="width:34px;text-align:center;color:var(--pri)">桌面</span></div>' +
+      '<div class="muted" style="font-size:12px;margin-top:6px">卡片底行最右边；34×30 dp，可点区域 44×44 dp</div></div>' +
+    '<div class="label">状态</div><div class="panel" style="overflow:hidden">' +
+    sample(deskBtn('idle'), '可打开', '能开桌面，还没连接或还没装插件').replace('border-top:1px solid #44453f', 'border-top:0') +
+    sample(deskBtn('spin'), '连接中', '点按 300 ms 后仍未进入时显示') +
+    sample(deskBtn('conn'), '已连接', '橙色底 + 绿色角标；含后台保持') +
+    sample(deskBtn('weak'), '网络较差', '已连接，角标变黄') +
+    sample(deskBtn('need'), '需要操作', '缺 macOS 授权 / 电脑无人登录；点按直接去补') +
+    sample('<span class="muted" style="font-size:12px">（无）</span>', '不显示', '主机没有桌面、离线或会话未连接') +
+    '</div>';
+
+  F.E3 = chrome() + list(BASE, { press: '会话 4', state: { win: 'spin' } }) +
+    sheet(410, '<h3>开启远程桌面</h3><div class="sub">Windows PC · zihua@192.168.31.20</div>' +
+      '<div class="check"><svg class="ico" style="color:var(--ok)"><use href="#check"/></svg><div>已检测到图形桌面<div class="muted" style="font-size:13px">Windows 11 · 用户已登录</div></div></div>' +
+      '<div class="check"><svg class="ico" style="color:var(--ok)"><use href="#lock"/></svg><div>不开端口，不需要管理员权限</div></div>' +
+      '<div class="muted" style="font-size:13px;margin:12px 0 16px">将安装桌面插件（1.2 MB），可随时在插件页卸载。</div>' +
+      '<button class="btn pri">安装并打开</button><button class="btn text" style="margin-top:4px">取消</button>');
+  document.querySelectorAll('[data-sl]').forEach(function (el) { el.innerHTML = F[el.getAttribute('data-sl')]; });
+})();
+</script>
+
+<script>
+(function () {
+  var tpl = document.getElementById('remote-tpl').innerHTML;
+  var cur = document.getElementById('cursor-tpl').innerHTML;
+  document.querySelectorAll('[data-remote]').forEach(function (el) { el.innerHTML = tpl; });
+  // 07/08/09/11/12: remote screen centred with the side gutters
+  document.querySelectorAll('[data-desktop]').forEach(function (ph) {
+    var kind = ph.getAttribute('data-desktop');
+    var net = { ok: ['var(--ok)', '12 ms', 'UDP'], menu: ['var(--ok)', '12 ms', 'UDP'], plain: ['var(--ok)', '12 ms', 'UDP'],
+      weak: ['var(--warn)', '186 ms', 'UDP'], roam: ['#8a8a8a', '—', '切换中'] }[kind];
+    var html = '<div class="remote" style="left:122px;top:0">' + tpl + '</div>' +
+      '<div class="cursor" style="left:430px;top:178px">' + cur + '</div>' +
+      '<div class="gutter" style="left:0"><button class="ibtn" aria-label="返回" style="background:rgba(48,50,48,.92)"><svg class="ico"><use href="#back"/></svg></button>' +
+      '<div class="net"><span class="dot" style="background:' + net[0] + '"></span><span>' + net[1] + '</span><span>' + net[2] + '</span></div></div>' +
+      '<div class="gutter" style="right:0;justify-content:center"><div class="pill">' +
+      '<button class="ibtn" aria-label="键盘"><svg class="ico"><use href="#key"/></svg></button>' +
+      '<button class="ibtn on" aria-label="指针模式：触控板"><svg class="ico"><use href="#pad"/></svg></button>' +
+      '<button class="ibtn" aria-label="更多"><svg class="ico"><use href="#more"/></svg></button></div></div>';
+    ph.insertAdjacentHTML('afterbegin', html);
+  });
+  // scale frames down to the viewport on phones
+  function fit() {
+    document.querySelectorAll('.fit').forEach(function (box) {
+      var ph = box.firstElementChild, w = ph.offsetWidth, h = ph.offsetHeight;
+      var avail = Math.min(w, box.parentElement.parentElement.clientWidth - 16);
+      var s = avail / w;
+      ph.style.transform = s < 1 ? 'scale(' + s + ')' : '';
+      box.style.width = (w * s + 16) + 'px'; box.style.height = (h * s + 16) + 'px';
+      box.parentElement.style.width = (w * s + 16) + 'px';
+    });
+  }
+  fit(); addEventListener('resize', fit);
+})();
+</script>
+<script>
+// ?only=<section id> shows one section (used to render images for the issue)
+(function () {
+  var only = new URLSearchParams(location.search).get('only'); if (!only) return;
+  document.querySelectorAll('header, nav, section.group, .spec').forEach(function (e) {
+    var keep = e.id === only || (only === 'g5' && e.classList.contains('spec'));
+    if (!keep) e.style.display = 'none'; else e.style.maxWidth = 'none';
+  });
+})();
+</script>
+</body>
+</html>

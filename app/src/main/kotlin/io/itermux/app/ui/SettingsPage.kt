@@ -95,6 +95,7 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
                     }
                 }
                 DownloadDirectorySetting()
+                DesktopSetting()
                 GroupedSection(header = tr("后台连接"),
                     footer = tr("锁屏后保持 SSH 需要允许后台运行，可能增加耗电。部分手机还需在系统设置中允许自启动。")) {
                     if (exempt) GroupedRow(tr("已允许不受电池优化限制"), Modifier.testTag("battery-exempt"),
@@ -122,4 +123,36 @@ internal fun CheckRow(title: String, selected: Boolean, modifier: Modifier = Mod
             Icon(painterResource(R.drawable.ic_check), contentDescription = null, modifier = Modifier.size(20.dp)
                 .alpha(if (selected) 1f else 0f), tint = MaterialTheme.colorScheme.primary)
         })
+}
+
+/** 实验功能: the remote desktop switch, how long a left desktop stays connected, and (debug) the plugin source. */
+@Composable
+private fun DesktopSetting() {
+    val context = LocalContext.current
+    val settings = remember(context) { io.itermux.app.desktop.DesktopSettings(context) }
+    var enabled by remember { mutableStateOf(settings.enabled) }
+    var keepAlive by remember { mutableStateOf(settings.keepAliveMinutes) }
+    GroupedSection(header = tr("实验功能"),
+        footer = tr("打开后，能开桌面的主机会在会话卡片右下角显示桌面按钮。首次打开会在主机上安装桌面插件。")) {
+        GroupedRow(tr("远程桌面"), Modifier.testTag("settings-desktop"), trailing = {
+            Switch(enabled, { enabled = it; settings.enabled = it }, Modifier.testTag("settings-desktop-switch"))
+        }, onClick = { enabled = !enabled; settings.enabled = enabled })
+        if (enabled) {
+            GroupedDivider()
+            Column(Modifier.selectableGroup()) {
+                io.itermux.app.desktop.DesktopSettings.KEEP_ALIVE.forEachIndexed { index, minutes ->
+                    if (index > 0) GroupedDivider()
+                    CheckRow(io.itermux.app.trf("离开后保持 %d 分钟", minutes), keepAlive == minutes, Modifier.testTag("settings-desktop-keep-$minutes")) {
+                        keepAlive = minutes; settings.keepAliveMinutes = minutes
+                    }
+                }
+            }
+            if (io.itermux.app.BuildConfig.DEBUG || io.itermux.app.BuildConfig.BUILD_TYPE == "e2e") {
+                GroupedDivider()
+                var url by remember { mutableStateOf(settings.pluginBaseUrl) }
+                OutlinedTextField(url, { url = it; settings.pluginBaseUrl = it }, Modifier.fillMaxWidth().padding(Spacing.Page)
+                    .testTag("settings-desktop-plugin-url"), label = { Text(tr("插件来源（开发）")) }, singleLine = true)
+            }
+        }
+    }
 }

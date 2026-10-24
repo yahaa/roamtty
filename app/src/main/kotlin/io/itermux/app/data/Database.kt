@@ -20,7 +20,11 @@ data class Host(
     val keyLabel: String? = null,
     @ColumnInfo(defaultValue = "'UNKNOWN'") val os: String = "UNKNOWN",
     /** Installed plugins as [HostPlugin.encode]; null until the host has been probed. */
-    val plugins: String? = null
+    val plugins: String? = null,
+    /** The desktop probe: yes, no or nologin ([io.itermux.desktop.DesktopProbe]); null until probed. */
+    val desktop: String? = null,
+    /** When [desktop] was probed, epoch milliseconds. */
+    val desktopProbedAt: Long? = null,
 ) {
     fun target(modeOverride: SessionMode? = null) = Target(address, port, username, AuthMethod.valueOf(auth), modeOverride ?: SessionMode.valueOf(mode))
 }
@@ -50,13 +54,15 @@ interface HostDao {
     suspend fun updateSystem(id: String, address: String, port: Int, username: String, os: String)
     @Query("UPDATE hosts SET plugins = :plugins WHERE id = :id AND address = :address AND port = :port AND username = :username")
     suspend fun updatePlugins(id: String, address: String, port: Int, username: String, plugins: String)
+    @Query("UPDATE hosts SET desktop = :desktop, desktopProbedAt = :at WHERE id = :id AND address = :address AND port = :port AND username = :username")
+    suspend fun updateDesktop(id: String, address: String, port: Int, username: String, desktop: String, at: Long)
     @Query("DELETE FROM hosts WHERE id = :id") suspend fun delete(id: String)
     @Query("SELECT * FROM host_pins WHERE endpoint = :endpoint") suspend fun pin(endpoint: String): StoredPin?
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertPin(pin: StoredPin): Long
     @Query("DELETE FROM host_pins WHERE endpoint = :endpoint") suspend fun forgetPin(endpoint: String)
 }
 
-@Database(entities = [Host::class, StoredPin::class], version = 3, autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)], exportSchema = true)
+@Database(entities = [Host::class, StoredPin::class], version = 4, autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)], exportSchema = true)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun hosts(): HostDao
     companion object {

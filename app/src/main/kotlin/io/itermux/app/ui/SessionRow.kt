@@ -60,17 +60,21 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * One session: its tile beside its name, the chip of the host it runs on and the last prompt ("你: …", or "等待输入中…"
- * while an idle agent has had none), then, across the whole row, what the agent answered or runs and a status line with
- * how long it has been at it, its folder and what the agent needs (allow a request, or a follow-up typed right here). A
- * plain terminal has its folder beneath its name. Long press for its menu.
- * An agent's session is named by its folder, the agent's badge before it (the prompt has its own line);
- * others by [sessionListTitle].
+ * One session: its tile beside its name, the chip of the host it runs on, the folder it is in (the home as `~`)
+ * and the last prompt ("你: …", or "等待输入中…" while an idle agent has had none), then, across the
+ * whole row, what the agent answered or runs and a status line with how long it has been at it and what the agent
+ * needs (allow a request, or a follow-up typed right here). [compact] rows, for sessions without an agent's report,
+ * are built the same way with only the name, the folder and a status line of the connection. Long press for its menu.
+ * An agent's session is named by its folder, the agent's badge before it; others by [sessionListTitle].
  */
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {},
     tagPrefix: String = "home-session", hostOffline: Boolean = false, shape: Shape = RoundedCornerShape(18.dp),
-    divider: Boolean = false, modifier: Modifier = Modifier) {
+    divider: Boolean = false, modifier: Modifier = Modifier,
+    /** Only the name, the folder and the connection: for sessions without an agent's report. */
+    compact: Boolean = false,
+    /** The desktop button at the end of the bottom row, when the host can open its desktop. */
+    desktop: (@Composable () -> Unit)? = null) {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
     val agent by session.agentStatus.collectAsStateWithLifecycle()
@@ -86,23 +90,18 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val (status, live) = listedAgentStatus(state, polled, agent, last, hostOffline)
     val colors = MaterialTheme.colorScheme
     val username = session.host.username
-    // The agent's folder while it reports, else the pane's, so a session without hooks or agent says it too.
+    // The agent's folder while it reports, else the pane's, so a session without hooks or agent says it too; on a line
+    // of its own under the name, the home as `~`.
     val path = sessionListPath(status, username).ifEmpty { sessionListPath(directory, username) }
     val name = when {
-        status != null -> path.takeIf { it.isNotEmpty() }?.let { if (it == "~" || it == "/") it else it.trimEnd('/').substringAfterLast('/') }
-            ?: kind?.label.orEmpty()
+        status != null -> path.takeIf { it.isNotEmpty() }?.let(::pathLeaf) ?: kind?.label.orEmpty()
         else -> sessionListTitle(title, null, kind, username).let { shown -> kind?.let { shown.removePrefix("${it.shortLabel} · ") } ?: shown }
     }.ifBlank { trf("会话 %d", session.sessionNumber) }
-    // Where it runs: the whole folder (the name holds only its last part); the host has its chip beside the name.
-    val location = path.takeIf { it != name }.orEmpty()
     val prompt = status?.task.orEmpty()
     val activity = agentActivity(status)
     val reply = status?.reply?.let(::replyPreview).orEmpty()
     val waiting = status?.state == AgentStatus.State.WAITING
     val idle = status?.state == AgentStatus.State.IDLE
-    // The line under the name holds the prompt, or says an idle agent awaits one, so every agent row reads alike;
-    // where it runs then moves to the status line.
-    val promptLine = prompt.isNotEmpty() || idle
     val elapsed = rememberElapsedSeconds(status)
 
     val scope = rememberCoroutineScope()
@@ -130,20 +129,56 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             onLongClick = { menu = true }, onClick = onClick)
         .testTag("$tagPrefix-${session.id}")) {
         if (divider) Box(Modifier.padding(start = 14.dp).fillMaxWidth().height(1.dp).background(colors.onSurface.copy(alpha = 0.07f)))
-        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
-            // The tile stands beside the name and the line under it; everything after takes the row's whole width.
+        val titleLine: @Composable () -> Unit = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (kind != null) {
+                    AgentBadge(kind)
+                    Spacer(Modifier.width(6.dp))
+                }
+                MarqueeTitle(name, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"))
+                HostChip(session.host.name, session.host.id, hostOffline && !state.active, "$tagPrefix-host-${session.id}",
+                    Modifier.padding(start = Spacing.Tight))
+            }
+            // Behind a folder mark; cut in the middle, so both where it starts and the folder's own name stay.
+            if (path.isNotEmpty()) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(painterResource(R.drawable.ic_folder), contentDescription = tr("工作目录"), Modifier.size(12.dp),
+                    tint = colors.onSurfaceVariant.copy(alpha = 0.75f))
+                Spacer(Modifier.width(5.dp))
+                Text(path, Modifier.testTag("$tagPrefix-location-${session.id}"),
+                    style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace,
+                    color = colors.onSurfaceVariant.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+            }
+        }
+        val followUp: @Composable () -> Unit = {
+            RowAction(tr("追问"), "$tagPrefix-follow-up-${session.id}", icon = R.drawable.ic_reply, iconOnly = true) { replying = !replying }
+        }
+        if (compact) Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SessionIcon(session, 40.dp, status?.state)
+                Column(Modifier.weight(1f).padding(start = Spacing.Row)) { titleLine() }
+            }
+            // How it is connected and what carries it, across the row's whole width; the desktop at the end, where every
+            // row has its buttons.
+            Row(Modifier.padding(top = Spacing.Tight).heightIn(min = 28.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                StatusLabel(state.phase, Modifier.weight(1f).testTag("$tagPrefix-status-${session.id}"),
+                    hostOffline = hostOffline && !state.active)
+                Row(Modifier.padding(start = Spacing.Tight), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.testTag("$tagPrefix-tags-${session.id}"),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        sessionTransportTags(session.mode, multiplexer, session.host.multiplexer, transport.takeIf { connected })
+                            .forEach { MetaTag(it, Modifier.testTag("$tagPrefix-tag-$it-${session.id}")) }
+                    }
+                    desktop?.invoke()
+                }
+            }
+        } else Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
+            // The tile stands beside the name, its folder and the prompt; everything after takes the row's whole width.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SessionIcon(session, 40.dp, status?.state)
                 Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (kind != null) {
-                            AgentBadge(kind)
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        MarqueeTitle(name, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"))
-                        HostChip(session.host.name, session.host.id, hostOffline && !state.active, "$tagPrefix-host-${session.id}",
-                            Modifier.padding(start = Spacing.Tight))
-                    }
+                    titleLine()
                     if (prompt.isNotEmpty()) Text(buildAnnotatedString {
                         withStyle(SpanStyle(color = colors.onSurfaceVariant.copy(alpha = 0.7f))) { append(tr("你: ")) }
                         append(prompt)
@@ -152,9 +187,6 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                     else if (idle) Text(tr("等待输入中…"), Modifier.padding(top = 2.dp).testTag("$tagPrefix-awaiting-${session.id}"),
                         style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic,
                         color = colors.onSurfaceVariant.copy(alpha = 0.7f), maxLines = 1)
-                    else if (location.isNotEmpty()) Text(location, Modifier.padding(top = 2.dp).testTag("$tagPrefix-location-${session.id}"),
-                        style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
                 }
             }
             // What the agent runs or asks to run, else what it answered last.
@@ -178,15 +210,9 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                     Modifier.padding(start = 6.dp).testTag("$tagPrefix-time-${session.id}"),
                     style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant.copy(alpha = 0.8f),
                     maxLines = 1, softWrap = false)
-                // Then, held to the right, its folder (beneath its name already for a session without a prompt line),
-                // what keeps and carries it, and what the agent needs from the user.
+                // Then, held to the right, what keeps and carries it and what the agent needs from the user.
                 Row(Modifier.weight(1f).padding(start = Spacing.Tight), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
                     verticalAlignment = Alignment.CenterVertically) {
-                    // Cut from its start, so the folder's own name stays.
-                    if (promptLine && location.isNotEmpty()) Text(location,
-                        Modifier.weight(1f, fill = false).testTag("$tagPrefix-location-${session.id}"),
-                        style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace,
-                        color = colors.onSurfaceVariant.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.StartEllipsis)
                     Row(Modifier.testTag("$tagPrefix-tags-${session.id}"), horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         sessionTransportTags(session.mode, multiplexer, session.host.multiplexer, transport.takeIf { connected })
@@ -197,11 +223,13 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                         RowAction(tr("允许"), "$tagPrefix-approve-${session.id}", fill = StatusColors.warning) {
                             scope.launch { if (!session.approveAgent()) failure = tr("未发送：Agent 已不在等待确认") }
                         }
-                    } else if (idle && live) RowAction(tr("追问"), "$tagPrefix-follow-up-${session.id}", icon = R.drawable.ic_reply, iconOnly = true) {
-                        replying = !replying
-                    }
+                    } else if (idle && live) followUp()
+                    // Rightmost, after 追问: the host's desktop.
+                    desktop?.invoke()
                 }
             }
+        }
+        if (replying || failure != null) Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
             if (replying) FollowUpField(draft, { draft = it }, kind, sending, tagPrefix, session.id, ::sendFollowUp)
             failure?.let {
                 Text(it, Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelMedium, color = colors.error, maxLines = 2)
@@ -232,6 +260,10 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             dismissButton = { TextButton(onClick = { forgetting = false }) { Text(tr("取消")) } })
     }
 }
+
+/** The last part of [path], or the path itself when it is a root ("/", "C:\\"). */
+private fun pathLeaf(path: String): String =
+    path.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\').ifEmpty { path }
 
 /** The agent's name on a small wash of its colour, before the session's name. */
 @Composable
@@ -277,12 +309,9 @@ private fun RowAction(label: String, tag: String, icon: Int? = null, fill: Color
     val colors = MaterialTheme.colorScheme
     val background = fill ?: if (plain) Color.Transparent else colors.onSurface.copy(alpha = 0.07f)
     val content = if (fill != null) Color(0xFF1D1A12) else if (plain) colors.onSurfaceVariant else colors.onSurface
-    // Only the icon, in a round button; the label is what TalkBack reads.
+    // Only the icon: a tag among the row's tags; the label is what TalkBack reads.
     if (icon != null && iconOnly) {
-        Box(Modifier.size(28.dp).clip(CircleShape).background(background).clickable(role = Role.Button, onClick = onClick)
-            .testTag(tag), contentAlignment = Alignment.Center) {
-            Icon(painterResource(icon), contentDescription = label, Modifier.size(14.dp), tint = content)
-        }
+        IconTag(icon, label, tag, onClick)
         return
     }
     Row(Modifier.height(28.dp).clip(CircleShape).background(background).clickable(role = Role.Button, onClick = onClick)

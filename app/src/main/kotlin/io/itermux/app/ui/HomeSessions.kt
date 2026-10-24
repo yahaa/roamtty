@@ -79,14 +79,14 @@ private fun SessionGroup.color() = when (this) {
 
 /**
  * Every session the app holds, grouped by what its agent is doing (waiting for the user, working, done, then the
- * rest), most active first within a group; a tap opens its terminal. With two groups or more, chips above them filter
- * to one. On a phone a group's sessions share one panel, split by hairlines; where the page has room for more columns,
+ * rest), most recently used first within a group; a tap opens its terminal. With two groups or more, chips above them filter
+ * to one. Sessions without an agent's report take compact rows. On a phone a group's sessions share one panel, split by hairlines; where the page has room for more columns,
  * each is a card of its own.
  */
 @Composable
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
     onClose: (TerminalConnection) -> Unit, hostOffline: (TerminalConnection) -> Boolean = { false },
-    onForget: (TerminalConnection) -> Unit = {}) {
+    onForget: (TerminalConnection) -> Unit = {}, desktop: @Composable (TerminalConnection) -> Unit = {}) {
     // Each session's group, and whether it runs an agent at all; a session coming back stays in the group its agent
     // was last seen in.
     fun place(session: TerminalConnection) =
@@ -130,15 +130,17 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
                 }
                 gridItemsIndexed(members, key = { _, session -> session.id }) { index, session ->
                     val radius = 18.dp
+                    val last = index == members.lastIndex
                     val shape = when {
-                        !joined || members.size == 1 -> RoundedCornerShape(radius)
+                        !joined || (index == 0 && last) -> RoundedCornerShape(radius)
                         index == 0 -> RoundedCornerShape(topStart = radius, topEnd = radius)
-                        index == members.lastIndex -> RoundedCornerShape(bottomStart = radius, bottomEnd = radius)
+                        last -> RoundedCornerShape(bottomStart = radius, bottomEnd = radius)
                         else -> RectangleShape
                     }
                     SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
                         onForget = { onForget(session) }, hostOffline = hostOffline(session), shape = shape, divider = joined && index > 0,
-                        modifier = if (joined) Modifier else Modifier.padding(bottom = Spacing.Row))
+                        modifier = if (joined) Modifier else Modifier.padding(bottom = Spacing.Row),
+                        compact = group == SessionGroup.OTHER, desktop = { desktop(session) })
                 }
             }
         }

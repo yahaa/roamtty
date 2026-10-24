@@ -44,6 +44,8 @@ class TerminalConnection(
     /** Carry the terminal over mosh when the host has it; SSH remains for files. */
     preferMosh: Boolean = false,
     private val onPluginsDetected: suspend (Set<HostPlugin>) -> Unit = {},
+    /** The read-only desktop probe answered (it runs with the plugin probe). */
+    private val onDesktopDetected: suspend (HostDesktop) -> Unit = {},
     /** What the agent reported last time, from the journal. */
     lastAgentStatus: AgentStatus? = null,
     /** The agent reported something new, which the journal keeps. */
@@ -90,6 +92,13 @@ class TerminalConnection(
         launch {
             ssh.detectedPlugins.filterNotNull().collect { plugins ->
                 try { onPluginsDetected(plugins) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* Metadata persistence must never tear down a terminal. */ }
+            }
+        }
+        launch {
+            ssh.detectedDesktop.filterNotNull().collect { desktop ->
+                try { onDesktopDetected(desktop) }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { /* Metadata persistence must never tear down a terminal. */ }
             }
