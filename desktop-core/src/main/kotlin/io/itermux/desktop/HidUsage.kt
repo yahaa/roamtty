@@ -34,8 +34,6 @@ object HidUsage {
     const val RIGHT_ALT = 0xE6
     const val RIGHT_GUI = 0xE7
 
-    val MODIFIERS = setOf(LEFT_CTRL, LEFT_SHIFT, LEFT_ALT, LEFT_GUI, RIGHT_CTRL, RIGHT_SHIFT, RIGHT_ALT, RIGHT_GUI)
-
     fun letter(c: Char): Int = A + (c.lowercaseChar() - 'a')
     fun f(n: Int): Int = if (n <= 12) F1 + n - 1 else 0x68 + n - 13
 
@@ -99,17 +97,12 @@ object HidUsage {
 
 /**
  * The on-screen computer keyboard's modifiers (plan §5.2): a tap latches one for the next key, a long
- * press holds it until tapped again. In combo mode keys gather (at most four) and go out together.
+ * press holds it until tapped again.
  */
 class ModifierLatch {
     enum class State { OFF, ONCE, LOCKED }
 
     private val states = linkedMapOf<Int, State>()
-    var combo = false
-        private set
-    private val gathered = mutableListOf<Int>()
-    val pending: List<Int> get() = gathered.toList()
-
     fun state(hid: Int): State = states[hid] ?: State.OFF
 
     fun tap(hid: Int) {
@@ -118,35 +111,12 @@ class ModifierLatch {
 
     fun hold(hid: Int) { states[hid] = State.LOCKED }
 
-    fun setCombo(on: Boolean) { combo = on; gathered.clear() }
-
     /**
-     * A key was tapped: the (key, down) events to send, empty while a combo still gathers.
-     * Latched modifiers wrap the key; once-latched ones then release.
+     * A key was tapped: the (key, down) events to send. Latched modifiers wrap the key; once-latched ones then release.
      */
     fun press(hid: Int): List<Pair<Int, Boolean>> {
-        if (combo) {
-            if (gathered.size < 4 && hid !in gathered) gathered += hid
-            return emptyList()
-        }
-        return wrap(listOf(hid))
-    }
-
-    /** Sends the gathered combo; modifiers in it go first. */
-    fun sendCombo(): List<Pair<Int, Boolean>> {
-        val keys = gathered.sortedByDescending { it in HidUsage.MODIFIERS }
-        gathered.clear()
-        return if (keys.isEmpty()) emptyList() else wrap(keys)
-    }
-
-    private fun wrap(keys: List<Int>): List<Pair<Int, Boolean>> {
-        val mods = states.filterValues { it != State.OFF }.keys.filter { it !in keys }
-        val out = mutableListOf<Pair<Int, Boolean>>()
-        mods.forEach { out += it to true }
-        keys.forEach { out += it to true }
-        keys.reversed().forEach { out += it to false }
-        mods.reversed().forEach { out += it to false }
+        val mods = states.filterValues { it != State.OFF }.keys.filter { it != hid }
         states.entries.removeAll { it.value == State.ONCE }
-        return out
+        return mods.map { it to true } + listOf(hid to true, hid to false) + mods.reversed().map { it to false }
     }
 }

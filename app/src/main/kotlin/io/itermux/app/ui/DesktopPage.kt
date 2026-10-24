@@ -1,7 +1,5 @@
 package io.itermux.app.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.Configuration
 import android.net.ConnectivityManager
@@ -39,7 +37,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -53,14 +50,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -440,11 +435,11 @@ private val STATUS_CARD_HEIGHT = 244.dp
 /** Windows without the plugin's service: one administrator install reaches the sign-in and lock screens. */
 @Composable
 private fun WindowsServiceHint() {
-    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     Text(tr("在这台电脑上用管理员 PowerShell 运行一次下面的命令，之后电脑重启或锁屏时也能直接连接："), color = InkDim, fontSize = 13.sp)
     Text(io.itermux.ssh.WindowsDesktop.SERVICE_INSTALL, color = Ink, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
         modifier = Modifier.testTag("desktop-service-command"))
-    TextButton(onClick = { clipboard.setText(AnnotatedString(io.itermux.ssh.WindowsDesktop.SERVICE_INSTALL)) },
+    TextButton(onClick = { context.copyText(io.itermux.ssh.WindowsDesktop.SERVICE_INSTALL) },
         Modifier.testTag("desktop-service-copy")) { Text(tr("复制命令")) }
 }
 
@@ -555,7 +550,7 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
     var clipNote by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(connection) {
         connection.remoteClipboard.collect { text ->
-            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Roamtty", text))
+            context.copyText(text)
             clipNote = if (text.isEmpty()) tr("远程剪贴板为空") else trf("已复制远程剪贴板（%d 字）", text.length)
         }
     }
@@ -586,8 +581,7 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
             Section(tr("剪贴板")) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PanelButton(tr("发送手机剪贴板"), R.drawable.ic_upload, "desktop-op-clip-send", Modifier.weight(1f)) {
-                        val text = context.getSystemService(ClipboardManager::class.java).primaryClip?.takeIf { it.itemCount > 0 }
-                            ?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                        val text = context.clipboardText()
                         if (text.isEmpty()) clipNote = tr("手机剪贴板为空")
                         else { connection.send(DesktopProtocol.clipSet(text.take(1 shl 20))); clipNote = tr("已发送到远程剪贴板") }
                     }
@@ -727,7 +721,7 @@ private fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, la
     var bar by rememberSaveable { mutableStateOf(false) }
     var more by rememberSaveable { mutableStateOf(false) }
     val latch = remember { ModifierLatch() }
-    var latchRevision by remember { mutableStateOf(0) }
+    var latchRevision by remember { mutableIntStateOf(0) }
     val mods = remember(os) { modifierKeys(os) }
     fun send(events: List<Pair<Int, Boolean>>) { events.forEach { (k, d) -> connection.input(DesktopProtocol.key(k, d)) }; latchRevision++ }
     fun key(hid: Int) = send(latch.press(hid))

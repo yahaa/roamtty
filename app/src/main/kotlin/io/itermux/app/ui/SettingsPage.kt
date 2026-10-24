@@ -131,7 +131,7 @@ private fun DesktopSetting() {
     val context = LocalContext.current
     val settings = remember(context) { io.itermux.app.desktop.DesktopSettings(context) }
     var enabled by remember { mutableStateOf(settings.enabled) }
-    var keepAlive by remember { mutableStateOf(settings.keepAliveMinutes) }
+    var keepAlive by remember { mutableIntStateOf(settings.keepAliveMinutes) }
     GroupedSection(header = tr("实验功能"),
         footer = tr("打开后，能开桌面的主机会在会话卡片右下角显示桌面按钮。首次打开会在主机上安装桌面插件。")) {
         GroupedRow(tr("远程桌面"), Modifier.testTag("settings-desktop"), trailing = {

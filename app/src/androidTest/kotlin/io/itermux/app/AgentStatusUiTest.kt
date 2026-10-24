@@ -2,7 +2,6 @@ package io.itermux.app
 
 import android.content.Intent
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.getUnclippedBoundsInRoot

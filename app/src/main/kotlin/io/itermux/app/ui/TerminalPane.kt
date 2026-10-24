@@ -3,8 +3,6 @@ package io.itermux.app.ui
 import io.itermux.app.tr
 import io.itermux.app.trf
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.res.Configuration
 import android.view.KeyEvent
 import android.view.View
@@ -300,8 +298,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         if ((text.contains('\n') || text.contains('\r')) && !session.getEmulator().isBracketedPasteEnabled) confirmPaste = text
         else sendPaste(text)
     }
-    fun clipboardText(): String? = context.getSystemService(ClipboardManager::class.java).primaryClip
-        ?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.takeIf { it.isNotEmpty() }
+    fun clipboardText(): String? = context.clipboardText().ifEmpty { null }
     fun showClipboard() {
         // Stage clipboard content in the editor; reading clipboard requires a user gesture.
         clipboardText()?.let { updateDraft(insertDraftText(draft, it, 128 * 1024)); editor = true; hideKeyboard() }
@@ -314,7 +311,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
     }
     DisposableEffect(session) {
-        session.copyToClipboard = { text -> context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(tr("终端选区"), text)) }
+        session.copyToClipboard = { text -> context.copyText(text, tr("终端选区")) }
         session.pasteFromClipboard = { showClipboard() }
         onDispose {
             session.onScreenChanged = null; session.copyToClipboard = null; session.pasteFromClipboard = null
@@ -454,7 +451,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     view.setCursorDraggingEnabled(state.phase == Phase.CONNECTED)
                     session.onScreenChanged = { view.onScreenUpdated() }
                     if (session.getEmulator().mColors.setLightTheme(lightTheme)) view.onScreenUpdated()
-                    view.setTextSize((fontSize * view.resources.displayMetrics.scaledDensity).toInt())
+                    view.setTextSize((fontSize * view.resources.displayMetrics.density * view.resources.configuration.fontScale).toInt())
                     view.setTypeface(TerminalFonts.resolveTypeface(view.context))
                     checkNotNull(terminalFontKey)
                 })

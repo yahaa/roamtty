@@ -318,6 +318,6 @@ internal fun RemoteDirectoryPicker(session: TerminalConnection, directory: Strin
 }
 
 @Composable
-private fun DirectoryMessage(message: String) {
+internal fun DirectoryMessage(message: String) {
     Text(message, Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

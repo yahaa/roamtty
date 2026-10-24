@@ -19,7 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
@@ -131,7 +131,7 @@ private fun MarkdownBlock(block: MdBlock, colors: MarkdownColors, loadImage: (su
 @Composable
 private fun CodeBlock(block: MdBlock.Code, font: FontFamily) {
     val theme = rememberCodeTheme()
-    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     val language = remember(block.language) { Languages.forFence(block.language) ?: Languages.PLAIN }
     val text = remember(block.code, language, theme) { annotatedCode(SyntaxHighlighter.highlight(block.code, language), theme) }
     // Dark pages sink code into a deeper well; light pages need a tinted block to stand out from the paper.
@@ -143,7 +143,7 @@ private fun CodeBlock(block: MdBlock.Code, font: FontFamily) {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(block.language.ifEmpty { tr("代码") }, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton(onClick = { clipboard.setText(AnnotatedString(block.code)) }, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = { context.copyText(block.code) }, modifier = Modifier.size(36.dp)) {
                     Icon(painterResource(R.drawable.ic_copy), tr("复制代码"), Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

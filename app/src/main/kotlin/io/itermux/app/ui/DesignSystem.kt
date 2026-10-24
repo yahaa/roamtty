@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import io.itermux.ssh.Phase
 
@@ -125,7 +126,7 @@ internal fun SegmentedControl(segments: List<Segment>, modifier: Modifier = Modi
         Box(Modifier.fillMaxWidth().height(36.dp).clip(MaterialTheme.shapes.extraSmall)
             .background(if (light) colors.surfaceContainerHighest else colors.surfaceContainerHigh)
             .padding(trackPadding)) {
-            Surface(Modifier.offset(x = thumbOffset).width(segmentWidth).fillMaxHeight(),
+            Surface(Modifier.offset { IntOffset(thumbOffset.roundToPx(), 0) }.width(segmentWidth).fillMaxHeight(),
                 shape = RoundedCornerShape(8.dp), color = if (light) colors.surfaceContainerLowest else colors.surfaceBright,
                 shadowElevation = if (light) 1.dp else 0.dp) {}
             Row(Modifier.fillMaxSize().selectableGroup()) {

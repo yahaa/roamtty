@@ -18,9 +18,7 @@ import androidx.compose.ui.unit.Dp
 import io.itermux.app.R
 import io.itermux.app.session.CodingAgent
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import io.itermux.app.session.AgentStatus
-import io.itermux.app.tr
 import io.itermux.app.trf
 
 /** The colour an agent state is shown in. */

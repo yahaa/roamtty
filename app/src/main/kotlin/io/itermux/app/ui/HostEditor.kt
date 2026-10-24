@@ -100,9 +100,9 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
     }
     val connectionSection: @Composable () -> Unit = {
         GroupedSection(header = tr("连接信息")) {
-            FormField(name, { name = it }, tr("名称"), tr("例如：开发工作站"), Modifier.testTag("host-name"), enabled = !busy)
+            FormField(name, { name = it }, tr("名称"), Modifier.testTag("host-name"), tr("例如：开发工作站"), enabled = !busy)
             GroupedDivider()
-            FormField(address, { address = it }, tr("地址 / IP"), tr("例如：dev.example.com"), Modifier.testTag("host-address"),
+            FormField(address, { address = it }, tr("地址 / IP"), Modifier.testTag("host-address"), tr("例如：dev.example.com"),
                 KeyboardOptions(keyboardType = KeyboardType.Uri), enabled = !busy)
             GroupedDivider()
             Row(Modifier.height(IntrinsicSize.Min)) {
@@ -212,8 +212,8 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
 
 /** A borderless field for grouped forms: the panel supplies the shape, dividers separate rows. */
 @Composable
-private fun FormField(value: String, onValueChange: (String) -> Unit, label: String, placeholder: String? = null,
-    modifier: Modifier = Modifier, keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+private fun FormField(value: String, onValueChange: (String) -> Unit, label: String, modifier: Modifier = Modifier,
+    placeholder: String? = null, keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None, enabled: Boolean = true) {
     TextField(value, onValueChange, label = { Text(label) }, placeholder = placeholder?.let { { Text(it) } },
         enabled = enabled, singleLine = true, keyboardOptions = keyboardOptions, visualTransformation = visualTransformation,

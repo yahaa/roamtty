@@ -7,6 +7,9 @@ import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
 import android.view.SurfaceView
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.get
+import androidx.core.graphics.scale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,7 +53,7 @@ internal object DesktopThumbnails {
     fun capture(view: SurfaceView, videoWidth: Int, videoHeight: Int, done: (Bitmap?) -> Unit) {
         if (videoWidth <= 0 || videoHeight <= 0 || !view.holder.surface.isValid) return done(null)
         val width = minOf(WIDTH, videoWidth)
-        val bitmap = Bitmap.createBitmap(width, (videoHeight.toLong() * width / videoWidth).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(width, (videoHeight.toLong() * width / videoWidth).toInt().coerceAtLeast(1))
         runCatching {
             PixelCopy.request(view, bitmap, { result -> done(bitmap.takeIf { result == PixelCopy.SUCCESS && !it.isBlank() }) },
                 Handler(Looper.getMainLooper()))
@@ -67,7 +70,7 @@ internal object DesktopThumbnails {
     private fun Bitmap.isBlank(): Boolean {
         val step = maxOf(1, width / 16)
         for (y in 0 until height step maxOf(1, height / 16)) for (x in 0 until width step step) {
-            val p = getPixel(x, y)
+            val p = this[x, y]
             if ((p ushr 24) != 0 && (p and 0xFFFFFF) > 0x101010) return false
         }
         return true
@@ -80,11 +83,11 @@ internal object DesktopThumbnails {
     fun frosted(source: Bitmap): Bitmap {
         val w = 48
         val h = (source.height.toLong() * w / source.width).toInt().coerceAtLeast(1)
-        val small = Bitmap.createScaledBitmap(source, w, h, true)
+        val small = source.scale(w, h)
         val pixels = IntArray(w * h)
         small.getPixels(pixels, 0, w, 0, 0, w, h)
         repeat(2) { boxBlur(pixels, w, h, 2) }
-        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val out = createBitmap(w, h)
         out.setPixels(pixels, 0, w, 0, 0, w, h)
         if (small !== source) small.recycle()
         return out

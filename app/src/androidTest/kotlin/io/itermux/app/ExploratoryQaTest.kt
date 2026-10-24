@@ -17,7 +17,6 @@ import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
 import java.io.File
-import java.util.UUID
 
 /** Exploratory regressions, 2026-09-27. Run only on the disposable QA emulator. */
 @RunWith(AndroidJUnit4::class)

@@ -175,7 +175,7 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
             if (editingCompact) TextButton(onClick = ::finishSearch) { Text(tr("完成")) }
         }
         HorizontalDivider()
-        if (!selectedOnly && listing?.limited == true) DownloadMessage(tr("匹配较多，请补充路径以缩小范围"))
+        if (!selectedOnly && listing?.limited == true) DirectoryMessage(tr("匹配较多，请补充路径以缩小范围"))
         if (!selectedOnly && listing?.unreadable == true) Row(verticalAlignment = Alignment.CenterVertically) {
             Text(tr("部分目录无法读取"), Modifier.weight(1f).padding(start = 24.dp), style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { retry++ }) { Text(tr("重试")) }
@@ -183,20 +183,20 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
         LazyColumn(Modifier.fillMaxWidth().weight(1f).testTag("download-files-list"), state = listState) {
             when {
                 selectedOnly -> {
-                    if (selectedMatches.isEmpty()) item { DownloadMessage(tr(if (selected.isEmpty()) "尚未选择文件" else "无匹配文件")) }
+                    if (selectedMatches.isEmpty()) item { DirectoryMessage(tr(if (selected.isEmpty()) "尚未选择文件" else "无匹配文件")) }
                     items(selectedMatches, key = { it.path }) { file ->
                         DownloadFileRow(file.name, "${formatRemoteSize(file.total)} · ${file.path.substringBeforeLast('/').ifBlank { "/" }}",
                             directory = false, selected = true, enabled = enabled, tag = "download-entry-${file.name}") { toggle(file) }
                     }
                 }
-                !enabled -> item { DownloadMessage(tr("下载未开始，请重新连接后再试。")) }
+                !enabled -> item { DirectoryMessage(tr("下载未开始，请重新连接后再试。")) }
                 loading || transfer.resolvingDownloadDirectory -> item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(24.dp)) }
                 error != null -> item {
-                    DownloadMessage(tr(error!!))
+                    DirectoryMessage(tr(error!!))
                     TextButton(onClick = { retry++ }, modifier = Modifier.padding(horizontal = 24.dp)) { Text(tr("重试")) }
                     TextButton(onClick = { transfer.downloadDirectory = ""; query = "" }) { Text(tr("返回主目录")) }
                 }
-                entries.isEmpty() -> item { DownloadMessage(tr(when {
+                entries.isEmpty() -> item { DirectoryMessage(tr(when {
                     query.isNotBlank() -> "无匹配文件"
                     listing?.directories.orEmpty().all { it.entries.isEmpty() } -> "此目录为空"
                     else -> "没有可显示的项目"
@@ -304,9 +304,5 @@ internal fun DownloadFileRow(name: String, metadata: String, directory: Boolean,
  * Lets long names wrap at separators. Line breaking forbids a break between "-" and a digit, so
  * "probe-20261005" would otherwise split mid-number.
  */
-private fun breakableFileName(name: String) = name.replace(Regex("(?<=[-_.])(?=.)"), "\u200B")
-
-@Composable
-private fun DownloadMessage(message: String) {
-    Text(message, Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-}
+private fun breakableFileName(name: String) = name.replace(fileNameBreak, "\u200B")
+private val fileNameBreak = Regex("(?<=[-_.])(?=.)")

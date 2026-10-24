@@ -33,16 +33,4 @@ class HidUsageTest {
         m.tap(HidUsage.LEFT_SHIFT)
         assertEquals(ModifierLatch.State.OFF, m.state(HidUsage.LEFT_SHIFT))
     }
-
-    @Test fun comboGathersUpToFour() {
-        val m = ModifierLatch()
-        m.setCombo(true)
-        listOf(HidUsage.DELETE, HidUsage.LEFT_CTRL, HidUsage.LEFT_ALT, HidUsage.A, HidUsage.C).forEach { assertTrue(m.press(it).isEmpty()) }
-        assertEquals(4, m.pending.size)
-        val out = m.sendCombo()
-        assertEquals(listOf(HidUsage.LEFT_CTRL to true, HidUsage.LEFT_ALT to true, HidUsage.DELETE to true, HidUsage.A to true),
-            out.take(4))
-        assertEquals(8, out.size)
-        assertTrue(m.pending.isEmpty())
-    }
 }

@@ -38,21 +38,8 @@ internal fun ItermuxLogo(
     val idle = if (animated) rememberInfiniteTransition(label = "logo") else null
     val float = idle?.animateFloat(0f, 1f, infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "float")
     val hem = idle?.animateFloat(0f, 2f * PI.toFloat(), infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "hem")
-    val eyes = idle?.animateFloat(1f, 1f, infiniteRepeatable(keyframes {
-        durationMillis = 3600
-        1f at 3250
-        0.1f at 3330
-        1f at 3420
-    }), label = "blink")
-    val wave = idle?.animateFloat(0f, 0f, infiniteRepeatable(keyframes {
-        durationMillis = 5200
-        0f at 3000
-        -30f at 3180
-        14f at 3380
-        -30f at 3580
-        14f at 3780
-        0f at 3980
-    }), label = "wave")
+    val eyes = idle?.animateFloat(1f, 1f, GhostBlink, label = "blink")
+    val wave = idle?.animateFloat(0f, 0f, GhostWave, label = "wave")
     val cursor = idle?.animateFloat(1f, 0f, infiniteRepeatable(keyframes {
         durationMillis = 1060
         1f at 529

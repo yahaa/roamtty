@@ -27,7 +27,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -35,7 +35,6 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,7 +60,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
     val browser = session.fileBrowser
     val options = rememberRemoteFileOptions()
     val listStates = rememberSaveableStateHolder()
-    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     var listing by remember(session.id) { mutableStateOf<RemoteDirectory?>(null) }
     var listingKey by remember(session.id) { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
@@ -144,7 +143,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                     modifier = Modifier.testTag("files-batch-download"))
                 DropdownMenuItem(text = { Text(tr("复制当前路径")) },
                     leadingIcon = { Icon(painterResource(R.drawable.ic_copy), contentDescription = null) },
-                    onClick = { clipboard.setText(AnnotatedString(currentPath)); dismissMenu() },
+                    onClick = { context.copyText(currentPath); dismissMenu() },
                     enabled = currentPath.isNotEmpty(), modifier = Modifier.testTag("files-copy-path"))
                 DropdownMenuItem(text = { Text(tr("返回主机详情")) },
                     leadingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = null) },
@@ -214,7 +213,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                                         }, onDelete = {
                                             browser.deletePath = path; browser.deleteIsDirectory = entry.isDirectory; browser.dismissMenu()
                                         }, onCopyPath = {
-                                            clipboard.setText(AnnotatedString(path)); browser.dismissMenu()
+                                            context.copyText(path); browser.dismissMenu()
                                         }, onOpenWithAgent = if (onLaunchAgent != null && entry.isDirectory) {
                                             { browser.dismissMenu(); agentDirectory = path }
                                         } else null, onOpenTerminal = if (onOpenTerminal != null && entry.isDirectory) {

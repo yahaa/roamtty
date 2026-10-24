@@ -23,7 +23,6 @@ import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.FixMethodOrder
