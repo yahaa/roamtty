@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.itermux.app.tr
@@ -39,7 +40,7 @@ class FileTransferController(private val scope: CoroutineScope) {
     var uploadUri by mutableStateOf<Uri?>(null)
     var uploadName by mutableStateOf("")
     var uploadPath by mutableStateOf("")
-    var uploadSize by mutableStateOf(-1L)
+    var uploadSize by mutableLongStateOf(-1L)
     /** Target directory of the pending upload; null while the terminal's directory is being resolved. */
     var uploadDirectory by mutableStateOf<String?>(null)
     var downloadDialog by mutableStateOf(false)

@@ -64,7 +64,6 @@ internal class DesktopSettings(context: Context) {
 
     companion object {
         val KEEP_ALIVE = listOf(5, 10, 30)
-        val QUALITIES = listOf("auto", "smooth", "clear", "original")
         val FPS = listOf(30, 60, 90, 120)
 
         /** The plugin build this APK is pinned to, from assets/desktop-plugin.json. */

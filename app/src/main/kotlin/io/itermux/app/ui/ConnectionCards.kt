@@ -26,7 +26,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,7 +57,6 @@ import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.SessionMode
 import io.itermux.ssh.HostSystem
 import io.itermux.ssh.HostPlugin
-import io.itermux.ssh.TerminalTransport
 
 /**
  * A host in the hosts list, as a screen: its desktop's last picture (before one was taken, its system's colours; for a

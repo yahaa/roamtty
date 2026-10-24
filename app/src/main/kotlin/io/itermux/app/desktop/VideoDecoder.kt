@@ -78,7 +78,7 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
             units.firstOrNull { it.second == 8 }?.let { format.setByteBuffer("csd-1", java.nio.ByteBuffer.wrap(it.first)) }
         }
         format.setInteger(MediaFormat.KEY_PRIORITY, 0)
-        if (Build.VERSION.SDK_INT >= 23) format.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
+        format.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
         if (lowLatency) {
             if (Build.VERSION.SDK_INT >= 30) format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             // Vendor low-latency switches (Qualcomm, Exynos, HiSilicon, MediaTek); unknown keys are ignored.

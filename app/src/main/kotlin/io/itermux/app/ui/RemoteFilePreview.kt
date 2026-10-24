@@ -26,12 +26,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -56,7 +55,7 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
     onDownload: () -> Unit, onDismiss: () -> Unit) {
     val name = path.substringAfterLast('/')
     val options = rememberRemoteFileOptions()
-    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     var preview by remember(path) { mutableStateOf<FilePreview?>(null) }
     var error by remember(path) { mutableStateOf<String?>(null) }
     var revision by remember(path) { mutableIntStateOf(0) }
@@ -199,12 +198,12 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                                 preview?.text?.takeIf { it.isNotEmpty() }?.let { text ->
                                     DropdownMenuItem(text = { Text(tr("复制全部内容")) },
                                         leadingIcon = { Icon(painterResource(R.drawable.ic_copy), null) },
-                                        onClick = { clipboard.setText(AnnotatedString(text)); menu = false },
+                                        onClick = { context.copyText(text); menu = false },
                                         modifier = Modifier.testTag("file-preview-copy"))
                                 }
                                 DropdownMenuItem(text = { Text(tr("复制路径")) },
                                     leadingIcon = { Icon(painterResource(R.drawable.ic_copy), null) },
-                                    onClick = { clipboard.setText(AnnotatedString(path)); menu = false },
+                                    onClick = { context.copyText(path); menu = false },
                                     modifier = Modifier.testTag("file-preview-copy-path"))
                             }
                         }

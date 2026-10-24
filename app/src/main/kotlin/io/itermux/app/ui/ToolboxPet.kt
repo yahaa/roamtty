@@ -90,21 +90,8 @@ internal fun ToolboxPet(description: String, onHoldStart: (Offset) -> Unit = {},
     val float by idle.animateFloat(0f, 1f, infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "float")
     val sway by idle.animateFloat(-5f, 5f, infiniteRepeatable(tween(2300, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "sway")
     val hem by idle.animateFloat(0f, 2f * PI.toFloat(), infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "hem")
-    val eyes by idle.animateFloat(1f, 1f, infiniteRepeatable(keyframes {
-        durationMillis = 3600
-        1f at 3250
-        0.1f at 3330
-        1f at 3420
-    }), label = "blink")
-    val wave by idle.animateFloat(0f, 0f, infiniteRepeatable(keyframes {
-        durationMillis = 5200
-        0f at 3000
-        -30f at 3180
-        14f at 3380
-        -30f at 3580
-        14f at 3780
-        0f at 3980
-    }), label = "wave")
+    val eyes by idle.animateFloat(1f, 1f, GhostBlink, label = "blink")
+    val wave by idle.animateFloat(0f, 0f, GhostWave, label = "wave")
     val wrench = MaterialTheme.colorScheme.primary
     Box(Modifier.size(48.dp)
         .onGloballyPositioned { coordinates = it }
@@ -171,6 +158,23 @@ private val GhostInk = Color(0xFF3B3550)
 private val GhostBlush = Color(0xFFFF9EB5)
 private val WrenchMetal = Color(0xFFD9DEE8)
 private val KeyboardBody = Color(0xFFEDEBF5)
+
+/** The ghost's idle blink and wrench wave, shared by the toolbox pet and the animated logo. */
+internal val GhostBlink = infiniteRepeatable<Float>(keyframes {
+    durationMillis = 3600
+    1f at 3250
+    0.1f at 3330
+    1f at 3420
+})
+internal val GhostWave = infiniteRepeatable<Float>(keyframes {
+    durationMillis = 5200
+    0f at 3000
+    -30f at 3180
+    14f at 3380
+    -30f at 3580
+    14f at 3780
+    0f at 3980
+})
 
 internal fun DrawScope.drawGhost(wrench: Color, hem: Float, eyes: Float, wave: Float) {
     val line = Stroke(width = 1.3f, cap = StrokeCap.Round, join = StrokeJoin.Round)

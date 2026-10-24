@@ -8,6 +8,7 @@ import android.os.Build
 import android.net.Uri
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
@@ -48,7 +49,7 @@ object TerminalFonts {
         private set
 
     /** Bumps when custom file bytes change so Compose/AndroidView update even if id stays custom. */
-    var revision by mutableStateOf(0)
+    var revision by mutableIntStateOf(0)
         private set
 
     /** Only the face in use is kept; each one pins its own copy of the primary font. */

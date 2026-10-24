@@ -51,7 +51,6 @@ import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.data.newSessionMode
 import io.itermux.app.data.multiplexer
-import io.itermux.app.data.prefersMosh
 import io.itermux.app.data.recentFirst
 import io.itermux.app.session.*
 import io.itermux.app.desktop.DesktopSettings

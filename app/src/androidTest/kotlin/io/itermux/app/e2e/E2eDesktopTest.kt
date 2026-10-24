@@ -10,7 +10,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.ServiceTestRule
 import io.itermux.app.MainActivity
 import io.itermux.app.ui.TerminalToolbox
-import io.itermux.app.data.Host
 import io.itermux.app.desktop.DesktopConnection
 import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.e2e.E2e.app
@@ -24,7 +23,6 @@ import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout

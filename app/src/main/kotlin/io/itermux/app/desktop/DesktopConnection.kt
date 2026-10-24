@@ -345,6 +345,7 @@ internal class DesktopConnection(
         error("too many redirects")
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun stream(s: RemoteStream, hello: Hello): Outcome {
         mutableHello.value = hello
         if (hello.needs.isNotEmpty()) {
@@ -539,7 +540,6 @@ internal class DesktopConnection(
                 decoder.submit(m)
             }
             is ServerMessage.CursorShape -> {
-                Log.d(TAG, "${host.name}: cursor shape ${m.width}x${m.height} hot ${m.hotX},${m.hotY}")
                 val pixels = IntArray(m.width * m.height) { i ->
                     val o = i * 4
                     (m.rgba[o + 3].toInt() and 0xFF shl 24) or (m.rgba[o].toInt() and 0xFF shl 16) or
@@ -681,7 +681,6 @@ internal class DesktopConnection(
 
     /** e2e only: drop this share of UDP datagrams on the phone side (1.0 blocks UDP). */
     internal fun testUdpDrop(rate: Double) { link?.dropRate = rate }
-    internal val udpLink: UdpLink? get() = link
     internal val audioPlayer: AudioPlayer get() = player
 
     companion object {

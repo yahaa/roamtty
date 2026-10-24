@@ -65,7 +65,7 @@ internal fun rememberDownloadActions(session: TerminalConnection): DownloadActio
     val context = LocalContext.current
     val directory = rememberDownloadDirectory()
     val transfer = session.transfers
-    var savedPaths by rememberSaveable(session.id) { mutableStateOf(arrayListOf<String>()) }
+    var savedPaths by rememberSaveable(session.id) { mutableStateOf<List<String>>(arrayListOf()) }
     var mode by rememberSaveable(session.id) { mutableStateOf<String?>(null) }
     var pickerOpen by rememberSaveable(session.id) { mutableStateOf(false) }
     var pickedUri by rememberSaveable(session.id) { mutableStateOf<String?>(null) }

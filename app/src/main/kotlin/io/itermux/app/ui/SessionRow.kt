@@ -69,9 +69,9 @@ import kotlinx.coroutines.launch
  * An agent's session is named by its folder, the agent's badge before it; others by [sessionListTitle].
  */
 @Composable
-internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, onForget: () -> Unit = {},
-    tagPrefix: String = "home-session", hostOffline: Boolean = false, shape: Shape = RoundedCornerShape(18.dp),
-    divider: Boolean = false, modifier: Modifier = Modifier,
+internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier,
+    onForget: () -> Unit = {}, tagPrefix: String = "home-session", hostOffline: Boolean = false,
+    shape: Shape = RoundedCornerShape(18.dp), divider: Boolean = false,
     /** Only the name, the folder and the connection: for sessions without an agent's report. */
     compact: Boolean = false,
     /** The desktop button at the end of the bottom row, when the host can open its desktop. */
