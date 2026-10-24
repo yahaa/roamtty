@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,7 +47,8 @@ internal fun sessionsMatching(sessions: List<TerminalConnection>, search: String
 internal fun HomeSessionsTab(sessions: List<TerminalConnection>, hasHosts: Boolean, search: String, onNewSession: () -> Unit,
     onOpen: (TerminalConnection) -> Unit, onClose: (TerminalConnection) -> Unit, onForget: (TerminalConnection) -> Unit,
     hostOffline: (TerminalConnection) -> Boolean, groups: List<ListedGroup>, filter: MutableState<String?>,
-    compact: Boolean = false, desktop: @Composable (TerminalConnection) -> Unit = {}) {
+    compact: Boolean = false, gridState: LazyGridState = rememberLazyGridState(),
+    desktop: @Composable (TerminalConnection) -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         if (!compact) HomeListHeader(trf("会话 · %d", sessions.size), tr("新建会话"), "add-session", onNewSession)
         val matching = sessionsMatching(sessions, search)
@@ -62,7 +64,7 @@ internal fun HomeSessionsTab(sessions: List<TerminalConnection>, hasHosts: Boole
                 action = { Button(onClick = onNewSession) { Text(tr("新建会话")) } })
             matching.isEmpty() -> EmptyState(tr("没有匹配的会话"), tr("试试其他标题或主机信息"), Modifier.fillMaxSize())
             else -> HomeSessionsList(matching, onOpen = onOpen, onClose = onClose, onForget = onForget, hostOffline = hostOffline,
-                desktop = desktop, groups = groups, filter = filter, compact = compact)
+                desktop = desktop, groups = groups, filter = filter, compact = compact, gridState = gridState)
         }
     }
 }

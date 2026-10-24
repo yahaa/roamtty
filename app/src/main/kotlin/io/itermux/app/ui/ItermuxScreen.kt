@@ -186,6 +186,7 @@ fun ItermuxScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val hostGridState = rememberLazyGridState()
+    val sessionGridState = rememberLazyGridState()
     var previousHostOrder by remember { mutableStateOf(recentHosts) }
     LaunchedEffect(recentHosts) {
         if (recentHosts != previousHostOrder) {
@@ -454,6 +455,17 @@ fun ItermuxScreen(
         var barOffset by remember { mutableFloatStateOf(0f) }
         val barSlides = compactHome && !searchExpanded
         LaunchedEffect(barSlides) { if (!barSlides) barOffset = 0f }
+        // A scroll that skips nested scrolling (scrolling to an item, a reset to the top) can bring the list back to its
+        // first row with the bar still away: the bar follows it back.
+        val homeListAtTop by remember {
+            derivedStateOf {
+                (if (homePager.currentPage == 0) sessionGridState else hostGridState)
+                    .let { it.firstVisibleItemIndex == 0 && it.firstVisibleItemScrollOffset == 0 }
+            }
+        }
+        LaunchedEffect(homeListAtTop, barSlides) {
+            if (homeListAtTop && barSlides && barOffset < 0f) animate(barOffset, 0f) { value, _ -> barOffset = value }
+        }
         val barScroll = remember(barSlides, barHeight) {
             object : NestedScrollConnection {
                 // The bar moves first; the list scrolls by what is left.
@@ -565,6 +577,7 @@ fun ItermuxScreen(
                                 groups = sessionGroups,
                                 filter = sessionFilter,
                                 compact = compactHome,
+                                gridState = sessionGridState,
                                 desktop = { session ->
                                     val host = hosts.firstOrNull { it.id == session.host.id } ?: session.host
                                     val connection = desktops[host.id]

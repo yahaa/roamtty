@@ -6,7 +6,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -121,12 +123,13 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
     onClose: (TerminalConnection) -> Unit, hostOffline: (TerminalConnection) -> Boolean = { false },
     onForget: (TerminalConnection) -> Unit = {}, desktop: @Composable (TerminalConnection) -> Unit = {},
     groups: List<ListedGroup> = rememberSessionGroups(sessions, hostOffline),
-    filter: MutableState<String?> = rememberSaveable { mutableStateOf(null) }, compact: Boolean = false) {
+    filter: MutableState<String?> = rememberSaveable { mutableStateOf(null) }, compact: Boolean = false,
+    gridState: LazyGridState = rememberLazyGridState()) {
     val only = filteredGroup(groups, filter.value)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val columns = ((maxWidth - Spacing.Page * 2 + Spacing.Row) / (320.dp + Spacing.Row)).toInt().coerceAtLeast(1)
         val joined = columns == 1
-        LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize().testTag("home-sessions-list"),
+        LazyVerticalGrid(columns = GridCells.Fixed(columns), state = gridState, modifier = Modifier.fillMaxSize().testTag("home-sessions-list"),
             horizontalArrangement = Arrangement.spacedBy(Spacing.Row),
             contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
             if (groups.size > 1 && !compact) item(key = "filters", span = { GridItemSpan(maxLineSpan) }) {
