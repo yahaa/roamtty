@@ -4,6 +4,8 @@ import android.content.pm.ActivityInfo
 import android.view.KeyEvent
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.ServiceTestRule
@@ -812,6 +814,81 @@ class E2eFeatureTest {
         E2e.capture(compose, "f24-session-list")
         compose.onNodeWithTag("home-sessions-list").performScrollToNode(hasTestTag("home-session-${plain.id}"))
         tag("home-session-tag-tmux-${plain.id}").assertExists()
+    }
+
+    /**
+     * Every agent's card is as tall as the next, whatever it has to say; in landscape the home page has one short bar
+     * with the tabs, the filters, search and add, which slides away as the list scrolls on and comes back as it scrolls back.
+     */
+    @Test fun f25_landscapeCardsShareHeightAndBarSlides() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("等高", mode = SessionMode.TMUX))
+        val hook = "sh ~/.roamtty/agent-hook.sh claude"
+        suspend fun open(command: String?) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            service.open(host, SessionMode.TMUX, io.itermux.ssh.Credentials(E2e.password.toByteArray())).also { session ->
+                if (command != null) session.runWhenConnected(command, agentHooks = io.itermux.app.session.CodingAgent.CLAUDE)
+            }
+        }
+        fun done(folder: String, stop: String) = "mkdir -p ~/$folder && cd ~/$folder && " +
+            "printf '{\"prompt\":\"tidy $folder\"}' | $hook prompt; printf '$stop' | $hook stop; sleep 600"
+        val long = open(done("long", "{\"last_assistant_message\":\"" + "Posted the review with the cause, the steps, the numbers and a fix. ".repeat(4) + "\"}"))
+        val short = open(done("short", "{\"last_assistant_message\":\"Done.\"}"))
+        val silent = open("mkdir -p ~/silent && cd ~/silent && printf '{}' | $hook stop; sleep 600")
+        val waiting = open("mkdir -p ~/wait && cd ~/wait && printf '{\"prompt\":\"build\"}' | $hook prompt; " +
+            "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"./gradlew assembleRelease\"}}' | $hook tool; " +
+            "printf '{\"notification_type\":\"permission_prompt\",\"message\":\"needs permission\"}' | $hook notify; sleep 600")
+        val agents = listOf(long, short, silent, waiting)
+        val plains = List(2) { open(null) }
+        (agents + plains).forEach { assertEquals(Phase.CONNECTED, E2e.connected(it)) }
+        sessionsTab()
+        // The list only holds the cards on screen, so wait on the agents themselves, then scroll to each card.
+        compose.waitUntil(40_000) {
+            waiting.agentStatus.value?.state == io.itermux.app.session.AgentStatus.State.WAITING &&
+                listOf(long, short, silent).all { it.agentStatus.value?.state == io.itermux.app.session.AgentStatus.State.IDLE }
+        }
+        listOf("approve" to waiting, "reply" to long, "reply" to short, "no-reply" to silent).forEach { (what, session) ->
+            compose.onNodeWithTag("home-sessions-list").performScrollToNode(hasTestTag("home-session-${session.id}"))
+            E2e.waitTag(compose, "home-session-$what-${session.id}", 20_000)
+        }
+        compose.onNodeWithTag("home-sessions-list").performScrollToIndex(0)
+        fun bounds(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true).getUnclippedBoundsInRoot()
+        fun assertSameHeight() {
+            val heights = agents.map {
+                compose.onNodeWithTag("home-sessions-list").performScrollToNode(hasTestTag("home-session-${it.id}"))
+                bounds("home-session-${it.id}").height
+            }
+            heights.forEach { assertEquals("agent cards $heights", heights.first().value, it.value, 1.5f) }
+        }
+        E2e.capture(compose, "f25-portrait")
+        compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+        compose.waitUntil(8_000) { compose.activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE }
+        compose.waitUntil(10_000) { E2e.exists(compose, hasTestTag("home-session-filter-all")) }
+        compose.waitForIdle()
+        assertSameHeight()
+        compose.onNodeWithTag("home-sessions-list").performScrollToIndex(0)
+        compose.waitForIdle()
+        // One bar: the tabs, filters, search and add on one line, no "会话 · N" line under it.
+        assertTrue(compose.onAllNodes(hasText("会话 · ", substring = true)).fetchSemanticsNodes().isEmpty())
+        val bar = bounds("brand-logo")
+        val middle = (bar.top + bar.bottom) / 2
+        listOf("home-tab-sessions", "home-session-filter-all", "search-toggle", "add-session").forEach {
+            assertEquals(it, middle.value, ((bounds(it).top + bounds(it).bottom) / 2).value, 2f)
+        }
+        val listTop = bounds("home-sessions-list").top
+        assertTrue("list at $listTop under a bar at ${bar.bottom}", listTop <= bar.bottom + 1.dp)
+        E2e.capture(compose, "f25-landscape")
+        // Scrolling on slides the bar away and the list takes its place; scrolling back brings it back.
+        compose.onNodeWithTag("home-sessions-list").performTouchInput { swipeUp(centerY, centerY - 400f, 300) }
+        compose.waitForIdle()
+        assertTrue("bar at ${bounds("brand-logo").bottom}", bounds("brand-logo").bottom <= bar.top + 1.dp)
+        assertTrue(bounds("home-sessions-list").top < listTop)
+        E2e.capture(compose, "f25-landscape-scrolled")
+        compose.onNodeWithTag("home-sessions-list").performTouchInput { swipeDown(centerY, centerY + 200f, 300) }
+        compose.waitForIdle()
+        assertEquals(bar.top.value, bounds("brand-logo").top.value, 1f)
+        hostsTab()
+        listOf("add-host", "search-toggle").forEach { E2e.waitTag(compose, it) }
+        assertTrue(compose.onAllNodes(hasText("主机 · ", substring = true)).fetchSemanticsNodes().isEmpty())
+        E2e.capture(compose, "f25-landscape-hosts")
     }
 
     /** 删除主机 removes the host, its saved credentials and closes its sessions. */

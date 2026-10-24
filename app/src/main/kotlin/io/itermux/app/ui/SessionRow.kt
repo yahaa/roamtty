@@ -63,7 +63,8 @@ import kotlinx.coroutines.launch
  * One session: its tile beside its name, the chip of the host it runs on, the folder it is in (the home as `~`)
  * and the last prompt ("你: …", or "等待输入中…" while an idle agent has had none), then, across the
  * whole row, what the agent answered or runs and a status line with how long it has been at it and what the agent
- * needs (allow a request, or a follow-up typed right here). [compact] rows, for sessions without an agent's report,
+ * needs (allow a request, or a follow-up typed right here). Every line is there, empty if need be, and the reply
+ * takes one, so all agents' cards share one height. [compact] rows, for sessions without an agent's report,
  * are built the same way with only the name, the folder and a status line of the connection. Long press for its menu.
  * An agent's session is named by its folder, the agent's badge before it; others by [sessionListTitle].
  */
@@ -139,12 +140,15 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 HostChip(session.host.name, session.host.id, hostOffline && !state.active, "$tagPrefix-host-${session.id}",
                     Modifier.padding(start = Spacing.Tight))
             }
-            // Behind a folder mark; cut in the middle, so both where it starts and the folder's own name stay.
-            if (path.isNotEmpty()) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.ic_folder), contentDescription = tr("工作目录"), Modifier.size(12.dp),
-                    tint = colors.onSurfaceVariant.copy(alpha = 0.75f))
-                Spacer(Modifier.width(5.dp))
-                Text(path, Modifier.testTag("$tagPrefix-location-${session.id}"),
+            // Behind a folder mark; cut in the middle, so both where it starts and the folder's own name stay. Without
+            // a folder the line stays, empty, so every card of a kind is as tall as the next.
+            Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (path.isNotEmpty()) {
+                    Icon(painterResource(R.drawable.ic_folder), contentDescription = tr("工作目录"), Modifier.size(12.dp),
+                        tint = colors.onSurfaceVariant.copy(alpha = 0.75f))
+                    Spacer(Modifier.width(5.dp))
+                }
+                Text(path.ifEmpty { " " }, if (path.isNotEmpty()) Modifier.testTag("$tagPrefix-location-${session.id}") else Modifier,
                     style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace,
                     color = colors.onSurfaceVariant.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
             }
@@ -159,7 +163,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             }
             // How it is connected and what carries it, across the row's whole width; the desktop at the end, where every
             // row has its buttons.
-            Row(Modifier.padding(top = Spacing.Tight).heightIn(min = 28.dp),
+            Row(Modifier.padding(top = Spacing.Tight).heightIn(min = STATUS_ROW_HEIGHT),
                 verticalAlignment = Alignment.CenterVertically) {
                 StatusLabel(state.phase, Modifier.weight(1f).testTag("$tagPrefix-status-${session.id}"),
                     hostOffline = hostOffline && !state.active)
@@ -184,19 +188,25 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                         append(prompt)
                     }, Modifier.padding(top = 2.dp).testTag("$tagPrefix-prompt-${session.id}"), style = MaterialTheme.typography.bodySmall,
                         color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    else if (idle) Text(tr("等待输入中…"), Modifier.padding(top = 2.dp).testTag("$tagPrefix-awaiting-${session.id}"),
+                    else Text(if (idle) tr("等待输入中…") else " ",
+                        Modifier.padding(top = 2.dp).then(if (idle) Modifier.testTag("$tagPrefix-awaiting-${session.id}") else Modifier),
                         style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic,
                         color = colors.onSurfaceVariant.copy(alpha = 0.7f), maxLines = 1)
                 }
             }
-            // What the agent runs or asks to run, else what it answered last.
+            // One line, whatever there is to say: what the agent runs or asks to run, else what it answered last, else
+            // that it has not; so every agent's card is as tall as the next.
             if (activity.isNotEmpty()) Text(activity, Modifier.padding(top = Spacing.Tight).testTag("$tagPrefix-activity-${session.id}"),
                 style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
                 color = colors.onSurfaceVariant.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             else if (idle && reply.isNotEmpty()) Text(reply, Modifier.padding(top = Spacing.Tight).testTag("$tagPrefix-reply-${session.id}"),
                 style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant.copy(alpha = 0.8f),
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Row(Modifier.padding(top = Spacing.Tight).heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            else Text(if (idle) tr("还没有回复") else " ", Modifier.padding(top = Spacing.Tight)
+                .then(if (idle) Modifier.testTag("$tagPrefix-no-reply-${session.id}") else Modifier),
+                style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic,
+                color = colors.onSurfaceVariant.copy(alpha = 0.5f), maxLines = 1)
+            Row(Modifier.padding(top = Spacing.Tight).heightIn(min = STATUS_ROW_HEIGHT), verticalAlignment = Alignment.CenterVertically) {
                 when {
                     status == null || !live -> StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"),
                         hostOffline = hostOffline && !state.active)
@@ -400,3 +410,6 @@ internal fun MarqueeTitle(text: String, modifier: Modifier = Modifier) {
     Text(text, modifier.onSizeChanged { line = it.width }.then(fade).basicMarquee(iterations = Int.MAX_VALUE),
         style = MaterialTheme.typography.titleMedium, maxLines = 1, onTextLayout = { full = it.size.width })
 }
+
+/** How tall a card's status line stands, with or without the icon buttons (36dp to touch) at its end. */
+private val STATUS_ROW_HEIGHT = 36.dp

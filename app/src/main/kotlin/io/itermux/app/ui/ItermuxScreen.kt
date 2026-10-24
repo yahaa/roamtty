@@ -22,7 +22,17 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.animate
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Velocity
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -432,6 +442,50 @@ fun ItermuxScreen(
                     onGuide = { scope.launch { drawerState.close() }; showAbout = true },
                     onClose = { scope.launch { drawerState.close() } })
             }) {
+        // A session's host is offline when nothing connects to it and its last probe found it down.
+        fun sessionHostOffline(session: TerminalConnection) = hosts.firstOrNull { it.id == session.host.id }
+            ?.let { !hostConnected(it) && hostReachability.statusOf(it) == HostReachability.Offline } == true
+        val sessionGroups = rememberSessionGroups(sessionsMatching(sessionsByRecency, search), ::sessionHostOffline)
+        val sessionFilter = rememberSaveable { mutableStateOf<String?>(null) }
+        // In landscape the home page has one short bar, which slides away as a list scrolls on and comes back as soon
+        // as it scrolls back; it stays while the search is open.
+        val compactHome = landscape && navigationVisible
+        val barHeight = with(LocalDensity.current) { HOME_COMPACT_BAR_HEIGHT.toPx() }
+        var barOffset by remember { mutableFloatStateOf(0f) }
+        val barSlides = compactHome && !searchExpanded
+        LaunchedEffect(barSlides) { if (!barSlides) barOffset = 0f }
+        val barScroll = remember(barSlides, barHeight) {
+            object : NestedScrollConnection {
+                // The bar moves first; the list scrolls by what is left.
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    if (!barSlides) return Offset.Zero
+                    val before = barOffset
+                    barOffset = (before + available.y).coerceIn(-barHeight, 0f)
+                    return Offset(0f, barOffset - before)
+                }
+
+                // Never left half way: to whichever end is nearer.
+                override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                    if (barSlides && barOffset > -barHeight && barOffset < 0f)
+                        animate(barOffset, if (barOffset < -barHeight / 2) -barHeight else 0f) { value, _ -> barOffset = value }
+                    return Velocity.Zero
+                }
+            }
+        }
+        fun toggleSearch() {
+            if (searchExpanded) {
+                search = ""
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+            }
+            searchExpanded = !searchExpanded
+        }
+        val openDrawer = {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+            scope.launch { drawerState.open() }
+            Unit
+        }
         Surface(Modifier.fillMaxSize(), color = colors.background) {
             // The terminal fills the display, including the area beside a camera cutout and under the
             // transparent portrait status bar. Only desktop window chrome reserves an edge; the terminal
@@ -440,15 +494,36 @@ fun ItermuxScreen(
             // The terminal applies the keyboard inset itself, in one step (see TerminalPane).
             val imeInsets = if (terminalVisible || desktopVisible) WindowInsets(0) else WindowInsets.ime
             Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).windowInsetsPadding(imeInsets)) {
-                if ((!imeVisible || searchExpanded) && !terminalVisible && page != AppPage.FILES && page != AppPage.HOST && !desktopVisible) AppToolbar(
+                val toolbarVisible = (!imeVisible || searchExpanded) && !terminalVisible && page != AppPage.FILES && page != AppPage.HOST && !desktopVisible
+                if (toolbarVisible && compactHome) HomeCompactBar(listOf(tr("会话"), tr("主机")), listOf(sessions.size, hosts.size),
+                    homePager.currentPage, onSelect = { scope.launch { homePager.animateScrollToPage(it) } },
+                    leading = { ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo"), onClick = openDrawer) },
+                    middle = {
+                        if (homePager.currentPage == 0 && sessionGroups.size > 1)
+                            SessionFilters(sessionGroups, sessionGroups.sumOf { it.members.size },
+                                filteredGroup(sessionGroups, sessionFilter.value)) { sessionFilter.value = it?.name }
+                    },
+                    trailing = {
+                        AppSearchToggle(searchExpanded, onToggle = ::toggleSearch,
+                            searchDescription = tr(if (homePager.currentPage == 0) "搜索会话" else "搜索主机"),
+                            modifier = Modifier.testTag("search-toggle"))
+                        if (homePager.currentPage == 0) ToolbarIcon(R.drawable.ic_add, tr("新建会话"), Modifier.testTag("add-session")) {
+                            newSessionOpen = true
+                        } else ToolbarIcon(R.drawable.ic_add, tr("添加主机"), Modifier.testTag("add-host")) {
+                            editHostId = null; editorOpen = true
+                        }
+                    },
+                    // Slid up by [barOffset], and only as tall as what still shows, so the list takes the rest.
+                    modifier = Modifier.clipToBounds().layout { measurable, constraints ->
+                        val placeable = measurable.measure(constraints)
+                        val shown = (placeable.height + barOffset.roundToInt()).coerceAtLeast(0)
+                        layout(placeable.width, shown) { placeable.place(0, barOffset.roundToInt()) }
+                    })
+                else if (toolbarVisible) AppToolbar(
                     navigation = {
                         // As wide as the search on the right, so the home tabs sit in the middle of the screen.
                         Box(Modifier.width(48.dp)) {
-                            ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo")) {
-                                focusManager.clearFocus(force = true)
-                                keyboardController?.hide()
-                                scope.launch { drawerState.open() }
-                            }
+                            ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo"), onClick = openDrawer)
                         }
                     },
                     actions = {
@@ -457,14 +532,7 @@ fun ItermuxScreen(
                                 HomeTabs(listOf(tr("会话"), tr("主机")), homePager.currentPage,
                                     onSelect = { scope.launch { homePager.animateScrollToPage(it) } })
                             }
-                            AppSearchToggle(searchExpanded, onToggle = {
-                                if (searchExpanded) {
-                                    search = ""
-                                    focusManager.clearFocus(force = true)
-                                    keyboardController?.hide()
-                                }
-                                searchExpanded = !searchExpanded
-                            }, searchDescription = tr(if (homePager.currentPage == 0) "搜索会话" else "搜索主机"),
+                            AppSearchToggle(searchExpanded, onToggle = ::toggleSearch, searchDescription = tr(if (homePager.currentPage == 0) "搜索会话" else "搜索主机"),
                                 modifier = Modifier.testTag("search-toggle"))
                         } else {
                             // Settings is a drawer destination: closing returns to the page it was opened from.
@@ -486,16 +554,17 @@ fun ItermuxScreen(
                             .map { it.host.endpointKey }.toSet()
                         ProbeHostReachability(hostReachability, hosts,
                             connected = hosts.filter { it.endpointKey in connectedEndpoints }.map { it.id }.toSet())
-                        HorizontalPager(homePager, Modifier.weight(1f).testTag("home-pager"), key = { HOME_TAB_TAGS[it] }) { tab ->
+                        HorizontalPager(homePager, Modifier.weight(1f).nestedScroll(barScroll).testTag("home-pager"),
+                            key = { HOME_TAB_TAGS[it] }) { tab ->
                             if (tab == 0) HomeSessionsTab(sessionsByRecency, hosts.isNotEmpty(), search,
                                 onNewSession = { newSessionOpen = true },
                                 onOpen = { showSession(it.id) },
                                 onClose = ::closeSession,
                                 onForget = ::forceDelete,
-                                hostOffline = { session ->
-                                    hosts.firstOrNull { it.id == session.host.id }
-                                        ?.let { !hostConnected(it) && hostReachability.statusOf(it) == HostReachability.Offline } == true
-                                },
+                                hostOffline = ::sessionHostOffline,
+                                groups = sessionGroups,
+                                filter = sessionFilter,
+                                compact = compactHome,
                                 desktop = { session ->
                                     val host = hosts.firstOrNull { it.id == session.host.id } ?: session.host
                                     val connection = desktops[host.id]
@@ -531,7 +600,8 @@ fun ItermuxScreen(
                                         DesktopProbe.decode(host.desktop), host.desktopProbedAt, System.currentTimeMillis(), desktopPhase)
                                 },
                                 onDesktop = ::openDesktop,
-                                onDisconnectDesktop = { host -> service?.desktops?.close(host.id) })
+                                onDisconnectDesktop = { host -> service?.desktops?.close(host.id) },
+                                compact = compactHome)
                         }
                     }
                 } else if (page == AppPage.HOST) {
