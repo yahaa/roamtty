@@ -1,0 +1,11 @@
+{
+  "filename": "Roamtty-memory-performance-20261025-release-debugsigned.apk",
+  "bytes": 6405639,
+  "sha256": "2baf774a2f8fb6546b672ebe373758aabd5540d42ddd56e78985204742ef8095",
+  "package": "package: name='com.roamtty.app' versionCode='100' versionName='0.1.0' platformBuildVersionName='16' platformBuildVersionCode='36' compileSdkVersion='36' compileSdkVersionCodename='16'",
+  "r8": true,
+  "signature": "Local Android debug key; not a store release signing key",
+  "validation": "assembleRelease; apksigner verify; zipalign -c -P 16 4",
+  "e2e_apk_sha256": "2870fba5c294af2b747aa1ec7a81d54aef7a94bb62afbdc11940466453d8324d",
+  "source_commit": "552c939589163c1a1cd2d24b3d875c13a2a9bd84"
+}
