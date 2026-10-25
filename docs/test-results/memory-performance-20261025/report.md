@@ -74,6 +74,32 @@ Raw instrumentation results: [run 1](preview-followup-1.txt), [run 2](preview-fo
 [run 3](preview-followup-3.txt). Across the full run and this targeted follow-up, all 45 distinct phone
 cases have passed. This is a combined result, not a claim that the earlier 44/45 run was green.
 
+## Matched isolated performance samples
+
+The final isolated run passed **13/13 tests**, with all measured budgets satisfied:
+[results](fixed-isolated-results.json), [raw metrics](fixed-isolated-metrics.jsonl).
+Its first nine performance/frame tests match the initial baseline sequence; four new memory
+regressions run afterwards. JVM and optional audio tests were not part of this phone invocation.
+
+| Metric | Main baseline | Fixed | Unit |
+|---|---:|---:|---|
+| Cold start p50 | 235.0 | 167.0 | ms |
+| SSH connection p50 | 196.0 | 188.0 | ms |
+| Keystroke echo p95 | 34.0 | 34.0 | ms |
+| 200,000-line output | 417.0 | 350.0 | ms |
+| Scrollback frame p90 | 10.0 | 10.0 | ms |
+| Host-list frame p90 | 12.0 | 12.0 | ms |
+| Idle home CPU / 10 s | 10.0 | 10.0 | ms |
+| Idle terminal CPU / 10 s | 40.0 | 10.0 | ms |
+| Home PSS | 116.2 | 100.3 | MiB |
+| Eight busy sessions PSS | 190.6 | 174.3 | MiB |
+| After closing sessions PSS | 119.0 | 103.8 | MiB |
+
+These are single-device samples, not statistical estimates of a general speedup. The baseline
+memory test recreated the Activity before checking collection; the fixed test deliberately does
+not. Home/closed PSS is sensitive to preceding UI/decoder work, as the full-run samples above show.
+The measured leak fixes and bounded queues are the reproducible result; no budget was relaxed.
+
 ## APK
 
 `Roamtty-memory-performance-20261025-release-debugsigned.apk` is the R8-minified Release build,

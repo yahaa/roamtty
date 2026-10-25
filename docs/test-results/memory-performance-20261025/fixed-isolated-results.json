@@ -1,0 +1,748 @@
+{
+  "passed": true,
+  "profile": "device",
+  "tests": [
+    {
+      "class": "E2ePerfTest",
+      "test": "p01_sshConnect",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p02_keystrokeEchoLatency",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p03_outputFlood",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p05_idleScreens",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p06_memoryAndLeaks",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2ePerfTest",
+      "test": "p07_sftpThroughput",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFramesTest",
+      "test": "r01_scrollbackScrolling",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFramesTest",
+      "test": "r02_hostListScrolling",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eFramesTest",
+      "test": "r03_outputFloodMainThread",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eMemoryTest",
+      "test": "failedSessionsAreCollectedAfterRemoval",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "E2eMemoryTest",
+      "test": "naturallyEndedSessionsAreCollectedAfterRemoval",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "DesktopMemoryTest",
+      "test": "missingDecodedFramesDoNotGrowReceptionBookkeepingForever",
+      "status": "passed",
+      "message": ""
+    },
+    {
+      "class": "DesktopMemoryTest",
+      "test": "stalledDecoderDoesNotRetainAnUnboundedVideoMailbox",
+      "status": "passed",
+      "message": ""
+    }
+  ],
+  "budgets": [
+    {
+      "name": "unit_tests_failed",
+      "value": null,
+      "unit": "count",
+      "limit": {
+        "max": 0
+      },
+      "status": "skipped",
+      "about": "JVM unit tests of app, ssh-core, desktop-core, terminal-emulator, terminal-view"
+    },
+    {
+      "name": "cold_start_p50_ms",
+      "value": 167,
+      "unit": "ms",
+      "limit": {
+        "max": 1500
+      },
+      "status": "ok",
+      "about": "am start -W TotalTime, median of 6 cold starts"
+    },
+    {
+      "name": "cold_start_max_ms",
+      "value": 173,
+      "unit": "ms",
+      "limit": {
+        "max": 2500
+      },
+      "status": "ok",
+      "about": "slowest of the 6 cold starts"
+    },
+    {
+      "name": "host_save_with_detection_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 5000
+      },
+      "status": "missing",
+      "about": "保存 → fingerprint trust → system + plugin detection done"
+    },
+    {
+      "name": "host_probe_latency_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 100
+      },
+      "status": "missing",
+      "about": "card's DNS + TCP latency to the loopback fixture"
+    },
+    {
+      "name": "ui_terminal_open_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "missing",
+      "about": "打开 tap → terminal connected"
+    },
+    {
+      "name": "tmux_reattach_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "missing",
+      "about": "重新连接 tap → tmux session reattached"
+    },
+    {
+      "name": "files_open_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "missing",
+      "about": "查看文件 → home listing shown"
+    },
+    {
+      "name": "files_list_1500_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 2000
+      },
+      "status": "missing",
+      "about": "open a 1,500-file directory"
+    },
+    {
+      "name": "preview_large_log_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "missing",
+      "about": "preview of a 60,000-line log"
+    },
+    {
+      "name": "monitor_first_sample_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 5000
+      },
+      "status": "missing",
+      "about": "host page → first CPU/memory sample"
+    },
+    {
+      "name": "plugin_detect_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 5000
+      },
+      "status": "missing",
+      "about": "安装插件 sheet → tmux/mosh detected"
+    },
+    {
+      "name": "ssh_connect_p50_ms",
+      "value": 188,
+      "unit": "ms",
+      "limit": {
+        "max": 1500
+      },
+      "status": "ok",
+      "about": "SSH login to shell, median of 5"
+    },
+    {
+      "name": "ssh_connect_max_ms",
+      "value": 215,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "ok",
+      "about": "slowest of the 5 logins"
+    },
+    {
+      "name": "echo_p50_ms",
+      "value": 8,
+      "unit": "ms",
+      "limit": {
+        "max": 60
+      },
+      "status": "ok",
+      "about": "key commit → echoed on screen, median of 40"
+    },
+    {
+      "name": "echo_p95_ms",
+      "value": 34,
+      "unit": "ms",
+      "limit": {
+        "max": 120
+      },
+      "status": "ok",
+      "about": "key echo, 95th percentile"
+    },
+    {
+      "name": "flood_seq200k_ms",
+      "value": 350,
+      "unit": "ms",
+      "limit": {
+        "max": 8000
+      },
+      "status": "ok",
+      "about": "seq 1 200000 fully rendered"
+    },
+    {
+      "name": "flood_wide_ms",
+      "value": 130,
+      "unit": "ms",
+      "limit": {
+        "max": 4000
+      },
+      "status": "ok",
+      "about": "3,000 lines of 200 columns"
+    },
+    {
+      "name": "flood_color_ms",
+      "value": 196,
+      "unit": "ms",
+      "limit": {
+        "max": 6000
+      },
+      "status": "ok",
+      "about": "20,000 SGR-coloured lines"
+    },
+    {
+      "name": "flood_seq200k_jank_pct",
+      "value": 0,
+      "unit": "%",
+      "limit": {
+        "max": 60
+      },
+      "status": "ok",
+      "about": "janky frames while flooding"
+    },
+    {
+      "name": "scroll_jank_pct",
+      "value": 0.149812734082397,
+      "unit": "%",
+      "limit": {
+        "max": 20
+      },
+      "status": "ok",
+      "about": "janky frames dragging through scrollback"
+    },
+    {
+      "name": "scroll_frame_p90_ms",
+      "value": 10,
+      "unit": "ms",
+      "limit": {
+        "max": 24
+      },
+      "status": "ok",
+      "about": "90th percentile frame time in scrollback"
+    },
+    {
+      "name": "scroll_frames_drawn",
+      "value": 912,
+      "unit": "frames",
+      "limit": {
+        "min": 30
+      },
+      "status": "ok",
+      "about": "frames drawn while dragging through scrollback (0 = the drag never redraws)"
+    },
+    {
+      "name": "flood_seq200k_main_cpu_ms",
+      "value": 380,
+      "unit": "ms",
+      "limit": {
+        "max": 3000
+      },
+      "status": "ok",
+      "about": "main-thread CPU parsing and drawing seq 1 200000 at the real frame rate"
+    },
+    {
+      "name": "flood_seq200k_frame_p90_ms",
+      "value": 6,
+      "unit": "ms",
+      "limit": {
+        "max": 40
+      },
+      "status": "ok",
+      "about": "90th percentile frame time while seq 1 200000 is drawn"
+    },
+    {
+      "name": "flood_color_main_cpu_ms",
+      "value": 250,
+      "unit": "ms",
+      "limit": {
+        "max": 1500
+      },
+      "status": "ok",
+      "about": "main-thread CPU parsing and drawing 20,000 SGR-coloured lines at the real frame rate"
+    },
+    {
+      "name": "flood_color_frame_p90_ms",
+      "value": 9,
+      "unit": "ms",
+      "limit": {
+        "max": 40
+      },
+      "status": "ok",
+      "about": "90th percentile frame time while the coloured lines are drawn"
+    },
+    {
+      "name": "hostlist_jank_pct",
+      "value": 5.825242718446602,
+      "unit": "%",
+      "limit": {
+        "max": 40
+      },
+      "status": "ok",
+      "about": "janky frames flinging 60 host cards"
+    },
+    {
+      "name": "idle_home_cpu_ms_per_10s",
+      "value": 10,
+      "unit": "ms",
+      "limit": {
+        "max": 200
+      },
+      "status": "ok",
+      "about": "process CPU over 10 s on an idle home page"
+    },
+    {
+      "name": "idle_home_frames_per_10s",
+      "value": 0,
+      "unit": "frames",
+      "limit": {
+        "max": 30
+      },
+      "status": "ok",
+      "about": "frames drawn by an idle home page"
+    },
+    {
+      "name": "idle_terminal_cpu_ms_per_10s",
+      "value": 10,
+      "unit": "ms",
+      "limit": {
+        "max": 300
+      },
+      "status": "ok",
+      "about": "process CPU over 10 s on an idle terminal"
+    },
+    {
+      "name": "idle_terminal_frames_per_10s",
+      "value": 0,
+      "unit": "frames",
+      "limit": {
+        "max": 30
+      },
+      "status": "ok",
+      "about": "frames drawn by an idle terminal"
+    },
+    {
+      "name": "pss_home_mb",
+      "value": 100.283203125,
+      "unit": "MB",
+      "limit": {
+        "max": 150
+      },
+      "status": "ok",
+      "about": "PSS on the home page"
+    },
+    {
+      "name": "pss_8_sessions_mb",
+      "value": 174.267578125,
+      "unit": "MB",
+      "limit": {
+        "max": 300
+      },
+      "status": "ok",
+      "about": "PSS with 8 sessions × 20,000 lines"
+    },
+    {
+      "name": "pss_after_close_mb",
+      "value": 103.837890625,
+      "unit": "MB",
+      "limit": {
+        "max": 200
+      },
+      "status": "ok",
+      "about": "PSS after closing them"
+    },
+    {
+      "name": "leaked_sessions",
+      "value": 0,
+      "unit": "count",
+      "limit": {
+        "max": 0
+      },
+      "status": "ok",
+      "about": "closed sessions still reachable after GC"
+    },
+    {
+      "name": "retained_ended_sessions",
+      "value": 0,
+      "unit": "count",
+      "limit": {
+        "max": 0
+      },
+      "status": "ok",
+      "about": "naturally ended sessions still reachable after their cards are removed and GC runs"
+    },
+    {
+      "name": "retained_failed_sessions",
+      "value": 0,
+      "unit": "count",
+      "limit": {
+        "max": 0
+      },
+      "status": "ok",
+      "about": "failed logins still reachable after their cards are removed and GC runs"
+    },
+    {
+      "name": "sftp_download_mbps",
+      "value": 16.13816794153604,
+      "unit": "MiB/s",
+      "limit": {
+        "min": 5
+      },
+      "status": "ok",
+      "about": "16 MiB SFTP download over adb reverse"
+    },
+    {
+      "name": "sftp_upload_mbps",
+      "value": 14.890245517236215,
+      "unit": "MiB/s",
+      "limit": {
+        "min": 2
+      },
+      "status": "ok",
+      "about": "16 MiB SFTP upload over adb reverse"
+    },
+    {
+      "name": "hostlist_frame_p90_ms",
+      "value": 12,
+      "unit": "ms",
+      "limit": {
+        "max": 24
+      },
+      "status": "ok",
+      "about": "90th percentile frame time flinging the host list"
+    },
+    {
+      "name": "desktop_install_first_frame_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 15000
+      },
+      "status": "skipped",
+      "about": "desktop button tap to first frame, plugin and OpenH264 installed from nothing (plan: ≤ 15 s)"
+    },
+    {
+      "name": "desktop_resume_first_frame_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 1000
+      },
+      "status": "skipped",
+      "about": "back into a desktop kept in the background to a new frame (plan: ≤ 1 s)"
+    },
+    {
+      "name": "desktop_static_frames_3s",
+      "value": null,
+      "unit": "count",
+      "limit": {
+        "max": 1
+      },
+      "status": "skipped",
+      "about": "frames a still desktop sends in 3 s after its refine frame (plan: none)"
+    },
+    {
+      "name": "desktop_udp_roam_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 1000
+      },
+      "status": "skipped",
+      "about": "network change on UDP (new socket) to the next frame (plan: ≤ 1 s)"
+    },
+    {
+      "name": "desktop_udp_lost_frames",
+      "value": null,
+      "unit": "count",
+      "limit": {
+        "max": 2
+      },
+      "status": "skipped",
+      "about": "video messages lost outright over UDP with 5% loss each way"
+    },
+    {
+      "name": "desktop_udp_fallback_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 5000
+      },
+      "status": "skipped",
+      "about": "UDP blocked to the picture running over SSH (3 s silence plus a stats tick)"
+    },
+    {
+      "name": "desktop_audio_backlog_ms",
+      "value": null,
+      "unit": "ms",
+      "limit": {
+        "max": 420
+      },
+      "status": "skipped",
+      "about": "host sound waiting to be heard on the phone, worst of 10 samples after it settled; the drop line is the jitter target + 120 (E2eAudioTest)"
+    },
+    {
+      "name": "desktop_audio_dropped",
+      "value": null,
+      "unit": "count",
+      "limit": {
+        "max": 2
+      },
+      "status": "skipped",
+      "about": "sound packets dropped to catch up over 3 s of steady playback (E2eAudioTest)"
+    }
+  ],
+  "metrics": {
+    "cold_start_p50_ms": {
+      "name": "cold_start_p50_ms",
+      "value": 167,
+      "unit": "ms"
+    },
+    "cold_start_max_ms": {
+      "name": "cold_start_max_ms",
+      "value": 173,
+      "unit": "ms"
+    },
+    "ssh_connect_p50_ms": {
+      "name": "ssh_connect_p50_ms",
+      "value": 188,
+      "unit": "ms"
+    },
+    "ssh_connect_max_ms": {
+      "name": "ssh_connect_max_ms",
+      "value": 215,
+      "unit": "ms"
+    },
+    "echo_p50_ms": {
+      "name": "echo_p50_ms",
+      "value": 8,
+      "unit": "ms"
+    },
+    "echo_p95_ms": {
+      "name": "echo_p95_ms",
+      "value": 34,
+      "unit": "ms"
+    },
+    "flood_seq200k_ms": {
+      "name": "flood_seq200k_ms",
+      "value": 350,
+      "unit": "ms"
+    },
+    "flood_seq200k_jank_pct": {
+      "name": "flood_seq200k_jank_pct",
+      "value": 0,
+      "unit": "%"
+    },
+    "flood_wide_ms": {
+      "name": "flood_wide_ms",
+      "value": 130,
+      "unit": "ms"
+    },
+    "flood_wide_jank_pct": {
+      "name": "flood_wide_jank_pct",
+      "value": 0,
+      "unit": "%"
+    },
+    "flood_color_ms": {
+      "name": "flood_color_ms",
+      "value": 196,
+      "unit": "ms"
+    },
+    "flood_color_jank_pct": {
+      "name": "flood_color_jank_pct",
+      "value": 0,
+      "unit": "%"
+    },
+    "idle_home_cpu_ms_per_10s": {
+      "name": "idle_home_cpu_ms_per_10s",
+      "value": 10,
+      "unit": "ms"
+    },
+    "idle_home_frames_per_10s": {
+      "name": "idle_home_frames_per_10s",
+      "value": 0,
+      "unit": "frames"
+    },
+    "idle_terminal_cpu_ms_per_10s": {
+      "name": "idle_terminal_cpu_ms_per_10s",
+      "value": 10,
+      "unit": "ms"
+    },
+    "idle_terminal_frames_per_10s": {
+      "name": "idle_terminal_frames_per_10s",
+      "value": 0,
+      "unit": "frames"
+    },
+    "pss_home_mb": {
+      "name": "pss_home_mb",
+      "value": 100.283203125,
+      "unit": "MB"
+    },
+    "pss_8_sessions_mb": {
+      "name": "pss_8_sessions_mb",
+      "value": 174.267578125,
+      "unit": "MB"
+    },
+    "java_heap_8_sessions_mb": {
+      "name": "java_heap_8_sessions_mb",
+      "value": 81.92588806152344,
+      "unit": "MB"
+    },
+    "leaked_sessions": {
+      "name": "leaked_sessions",
+      "value": 0,
+      "unit": "count"
+    },
+    "pss_after_close_mb": {
+      "name": "pss_after_close_mb",
+      "value": 103.837890625,
+      "unit": "MB"
+    },
+    "sftp_download_mbps": {
+      "name": "sftp_download_mbps",
+      "value": 16.13816794153604,
+      "unit": "MiB/s"
+    },
+    "sftp_upload_mbps": {
+      "name": "sftp_upload_mbps",
+      "value": 14.890245517236215,
+      "unit": "MiB/s"
+    },
+    "scroll_frames_drawn": {
+      "name": "scroll_frames_drawn",
+      "value": 912,
+      "unit": "frames"
+    },
+    "scroll_jank_pct": {
+      "name": "scroll_jank_pct",
+      "value": 0.149812734082397,
+      "unit": "%"
+    },
+    "scroll_frame_p90_ms": {
+      "name": "scroll_frame_p90_ms",
+      "value": 10,
+      "unit": "ms"
+    },
+    "hostlist_jank_pct": {
+      "name": "hostlist_jank_pct",
+      "value": 5.825242718446602,
+      "unit": "%"
+    },
+    "hostlist_frame_p90_ms": {
+      "name": "hostlist_frame_p90_ms",
+      "value": 12,
+      "unit": "ms"
+    },
+    "flood_seq200k_main_cpu_ms": {
+      "name": "flood_seq200k_main_cpu_ms",
+      "value": 380,
+      "unit": "ms"
+    },
+    "flood_seq200k_frame_p90_ms": {
+      "name": "flood_seq200k_frame_p90_ms",
+      "value": 6,
+      "unit": "ms"
+    },
+    "flood_color_main_cpu_ms": {
+      "name": "flood_color_main_cpu_ms",
+      "value": 250,
+      "unit": "ms"
+    },
+    "flood_color_frame_p90_ms": {
+      "name": "flood_color_frame_p90_ms",
+      "value": 9,
+      "unit": "ms"
+    },
+    "retained_failed_sessions": {
+      "name": "retained_failed_sessions",
+      "value": 0,
+      "unit": "count"
+    },
+    "retained_ended_sessions": {
+      "name": "retained_ended_sessions",
+      "value": 0,
+      "unit": "count"
+    }
+  }
+}
