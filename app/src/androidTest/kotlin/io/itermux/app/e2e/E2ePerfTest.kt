@@ -166,11 +166,7 @@ class E2ePerfTest {
         E2e.metric("pss_home_mb", E2e.pssMb(), "MB")
         val refs = busySessions()
         E2e.waitTag(compose, "home-pager")
-        // Compose keeps recently positioned nodes in a reused buffer of the window's view, which can hold closed
-        // session cards for a while. A recreated activity (as on rotation) drops that view, so whatever still
-        // holds a session afterwards is the app's own leak.
-        compose.activityRule.scenario.recreate()
-        E2e.waitTag(compose, "home-pager")
+        // Closing the final card must release its buffers without rotating or leaving the Activity.
         Thread.sleep(2_000)
         E2e.gc()
         var alive = refs.count { it.get() != null }

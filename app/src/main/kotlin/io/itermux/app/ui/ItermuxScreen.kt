@@ -185,7 +185,9 @@ fun ItermuxScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val hostGridState = rememberLazyGridState()
-    val sessionGridState = rememberLazyGridState()
+    // The empty page removes the grid, but its state still holds recycled rows and their session callbacks.
+    // Drop that layout when the last session goes; there is no scroll position left to preserve.
+    val sessionGridState = key(sessions.isEmpty()) { rememberLazyGridState() }
     var previousHostOrder by remember { mutableStateOf(recentHosts) }
     LaunchedEffect(recentHosts) {
         if (recentHosts != previousHostOrder) {
@@ -456,7 +458,7 @@ fun ItermuxScreen(
         LaunchedEffect(barSlides) { if (!barSlides) barOffset = 0f }
         // A scroll that skips nested scrolling (scrolling to an item, a reset to the top) can bring the list back to its
         // first row with the bar still away: the bar follows it back.
-        val homeListAtTop by remember {
+        val homeListAtTop by remember(sessionGridState, hostGridState, homePager) {
             derivedStateOf {
                 (if (homePager.currentPage == 0) sessionGridState else hostGridState)
                     .let { it.firstVisibleItemIndex == 0 && it.firstVisibleItemScrollOffset == 0 }

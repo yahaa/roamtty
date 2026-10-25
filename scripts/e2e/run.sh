@@ -5,6 +5,7 @@
 #   scripts/e2e/run.sh [-s SERIAL] [--no-unit] [--no-build] [--only E2eFeatureTest|E2ePerfTest|Class#method]
 #   E2E_EXTRA_ARGS="-e winHost … -e winPassword …" adds instrumentation arguments (E2eWindowsServiceTest needs a Windows PC).
 #
+# On a phone, add E2E_EXTRA_ARGS="-e e2eUdpHost <fixture-LAN-IP>" for desktop UDP tests; adb reverse only forwards TCP.
 # Safe on a personal phone: it installs a separate package (com.roamtty.app.e2e, the `e2e` build type) and never
 # installs, uninstalls or opens the installed Roamtty (com.roamtty.app) or its sessions. The phone must be unlocked;
 # the suite takes over the screen for about ten minutes. Needs sudo for the loopback fixture (scripts/e2e/fixture.sh).
@@ -111,7 +112,7 @@ host_metric cold_start_p50_ms "${sorted[$(( ${#sorted[@]} / 2 ))]}" ms
 host_metric cold_start_max_ms "${sorted[-1]}" ms
 
 echo "== Instrumentation (UI features + performance)"
-CLASS="io.itermux.app.e2e.E2eFeatureTest,io.itermux.app.e2e.E2eDesktopTest,io.itermux.app.e2e.E2ePerfTest,io.itermux.app.e2e.E2eFramesTest"
+CLASS="io.itermux.app.e2e.E2eFeatureTest,io.itermux.app.e2e.E2eDesktopTest,io.itermux.app.e2e.E2ePerfTest,io.itermux.app.e2e.E2eFramesTest,io.itermux.app.e2e.E2eMemoryTest,io.itermux.app.desktop.DesktopMemoryTest"
 if [ -n "$ONLY" ]; then
   CLASS="$(echo "$ONLY" | sed -E 's/(^|,)(E2e)/\1io.itermux.app.e2e.\2/g')"
 fi

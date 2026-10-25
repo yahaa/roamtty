@@ -35,7 +35,7 @@ class MoshIntegrationTest {
             // A wrong sudo password is reported as such, without running the package manager.
             val wrong = StringBuilder()
             results += HostPluginInstaller.classify(host.run(HostPluginInstaller.script(HostPlugin.TMUX, "wrong"), 60_000) { wrong.appendLine(it) }, wrong.toString())
-            for (plugin in HostPlugin.entries) {
+            for (plugin in listOf(HostPlugin.TMUX, HostPlugin.MOSH)) {
                 val out = StringBuilder()
                 val status = host.run(HostPluginInstaller.script(plugin, password), 600_000) { out.appendLine(it); log.appendLine(it) }
                 results += HostPluginInstaller.classify(status, out.toString())

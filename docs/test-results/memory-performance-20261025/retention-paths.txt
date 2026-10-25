@@ -1,0 +1,11 @@
+Service ownership path (three removed TerminalConnection objects in each baseline case):
+JNI global SessionService.LocalBinder -> SessionService -> service CoroutineScope -> SupervisorJob
+  -> suspended StateFlow collector -> TerminalConnection.systemWatcher/commonCommandsWatcher -> TerminalConnection
+
+UI ownership path (one of eight closed TerminalConnection objects after repeated GC):
+ComposeIdlingResource -> Recomposer -> CompositionImpl.slotTable -> remembered LazyGridState
+  -> LayoutNode -> CombinedClickableElement.onClick -> HomeSessionsList callback -> TerminalConnection
+
+The second path is a live composition retaining removed row callbacks. The fix drops the remembered grid
+state when the session list becomes empty; final memory regressions keep the Activity and service alive.
+Heap dumps stay local because they contain runtime/session data.

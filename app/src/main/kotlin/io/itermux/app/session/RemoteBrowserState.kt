@@ -56,7 +56,7 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
     fun dismissMenu() { menuPath = null; menuEntry = null }
     fun clearFilter() { filtering = false; filter = "" }
     fun refresh() { revision++ }
-    fun cancel() { actionJob?.cancel() }
+    fun cancel() { actionJob?.cancel(); cancelPendingOpen() }
 
     fun rename(action: suspend (String, String) -> Unit) {
         val old = renamePath ?: return

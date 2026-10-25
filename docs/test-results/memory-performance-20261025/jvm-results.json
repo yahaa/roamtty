@@ -1,0 +1,315 @@
+{
+  "base": "ebbbb874f71eaefe29f8515e90e87750ff838ba9",
+  "tests": 663,
+  "outcomes": {
+    "passed": 662,
+    "skipped": 1
+  },
+  "note": "Unique class + test names across full run and supplemental fixture runs; later outcomes replace earlier skips. Red reproduction runs are excluded.",
+  "classes": {
+    "com.termux.terminal.ApcTest": {
+      "passed": 1
+    },
+    "com.termux.terminal.ByteQueueTest": {
+      "passed": 4
+    },
+    "com.termux.terminal.ControlSequenceIntroducerTest": {
+      "passed": 9
+    },
+    "com.termux.terminal.CursorAndScreenTest": {
+      "passed": 13
+    },
+    "com.termux.terminal.DecSetTest": {
+      "passed": 4
+    },
+    "com.termux.terminal.DeviceControlStringTest": {
+      "passed": 3
+    },
+    "com.termux.terminal.HistoryTest": {
+      "passed": 2
+    },
+    "com.termux.terminal.KeyHandlerTest": {
+      "passed": 2
+    },
+    "com.termux.terminal.MouseTrackingTest": {
+      "passed": 5
+    },
+    "com.termux.terminal.OperatingSystemControlTest": {
+      "passed": 8
+    },
+    "com.termux.terminal.RectangularAreasTest": {
+      "passed": 8
+    },
+    "com.termux.terminal.ResizeTest": {
+      "passed": 15
+    },
+    "com.termux.terminal.ScreenBufferTest": {
+      "passed": 5
+    },
+    "com.termux.terminal.ScrollRegionTest": {
+      "passed": 17
+    },
+    "com.termux.terminal.SshTerminalTest": {
+      "passed": 5
+    },
+    "com.termux.terminal.TerminalColorsThemeTest": {
+      "passed": 1
+    },
+    "com.termux.terminal.TerminalRowTest": {
+      "passed": 16
+    },
+    "com.termux.terminal.TerminalTest": {
+      "passed": 18
+    },
+    "com.termux.terminal.TextStyleTest": {
+      "passed": 5
+    },
+    "com.termux.terminal.UnicodeInputTest": {
+      "passed": 11
+    },
+    "com.termux.terminal.WcWidthTest": {
+      "passed": 9
+    },
+    "com.termux.view.ImeDeleteGuardTest": {
+      "passed": 7
+    },
+    "com.termux.view.TerminalUrlTest": {
+      "passed": 37
+    },
+    "io.itermux.app.DraftPasteTest": {
+      "passed": 3
+    },
+    "io.itermux.app.ImeBackspaceTrackerTest": {
+      "passed": 6
+    },
+    "io.itermux.app.ScrollbarHistoryPolicyTest": {
+      "passed": 4
+    },
+    "io.itermux.app.TerminalFontsTest": {
+      "passed": 3
+    },
+    "io.itermux.app.code.MarkdownParserTest": {
+      "passed": 11
+    },
+    "io.itermux.app.code.SyntaxHighlighterTest": {
+      "passed": 16
+    },
+    "io.itermux.app.data.RecentUsageOrderTest": {
+      "passed": 2
+    },
+    "io.itermux.app.desktop.VideoDecoderTest": {
+      "passed": 1
+    },
+    "io.itermux.app.desktop.VideoFrameQueueTest": {
+      "passed": 10
+    },
+    "io.itermux.app.session.AgentLaunchTest": {
+      "passed": 12
+    },
+    "io.itermux.app.session.AgentStatusTest": {
+      "passed": 20
+    },
+    "io.itermux.app.session.CodexImageAttachTest": {
+      "passed": 2
+    },
+    "io.itermux.app.session.DownloadQueueTest": {
+      "passed": 9
+    },
+    "io.itermux.app.session.HostMetricsReaderTest": {
+      "passed": 10
+    },
+    "io.itermux.app.session.HostMetricsTest": {
+      "passed": 8
+    },
+    "io.itermux.app.session.HotPathBenchmarkTest": {
+      "passed": 1
+    },
+    "io.itermux.app.session.RemoteBrowserStateTest": {
+      "passed": 6
+    },
+    "io.itermux.app.session.RemoteFoldersLoadTest": {
+      "passed": 5
+    },
+    "io.itermux.app.session.RemoteFoldersTest": {
+      "passed": 12
+    },
+    "io.itermux.app.session.ScreenAppTest": {
+      "passed": 5
+    },
+    "io.itermux.app.session.SessionJournalCodecTest": {
+      "passed": 3
+    },
+    "io.itermux.app.session.ShellHistoryCommandsTest": {
+      "passed": 12
+    },
+    "io.itermux.app.session.SlashCommandLineTest": {
+      "passed": 2
+    },
+    "io.itermux.app.session.StartDirectoryTest": {
+      "passed": 10
+    },
+    "io.itermux.app.session.StartupCommandTest": {
+      "passed": 4
+    },
+    "io.itermux.app.session.WindowsHostMetricsIntegrationTest": {
+      "skipped": 1
+    },
+    "io.itermux.app.session.WindowsHostMetricsTest": {
+      "passed": 6
+    },
+    "io.itermux.app.session.WindowsShellTest": {
+      "passed": 3
+    },
+    "io.itermux.app.ui.BrowserTargetsTest": {
+      "passed": 5
+    },
+    "io.itermux.app.ui.CursorLineTapTest": {
+      "passed": 6
+    },
+    "io.itermux.app.ui.FileBrowserModelTest": {
+      "passed": 6
+    },
+    "io.itermux.app.ui.HostLoginKeyTest": {
+      "passed": 2
+    },
+    "io.itermux.app.ui.HostMonitorRetryTest": {
+      "passed": 3
+    },
+    "io.itermux.app.ui.HostReachabilityTest": {
+      "passed": 14
+    },
+    "io.itermux.app.ui.PetShortcutArcTest": {
+      "passed": 6
+    },
+    "io.itermux.app.ui.PrivacyPolicyTest": {
+      "passed": 3
+    },
+    "io.itermux.app.ui.ReconnectOnOpenTest": {
+      "passed": 2
+    },
+    "io.itermux.app.ui.SessionGroupsTest": {
+      "passed": 4
+    },
+    "io.itermux.app.ui.SessionRequestsTest": {
+      "passed": 3
+    },
+    "io.itermux.app.ui.SessionTransportTagsTest": {
+      "passed": 3
+    },
+    "io.itermux.app.ui.UploadTargetPathTest": {
+      "passed": 3
+    },
+    "io.itermux.desktop.AudioJitterTest": {
+      "passed": 6
+    },
+    "io.itermux.desktop.DesktopGesturesTest": {
+      "passed": 14
+    },
+    "io.itermux.desktop.DesktopProtocolTest": {
+      "passed": 6
+    },
+    "io.itermux.desktop.DesktopStateTest": {
+      "passed": 3
+    },
+    "io.itermux.desktop.HidUsageTest": {
+      "passed": 3
+    },
+    "io.itermux.desktop.LatencyMeterTest": {
+      "passed": 4
+    },
+    "io.itermux.desktop.UdpPluginIntegrationTest": {
+      "passed": 4
+    },
+    "io.itermux.desktop.UdpWireTest": {
+      "passed": 10
+    },
+    "io.itermux.ssh.DesktopPluginInstallerTest": {
+      "passed": 8
+    },
+    "io.itermux.ssh.ExploratorySftpTest": {
+      "passed": 6
+    },
+    "io.itermux.ssh.FilePreviewIntegrationTest": {
+      "passed": 1
+    },
+    "io.itermux.ssh.FileTransferIntegrationTest": {
+      "passed": 1
+    },
+    "io.itermux.ssh.HostPluginInstallerScriptTest": {
+      "passed": 4
+    },
+    "io.itermux.ssh.HostPluginProbeTest": {
+      "passed": 2
+    },
+    "io.itermux.ssh.HostSystemIntegrationTest": {
+      "passed": 13
+    },
+    "io.itermux.ssh.HostSystemTest": {
+      "passed": 6
+    },
+    "io.itermux.ssh.MoshClientTest": {
+      "passed": 7
+    },
+    "io.itermux.ssh.MoshFallbackTest": {
+      "passed": 1
+    },
+    "io.itermux.ssh.MoshIntegrationTest": {
+      "passed": 4
+    },
+    "io.itermux.ssh.MoshProtocolTest": {
+      "passed": 6
+    },
+    "io.itermux.ssh.OpenSshIntegrationTest": {
+      "passed": 11
+    },
+    "io.itermux.ssh.PrivateKeysTest": {
+      "passed": 5
+    },
+    "io.itermux.ssh.PsmuxTest": {
+      "passed": 11
+    },
+    "io.itermux.ssh.ReattachIntegrationTest": {
+      "passed": 15
+    },
+    "io.itermux.ssh.RemoteEntryFormattingTest": {
+      "passed": 8
+    },
+    "io.itermux.ssh.RemoteFileContentTest": {
+      "passed": 4
+    },
+    "io.itermux.ssh.RemotePathsTest": {
+      "passed": 9
+    },
+    "io.itermux.ssh.SessionQueuesTest": {
+      "passed": 4
+    },
+    "io.itermux.ssh.SftpDownloadIntegrityTest": {
+      "passed": 5
+    },
+    "io.itermux.ssh.TmuxAttachIntegrationTest": {
+      "passed": 2
+    },
+    "io.itermux.ssh.TmuxSessionNameTest": {
+      "passed": 9
+    },
+    "io.itermux.ssh.TransportFailureTest": {
+      "passed": 7
+    },
+    "io.itermux.ssh.TrustPolicyTest": {
+      "passed": 6
+    },
+    "io.itermux.ssh.WindowsDesktopTest": {
+      "passed": 4
+    },
+    "io.itermux.ssh.WorkingDirectoryIntegrationTest": {
+      "passed": 2
+    }
+  },
+  "not_run": [
+    {
+      "class": "io.itermux.app.session.WindowsHostMetricsIntegrationTest",
+      "test": "nativeWindowsProvidesCoreMetricsAndSuccessiveNetworkCounters",
+      "reason": "No disposable native Windows SSH fixture or credentials; default localhost:22249 refuses connection. PowerShell script tests ran successfully on Linux."
+    }
+  ]
+}

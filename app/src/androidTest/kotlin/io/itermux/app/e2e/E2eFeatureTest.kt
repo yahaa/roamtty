@@ -492,9 +492,13 @@ class E2eFeatureTest {
         compose.onNodeWithTag("file-preview-search-input").performTextInput("greeting")
         compose.waitUntil(5_000) { compose.text("file-preview-search-count").contains("2") }
         E2e.capture(compose, "f12-code-search")
+        // Otherwise system Back can be consumed by the search IME or the departing preview window.
+        Espresso.closeSoftKeyboard()
         click("file-preview-search-close")
         click("file-preview-close")
+        E2e.waitGone(compose, hasTestTag("file-preview"))
         Espresso.pressBack()
+        E2e.waitTag(compose, "files-entry-README.md")
         openEntry("pixel.png")
         E2e.waitTag(compose, "file-preview-image")
         click("file-preview-close")
@@ -505,7 +509,9 @@ class E2eFeatureTest {
         E2e.metric("preview_large_log_ms", (System.nanoTime() - start) / 1_000_000, "ms")
         E2e.capture(compose, "f12-large-log")
         click("file-preview-close")
+        E2e.waitGone(compose, hasTestTag("file-preview"))
         Espresso.pressBack()
+        E2e.waitTag(compose, "files-entry-README.md")
         // A directory of 1,500 files lists and scrolls to its end.
         val listStart = System.nanoTime()
         openEntry("big")
