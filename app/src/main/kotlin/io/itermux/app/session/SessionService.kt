@@ -207,6 +207,8 @@ class SessionService : Service() {
         val existing = mutableSessions.value.find { it.id == id } ?: return
         check(!existing.state.value.active)
         stateWatchers.remove(id)?.cancel()
+        // A transport that ended by itself still has service-scoped metadata/history observers.
+        existing.disconnect()
         mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
         saveSessions()
     }

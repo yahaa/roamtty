@@ -242,6 +242,18 @@
       "test": "E2ePerfTest",
       "about": "closed sessions still reachable after GC"
     },
+    "retained_ended_sessions": {
+      "max": 0,
+      "unit": "count",
+      "test": "E2eMemoryTest",
+      "about": "naturally ended sessions still reachable after their cards are removed and GC runs"
+    },
+    "retained_failed_sessions": {
+      "max": 0,
+      "unit": "count",
+      "test": "E2eMemoryTest",
+      "about": "failed logins still reachable after their cards are removed and GC runs"
+    },
     "sftp_download_mbps": {
       "min": 5,
       "unit": "MiB/s",

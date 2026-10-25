@@ -360,6 +360,7 @@ internal class DesktopConnection(
         stats.value = stats.value.copy(encoder = hello.hardware)
         val channel = Channel<ByteArray>(Channel.UNLIMITED)
         outgoing = channel
+        received.clear()
         lastVideoFrame = -1L
         brokenUntilKey = false
         startUdp(hello, channel)
@@ -422,6 +423,7 @@ internal class DesktopConnection(
                 link?.close()
                 link = null
                 player.stop()
+                received.clear()
                 stats.value = stats.value.copy(link = "SSH", lossPercent = null)
             }
         }
@@ -532,6 +534,9 @@ internal class DesktopConnection(
                 }
                 val now = System.nanoTime() / 1000
                 received[m.frame] = now
+                // Frames can arrive with no Surface or a stalled decoder. Bound bookkeeping on receipt,
+                // independent of output callbacks; trim in batches instead of scanning every decoded frame.
+                if (received.size > 240) received.keys.removeAll { it < m.frame - 120 }
                 latency.onReceived(m.frame, m.captureUs, m.encodedUs, now)
                 frameWindow++
                 byteWindow += m.data.size
@@ -581,7 +586,6 @@ internal class DesktopConnection(
     private fun decoded(frame: Long, decodedUs: Long) {
         latency.onDecoded(frame, decodedUs)
         val recv = received.remove(frame) ?: decodedUs
-        received.keys.removeAll { it < frame - 120 }
         send(DesktopProtocol.ack(frame, recv, decodedUs))
         // Only a desktop on its way up: a frame the decoder still held after a kick or a failure (UDP
         // keeps them coming until the link closes) must not bring a dead connection back to life.

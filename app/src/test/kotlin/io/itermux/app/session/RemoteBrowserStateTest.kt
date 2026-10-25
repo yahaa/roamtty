@@ -6,6 +6,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RemoteBrowserStateTest {
+    @Test fun cancelStopsPendingLinkResolutionWithoutCancelingTheSharedScope() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val state = RemoteBrowserState(scope)
+        val finished = CompletableDeferred<Unit>()
+        try {
+            state.openLink("/slow-link") {
+                try { awaitCancellation() } finally { finished.complete(Unit) }
+            }
+            state.cancel()
+            yield()
+            assertTrue("A removed session must release its pending link lookup", finished.isCompleted)
+            assertTrue("Other sessions still use this scope", scope.isActive)
+            assertNull(state.previewPath)
+        } finally { scope.cancel() }
+    }
+
     @Test fun navigationRetracesVisitsAndKeepsRenameTargets() {
         val state = RemoteBrowserState(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
         state.navigate("/projects")

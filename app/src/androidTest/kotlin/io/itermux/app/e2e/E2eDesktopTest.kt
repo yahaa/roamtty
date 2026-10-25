@@ -60,6 +60,7 @@ class E2eDesktopTest {
     }
     private lateinit var service: SessionService
     private val pluginUrl get() = InstrumentationRegistry.getArguments().getString("e2eDesktopUrl").orEmpty()
+    private val udpHost get() = InstrumentationRegistry.getArguments().getString("e2eUdpHost") ?: "10.0.2.2"
 
     @Before fun setUp() {
         E2e.requireFixture()
@@ -336,10 +337,10 @@ class E2eDesktopTest {
     /**
      * UDP (plan §7.3 P2) with 5% loss each way: video and typing ride UDP, FEC rebuilds frames,
      * a network change recovers within a second, blocked UDP falls back to SSH and comes back.
-     * The emulator reaches this machine's loopback, where the plugin listens, at 10.0.2.2.
+     * The emulator uses 10.0.2.2; a physical device needs e2eUdpHost set to the fixture's reachable LAN address.
      */
     @Test fun d03_udpWithLossRoamingAndFallback() {
-        DesktopSettings(E2e.context).apply { udpHostOverride = "10.0.2.2"; testLoss = 0.05 }
+        DesktopSettings(E2e.context).apply { udpHostOverride = udpHost; testLoss = 0.05 }
         val host = runBlocking { E2e.save(E2e.host("desktop-udp")) }
         hostId = host.id
         val session = runBlocking {
@@ -417,7 +418,7 @@ class E2eDesktopTest {
      * Touches arrive on the main thread, where a datagram send is refused (NetworkOnMainThreadException).
      */
     @Test fun d05_mouseModeMovesThePointerOverUdp() {
-        DesktopSettings(E2e.context).udpHostOverride = "10.0.2.2"
+        DesktopSettings(E2e.context).udpHostOverride = udpHost
         val host = runBlocking { E2e.save(E2e.host("desktop-mouse")) }
         hostId = host.id
         DesktopSettings(E2e.context).setPointerMode(host.id, io.itermux.desktop.PointerMode.MOUSE)

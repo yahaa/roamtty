@@ -11,6 +11,7 @@ import android.util.Log
 import android.view.Surface
 import io.itermux.desktop.ServerMessage
 import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * H.264 straight to a Surface (plan §8): a hardware decoder (the emulator's goldfish one counts),
@@ -26,39 +27,52 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
     private var surface: Surface? = null
     private var size = 0 to 0
     private var askLowLatency = true
-    private val pending = ArrayDeque<ServerMessage.Video>()
+    private val pending = VideoFrameQueue()
     private val freeInputs = ArrayDeque<Int>()
+    // The queue monitor also orders lifecycle requests; codec calls and user callbacks stay outside it.
+    private var requestedSurface: Surface? = null
+    private var closed = false
+    private val feedPosted = AtomicBoolean()
+    private val feedTask = Runnable { feedPosted.set(false); feed() }
     @Volatile var decoderName: String = ""
         private set
     @Volatile var decodedFrames = 0L
         private set
 
-    fun attach(surface: Surface) = handler.post {
-        if (this.surface === surface && codec != null) return@post
-        release()
-        this.surface = surface
-        onNeedKeyframe()
+    fun attach(surface: Surface) {
+        synchronized(pending) {
+            if (closed) return
+            if (requestedSurface !== surface) pending.deactivate()
+            requestedSurface = surface
+            handler.post {
+                if (this.surface === surface && codec != null) return@post
+                release()
+                val attached = synchronized(pending) {
+                    if (closed || requestedSurface !== surface) false else {
+                        this.surface = surface
+                        pending.activate()
+                        true
+                    }
+                }
+                if (attached) onNeedKeyframe()
+            }
+        }
     }
 
-    fun detach() = handler.post {
-        release()
-        surface = null
+    fun detach() {
+        synchronized(pending) {
+            if (closed) return
+            requestedSurface = null
+            pending.deactivate()
+            handler.post { release(); surface = null }
+        }
     }
 
-    fun submit(video: ServerMessage.Video) = handler.post {
-        if (surface == null) return@post
-        if (codec == null || (video.keyframe && size != (video.width to video.height))) {
-            // Only a keyframe can start a stream; later frames wait for one.
-            if (!video.keyframe) return@post
-            if (!configure(video)) return@post
+    fun submit(video: ServerMessage.Video) {
+        // The Handler carries one wakeup, never one closure retaining every encoded video packet.
+        if (pending.offer(video) && feedPosted.compareAndSet(false, true)) {
+            if (!handler.post(feedTask)) feedPosted.set(false)
         }
-        pending.addLast(video)
-        // A backlog means the decoder fell behind: drop to the newest keyframe if one is queued.
-        if (pending.size > 4) {
-            val lastKey = pending.indexOfLast { it.keyframe }
-            if (lastKey > 0) repeat(lastKey) { pending.removeFirst() }
-        }
-        feed()
     }
 
     private fun configure(video: ServerMessage.Video): Boolean {
@@ -111,14 +125,21 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
     }
 
     private fun feed() {
-        val c = codec ?: return
-        while (pending.isNotEmpty() && freeInputs.isNotEmpty()) {
+        while (true) {
+            if (pending.takeKeyframeRequest()) onNeedKeyframe()
+            val video = pending.peek() ?: return
+            if (codec == null || (video.keyframe && size != (video.width to video.height))) {
+                if (!video.keyframe || !configure(video)) { reset(); return }
+            }
+            val c = codec ?: return
+            // Keep the head in the bounded queue while the codec has no input buffer available.
+            if (freeInputs.isEmpty()) return
+            if (!pending.remove(video)) continue
             val index = freeInputs.removeFirst()
-            val video = pending.removeFirst()
             try {
-                val buffer = c.getInputBuffer(index) ?: continue
+                val buffer = c.getInputBuffer(index)
                 val length = video.data.size - video.offset
-                if (length > buffer.capacity()) { onNeedKeyframe(); freeInputs.addFirst(index); continue }
+                if (buffer == null || length > buffer.capacity()) { reset(); return }
                 buffer.clear()
                 buffer.put(video.data, video.offset, length)
                 // The frame number rides in the timestamp, so the output callback knows which frame it rendered.
@@ -156,6 +177,7 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
 
     /** Starts over at the next keyframe. */
     private fun reset() {
+        pending.reset()
         release()
         onNeedKeyframe()
     }
@@ -164,12 +186,17 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
         codec?.let { runCatching { it.stop() }; runCatching { it.release() } }
         codec = null
         size = 0 to 0
-        pending.clear()
         freeInputs.clear()
     }
 
     fun close() {
-        handler.post { release(); surface = null }
+        synchronized(pending) {
+            if (closed) return
+            closed = true
+            requestedSurface = null
+            pending.deactivate()
+            handler.post { release(); surface = null }
+        }
         thread.quitSafely()
     }
 
