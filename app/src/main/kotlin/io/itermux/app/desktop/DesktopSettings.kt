@@ -7,16 +7,11 @@ import io.itermux.desktop.PluginManifest
 import io.itermux.desktop.PointerMode
 
 /**
- * Remote desktop preferences in the app settings: the experimental switch and keep-alive are global,
+ * Remote desktop preferences in the app settings: keep-alive is global,
  * the rest is per host (keys carry the host id).
  */
 internal class DesktopSettings(context: Context) {
     private val prefs = context.appSettings()
-
-    /** Experimental until the UDP transport ships: off by default, and session cards show no button while off. */
-    var enabled: Boolean
-        get() = prefs.getBoolean("desktop.enabled", false)
-        set(value) = prefs.edit { putBoolean("desktop.enabled", value) }
 
     /** How long a desktop left in the background stays connected, in minutes: 5, 10 or 30. */
     var keepAliveMinutes: Int

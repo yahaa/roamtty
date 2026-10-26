@@ -68,7 +68,7 @@ class E2eDesktopTest {
         service = E2e.bind(serviceRule)
         cleanup()
         runBlocking { E2e.trustFixture() }
-        DesktopSettings(E2e.context).apply { enabled = true; pluginBaseUrl = pluginUrl; keepAliveMinutes = 10 }
+        DesktopSettings(E2e.context).apply { pluginBaseUrl = pluginUrl; keepAliveMinutes = 10 }
         E2e.prepareActivity(compose)
         E2e.waitTag(compose, "home-pager")
     }
@@ -81,7 +81,7 @@ class E2eDesktopTest {
         E2e.cleanup(if (::service.isInitialized) service else null)
     }
 
-    @After fun tearDown() { DesktopSettings(E2e.context).apply { enabled = false; pluginBaseUrl = ""; udpHostOverride = ""; testLoss = 0.0; showStats = false } }
+    @After fun tearDown() { DesktopSettings(E2e.context).apply { pluginBaseUrl = ""; udpHostOverride = ""; testLoss = 0.0; showStats = false } }
 
     private fun click(tag: String, timeoutMs: Long = 10_000) {
         E2e.waitTag(compose, tag, timeoutMs)
@@ -283,20 +283,6 @@ class E2eDesktopTest {
         assertEquals("已在另一台设备上打开", (desktop().phase.value as DesktopPhase.Failed).message)
         E2e.waitTag(compose, "desktop-error")
         E2e.capture(compose, "desktop-07-kicked")
-    }
-
-    @Test fun d02_buttonHiddenWhileDisabled() {
-        val host = runBlocking { E2e.save(E2e.host("desktop-off")) }
-        hostId = host.id
-        DesktopSettings(E2e.context).enabled = false
-        val session = runBlocking {
-            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
-        }
-        runBlocking { E2e.connected(session) }
-        compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
-        E2e.waitTag(compose, "home-session-${session.id}")
-        compose.waitForIdle()
-        assertFalse(E2e.exists(compose, hasTestTag("home-session-desktop-${session.id}")))
     }
 
     /**

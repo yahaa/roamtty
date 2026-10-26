@@ -38,7 +38,7 @@ enum class DesktopButton {
          * §4.3 of the plan. [osSupported]: the pinned plugin has a build for the host's system.
          * Linux hosts show the button only once a probe found a desktop; macOS and Windows show it unprobed.
          */
-        fun derive(enabled: Boolean, hostOnline: Boolean, sessionConnected: Boolean, os: String, osSupported: Boolean,
+        fun derive(hostOnline: Boolean, sessionConnected: Boolean, os: String, osSupported: Boolean,
             probe: DesktopProbe?, probedAt: Long?, now: Long, phase: DesktopPhase): DesktopButton {
             // A desktop already open keeps its button whatever the session or probe say now.
             when (phase) {
@@ -48,7 +48,7 @@ enum class DesktopButton {
                 is DesktopPhase.NeedsAction -> return NEEDS_ACTION
                 else -> {}
             }
-            if (!enabled || !hostOnline || !sessionConnected || !osSupported) return HIDDEN
+            if (!hostOnline || !sessionConnected || !osSupported) return HIDDEN
             val fresh = probe?.takeIf { probedAt != null && now - probedAt < DesktopProbe.CACHE_MS }
             return when (fresh) {
                 DesktopProbe.NO, DesktopProbe.UNSUPPORTED -> HIDDEN

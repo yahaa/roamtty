@@ -68,7 +68,7 @@ class E2eAudioTest {
         }
         hostId = host.id
         DesktopSettings(E2e.context).apply {
-            enabled = true; keepAliveMinutes = 10; showStats = true
+            keepAliveMinutes = 10; showStats = true
             pluginBaseUrl = args.getString("audioPluginUrl") ?: args.getString("e2eDesktopUrl").orEmpty()
             setAudio(hostId, true)
         }
@@ -80,7 +80,7 @@ class E2eAudioTest {
         if (address.isEmpty()) return
         runCatching { remote("pkill -f [r]oamtty-tone; pkill paplay; true") }
         cleanup()
-        DesktopSettings(E2e.context).apply { enabled = false; pluginBaseUrl = ""; showStats = false }
+        DesktopSettings(E2e.context).apply { pluginBaseUrl = ""; showStats = false }
     }
 
     private fun cleanup() {
