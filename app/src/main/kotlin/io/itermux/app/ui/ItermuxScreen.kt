@@ -121,15 +121,6 @@ fun ItermuxScreen(
     val lightTheme = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
     /** The host whose desktop is shown on [AppPage.DESKTOP]. */
     var desktopHostId by rememberSaveable { mutableStateOf<String?>(null) }
-    val desktopSettings = remember(context) { DesktopSettings(context) }
-    var desktopEnabled by remember { mutableStateOf(desktopSettings.enabled) }
-    DisposableEffect(settings) {
-        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "desktop.enabled") desktopEnabled = desktopSettings.enabled
-        }
-        settings.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { settings.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
     val desktopTargets = remember(context) { runCatching { DesktopSettings.manifest(context).targets.keys }.getOrDefault(emptySet()) }
     val desktopFlow = remember(service) { service?.desktops?.connections ?: MutableStateFlow(emptyMap()) }
     val desktops by desktopFlow.collectAsStateWithLifecycle()
@@ -586,7 +577,7 @@ fun ItermuxScreen(
                                     val desktopPhase by (connection?.phase ?: idle).collectAsStateWithLifecycle()
                                     val sessionState by session.state.collectAsStateWithLifecycle()
                                     val offline = !hostConnected(host) && hostReachability.statusOf(host) == HostReachability.Offline
-                                    val button = DesktopButton.derive(desktopEnabled, !offline, sessionState.phase == Phase.CONNECTED,
+                                    val button = DesktopButton.derive(!offline, sessionState.phase == Phase.CONNECTED,
                                         HostSystem.fromStored(host.os).let { if (it.isLinux) "LINUX" else it.name }, desktopSupported(host),
                                         DesktopProbe.decode(host.desktop), host.desktopProbedAt, System.currentTimeMillis(), desktopPhase)
                                     DesktopCardButton(button, "home-session-desktop-${session.id}") { openDesktop(host) }
@@ -609,7 +600,7 @@ fun ItermuxScreen(
                                     val desktopPhase by (desktops[host.id]?.phase ?: idle).collectAsStateWithLifecycle()
                                     // A host needs no open session for its desktop: the desktop logs in on its own. An
                                     // offline one keeps its picture, so it is derived as if online; its card knows better.
-                                    DesktopButton.derive(desktopEnabled, true, true,
+                                    DesktopButton.derive(true, true,
                                         HostSystem.fromStored(host.os).let { if (it.isLinux) "LINUX" else it.name }, desktopSupported(host),
                                         DesktopProbe.decode(host.desktop), host.desktopProbedAt, System.currentTimeMillis(), desktopPhase)
                                 },
@@ -634,7 +625,7 @@ fun ItermuxScreen(
                             onDelete = { deleteHost = detailHost },
                             modifier = Modifier.weight(1f),
                             onDesktop = { openDesktop(detailHost) }.takeIf {
-                                desktopEnabled && desktopSupported(detailHost) && DesktopProbe.decode(detailHost.desktop) != DesktopProbe.NO
+                                desktopSupported(detailHost) && DesktopProbe.decode(detailHost.desktop) != DesktopProbe.NO
                             })
                     } else if (loadedHosts != null) LaunchedEffect(Unit) { page = AppPage.HOME } // deleted, or gone after a restore
                 } else if (page == AppPage.FILES) {
@@ -700,7 +691,7 @@ fun ItermuxScreen(
                             // Closing ends the terminal page too: back to where it was opened from.
                             onClose = { leaveTerminal(); closeSession(active) },
                             onDesktop = (hosts.firstOrNull { it.id == active.host.id } ?: active.host).let { h ->
-                                { openDesktop(h) }.takeIf { desktopEnabled && desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES }
+                                { openDesktop(h) }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES }
                             })
                     }
                 }

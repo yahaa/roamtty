@@ -6,15 +6,14 @@ import org.junit.Test
 /** Every row of the plan's §4.3 button table. */
 class DesktopStateTest {
     private val now = 10L * DesktopProbe.CACHE_MS
-    private fun derive(enabled: Boolean = true, online: Boolean = true, connected: Boolean = true, os: String = "LINUX",
+    private fun derive(online: Boolean = true, connected: Boolean = true, os: String = "LINUX",
         supported: Boolean = true, probe: DesktopProbe? = DesktopProbe.YES, at: Long? = now - 1000,
-        phase: DesktopPhase = DesktopPhase.Idle) = DesktopButton.derive(enabled, online, connected, os, supported, probe, at, now, phase)
+        phase: DesktopPhase = DesktopPhase.Idle) = DesktopButton.derive(online, connected, os, supported, probe, at, now, phase)
 
     @Test fun hiddenRows() {
         assertEquals(DesktopButton.HIDDEN, derive(online = false))
         assertEquals(DesktopButton.HIDDEN, derive(connected = false))
         assertEquals(DesktopButton.HIDDEN, derive(probe = DesktopProbe.NO))
-        assertEquals(DesktopButton.HIDDEN, derive(enabled = false))
         assertEquals(DesktopButton.HIDDEN, derive(supported = false))
         // Linux waits for a probe; a stale probe counts as none.
         assertEquals(DesktopButton.HIDDEN, derive(probe = null, at = null))

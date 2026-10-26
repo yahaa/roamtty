@@ -71,7 +71,7 @@ class E2eWindowsServiceTest {
         }
         hostId = host.id
         // The released plugin, as a user gets it: the fixture's copy is on this device's loopback only.
-        DesktopSettings(E2e.context).apply { enabled = true; keepAliveMinutes = 10; pluginBaseUrl = "" }
+        DesktopSettings(E2e.context).apply { keepAliveMinutes = 10; pluginBaseUrl = "" }
         E2e.prepareActivity(compose)
         E2e.waitTag(compose, "home-pager")
     }
@@ -79,7 +79,7 @@ class E2eWindowsServiceTest {
     @After fun tearDown() {
         if (address.isEmpty()) return
         cleanup()
-        DesktopSettings(E2e.context).apply { enabled = false; pluginBaseUrl = "" }
+        DesktopSettings(E2e.context).apply { pluginBaseUrl = "" }
     }
 
     private fun cleanup() {
