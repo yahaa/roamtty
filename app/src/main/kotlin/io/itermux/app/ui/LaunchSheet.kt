@@ -120,7 +120,7 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
 
     val colors = MaterialTheme.colorScheme
     AppSheet(onDismiss, fullScreen = true) {
-        if (!typing) SheetHeader(title ?: if (forAgent) tr("用 AI Agent打开") else tr("打开终端"), null, onDismiss)
+        if (!typing) SheetHeader(title ?: if (forAgent) tr("用 Agent 打开") else tr("打开终端"), null, onDismiss)
         Column(Modifier.weight(1f).testTag("launch-sheet")) {
             if (canAttach && !typing) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page)
                 .padding(bottom = Spacing.Row).testTag("launch-source")) {

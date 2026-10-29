@@ -1,5 +1,6 @@
 package io.itermux.app.ui
 
+import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -18,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -37,6 +39,7 @@ import io.itermux.app.session.AgentLaunch
 import io.itermux.app.session.HostMetrics
 import io.itermux.app.tr
 import io.itermux.app.trf
+import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.HostSystem
 import io.itermux.ssh.Phase
@@ -82,36 +85,21 @@ internal fun HostDetailPage(
         onPauseOrDispose { monitor?.visible?.value = false }
     }
 
-    Column(modifier.fillMaxSize().testTag("host-detail")) {
+    val onLogin = { if (monitor != null && !host.needsTypedSecret(app)) monitor.start() else askPassword = true }
+    if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        HostDetailLandscape(host, reachability, monitor, onBack, onAgent = { launching = true }, onTerminal = { launching = false },
+            onBrowseFiles, onDesktop, { anchor -> HostDetailMenu(onManagePlugins, onEdit, onDelete, anchor) }, onLogin, modifier)
+    } else Column(modifier.fillMaxSize().testTag("host-detail")) {
         AppToolbar(title = host.name,
             navigation = { ToolbarIcon(R.drawable.ic_chevron_left, tr("返回主机列表"), Modifier.testTag("host-detail-back"), onClick = onBack) },
-            actions = {
-                // Plugins, edit and delete all live behind the one overflow button, keeping the bar to a single icon.
-                var menu by remember { mutableStateOf(false) }
-                Box {
-                    ToolbarIcon(R.drawable.ic_more, tr("更多"), Modifier.testTag("host-detail-more")) { menu = true }
-                    DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem(text = { Text(tr("安装插件")) }, onClick = { menu = false; onManagePlugins() },
-                            modifier = Modifier.testTag("host-detail-plugins"),
-                            leadingIcon = { Icon(painterResource(R.drawable.ic_plugin), contentDescription = null) })
-                        DropdownMenuItem(text = { Text(tr("编辑主机")) }, onClick = { menu = false; onEdit() },
-                            modifier = Modifier.testTag("host-detail-edit"),
-                            leadingIcon = { Icon(painterResource(R.drawable.ic_edit), contentDescription = null) })
-                        HorizontalDivider()
-                        DropdownMenuItem(text = { Text(tr("删除主机")) }, onClick = { menu = false; onDelete() },
-                            leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null) },
-                            colors = MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.error,
-                                leadingIconColor = MaterialTheme.colorScheme.error))
-                    }
-                }
-            })
+            actions = { HostDetailMenu(onManagePlugins, onEdit, onDelete) { ToolbarIcon(R.drawable.ic_more, tr("更多"), Modifier.testTag("host-detail-more"), onClick = it) } })
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
             Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = Spacing.Page),
                 verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
                 val metrics = monitor?.metrics?.collectAsStateWithLifecycle()?.value
                 HostHeader(host, reachability, metrics)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-                    HostAction(tr("AI Agent"), R.drawable.ic_agent, primary = true, tag = "host-detail-agent",
+                    HostAction(tr("Agent"), R.drawable.ic_agent, primary = true, tag = "host-detail-agent",
                         modifier = Modifier.weight(1f)) { launching = true }
                     HostAction(tr("终端"), R.drawable.ic_sessions, tag = "host-detail-terminal", modifier = Modifier.weight(1f)) {
                         launching = false
@@ -122,7 +110,7 @@ internal fun HostDetailPage(
                         modifier = Modifier.weight(1f), onClick = onDesktop)
                 }
                 if (monitor == null) MonitorLoginCard { askPassword = true }
-                else MonitorSection(monitor, onLogin = { if (host.needsTypedSecret(app)) askPassword = true else monitor.start() })
+                else MonitorSection(monitor, onLogin = onLogin)
                 HostInfoSection(host, metrics)
                 Spacer(Modifier.height(Spacing.Page))
             }
@@ -139,6 +127,28 @@ internal fun HostDetailPage(
             onAttach = { launching = null; onAttach(it) }) { directory, agent ->
             launching = null
             onLaunch(directory, agent)
+        }
+    }
+}
+
+/** Plugins, edit and delete, all behind the one overflow button [anchor] draws; it is handed the click that opens them. */
+@Composable
+internal fun HostDetailMenu(onManagePlugins: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, anchor: @Composable (() -> Unit) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        anchor { menu = true }
+        DropdownMenu(menu, { menu = false }) {
+            DropdownMenuItem(text = { Text(tr("安装插件")) }, onClick = { menu = false; onManagePlugins() },
+                modifier = Modifier.testTag("host-detail-plugins"),
+                leadingIcon = { Icon(painterResource(R.drawable.ic_plugin), contentDescription = null) })
+            DropdownMenuItem(text = { Text(tr("编辑主机")) }, onClick = { menu = false; onEdit() },
+                modifier = Modifier.testTag("host-detail-edit"),
+                leadingIcon = { Icon(painterResource(R.drawable.ic_edit), contentDescription = null) })
+            HorizontalDivider()
+            DropdownMenuItem(text = { Text(tr("删除主机")) }, onClick = { menu = false; onDelete() },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null) },
+                colors = MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.error,
+                    leadingIconColor = MaterialTheme.colorScheme.error))
         }
     }
 }
@@ -200,46 +210,10 @@ private fun MonitorSection(monitor: HostMonitor, onLogin: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically) {
             Text(tr("实时监控"), style = MaterialTheme.typography.sectionHeader, color = colors.onSurfaceVariant,
                 modifier = Modifier.weight(1f))
-            when {
-                connection.phase == Phase.CONNECTED && metrics != null -> {
-                    Box(Modifier.size(6.dp).clip(CircleShape).background(StatusColors.success))
-                    Spacer(Modifier.width(6.dp))
-                    Text(trf("每 %d 秒刷新", (SAMPLE_INTERVAL_MS / 1000).toInt()), style = MaterialTheme.typography.labelSmall,
-                        color = colors.onSurfaceVariant)
-                }
-                connection.active -> {
-                    CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
-                    Spacer(Modifier.width(6.dp))
-                    Text(when {
-                        connection.phase == Phase.CONNECTED -> tr("正在读取…")
-                        connection.message == MONITOR_RECONNECTING -> tr("正在重连…")
-                        else -> tr("正在连接主机…")
-                    },
-                        style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
-                }
-            }
+            MonitorStatus(connection, metrics != null)
         }
         if (!connection.active || samplingFailed) {
-            GroupedSection {
-                Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(if (samplingFailed) tr("无法读取监控数据，请检查远端系统查询权限后重试。")
-                            else connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
-                            style = MaterialTheme.typography.bodyMedium, color = colors.error,
-                            modifier = Modifier.testTag("host-monitor-error"))
-                        connection.detail?.let {
-                            SelectionContainer {
-                                Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
-                                    color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp).testTag("host-monitor-detail"))
-                            }
-                        }
-                    }
-                    TextButton(onClick = monitor::start, modifier = Modifier.testTag("host-monitor-retry")) { Text(tr("重新连接")) }
-                    if (connection.phase == Phase.AUTH_FAILED || connection.phase == Phase.FAILED)
-                        TextButton(onClick = onLogin) { Text(tr("输入密码")) }
-                }
-            }
+            MonitorProblem(monitor, connection, samplingFailed, onLogin)
             Spacer(Modifier.height(Spacing.Row))
         }
         val m = metrics
@@ -301,9 +275,59 @@ private fun MonitorSection(monitor: HostMonitor, onLogin: () -> Unit) {
     }
 }
 
+/** How the monitor is doing, at the end of a line: refreshing every few seconds, or connecting and reading. */
+@Composable
+internal fun MonitorStatus(connection: ConnectionState, hasMetrics: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    when {
+        connection.phase == Phase.CONNECTED && hasMetrics -> {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(StatusColors.success))
+            Spacer(Modifier.width(6.dp))
+            Text(trf("每 %d 秒刷新", (SAMPLE_INTERVAL_MS / 1000).toInt()), style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant, modifier = Modifier.testTag("host-monitor-status"))
+        }
+        connection.active -> {
+            CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(when {
+                connection.phase == Phase.CONNECTED -> tr("正在读取…")
+                connection.message == MONITOR_RECONNECTING -> tr("正在重连…")
+                else -> tr("正在连接主机…")
+            },
+                style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+        }
+    }
+}
+
+/** Why there are no readings, with a retry and, when the login itself failed, a way to type the password. */
+@Composable
+internal fun MonitorProblem(monitor: HostMonitor, connection: ConnectionState, samplingFailed: Boolean, onLogin: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    GroupedSection {
+        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(if (samplingFailed) tr("无法读取监控数据，请检查远端系统查询权限后重试。")
+                    else connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
+                    style = MaterialTheme.typography.bodyMedium, color = colors.error,
+                    modifier = Modifier.testTag("host-monitor-error"))
+                connection.detail?.let {
+                    SelectionContainer {
+                        Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp).testTag("host-monitor-detail"))
+                    }
+                }
+            }
+            TextButton(onClick = monitor::start, modifier = Modifier.testTag("host-monitor-retry")) { Text(tr("重新连接")) }
+            if (connection.phase == Phase.AUTH_FAILED || connection.phase == Phase.FAILED)
+                TextButton(onClick = onLogin) { Text(tr("输入密码")) }
+        }
+    }
+}
+
 /** A process: its name, then two figures in columns of their own. */
 @Composable
-private fun ProcessRow(name: String, first: String, second: String) {
+internal fun ProcessRow(name: String, first: String, second: String) {
     val colors = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = Spacing.Page, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically) {
@@ -340,7 +364,7 @@ private fun GaugeCard(label: String, value: Double?, detail: String?, history: L
 
 /** One GPU: name, frequency, temperature and power on top, then utilization and VRAM bars and the utilization trend. */
 @Composable
-private fun GpuRow(gpu: HostMetrics.Gpu, history: List<Double>) {
+internal fun GpuRow(gpu: HostMetrics.Gpu, history: List<Double>) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row).testTag("host-gpu-${gpu.index}")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -401,7 +425,7 @@ private fun Ring(value: Double?, tone: Color, size: Dp) {
 }
 
 @Composable
-private fun Sparkline(values: List<Double>, tone: Color, modifier: Modifier = Modifier) {
+internal fun Sparkline(values: List<Double>, tone: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         if (values.size < 2) return@Canvas
         val step = size.width / (MONITOR_HISTORY - 1)
@@ -431,23 +455,37 @@ private fun MetricRow(label: String, value: String?, hint: String? = null) {
     }
 }
 
+/** How the app reaches the host: address, login and what a new session opens. */
+@Composable
+internal fun connectionRows(host: Host): List<Pair<String, String>> = listOf(
+    tr("地址") to host.address,
+    tr("端口") to host.port.toString(),
+    tr("用户名") to host.username,
+    tr("认证方式") to (authLabel(host.auth) + (host.keyLabel?.takeIf { host.auth == "KEY" }?.let { " · $it" } ?: "")),
+    tr("新会话") to modeLabel(host.mode == SessionMode.TMUX.name, host.multiplexer),
+    tr("插件") to (host.installedPlugins?.let { found ->
+        HostPlugin.entries.filter { it in found }.joinToString(" · ") { it.id }.ifEmpty { tr("未安装") }
+    } ?: tr("未检测")),
+)
+
+/** What the host says about itself, as far as it reported. */
+@Composable
+internal fun systemRows(metrics: HostMetrics?): List<Pair<String, String>> = listOfNotNull(
+    metrics?.hostname?.let { tr("主机名") to it },
+    metrics?.kernel?.let { tr("内核") to it },
+    metrics?.arch?.let { tr("架构") to it },
+    metrics?.cpuModel?.let { tr("处理器") to it },
+)
+
 @Composable
 private fun HostInfoSection(host: Host, metrics: HostMetrics?) {
-    val rows = buildList {
-        add(tr("地址") to host.address)
-        add(tr("端口") to host.port.toString())
-        add(tr("用户名") to host.username)
-        add(tr("认证方式") to (authLabel(host.auth) + (host.keyLabel?.takeIf { host.auth == "KEY" }?.let { " · $it" } ?: "")))
-        add(tr("新会话") to modeLabel(host.mode == SessionMode.TMUX.name, host.multiplexer))
-        add(tr("插件") to (host.installedPlugins?.let { found ->
-            HostPlugin.entries.filter { it in found }.joinToString(" · ") { it.id }.ifEmpty { tr("未安装") }
-        } ?: tr("未检测")))
-        metrics?.hostname?.let { add(tr("主机名") to it) }
-        metrics?.kernel?.let { add(tr("内核") to it) }
-        metrics?.arch?.let { add(tr("架构") to it) }
-        metrics?.cpuModel?.let { add(tr("处理器") to it) }
-    }
-    GroupedSection(header = tr("主机信息")) {
+    InfoGroup(tr("主机信息"), connectionRows(host) + systemRows(metrics))
+}
+
+/** A grouped list of label and value rows under [header], the values selectable. */
+@Composable
+internal fun InfoGroup(header: String, rows: List<Pair<String, String>>, modifier: Modifier = Modifier) {
+    GroupedSection(modifier, header = header) {
         SelectionContainer {
             Column {
                 rows.forEachIndexed { index, (label, value) ->
@@ -466,17 +504,17 @@ private fun HostInfoSection(host: Host, metrics: HostMetrics?) {
 }
 
 @Composable
-private fun levelColor(value: Double?): Color = when {
+internal fun levelColor(value: Double?): Color = when {
     value == null -> MaterialTheme.colorScheme.outline
     value >= 90 -> StatusColors.danger
     value >= 70 -> StatusColors.warning
     else -> MaterialTheme.colorScheme.primary
 }
 
-private fun percent(value: Double) = if (value < 10) String.format(Locale.US, "%.1f%%", value) else String.format(Locale.US, "%.0f%%", value)
+internal fun percent(value: Double) = if (value < 10) String.format(Locale.US, "%.1f%%", value) else String.format(Locale.US, "%.0f%%", value)
 
 /** "21.5/30.9 GB": both sizes in the total's unit, short enough for a gauge card. */
-private fun usage(used: Long, total: Long): String {
+internal fun usage(used: Long, total: Long): String {
     val parts = bytes(total).split(' ')
     val scale = Math.pow(1024.0, listOf("B", "KB", "MB", "GB", "TB", "PB").indexOf(parts[1]).toDouble())
     val usedScaled = used / scale
@@ -493,7 +531,7 @@ internal fun bytes(value: Long): String {
     else String.format(Locale.US, "%.1f %s", size, units[unit])
 }
 
-private fun uptime(seconds: Long): String {
+internal fun uptime(seconds: Long): String {
     val days = seconds / 86_400
     val hours = seconds % 86_400 / 3_600
     val minutes = seconds % 3_600 / 60
