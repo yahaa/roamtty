@@ -127,8 +127,13 @@ class SessionReconnectUiTest {
             val viewport = compose.onNodeWithTag("terminal-notice-viewport").fetchSemanticsNode().boundsInRoot
             val card = compose.onNodeWithTag("terminal-connection-notice").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             val workspace = compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot
-            val grid = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
-            assertEquals("Connection notices must not remove terminal rows", workspace.height, grid.height, 1f)
+            // The viewport holds the grid (inset by a few dp of padding). The workspace pads itself by the keyboard, so a
+            // notice that takes no rows leaves the viewport running from its top to the keyboard's top edge.
+            val grid = compose.onNodeWithTag("terminal-viewport").fetchSemanticsNode().boundsInRoot
+            val keyboard = ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+                ?.takeIf { it.isVisible(WindowInsetsCompat.Type.ime()) }?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+            assertEquals("Connection notices must not remove terminal rows", workspace.top, grid.top, 1f)
+            assertEquals("Connection notices must not remove terminal rows", workspace.bottom - keyboard, grid.bottom, 2f)
             assertTrue("Dialog stays inside the area above the IME", card.top >= viewport.top && card.bottom <= viewport.bottom)
             assertEquals(viewport.center.x, card.center.x, 1f)
             if (card.height / 2 + 16 * context.resources.displayMetrics.density < viewport.height * 0.382f) {
@@ -147,7 +152,7 @@ class SessionReconnectUiTest {
                 }
                 compose.waitForIdle()
                 checkNotice()
-                val fullHeight = compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot.height
+                val fullHeight = compose.onNodeWithTag("terminal-viewport").fetchSemanticsNode().boundsInRoot.height
                 compose.activityRule.scenario.onActivity { activity ->
                     requireNotNull(terminal(activity.window.decorView)).let { view ->
                         view.requestFocus()
@@ -155,7 +160,7 @@ class SessionReconnectUiTest {
                     }
                 }
                 compose.waitUntil(8_000) {
-                    imeVisible() && compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot.height < fullHeight - 50
+                    imeVisible() && compose.onNodeWithTag("terminal-viewport").fetchSemanticsNode().boundsInRoot.height < fullHeight - 50
                 }
                 compose.waitForIdle()
                 checkNotice()
@@ -174,7 +179,7 @@ class SessionReconnectUiTest {
                     SoftwareKeyboardControllerCompat(root).hide()
                 }
                 compose.waitUntil(8_000) { !imeVisible() &&
-                    compose.onNodeWithTag("terminal-workspace").fetchSemanticsNode().boundsInRoot.height >= fullHeight - 2 }
+                    compose.onNodeWithTag("terminal-viewport").fetchSemanticsNode().boundsInRoot.height >= fullHeight - 2 }
                 compose.waitForIdle()
                 checkNotice()
             }

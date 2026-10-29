@@ -63,6 +63,13 @@ Windows 目录和监控命令测试使用 `ROAMTTY_PWSH=/path/to/pwsh ./gradlew 
 
 真实 OpenSSH 测试为可选项：`scripts/prepare-openssh-test.sh`（需 root）在回环端口 22228（正常，含 SFTP）和 22229（tmux 检查失败）启动隔离 sshd，`scripts/cleanup-openssh-test.sh` 清理；`ssh-core` 仅在存在 `.private/test-password` 时运行这些测试。设备测试通过 `adb reverse tcp:22228 tcp:22228` 访问。`scripts/ssh-key-echo.py` 提供按键回显与 SFTP 夹具，`scripts/process-death-test.sh` 验证进程被杀后的会话恢复。测试私钥是公开材料，不能用于真实服务器。
 
+设备测试分两轮跑，两个夹具都占用 22228：
+
+- **OpenSSH 轮**：运行 `prepare-openssh-test.sh`，另起 `PYTHONPATH=.local/py-deps python3 ssh-core/src/test/resources/host-system-server.py ubuntu <事件文件> 22238` 并 `adb reverse tcp:22238 tcp:22238`（`HostSystemUiTest` 用）。然后运行 `adb shell am instrument -w -e fixturePassword "$(cat .private/test-password)" -e notClass <key-echo 类> com.roamtty.app.test/io.itermux.app.ItermuxTestRunner`。
+- **key-echo 轮**：停掉 22228 上的 sshd，在主检出里运行 `PYTHONPATH=.local/py-deps python3 scripts/ssh-key-echo.py`（密码 `test-only`，SFTP 根目录为 `.local/sftp-fixture`）。然后用 `-e class` 只跑 key-echo 类，不传 `fixturePassword`。
+
+key-echo 类：CursorEnterKeyTest、DownloadDestinationTest、DownloadFilesTest、ExploratoryQaTest、FileBrowserLifecycleTest、FilePreviewUiTest、FileTransferDeviceTest、HistoryCommandUiTest、NavigationThemeTest、SessionLifetimeTest、SessionReconnectUiTest、TerminalClipboardTest、TerminalDraftTest、TerminalExtraKeysTest、TerminalToolboxAutoHideTest、TransferLifetimeTest、UploadDirectoryUiTest。E2E、Windows、音频等测试缺少对应夹具时会自动跳过。
+
 ## 文档
 
 - [使用指南](docs/USER_GUIDE.md)

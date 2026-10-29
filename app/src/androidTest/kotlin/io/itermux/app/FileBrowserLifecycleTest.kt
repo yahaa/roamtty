@@ -36,6 +36,8 @@ class FileBrowserLifecycleTest {
         try {
             assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             withContext(Dispatchers.Main) { session.rename("File browser task") }
+            // Home opens on its sessions; the host cards and their menus are on the hosts tab.
+            compose.onNodeWithTag("home-tab-hosts").performClick()
             compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription(trf("主机选项：%s", host.name)).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithContentDescription(trf("主机选项：%s", host.name)).performClick()
             compose.onNodeWithTag("host-browse-files-${host.id}").performClick()

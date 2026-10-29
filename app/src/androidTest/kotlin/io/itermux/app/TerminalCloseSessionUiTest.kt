@@ -4,7 +4,8 @@ import android.content.Intent
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -22,7 +23,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -33,7 +33,7 @@ class TerminalCloseSessionUiTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     @get:Rule val serviceRule = ServiceTestRule()
 
-    @Test fun closingFromTheSessionMenuEndsTheSessionAndShowsItsHost() = runBlocking {
+    @Test fun closingFromTheSessionMenuEndsTheSessionWithoutAsking() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val password = InstrumentationRegistry.getArguments().getString("fixturePassword") ?: "test-only"
         TerminalToolbox.autoHideMillis = 0
@@ -50,13 +50,11 @@ class TerminalCloseSessionUiTest {
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("restore-dock").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("restore-dock").performClick()
             compose.onNodeWithTag("session-switcher").performClick()
+            // Closing ends the session on the server without asking, and leaves for the sessions tab.
             compose.onNodeWithTag("close-session").performClick()
-            compose.onNodeWithText(tr("普通 SSH shell 会结束；需要保留的任务请先放入 tmux。")).assertExists()
-            compose.onNodeWithText(tr("关闭")).performClick()
-
-            compose.waitUntil(5_000) { compose.onAllNodesWithTag("host-detail").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("home-tab-sessions") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("terminal-workspace").assertDoesNotExist()
-            assertTrue(service.sessions.value.none { it.id == session.id })
+            compose.waitUntil(5_000) { service.sessions.value.none { it.id == session.id } }
         } finally {
             prompts.cancel()
             withContext(Dispatchers.Main) { service.close(session.id) }

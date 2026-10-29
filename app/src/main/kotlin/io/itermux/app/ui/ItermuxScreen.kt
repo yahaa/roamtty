@@ -167,7 +167,7 @@ fun ItermuxScreen(
             page = AppPage.HOST
         } else page = AppPage.HOME
     }
-    /** Leaves the terminal or file browser for the home page on its sessions tab. */
+    /** Leaves the terminal for the home page on its sessions tab. */
     fun leaveTerminal() {
         page = AppPage.HOME
         homePager.requestScrollToPage(0)
@@ -643,7 +643,8 @@ fun ItermuxScreen(
                     val filesSession = sessions.find { it.id == selected }
                     if (filesSession != null) {
                         key(filesSession) {
-                            RemoteFileBrowserPage(filesSession, onBack = ::leaveTerminal, Modifier.weight(1f),
+                            // Its back arrow says 返回主机详情: the files return to their host's page, as on iOS.
+                            RemoteFileBrowserPage(filesSession, onBack = ::showSessionHost, Modifier.weight(1f),
                                 // A new terminal session (tmux when the host has it) so the agent outlives the browser.
                                 onLaunchAgent = { launch ->
                                     begin(launchRequest(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host, launch.directory, launch))

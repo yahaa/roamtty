@@ -149,8 +149,8 @@ class NavigationThemeTest {
             capture("navigation-light-terminal")
             assertEquals(0xFFF3F0EB.toInt(), session.getEmulator().mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND])
             assertEquals(true, WindowCompat.getInsetsController(compose.activity.window, compose.activity.window.decorView).isAppearanceLightStatusBars)
-            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } // terminal → its host's detail
-            compose.onNodeWithTag("host-detail").assertIsDisplayed()
+            compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() } // terminal → sessions tab
+            compose.waitUntil(5000) { compose.onAllNodes(hasTestTag("home-tab-sessions") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
             Unit
         } finally {
             compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
