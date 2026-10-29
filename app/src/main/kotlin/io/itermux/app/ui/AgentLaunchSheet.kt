@@ -53,7 +53,7 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
     val supported = StartDirectory.isSupported(directory)
     val colors = MaterialTheme.colorScheme
     AppSheet(onDismiss, fullScreen = true) {
-        SheetHeader(tr("用 AI Agent打开"), null, onDismiss)
+        SheetHeader(tr("用 Agent 打开"), null, onDismiss)
         // Choices scroll in the middle; the command and the launch button stay at the bottom.
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).testTag("agent-launch-sheet")) {
             FolderLabel(directory, Modifier.padding(horizontal = Spacing.Section).padding(bottom = Spacing.Section))

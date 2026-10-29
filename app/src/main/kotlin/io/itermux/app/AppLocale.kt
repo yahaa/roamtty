@@ -643,7 +643,7 @@ private object EnglishText {
         "筛选当前目录" to "Filter this folder",
         "新建文件夹" to "New folder",
         "复制当前路径" to "Copy current path",
-        "用 AI Agent打开" to "Open with AI Agent",
+        "用 Agent 打开" to "Open with Agent",
         "权限" to "Permissions",
         "移除 %s" to "Remove %s",
         "输入密码后即可浏览文件夹" to "Enter the password to browse folders",
@@ -767,6 +767,14 @@ private object EnglishText {
         "复制代码" to "Copy code",
         "保存到 %s" to "Saved to %s",
         "目录" to "Directory",
-        "文件" to "File"
+        "文件" to "File",
+        "概览" to "Overview",
+        "进程" to "Processes",
+        "信息" to "Info",
+        "系统" to "System",
+        "已运行 %s" to "up %s",
+        "负载 1/5/15" to "Load 1/5/15",
+        "连接后可查看进程" to "Connect to see processes",
+        "暂无进程数据" to "No process data"
     )
 }
