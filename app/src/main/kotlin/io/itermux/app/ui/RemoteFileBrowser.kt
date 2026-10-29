@@ -48,6 +48,8 @@ import io.itermux.app.session.breadcrumbSegments
 import io.itermux.app.session.validRemoteRename
 import io.itermux.ssh.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,11 +91,24 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
         finally { loading = false }
     }
 
-    val entries = remember(listing, options.showHiddenFiles, options.sort, options.sortDescending, browser.filter) {
-        val visible = listing?.entries.orEmpty().filter {
-            (options.showHiddenFiles || !it.name.startsWith('.')) && (browser.filter.isBlank() || it.name.contains(browser.filter.trim(), ignoreCase = true))
+    val filterKey = browser.filter
+    val entries by produceState(
+        initialValue = emptyList<RemoteEntry>(),
+        listing, options.showHiddenFiles, options.sort, options.sortDescending, filterKey
+    ) {
+        val snapshot = listing?.entries.orEmpty()
+        val showHidden = options.showHiddenFiles
+        val sort = options.sort
+        val descending = options.sortDescending
+        val needle = filterKey.trim()
+        // Debounce filter typing so each keystroke does not sort a huge directory on the UI thread.
+        if (needle.isNotEmpty()) kotlinx.coroutines.delay(120)
+        value = withContext(Dispatchers.Default) {
+            val visible = snapshot.filter {
+                (showHidden || !it.name.startsWith('.')) && (needle.isEmpty() || it.name.contains(needle, ignoreCase = true))
+            }
+            sortRemoteEntries(visible, sort, descending)
         }
-        sortRemoteEntries(visible, options.sort, options.sortDescending)
     }
     val currentPath = listing?.path ?: browser.directory
     Column(modifier.fillMaxSize().testTag("remote-file-browser")) {

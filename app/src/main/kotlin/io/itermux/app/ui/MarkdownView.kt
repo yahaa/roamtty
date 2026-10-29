@@ -37,6 +37,9 @@ import androidx.compose.ui.unit.sp
 import io.itermux.app.R
 import io.itermux.app.code.*
 import io.itermux.app.tr
+import io.itermux.app.trf
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private class MarkdownColors(val link: Color, val codeBackground: Color, val muted: Color, val rule: Color, val codeFont: FontFamily)
 
@@ -133,7 +136,11 @@ private fun CodeBlock(block: MdBlock.Code, font: FontFamily) {
     val theme = rememberCodeTheme()
     val context = LocalContext.current
     val language = remember(block.language) { Languages.forFence(block.language) ?: Languages.PLAIN }
-    val text = remember(block.code, language, theme) { annotatedCode(SyntaxHighlighter.highlight(block.code, language), theme) }
+    // Highlight off the UI thread: a large fence would otherwise hitch the first composition frame.
+    val text by produceState<AnnotatedString?>(null, block.code, language, theme) {
+        value = null
+        value = withContext(Dispatchers.Default) { annotatedCode(SyntaxHighlighter.highlight(block.code, language), theme) }
+    }
     // Dark pages sink code into a deeper well; light pages need a tinted block to stand out from the paper.
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     Surface(shape = RoundedCornerShape(10.dp),
@@ -148,9 +155,15 @@ private fun CodeBlock(block: MdBlock.Code, font: FontFamily) {
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Text(text, Modifier.horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
-                fontFamily = font, fontSize = 13.sp, lineHeight = 19.sp, softWrap = false,
-                color = MaterialTheme.colorScheme.onSurface)
+            val shown = text
+            if (shown == null) {
+                Text(tr("正在高亮…"), Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+                    fontFamily = font, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Text(shown, Modifier.horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+                    fontFamily = font, fontSize = 13.sp, lineHeight = 19.sp, softWrap = false,
+                    color = MaterialTheme.colorScheme.onSurface)
+            }
         }
     }
 }
@@ -158,16 +171,18 @@ private fun CodeBlock(block: MdBlock.Code, font: FontFamily) {
 @Composable
 private fun MarkdownTable(table: MdBlock.Table, colors: MarkdownColors) {
     val uriHandler = LocalUriHandler.current
-    val widths = remember(table) {
+    val visibleRows = remember(table) { table.rows.take(MAX_TABLE_ROWS) }
+    val truncated = table.rows.size > visibleRows.size
+    val widths = remember(table.header, visibleRows) {
         table.header.indices.map { column ->
-            val longest = (listOf(table.header[column]) + table.rows.map { it[column] }).maxOf { it.text.length }
+            val longest = (listOf(table.header[column]) + visibleRows.map { it[column] }).maxOf { it.text.length }
             (longest * 8 + 24).coerceIn(64, 260).dp
         }
     }
     val shape = RoundedCornerShape(8.dp)
     Box(Modifier.horizontalScroll(rememberScrollState())) {
         Column(Modifier.clip(shape).border(1.dp, colors.rule, shape)) {
-            (listOf(table.header) + table.rows).forEachIndexed { index, row ->
+            (listOf(table.header) + visibleRows).forEachIndexed { index, row ->
                 if (index > 0) HorizontalDivider(color = colors.rule)
                 Row(if (index == 0) Modifier.background(colors.codeBackground) else Modifier) {
                     row.forEachIndexed { column, cell ->
@@ -181,9 +196,17 @@ private fun MarkdownTable(table: MdBlock.Table, colors: MarkdownColors) {
                     }
                 }
             }
+            if (truncated) {
+                HorizontalDivider(color = colors.rule)
+                Text(trf("…共 %d 行，仅显示前 %d 行", table.rows.size, MAX_TABLE_ROWS),
+                    Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodySmall, color = colors.muted)
+            }
         }
     }
 }
+
+private const val MAX_TABLE_ROWS = 80
 
 /** Images next to the document load over SFTP; web images stay links so opening a file never phones home. */
 @Composable

@@ -97,7 +97,9 @@ class DesktopPluginInstallerTest {
         assertEquals(0, local.run(HostPluginProbe.script, 10_000) { lines += it })
         val desktop = HostPluginProbe.parseDesktop(lines.joinToString("\n"))
         assertNotNull(lines.joinToString("\n"), desktop)
-        assertTrue(desktop!!.uname.startsWith("Linux"))
+        // Probe must work on the CI/dev host OS; do not require Linux specifically (macOS reports Darwin).
+        assertTrue(desktop!!.uname.isNotBlank())
+        assertTrue(desktop.uname.startsWith("Linux") || desktop.uname.startsWith("Darwin") || "Windows" in desktop.uname)
     }
 
     /** The macOS app scripts, dumped for running on a Mac (ROAMTTY_DUMP_MAC_SCRIPTS=<dir>). */
