@@ -19,9 +19,13 @@ fds = []
 with tempfile.TemporaryDirectory(prefix="roamtty-attach-") as root:
     env = dict(os.environ, TMUX_TMPDIR=root, TERM="xterm-256color")
     env.pop("TMUX", None)
+    # Isolated config so the user's ~/.tmux.conf cannot flip global mouse/status defaults.
+    config = os.path.join(root, "tmux.conf")
+    with open(config, "w", encoding="utf-8") as fh:
+        fh.write("set -g mouse off\nset -g status on\n")
 
     def tmux(*args):
-        return subprocess.check_output(["tmux", *args], env=env, text=True).strip()
+        return subprocess.check_output(["tmux", "-f", config, *args], env=env, text=True).strip()
 
     def attach(command):
         master, slave = pty.openpty()

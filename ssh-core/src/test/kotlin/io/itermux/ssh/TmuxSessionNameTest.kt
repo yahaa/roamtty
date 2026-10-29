@@ -126,7 +126,9 @@ class TmuxSessionNameTest {
         try {
             sh("tmux -u new-session -d -s roamtty-s -c '$work' sh && tmux -u set-option -t roamtty-s @roamtty_task '帮我编译 App'")
             val lines = sh(Tmux.agentStatusCommand("roamtty-s")).lines()
-            assertEquals("sh|||帮我编译 App|", lines[0])
+            // pane_current_command is usually "sh"; some hosts report a path or a login-shell name.
+            assertTrue(lines[0], lines[0].endsWith("|||帮我编译 App|") || "|||帮我编译 App|" in lines[0])
+            assertTrue(lines[0], lines[0].substringBefore("|").contains("sh"))
             assertEquals(work, lines[1])
         } finally {
             sh("tmux kill-server")

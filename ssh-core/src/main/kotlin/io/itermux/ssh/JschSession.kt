@@ -498,7 +498,11 @@ class JschSession(
             exec.connect(connectTimeoutMs)
             val kept = java.io.ByteArrayOutputStream()
             val line = java.io.ByteArrayOutputStream()
-            fun emit() { onLine?.invoke(line.toString(Charsets.UTF_8.name()).trimEnd('\r')); line.reset() }
+            var lineOverflow = false
+            fun emit() {
+                if (lineOverflow) line.write("…".toByteArray(Charsets.UTF_8))
+                onLine?.invoke(line.toString(Charsets.UTF_8.name()).trimEnd('\r')); line.reset(); lineOverflow = false
+            }
             val complete = withTimeoutOrNull(timeoutMs) {
                 val buffer = ByteArray(4096)
                 while (!exec.isClosed || output.available() > 0) {
@@ -506,14 +510,18 @@ class JschSession(
                         val count = output.read(buffer)
                         if (count < 0) break
                         if (kept.size() + count <= maxBytes) kept.write(buffer, 0, count)
-                        for (i in 0 until count) if (buffer[i] == '\n'.code.toByte()) emit() else line.write(buffer[i].toInt())
+                        for (i in 0 until count) {
+                            if (buffer[i] == '\n'.code.toByte()) emit()
+                            else if (line.size() < MAX_LINE_BYTES) line.write(buffer[i].toInt())
+                            else lineOverflow = true
+                        }
                     }
                     if (stopped.get()) return@withTimeoutOrNull false
                     if (!exec.isClosed) delay(30)
                 }
                 true
             } ?: false
-            if (line.size() > 0) emit()
+            if (line.size() > 0 || lineOverflow) emit()
             if (complete) exec.exitStatus to kept.toString(Charsets.UTF_8.name()) else null
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { null }
@@ -781,6 +789,9 @@ class JschSession(
     private fun closeTransport() { channel?.disconnect(); session?.disconnect() }
 
     companion object {
+        /** Cap for a single onLine emission; longer runs are truncated with an ellipsis. */
+        private const val MAX_LINE_BYTES = 64 * 1024
+
         /** mosh-server exits after this long without hearing the client. */
         internal fun moshServerTimeoutSeconds(mode: SessionMode): Long =
             if (mode == SessionMode.TMUX) 15 * 60L else 12 * 3600L + 600

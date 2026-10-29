@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The last picture of each host's desktop, small, for its card in the hosts list: taken from the page's surface while
@@ -27,25 +30,49 @@ internal object DesktopThumbnails {
     /** Bumped per host on every save or removal, so a card reloads its picture. */
     val versions: StateFlow<Map<String, Long>> = mutableVersions.asStateFlow()
 
+    /** Generation per host: remove() bumps it so in-flight saves for an older generation are dropped. */
+    private val generations = ConcurrentHashMap<String, AtomicLong>()
+    private val writers = ConcurrentHashMap<String, Any>()
+    private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "desktop-thumbs").apply { isDaemon = true } }
+
     private fun dir(context: Context) = File(context.filesDir, "desktop-thumbs")
     private fun file(context: Context, hostId: String) = File(dir(context), "${hostId.filter { it.isLetterOrDigit() || it == '-' }}.jpg")
+    private fun generation(hostId: String) = generations.getOrPut(hostId) { AtomicLong(0) }
+    private fun lockFor(hostId: String) = writers.getOrPut(hostId) { Any() }
 
     fun load(context: Context, hostId: String): Bitmap? =
         file(context, hostId).takeIf { it.isFile }?.let { runCatching { BitmapFactory.decodeFile(it.path) }.getOrNull() }
 
-    fun save(context: Context, hostId: String, bitmap: Bitmap) {
-        val target = file(context, hostId)
-        target.parentFile?.mkdirs()
-        val temp = File(target.path + ".tmp")
-        runCatching {
-            temp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 82, it) }
-            temp.renameTo(target)
-        }.onFailure { temp.delete(); return }
-        mutableVersions.value = mutableVersions.value + (hostId to System.currentTimeMillis())
+    fun save(context: Context, hostId: String, bitmap: Bitmap, expectedGeneration: Long? = null) {
+        val gen = generation(hostId)
+        if (expectedGeneration != null && gen.get() != expectedGeneration) return
+        synchronized(lockFor(hostId)) {
+            if (expectedGeneration != null && gen.get() != expectedGeneration) return
+            val target = file(context, hostId)
+            target.parentFile?.mkdirs()
+            val temp = File(target.parentFile, "${target.name}.${Thread.currentThread().name}.${System.nanoTime()}.tmp")
+            runCatching {
+                temp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 82, it) }
+                if (expectedGeneration != null && gen.get() != expectedGeneration) {
+                    temp.delete()
+                    return
+                }
+                if (!temp.renameTo(target)) {
+                    target.delete()
+                    temp.renameTo(target)
+                }
+            }.onFailure { temp.delete(); return }
+            mutableVersions.value = mutableVersions.value + (hostId to System.currentTimeMillis())
+        }
     }
 
     fun remove(context: Context, hostId: String) {
-        file(context, hostId).delete()
+        generation(hostId).incrementAndGet()
+        synchronized(lockFor(hostId)) {
+            // The picture and any temp file a save left behind (`<name>.<thread>.<nanos>.tmp`).
+            val name = file(context, hostId).name
+            dir(context).listFiles()?.filter { it.name == name || it.name.startsWith("$name.") }?.forEach { it.delete() }
+        }
         mutableVersions.value = mutableVersions.value + (hostId to System.currentTimeMillis())
     }
 
@@ -63,7 +90,10 @@ internal object DesktopThumbnails {
     /** [capture], then saved off the main thread as [hostId]'s picture. */
     fun captureAndSave(context: Context, hostId: String, view: SurfaceView, videoWidth: Int, videoHeight: Int) {
         val app = context.applicationContext
-        capture(view, videoWidth, videoHeight) { bitmap -> if (bitmap != null) Thread { save(app, hostId, bitmap) }.start() }
+        val expected = generation(hostId).get()
+        capture(view, videoWidth, videoHeight) { bitmap ->
+            if (bitmap != null) io.execute { save(app, hostId, bitmap, expectedGeneration = expected) }
+        }
     }
 
     /** A frame not yet drawn copies as all black (or all transparent): not worth keeping over an older picture. */

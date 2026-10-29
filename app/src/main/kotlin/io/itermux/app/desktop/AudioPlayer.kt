@@ -59,82 +59,99 @@ internal class AudioPlayer {
         val t = synchronized(this) { thread.also { thread = null } } ?: return
         t.interrupt()
         queue.clear()
-        runCatching { t.join(500) }
+        // Join off the caller: closing the desktop page must not hitch on the audio thread.
+        Thread({ runCatching { t.join(500) } }, "desktop-audio-join").apply { isDaemon = true; start() }
     }
 
     private fun run() {
-        val codec = try { openDecoder() } catch (e: Exception) { Log.w(TAG, "no Opus decoder", e); return }
-        val startThreshold = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-        val minBuffer = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-        val track = AudioTrack.Builder()
-            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-            .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-            .setBufferSizeInBytes(maxOf(minBuffer, msToBytes(if (startThreshold) AudioJitter.MAX_TARGET_MS + AudioJitter.DROP_ABOVE_MS + 100 else 240)))
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-            .build()
-        // A track that ran dry (the host fell silent) leaves the mixer and comes back only once this much
-        // is written: by default its whole buffer, which a backlog held under the drop line never reached.
-        if (startThreshold) runCatching { track.setStartThresholdInFrames(RATE / 1000 * AudioJitter.PACKET_MS) }
-        Log.i(TAG, "audio started: ${codec.name}, track buffer ${track.bufferSizeInFrames} frames")
-        val jitter = AudioJitter()
-        val info = MediaCodec.BufferInfo()
-        var written = 0L // frames written to the track
-        var underruns = 0
-        var rate = RATE
-        var pcm = ByteArray(0)
-        fun inTrack() = (written - (track.playbackHeadPosition.toLong() and 0xFFFFFFFFL)).coerceAtLeast(0)
+        var codec: MediaCodec? = null
+        var track: AudioTrack? = null
         try {
-            track.play()
-            while (!Thread.currentThread().isInterrupted) {
-                val (arrived, next) = queue.pollFirst(200, TimeUnit.MILLISECONDS) ?: continue
-                // Ran dry: the track's own count, not the play head reaching what was written (it moves
-                // in the mixer's steps, which reads as empty for a moment in normal playback).
-                val ran = track.underrunCount
-                val decision = jitter.arrive(arrived, next.seq, (inTrack() * 1000 / RATE).toInt(), ran > underruns)
-                underruns = ran
-                targetMs = jitter.targetMs
-                if (decision == AudioJitter.Decision.Drop) { dropped++; continue }
-                val cushion = (decision as AudioJitter.Decision.Play).cushionMs
-                if (cushion > 0) {
-                    val silence = ByteArray(msToBytes(cushion))
-                    track.write(silence, 0, silence.size)
-                    written += silence.size / 4
-                    cushions++
-                }
-                val want = (RATE * jitter.rate).toInt()
-                if (want != rate && track.setPlaybackRate(want) == AudioTrack.SUCCESS) rate = want
-                playbackRate = rate
-                packets++
-                val input = codec.dequeueInputBuffer(20_000)
-                if (input >= 0) {
-                    codec.getInputBuffer(input)!!.apply { clear(); put(next.data, next.offset, next.data.size - next.offset) }
-                    codec.queueInputBuffer(input, 0, next.data.size - next.offset, next.seq * AudioJitter.PACKET_MS * 1000, 0)
-                }
-                while (true) {
-                    val out = codec.dequeueOutputBuffer(info, if (input >= 0) 5_000 else 0)
-                    if (out < 0) break
-                    if (info.size > 0) {
-                        if (pcm.size < info.size) pcm = ByteArray(info.size)
-                        codec.getOutputBuffer(out)!!.apply { position(info.offset); get(pcm, 0, info.size) }
-                        track.write(pcm, 0, info.size)
-                        written += info.size / 4
-                        measure(pcm, info.size)
-                    }
-                    codec.releaseOutputBuffer(out, false)
-                }
-                queuedMs = (inTrack() * 1000 / RATE).toInt()
+            codec = try { openDecoder() } catch (e: Exception) {
+                Log.w(TAG, "no Opus decoder", e); return
             }
-        } catch (_: InterruptedException) {
-        } catch (e: Exception) {
-            Log.w(TAG, "audio stopped", e)
+            val startThreshold = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+            val minBuffer = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+            track = try {
+                AudioTrack.Builder()
+                    .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                    .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+                    .setBufferSizeInBytes(maxOf(minBuffer, msToBytes(if (startThreshold) AudioJitter.MAX_TARGET_MS + AudioJitter.DROP_ABOVE_MS + 100 else 240)))
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    .build()
+            } catch (e: Exception) {
+                Log.w(TAG, "no AudioTrack", e)
+                runCatching { codec?.stop(); codec?.release() }
+                return
+            }
+            val activeCodec = codec!!
+            val activeTrack = track!!
+            // A track that ran dry (the host fell silent) leaves the mixer and comes back only once this much
+            // is written: by default its whole buffer, which a backlog held under the drop line never reached.
+            if (startThreshold) runCatching { activeTrack.setStartThresholdInFrames(RATE / 1000 * AudioJitter.PACKET_MS) }
+            Log.i(TAG, "audio started: ${activeCodec.name}, track buffer ${activeTrack.bufferSizeInFrames} frames")
+            val jitter = AudioJitter()
+            val info = MediaCodec.BufferInfo()
+            var written = 0L // frames written to the track
+            var underruns = 0
+            var rate = RATE
+            var pcm = ByteArray(0)
+            fun inTrack() = (written - (activeTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL)).coerceAtLeast(0)
+            try {
+                activeTrack.play()
+                while (!Thread.currentThread().isInterrupted) {
+                    val (arrived, next) = queue.pollFirst(200, TimeUnit.MILLISECONDS) ?: continue
+                    // Ran dry: the track's own count, not the play head reaching what was written (it moves
+                    // in the mixer's steps, which reads as empty for a moment in normal playback).
+                    val ran = activeTrack.underrunCount
+                    val decision = jitter.arrive(arrived, next.seq, (inTrack() * 1000 / RATE).toInt(), ran > underruns)
+                    underruns = ran
+                    targetMs = jitter.targetMs
+                    if (decision == AudioJitter.Decision.Drop) { dropped++; continue }
+                    val cushion = (decision as AudioJitter.Decision.Play).cushionMs
+                    if (cushion > 0) {
+                        val silence = ByteArray(msToBytes(cushion))
+                        activeTrack.write(silence, 0, silence.size)
+                        written += silence.size / 4
+                        cushions++
+                    }
+                    val want = (RATE * jitter.rate).toInt()
+                    if (want != rate && activeTrack.setPlaybackRate(want) == AudioTrack.SUCCESS) rate = want
+                    playbackRate = rate
+                    packets++
+                    val input = activeCodec.dequeueInputBuffer(20_000)
+                    if (input >= 0) {
+                        activeCodec.getInputBuffer(input)!!.apply { clear(); put(next.data, next.offset, next.data.size - next.offset) }
+                        activeCodec.queueInputBuffer(input, 0, next.data.size - next.offset, next.seq * AudioJitter.PACKET_MS * 1000, 0)
+                    }
+                    while (true) {
+                        val out = activeCodec.dequeueOutputBuffer(info, if (input >= 0) 5_000 else 0)
+                        if (out < 0) break
+                        if (info.size > 0) {
+                            if (pcm.size < info.size) pcm = ByteArray(info.size)
+                            activeCodec.getOutputBuffer(out)!!.apply { position(info.offset); get(pcm, 0, info.size) }
+                            activeTrack.write(pcm, 0, info.size)
+                            written += info.size / 4
+                            measure(pcm, info.size)
+                        }
+                        activeCodec.releaseOutputBuffer(out, false)
+                    }
+                    queuedMs = (inTrack() * 1000 / RATE).toInt()
+                }
+            } catch (_: InterruptedException) {
+            } catch (e: Exception) {
+                Log.w(TAG, "audio stopped", e)
+            } finally {
+                val underrunCount = runCatching { activeTrack.underrunCount }.getOrDefault(-1)
+                runCatching { activeTrack.pause(); activeTrack.flush(); activeTrack.release() }
+                runCatching { activeCodec.stop(); activeCodec.release() }
+                Log.i(TAG, "audio ended: $packets packets, $dropped dropped, $underrunCount underruns, last second $level")
+            }
         } finally {
-            val underruns = runCatching { track.underrunCount }.getOrDefault(-1)
-            runCatching { track.pause(); track.flush(); track.release() }
-            runCatching { codec.stop(); codec.release() }
-            Log.i(TAG, "audio ended: $packets packets, $dropped dropped, $underruns underruns, last second $level")
+            // Any init failure that returned early still clears the thread so submit() can retry.
             synchronized(this) { if (thread === Thread.currentThread()) thread = null }
         }
     }

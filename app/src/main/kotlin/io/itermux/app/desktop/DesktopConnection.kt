@@ -21,6 +21,7 @@ import java.io.BufferedOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /** The cursor the plugin reports, in native pixels of the selected display; [shape] null until its image came. */
 internal data class RemoteCursor(val x: Int, val y: Int, val visible: Boolean, val shape: CursorImage?)
@@ -45,9 +46,9 @@ internal class DesktopConnection(
     val host: Host,
     private val app: ItermuxApp,
     private val scope: CoroutineScope,
-    /** Typed secrets, kept in memory so a dropped link logs in again by itself. */
-    private val password: String,
-    private val passphrase: String,
+    /** Typed secrets, kept in memory so a dropped link logs in again by itself; cleared in [release]. */
+    private var password: String,
+    private var passphrase: String,
     /** The phone's screen: its long edge caps the encode size. */
     private val clientWidth: Int,
     private val clientHeight: Int,
@@ -86,6 +87,8 @@ internal class DesktopConnection(
     private val player = AudioPlayer()
 
     @Volatile private var outgoing: Channel<ByteArray>? = null
+    /** Frames waiting in [outgoing]: past [SSH_SEND_CAP] pointer moves and other droppable frames are dropped. */
+    private val sshQueued = AtomicInteger()
     /** The UDP transport once the host offered one; frames go over it while it is alive (plan §7.3 P2). */
     @Volatile private var link: UdpLink? = null
     @Volatile private var lastVideoFrame = -1L
@@ -102,6 +105,11 @@ internal class DesktopConnection(
     private var sessionId: String? = null
     private var resumeToken: String? = null
     private val received = ConcurrentHashMap<Long, Long>()
+    /**
+     * Cursor images by hash for the current stream. The plugin sends each shape once per stream, so none can be
+     * evicted while it runs; a new stream sends them again, so the cache starts empty each time. Bitmaps are not
+     * recycled: [cursor] and the page's draw may still hold one.
+     */
     private val shapes = ConcurrentHashMap<Long, CursorImage>()
     @Volatile private var lastPong = 0L
     @Volatile private var pingSentUs = 0L
@@ -226,10 +234,33 @@ internal class DesktopConnection(
             if (!everConnected && phase.value !is DesktopPhase.NeedsAction) phase.value = DesktopPhase.Connecting(DesktopPhase.Step.START)
             val s = remote.openStream(serveCommand()) ?: return Outcome.Dropped()
             stream = s
-            val first = try { DesktopProtocol.readLine(s.input) } catch (_: Exception) { null }
+            var timedOut = false
+            val first = try {
+                withTimeout(HANDSHAKE_MS) {
+                    // Closing the stream unblocks a silent plugin's readLine.
+                    val reader = async(Dispatchers.IO) { try { DesktopProtocol.readLine(s.input) } catch (_: Exception) { null } }
+                    try { reader.await() } catch (e: CancellationException) { s.close(); throw e }
+                }
+            } catch (_: TimeoutCancellationException) {
+                s.close()
+                line(tr("桌面插件握手超时"))
+                timedOut = true
+                null
+            } catch (_: Exception) { null }
             if (first == null) {
+                // Closed by us: no exit status to report, and a later try may well get through.
+                if (timedOut) return Outcome.Dropped(tr("桌面插件握手超时"))
                 val status = withTimeoutOrNull(3000) { while (!s.closed) delay(30); s.exitStatus }
-                val errors = runCatching { s.errors.readBytes().toString(Charsets.UTF_8).trim() }.getOrDefault("")
+                // What stderr holds, at most 64 KiB; a plugin still running cannot hold this up past a second.
+                val err = ByteArray(64 * 1024)
+                var errLen = 0
+                withTimeoutOrNull(1000) {
+                    runInterruptible(Dispatchers.IO) {
+                        try { while (errLen < err.size) { val r = s.errors.read(err, errLen, err.size - errLen); if (r < 0) break; errLen += r } }
+                        catch (_: java.io.IOException) {}
+                    }
+                }
+                val errors = err.copyOf(errLen).toString(Charsets.UTF_8).trim()
                 s.close()
                 if (errors.isNotEmpty()) line(errors.takeLast(500))
                 if (status == 127 || status == WindowsDesktop.NOT_FOUND) { install(remote, target.first, target.second)?.let { return it }; continue }
@@ -359,18 +390,19 @@ internal class DesktopConnection(
         if (display.value !in hello.displays.indices) display.value = hello.displays.indexOfFirst { it.primary }.coerceAtLeast(0)
         stats.value = stats.value.copy(encoder = hello.hardware)
         val channel = Channel<ByteArray>(Channel.UNLIMITED)
+        sshQueued.set(0)
         outgoing = channel
         received.clear()
         lastVideoFrame = -1L
         brokenUntilKey = false
-        startUdp(hello, channel)
+        startUdp(hello)
         val config = mutableMapOf<String, Any>("display" to display.value, "fps" to fps.value, "quality" to quality.value,
             "lock_on_close" to lockOnClose.value)
         audioAvailable.value = "opus" in hello.audio
         if (audioAvailable.value == true && audio.value) config["audio"] = true
-        channel.trySend(DesktopProtocol.config(config))
-        if (viewOnly.value) channel.trySend(DesktopProtocol.req(DesktopProtocol.REQ_VIEW_ONLY_ON))
-        if ((phase.value as? DesktopPhase.Connected)?.paused == true) channel.trySend(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE))
+        sendSsh(DesktopProtocol.config(config))
+        if (viewOnly.value) sendSsh(DesktopProtocol.req(DesktopProtocol.REQ_VIEW_ONLY_ON))
+        if ((phase.value as? DesktopPhase.Connected)?.paused == true) sendSsh(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE))
         if (hello.needs.isNotEmpty()) phase.value = DesktopPhase.NeedsAction(hello.needs)
         else if (!everConnected) phase.value = DesktopPhase.Connecting(DesktopPhase.Step.FIRST_FRAME)
         lastPong = System.currentTimeMillis()
@@ -385,6 +417,7 @@ internal class DesktopConnection(
                 val out = BufferedOutputStream(s.output, 64 * 1024)
                 try {
                     for (bytes in channel) {
+                        sshQueued.decrementAndGet()
                         out.write(bytes)
                         if (channel.isEmpty) out.flush()
                     }
@@ -424,6 +457,7 @@ internal class DesktopConnection(
                 link = null
                 player.stop()
                 received.clear()
+                shapes.clear()
                 stats.value = stats.value.copy(link = "SSH", lossPercent = null)
             }
         }
@@ -437,7 +471,7 @@ internal class DesktopConnection(
     }
 
     /** Opens the host's UDP offer; the link sends its own port so a host firewall can let replies in. */
-    private suspend fun startUdp(hello: Hello, channel: Channel<ByteArray>) {
+    private suspend fun startUdp(hello: Hello) {
         val offer = hello.udp ?: return
         val override = settings.udpHostOverride
         val address = withContext(Dispatchers.IO) { runCatching { java.net.InetAddress.getByName(override.ifEmpty { host.address }) }.getOrNull() }
@@ -446,12 +480,12 @@ internal class DesktopConnection(
             onFrame = { frame -> runCatching { DesktopProtocol.decode(frame) }.getOrNull()?.let(::handle) },
             onVideoLost = ::askKeyframe,
             log = { Log.i(TAG, "${host.name}: $it") },
-            onGiveUp = { frame -> outgoing?.trySend(frame) })
+            onGiveUp = { frame -> sendSsh(frame) })
         val loss = settings.testLoss
-        if (loss > 0) { l.dropRate = loss; channel.trySend(DesktopProtocol.config(mapOf("debug_loss" to loss))) }
+        if (loss > 0) { l.dropRate = loss; sendSsh(DesktopProtocol.config(mapOf("debug_loss" to loss))) }
         withContext(Dispatchers.IO) { l.start() }
         link = l
-        channel.trySend(DesktopProtocol.config(mapOf("udp_client_port" to l.localPort)))
+        sendSsh(DesktopProtocol.config(mapOf("udp_client_port" to l.localPort)))
         Log.i(TAG, "${host.name}: UDP offered on ${address.hostAddress}:${offer.port}")
     }
 
@@ -599,7 +633,17 @@ internal class DesktopConnection(
     fun send(bytes: ByteArray) {
         val l = link
         if (l != null && l.alive) l.send(bytes, UdpLink.reliable(bytes))
-        else { l?.giveUp(); outgoing?.trySend(bytes) }
+        else { l?.giveUp(); sendSsh(bytes) }
+    }
+
+    /**
+     * Queues [bytes] for the SSH stream. Keys, buttons and control always go (dropping a key release would leave
+     * it held); while the writer is [SSH_SEND_CAP] frames behind, pointer moves, wheel and ACKs are dropped.
+     */
+    private fun sendSsh(bytes: ByteArray) {
+        val channel = outgoing ?: return
+        if (sshQueued.get() >= SSH_SEND_CAP && !UdpLink.reliable(bytes)) return
+        if (channel.trySend(bytes).isSuccess) sshQueued.incrementAndGet()
     }
 
     fun input(bytes: ByteArray) {
@@ -681,7 +725,14 @@ internal class DesktopConnection(
         if (job?.isActive != true) { phase.value = DesktopPhase.Idle; onEnded(this) }
     }
 
-    fun release() { decoder.close(); player.stop() }
+    fun release() {
+        password = ""
+        passphrase = ""
+        shapes.clear()
+        decoder.close()
+        player.stop()
+    }
+
 
     /** e2e only: drop this share of UDP datagrams on the phone side (1.0 blocks UDP). */
     internal fun testUdpDrop(rate: Double) { link?.dropRate = rate }
@@ -691,5 +742,7 @@ internal class DesktopConnection(
         private const val TAG = "RoamttyDesktop"
         const val RECOVER_LIMIT_MS = 30_000L
         const val POOR_MS = 300L
+        private const val HANDSHAKE_MS = 30_000L
+        private const val SSH_SEND_CAP = 256
     }
 }

@@ -66,6 +66,17 @@ class UdpWireTest {
         assertTrue(UdpLink.reliable(DesktopProtocol.req(DesktopProtocol.REQ_KEYFRAME)))
     }
 
+    /** A backed-up sender merges pointer frames without losing movement: moves replace, deltas add. */
+    @Test fun pointerFramesMerge() {
+        assertArrayEquals(DesktopProtocol.abs(0, 5, 6), UdpLink.merge(DesktopProtocol.abs(0, 1, 2), DesktopProtocol.abs(0, 5, 6)))
+        assertNull(UdpLink.merge(DesktopProtocol.abs(0, 1, 2), DesktopProtocol.abs(1, 5, 6)))
+        assertArrayEquals(DesktopProtocol.rel(3, -1), UdpLink.merge(DesktopProtocol.rel(1, 2), DesktopProtocol.rel(2, -3)))
+        assertArrayEquals(DesktopProtocol.wheel(0, 240), UdpLink.merge(DesktopProtocol.wheel(0, 120), DesktopProtocol.wheel(0, 120)))
+        assertNull(UdpLink.merge(DesktopProtocol.wheel(0, 120), DesktopProtocol.rel(1, 1)))
+        assertNull(UdpLink.merge(DesktopProtocol.rel(30000, 0), DesktopProtocol.rel(30000, 0)))
+        assertNull(UdpLink.merge(DesktopProtocol.ack(1, 2, 3), DesktopProtocol.ack(2, 3, 4)))
+    }
+
     /** The link against a tiny host stand-in on loopback: heartbeats answered, a reliable key resent through 30% loss. */
     @Test fun linkResendsReliableFramesThroughLoss() {
         val server = java.net.DatagramSocket(0, java.net.InetAddress.getLoopbackAddress())

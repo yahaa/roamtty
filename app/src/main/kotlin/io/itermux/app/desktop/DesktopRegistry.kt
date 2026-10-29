@@ -19,26 +19,51 @@ internal class DesktopRegistry(private val app: ItermuxApp, private val scope: C
 
     operator fun get(hostId: String): DesktopConnection? = mutable.value[hostId]
 
-    /** The host's desktop, started if it is not running; an existing one keeps its link and secrets. */
+    /**
+     * The host's desktop. A live connection keeps its link; an ended/failed one is replaced so a
+     * corrected password or key passphrase is used on the next login.
+     */
     fun open(host: Host, password: String, passphrase: String, width: Int, height: Int, dpi: Int): DesktopConnection {
         val existing = mutable.value[host.id]
-        if (existing != null && existing.host.loginTarget == host.loginTarget) {
-            if (!existing.active) existing.start()
+        if (existing != null && existing.host.loginTarget == host.loginTarget && existing.active) {
             return existing
         }
-        existing?.let { it.close(); it.release() }
-        val connection = DesktopConnection(host, app, scope, password, passphrase, width, height, dpi, onEnded = { onChange() })
+        if (existing != null) {
+            mutable.value = mutable.value - host.id
+            existing.close()
+            existing.release()
+        }
+        val connection = DesktopConnection(host, app, scope, password, passphrase, width, height, dpi, onEnded = ::onEnded)
         mutable.value = mutable.value + (host.id to connection)
         connection.start()
         onChange()
         return connection
     }
 
+    /**
+     * A desktop that failed stays so its page can show why and offer a retry (which needs its secrets); it goes when
+     * the page is left ([dropEnded]) or the next [open] replaces it. One closed outright goes at once.
+     */
+    private fun onEnded(connection: DesktopConnection) {
+        if (mutable.value[connection.host.id] !== connection) return
+        if (connection.phase.value !is DesktopPhase.Failed) {
+            mutable.value = mutable.value - connection.host.id
+            connection.release()
+        }
+        onChange()
+    }
+
+    /** Drops [hostId]'s desktop if it is no longer running (failed), with its secrets and decoder. */
+    fun dropEnded(hostId: String) {
+        val c = mutable.value[hostId] ?: return
+        if (!c.active) close(hostId)
+    }
+
     fun close(hostId: String) {
         val c = mutable.value[hostId] ?: return
+        mutable.value = mutable.value - hostId
         c.close()
         c.release()
-        mutable.value = mutable.value - hostId
         onChange()
     }
 

@@ -84,7 +84,16 @@ data class RemoteFolders(val home: String, val path: String, val folders: List<S
                 path=${'$'}{path%.}
                 path=${'$'}{path%?}
                 safe_path "${'$'}path" || exit 3
-                printf '%s\n' "${'$'}HOME" "${'$'}path"
+                # The physical home, as pwd -P gives the path (a symlinked home, macOS /var → /private/var), so the
+                # path shows as ~/…; a home that cannot be entered stays as it was.
+                if home=${'$'}(cd -- "${'$'}HOME" 2>/dev/null && pwd -P && printf '.'); then
+                  home=${'$'}{home%.}
+                  home=${'$'}{home%?}
+                  safe_path "${'$'}home" || home=${'$'}HOME
+                else
+                  home=${'$'}HOME
+                fi
+                printf '%s\n' "${'$'}home" "${'$'}path"
                 n=0
                 for f in *; do
                   [ -d "${'$'}f" ] || continue
