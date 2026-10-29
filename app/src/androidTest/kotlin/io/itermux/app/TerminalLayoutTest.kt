@@ -304,7 +304,8 @@ class TerminalLayoutTest {
             compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
             if (Build.VERSION.SDK_INT >= 33) checkPicker("select-image", "android.provider.action.PICK_IMAGES", "image/*")
             compose.onNodeWithTag("download-file").performTouchInput { click() }
-            compose.waitForDownloadEntry("phone-a", 8000)
+            // The OpenSSH fixture's home, where the sheet opens, has ~/projects.
+            compose.waitForDownloadEntry("projects", 8000)
             compose.onNodeWithTag("download-confirm").assertIsNotEnabled()
             // The closed navigation drawer also composes a "关闭" button off screen.
             compose.onNode(hasContentDescription("关闭") and !hasAnyAncestor(hasTestTag("navigation-drawer"))).performClick()
@@ -388,7 +389,9 @@ class TerminalLayoutTest {
             compose.onNodeWithTag("session-switcher").performClick()
             // The host is never saved, so leaving for its detail page falls back to the host list.
             compose.onNodeWithText("返回主机详情").performClick()
-            compose.waitUntil(8000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.statusBars()) == true }
+            // Landscape pages keep the system bars hidden, so wait for the home page itself, then show its hosts.
+            compose.waitUntil(8000) { compose.onAllNodesWithTag("home-tab-hosts").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("home-tab-hosts").performClick()
             previewHosts.forEach { app.database.hosts().save(it) }
             rotate(true)
             previewHosts.forEach { compose.onNodeWithText(it.name).assertIsDisplayed() }

@@ -44,6 +44,8 @@ class ExploratoryQaTest {
         port = 22228, username = "itermux_test", mode = "SHELL").also {
         hosts += it
         app.database.hosts().save(it)
+        // Home opens on its sessions; the host cards are on the hosts tab.
+        compose.onNodeWithTag("home-tab-hosts").performClick()
         compose.waitUntil(8_000) { compose.onAllNodesWithText(name).fetchSemanticsNodes().isNotEmpty() }
     }
 
@@ -71,7 +73,8 @@ class ExploratoryQaTest {
         Unit
     }
 
-    @Test fun downloadPathDialogSurvivesActivityRecreation() = runBlocking {
+    /** The download sheet keeps its folder and what is picked when the activity is recreated. */
+    @Test fun downloadSheetSurvivesActivityRecreation() = runBlocking {
         val host = addHost("QA Transfer Rotation")
         app.database.hosts().forgetPin(host.target().endpoint)
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
@@ -86,13 +89,19 @@ class ExploratoryQaTest {
             compose.openSession(session.id)
             compose.onNodeWithTag("restore-dock").performClick()
             compose.onNodeWithTag("download-file").performClick()
-            compose.onNodeWithTag("download-remote-path").performTextReplacement("/phone-a/important.bin")
+            compose.waitForDownloadEntry("phone-a", 10_000)
+            compose.onNodeWithTag("download-files-list").performScrollToNode(hasTestTag("download-entry-phone-a"))
+            compose.onNodeWithTag("download-entry-phone-a").performClick()
+            compose.waitForDownloadEntry("README.md", 10_000)
+            compose.onNodeWithTag("download-files-list").performScrollToNode(hasTestTag("download-entry-README.md"))
+            compose.onNodeWithTag("download-entry-README.md").performClick()
             capture("download-dialog-before-recreation")
             compose.activityRule.scenario.recreate()
             compose.waitForIdle()
             capture("download-dialog-after-recreation")
             assertEquals("The SSH session remains connected", Phase.CONNECTED, session.state.value.phase)
-            compose.onNodeWithTag("download-remote-path").assertTextContains("/phone-a/important.bin")
+            compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("download-title").assertTextEquals("phone-a") }.isSuccess }
+            assertEquals("/phone-a/README.md", session.transfers.selectedDownloads.single().path)
         } finally {
             prompts.cancel()
             withContext(Dispatchers.Main) { service.close(session.id) }

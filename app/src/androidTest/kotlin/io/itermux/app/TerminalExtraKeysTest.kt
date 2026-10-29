@@ -24,6 +24,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.core.view.ViewCompat
@@ -220,7 +222,8 @@ class TerminalExtraKeysTest {
             compose.onNodeWithTag("download-entry-README.md").performClick()
             assertEquals("/phone-a/README.md", session.transfers.selectedDownloads.single().path)
             compose.onNodeWithTag("download-confirm").assertIsEnabled()
-            compose.onNodeWithContentDescription("关闭").performClick()
+            // The closed navigation drawer keeps its own 关闭 off screen.
+            compose.onNode(hasContentDescription("关闭") and !hasAnyAncestor(hasTestTag("navigation-drawer"))).performClick()
             compose.onNodeWithTag("terminal-menu").assertIsDisplayed()
             compose.waitForIdle()
             delay(500)

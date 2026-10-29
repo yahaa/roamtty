@@ -209,7 +209,11 @@ class TerminalUiTest {
                 up()
             }
             compose.waitForIdle()
-            assertTrue(withContext(Dispatchers.Main) { view.topRow < -20 })
+            // The drag covers the view less 48dp: in landscape that is only about twenty rows, so expect most of them.
+            val draggedTo = withContext(Dispatchers.Main) { view.topRow }
+            val draggedRows = (view.height - 48 * density) / view.mRenderer.fontLineSpacing
+            assertTrue("Dragging down should scroll into the history: topRow=$draggedTo for $draggedRows rows dragged",
+                draggedTo <= -(draggedRows * 0.8f).toInt() && draggedTo < -5)
             fun edgePixel(): Int {
                 val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
                 bitmap.eraseColor(android.graphics.Color.BLACK)
@@ -364,7 +368,8 @@ class TerminalUiTest {
             compose.waitUntil(8000) { !keyboardVisible() }
             delay(500)
             val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
-            val terminalBounds = compose.onNodeWithTag("terminal").fetchSemanticsNode().boundsInRoot
+            // The viewport is the terminal's area; the grid inside keeps a few dp of padding from its edges.
+            val terminalBounds = compose.onNodeWithTag("terminal-viewport").fetchSemanticsNode().boundsInRoot
             val windowInsets = requireNotNull(androidx.core.view.ViewCompat.getRootWindowInsets(compose.activity.window.decorView))
             val caption = windowInsets.getInsets(androidx.core.view.WindowInsetsCompat.Type.captionBar())
             val cutout = windowInsets.getInsets(androidx.core.view.WindowInsetsCompat.Type.displayCutout())
@@ -475,23 +480,33 @@ class TerminalUiTest {
             assertTrue(service.sessions.value.any { it.id == session.id })
             withContext(Dispatchers.Main) { session.write("printf '\\nRECREATE_%s\\n' 'OK'\r") }
             withTimeout(8000) { while (!withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }.contains("RECREATE_OK")) delay(30) }
-            withContext(Dispatchers.Main) { session.write("/tmp/itermux-ssh-test/codex --version\r") }
-            withTimeout(8000) { while (!withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }.contains("codex-cli 0.154.0")) delay(30) }
-            withContext(Dispatchers.Main) { session.write("/tmp/itermux-ssh-test/codex --no-alt-screen\r") }
-            withTimeout(15_000) {
-                while (true) {
-                    val text = withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }
-                    if (text.contains("Welcome to Codex") || text.contains("Sign in with") || text.contains("Choose your theme")) break
-                    delay(50)
-                }
-            }
+            // The Codex steps need the CLI in the fixture: prepare-openssh-test.sh installs it only when
+            // .tools/codex-linux has it. Without it the rest of the test still runs.
             withContext(Dispatchers.Main) {
-                val view = requireNotNull(terminal(compose.activity.window.decorView))
-                view.onKeyDown(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN))
+                session.write("test -x /tmp/itermux-ssh-test/codex && printf 'CODEX_%s\\n' PRESENT || printf 'CODEX_%s\\n' ABSENT\r")
             }
-            compose.onNodeWithText("收起", substring = false).performClick()
-            compose.waitForIdle(); delay(500); capture("codex-terminal")
-            withContext(Dispatchers.Main) { session.write("\u0003\u0003") }
+            withTimeout(8000) {
+                while (withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }.let { !it.contains("CODEX_PRESENT") && !it.contains("CODEX_ABSENT") }) delay(30)
+            }
+            if (withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }.contains("CODEX_PRESENT")) {
+                withContext(Dispatchers.Main) { session.write("/tmp/itermux-ssh-test/codex --version\r") }
+                withTimeout(8000) { while (!withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }.contains("codex-cli 0.154.0")) delay(30) }
+                withContext(Dispatchers.Main) { session.write("/tmp/itermux-ssh-test/codex --no-alt-screen\r") }
+                withTimeout(15_000) {
+                    while (true) {
+                        val text = withContext(Dispatchers.Main) { session.getEmulator().screen.transcriptText }
+                        if (text.contains("Welcome to Codex") || text.contains("Sign in with") || text.contains("Choose your theme")) break
+                        delay(50)
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    val view = requireNotNull(terminal(compose.activity.window.decorView))
+                    view.onKeyDown(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN))
+                }
+                compose.onNodeWithText("收起", substring = false).performClick()
+                compose.waitForIdle(); delay(500); capture("codex-terminal")
+                withContext(Dispatchers.Main) { session.write("\u0003\u0003") }
+            } else compose.onNodeWithText("收起", substring = false).performClick()
             // Text entered in the editor must only stage a draft.
             val draftText = "草稿测试 ${UUID.randomUUID().toString().take(6)}"
             showControls()

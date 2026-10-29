@@ -19,9 +19,13 @@ import io.itermux.app.data.Host
 import io.itermux.app.session.SessionService
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.SessionMode
+import io.itermux.ssh.Phase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -36,14 +40,18 @@ class TerminalDraftTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
-        val host = Host(name = "草稿验证", address = "127.0.0.1", port = 1, username = "itermux_test", mode = "SHELL")
+        // The key-echo fixture (`scripts/ssh-key-echo.py`, reversed on 22228): a failed connection now covers the
+        // controls with its notice, so the draft editor needs a connected session.
+        (context.applicationContext as ItermuxApp).database.hosts().forgetPin("[127.0.0.1]:22228")
+        val host = Host(name = "草稿验证", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "SHELL")
         val session = withContext(Dispatchers.Main) {
             service.open(host, SessionMode.SHELL, Credentials("test-only".toByteArray()))
         }
+        val prompts = launch { session.pending.collect { it?.answer?.complete(listOf("trust")) } }
         val previousClip = clipboard.primaryClip
         try {
+            assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
             compose.openSession(session.id)
-            // Controls appear once the connection attempt settles.
             compose.waitUntil(15_000) { compose.onAllNodesWithTag("restore-dock").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("restore-dock").performClick()
             compose.onNodeWithTag("terminal-menu").performClick()
@@ -62,6 +70,7 @@ class TerminalDraftTest {
             if (previousClip != null) clipboard.setPrimaryClip(previousClip)
             else if (Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip()
             else clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+            prompts.cancel()
             withContext(Dispatchers.Main) { service.close(session.id) }
         }
     }

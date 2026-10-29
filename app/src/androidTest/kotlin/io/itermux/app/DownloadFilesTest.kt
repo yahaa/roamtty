@@ -156,8 +156,9 @@ class DownloadFilesTest {
                 session.onWorkingDirectoryChanged("file://fixture/phone-b")
                 session.openTerminalDownloads()
             }
+            // OSC 7 reports an absolute path; the sheet's title shows its last part.
             compose.waitUntil(10_000) {
-                !session.transfers.resolvingDownloadDirectory && session.transfers.downloadDirectory == "phone-b"
+                !session.transfers.resolvingDownloadDirectory && session.transfers.downloadDirectory == "/phone-b"
             }
             compose.onNodeWithTag("download-title").assertTextEquals("phone-b")
         }

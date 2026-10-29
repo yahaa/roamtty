@@ -48,14 +48,25 @@ class PrivateKeyLoginUiTest {
     @Test fun plainKeyOpensFilesAndPluginsWithoutAsking() = runBlocking<Unit> {
         wake()
         val id = "host-plain-key"
-        app.database.hosts().forgetPin("[127.0.0.1]:22231")
-        // The fixture's authorized test_ed25519 with its passphrase taken off; :22231 is the fixture with SFTP.
+        app.database.hosts().forgetPin("[127.0.0.1]:22228")
+        // The fixture's authorized test_ed25519 with its passphrase taken off; :22228 is the OpenSSH fixture, with SFTP and ~/notes.
         val key = instrumentation.context.assets.open("test_ed25519_plain").use { it.readBytes() }
-        app.database.hosts().save(Host(id = id, name = "Plain key box", address = "127.0.0.1", port = 22231,
+        app.database.hosts().save(Host(id = id, name = "Plain key box", address = "127.0.0.1", port = 22228,
             username = "itermux_test", auth = AuthMethod.KEY.name, mode = "SHELL",
             encryptedKey = app.vault.encrypt(key, "$id:key"), keyLabel = "plain_ed25519"))
         val asked = hasText("私钥口令（可留空）")
-        fun trustIfAsked() { if (exists(hasText("信任并连接"))) compose.onAllNodesWithText("信任并连接")[0].performClick() }
+        val trust = hasText("信任并连接")
+        // Waits for [done], trusting the host key whenever it is asked. The tap happens outside waitUntil's condition:
+        // a click from inside it can land while Compose is measuring, which throws.
+        fun awaitTrusting(timeout: Long, done: () -> Boolean) {
+            val deadline = System.currentTimeMillis() + timeout
+            while (true) {
+                compose.waitUntil((deadline - System.currentTimeMillis()).coerceAtLeast(1)) { exists(trust) || done() }
+                if (!exists(trust)) return
+                compose.onAllNodes(trust)[0].performClick()
+                compose.waitForIdle()
+            }
+        }
         try {
             compose.onNodeWithTag("home-tab-hosts").performClick()
             compose.waitUntil(8000) { exists(hasTestTag("host-card-$id")) }
@@ -64,15 +75,15 @@ class PrivateKeyLoginUiTest {
 
             compose.onNodeWithTag("host-detail-more").performClick()
             compose.onNodeWithTag("host-detail-plugins").performClick()
-            compose.waitUntil(8000) { trustIfAsked(); assertTrue(!exists(asked)); exists(hasTestTag("host-plugins-sheet")) }
-            compose.waitUntil(20_000) { trustIfAsked(); exists(hasText("tmux", substring = true)) }
+            awaitTrusting(8000) { assertTrue(!exists(asked)); exists(hasTestTag("host-plugins-sheet")) }
+            awaitTrusting(20_000) { exists(hasText("tmux", substring = true)) }
             assertTrue(!exists(asked))
             capture("plain-key-plugins")
             androidx.test.espresso.Espresso.pressBack()
             compose.waitUntil(8000) { !exists(hasTestTag("host-plugins-sheet")) }
 
             compose.onNodeWithTag("host-detail-files").performClick()
-            compose.waitUntil(20_000) { trustIfAsked(); assertTrue(!exists(asked)); exists(hasTestTag("remote-file-browser")) }
+            awaitTrusting(20_000) { assertTrue(!exists(asked)); exists(hasTestTag("remote-file-browser")) }
             compose.waitUntil(20_000) { exists(hasText("notes")) }
             capture("plain-key-files")
         } finally {

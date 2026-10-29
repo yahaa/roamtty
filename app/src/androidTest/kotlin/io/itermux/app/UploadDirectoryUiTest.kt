@@ -57,7 +57,10 @@ class UploadDirectoryUiTest {
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("remote-entry-phone-a").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("remote-entry-phone-a").performClick()
             compose.onNodeWithTag("selected-upload-path").assertTextContains("/phone-a/sample.bin")
-            compose.onNodeWithTag("upload-directory").assertTextContains("/phone-a", substring = true)
+            // The folder field follows the listing, which can land a frame after the tap.
+            compose.waitUntil(8_000) {
+                runCatching { compose.onNodeWithTag("upload-directory").assertTextContains("/phone-a", substring = true) }.isSuccess
+            }
             compose.onNodeWithTag("remote-parent-directory").performClick()
             compose.waitUntil(8_000) { compose.onAllNodesWithTag("remote-entry-phone-b").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("remote-entry-phone-b").performClick()
