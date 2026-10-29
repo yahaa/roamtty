@@ -59,6 +59,8 @@ PermitTunnel no
 PrintMotd no
 PrintLastLog no
 LogLevel ERROR
+# The app browses, previews and transfers files over SFTP; sshd offers no subsystem unless one is named.
+Subsystem sftp internal-sftp
 EOF
 /usr/sbin/sshd -t -f "$FIXTURE/sshd_config"
 if [ ! -f "$FIXTURE/sshd.pid" ] || ! kill -0 "$(cat "$FIXTURE/sshd.pid")" 2>/dev/null; then
