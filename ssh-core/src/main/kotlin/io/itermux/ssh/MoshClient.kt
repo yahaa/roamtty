@@ -167,7 +167,17 @@ internal class MoshClient(
     }
 
     private fun push(event: Mosh.UserEvent) {
-        events += event.encode()
+        val encoded = event.encode()
+        // Bound unacked input so a shell that never stalls cannot grow without limit while offline.
+        var pending = events.sumOf { it.size } + encoded.size
+        while (events.isNotEmpty() && pending > MAX_UNACKED_BYTES) {
+            val dropped = events.removeAt(0)
+            pending -= dropped.size
+            eventBase++
+            dropped.fill(0)
+            log("mosh unacked input capped, dropped oldest event")
+        }
+        events += encoded
         if (inputPendingSince < 0) inputPendingSince = clock()
     }
 
@@ -312,6 +322,8 @@ internal class MoshClient(
 
     companion object {
         private const val MAX_FRAGMENT = 400
+        /** Soft cap on unacknowledged user input held for resend (keys + resizes). */
+        private const val MAX_UNACKED_BYTES = 256 * 1024
         private const val HEARTBEAT_MS = 3000L
         private const val ACK_DELAY_MS = 20L
         private const val PORT_HOP_MS = 10_000L

@@ -37,6 +37,8 @@ internal data class PluginTarget(val host: Host, val password: String = "", val 
  * One authenticated SSH login used to probe and install plugins. Install requests run one at a
  * time; the probe result is saved to the host so the list and new sessions pick it up.
  */
+private const val MAX_INSTALL_OUTPUT = 256 * 1024
+
 internal class HostPluginsController(private val app: ItermuxApp, private val target: PluginTarget, private val scope: CoroutineScope) {
     val host get() = target.host
     val pending = MutableStateFlow<PendingPrompt?>(null)
@@ -105,7 +107,10 @@ internal class HostPluginsController(private val app: ItermuxApp, private val ta
         log.value = emptyList()
         val output = StringBuilder()
         val onLine: (String) -> Unit = { line ->
-            output.appendLine(line)
+            if (output.length < MAX_INSTALL_OUTPUT) {
+                val room = MAX_INSTALL_OUTPUT - output.length
+                output.append(line.take(room)).append('\n')
+            }
             HostPluginInstaller.displayLine(line)?.let { shown -> log.value = (log.value + shown).takeLast(300) }
         }
         val status = if (plugin.windows) remote.runCommand(Psmux.installCommand, 15 * 60_000L, onLine)
