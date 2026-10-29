@@ -663,6 +663,8 @@ private object EnglishText {
         "输入密码后即可查看 tmux 会话" to "Enter the password to see tmux sessions",
         "打开 tmux 会话 %s" to "Open tmux session %s",
         "选择一个 tmux 会话" to "Pick a tmux session",
+        "打开会话" to "Open session",
+        "最近" to "Recent",
         "已打开" to "Open",
         "名称含有特殊字符，暂不支持打开" to "Its name has special characters, so it can't be opened",
         "%d 个窗口" to "%d windows",

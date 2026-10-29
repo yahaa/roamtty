@@ -123,3 +123,35 @@ private fun tmuxDetail(session: TmuxSessionInfo, headline: String, home: String?
     }
     return parts.joinToString(" · ")
 }
+
+/**
+ * The selected session on its own, for the launch sheet's side column in landscape: its mark, what it is for, what it
+ * is doing and where it runs. [open] badges it 已打开.
+ */
+@Composable
+internal fun TmuxSessionCard(session: TmuxSessionInfo, open: Boolean, home: String?) {
+    val colors = MaterialTheme.colorScheme
+    val status = session.agent
+    val agent = CodingAgent.fromCommand(status?.agent) ?: CodingAgent.fromCommand(session.command)
+    val headline = tmuxHeadline(session, status, agent, home)
+    Surface(Modifier.fillMaxWidth().testTag("launch-tmux-selected"), shape = MaterialTheme.shapes.medium, color = colors.groupedContainer) {
+        Column(Modifier.padding(Spacing.Row), verticalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (agent != null) AgentIcon(agent, 36.dp, status?.state) else TerminalTile(36.dp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(headline, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (open) Text(tr("已打开"), style = MaterialTheme.typography.labelSmall, color = colors.primary,
+                        modifier = Modifier.padding(top = 3.dp).border(BorderStroke(0.5.dp, colors.primary), MaterialTheme.shapes.extraSmall)
+                            .padding(horizontal = 4.dp, vertical = 1.dp))
+                }
+            }
+            tmuxDoing(status)?.let { doing ->
+                Text(doing, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    color = status?.state?.color() ?: colors.onSurfaceVariant)
+            }
+            Text(tmuxDetail(session, headline, home, System.currentTimeMillis() / 1000), style = MaterialTheme.typography.bodySmall,
+                maxLines = 3, overflow = TextOverflow.Ellipsis, color = colors.onSurfaceVariant)
+        }
+    }
+}

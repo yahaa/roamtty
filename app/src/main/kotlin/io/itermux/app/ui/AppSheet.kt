@@ -26,6 +26,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.itermux.app.R
 import io.itermux.app.tr
@@ -37,7 +38,7 @@ import io.itermux.app.tr
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AppSheet(onDismiss: () -> Unit, fillHeight: Boolean = true, fullScreen: Boolean = false,
-    onBack: ((close: () -> Unit) -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    onBack: ((close: () -> Unit) -> Unit)? = null, wide: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     ModalBottomSheet(
@@ -45,7 +46,9 @@ internal fun AppSheet(onDismiss: () -> Unit, fillHeight: Boolean = true, fullScr
         sheetState = state,
         // On API 34+ the sheet otherwise takes Back on its window, ahead of any BackHandler.
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = onBack == null),
-        sheetMaxWidth = 560.dp,
+        // A [wide] sheet takes the whole width with no drag handle, for a landscape layout of its own.
+        sheetMaxWidth = if (wide) Dp.Unspecified else 560.dp,
+        dragHandle = if (wide) null else { { BottomSheetDefaults.DragHandle() } },
         shape = MaterialTheme.shapes.extraLarge.copy(bottomStart = CornerSize(0), bottomEnd = CornerSize(0)),
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 0.dp,

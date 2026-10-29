@@ -1,5 +1,14 @@
 package io.itermux.app.ui
 
+import android.content.res.Configuration
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -96,15 +105,31 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
         sortRemoteEntries(visible, options.sort, options.sortDescending)
     }
     val currentPath = listing?.path ?: browser.directory
+    // Landscape, like the host page there: one 48dp bar that also carries the summary, the sort and the search field,
+    // and compact rows with the size and the time in columns.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Column(modifier.fillMaxSize().testTag("remote-file-browser")) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().then(if (landscape) Modifier.height(HOME_COMPACT_BAR_HEIGHT) else Modifier.heightIn(min = 56.dp))
+            .padding(horizontal = 4.dp).testTag("files-bar"), verticalAlignment = Alignment.CenterVertically) {
             // The toolbar arrow leaves the browser; system back still walks the folder history first.
             IconButton(onClick = onBack, modifier = Modifier.testTag("files-back")) {
                 Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = tr("返回主机详情"))
             }
             FileBrowserPathBar(currentPath, session.host.name, enabled = connected, onNavigate = browser::navigate,
                 modifier = Modifier.weight(1f))
-            IconButton(onClick = { if (browser.filtering) browser.clearFilter() else browser.filtering = true },
+            val shownListing = listing
+            if (landscape) {
+                if (shownListing != null) {
+                    Text(summaryText(shownListing, entries), Modifier.widthIn(max = 220.dp).padding(start = 8.dp).testTag("files-summary"),
+                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    SortButton(options)
+                }
+                BarSearchField(browser.filter, enabled = shownListing != null, onValueChange = {
+                    browser.filter = it
+                    browser.filtering = it.isNotEmpty()
+                })
+            } else IconButton(onClick = { if (browser.filtering) browser.clearFilter() else browser.filtering = true },
                 enabled = listing != null, modifier = Modifier.testTag("files-search")) {
                 Icon(painterResource(R.drawable.ic_search), contentDescription = tr("筛选当前目录"),
                     tint = if (browser.filtering) MaterialTheme.colorScheme.primary else LocalContentColor.current)
@@ -151,7 +176,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                 HorizontalDivider()
             }
         }
-        AnimatedVisibility(browser.filtering) { FilterField(browser.filter, { browser.filter = it }, browser::clearFilter) }
+        AnimatedVisibility(browser.filtering && !landscape) { FilterField(browser.filter, { browser.filter = it }, browser::clearFilter) }
         browser.operation?.let { label ->
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp).semantics { liveRegion = LiveRegionMode.Polite }
                 .testTag("files-operation"), verticalAlignment = Alignment.CenterVertically) {
@@ -178,7 +203,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                 TextButton(onClick = browser::refresh) { Text(tr("重试")) }
             }
             else -> {
-                ListingSummary(current, entries, options)
+                if (!landscape) ListingSummary(current, entries, options)
                 PullToRefreshBox(isRefreshing = loading, onRefresh = browser::refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
                     if (entries.isEmpty()) BrowserMessage(tr(when {
                         current.entries.isEmpty() -> "此目录为空"
@@ -198,7 +223,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
                                         else -> browser.previewPath = path
                                     }
                                 }
-                                RemoteFileRow(entry, onOpen = ::open, onMenu = { browser.showMenu(current.path, entry) }) {
+                                RemoteFileRow(entry, onOpen = ::open, onMenu = { browser.showMenu(current.path, entry) }, compact = landscape) {
                                     FileActionsMenu(entry, expanded = browser.menuPath == path,
                                         busy = browser.operation != null || transferStatus.running || downloads.busy || !connected,
                                         onOpen = { browser.dismissMenu(); open() },
@@ -342,29 +367,62 @@ private fun FilterField(value: String, onValueChange: (String) -> Unit, onClose:
 
 @Composable
 private fun ListingSummary(listing: RemoteDirectory, shown: List<RemoteEntry>, options: RemoteFileOptions) {
-    var sortMenu by remember { mutableStateOf(false) }
-    val folders = shown.count { it.isDirectory }
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        val files = shown.size - folders
-        val hidden = listing.entries.size - shown.size
-        Text(listOfNotNull(if (folders > 0) trf("%d 个文件夹", folders) else null, if (files > 0) trf("%d 个文件", files) else null,
-            if (hidden > 0) trf("%d 项未显示", hidden) else null).joinToString(" · "),
+        Text(summaryText(listing, shown),
             Modifier.weight(1f).testTag("files-summary"), style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Box {
-            TextButton(onClick = { sortMenu = true }, contentPadding = PaddingValues(horizontal = 10.dp),
-                modifier = Modifier.testTag("files-sort")) {
-                Icon(painterResource(R.drawable.ic_sort), contentDescription = null, Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(tr(options.sort.label) + if (options.sortDescending) " ↓" else " ↑", style = MaterialTheme.typography.labelMedium)
+        SortButton(options)
+    }
+}
+
+/** What is shown and what is hidden: `33 个文件夹 · 31 个文件 · 64 项未显示`. */
+private fun summaryText(listing: RemoteDirectory, shown: List<RemoteEntry>): String {
+    val folders = shown.count { it.isDirectory }
+    val files = shown.size - folders
+    val hidden = listing.entries.size - shown.size
+    return listOfNotNull(if (folders > 0) trf("%d 个文件夹", folders) else null, if (files > 0) trf("%d 个文件", files) else null,
+        if (hidden > 0) trf("%d 项未显示", hidden) else null).joinToString(" · ")
+}
+
+@Composable
+private fun SortButton(options: RemoteFileOptions) {
+    var sortMenu by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { sortMenu = true }, contentPadding = PaddingValues(horizontal = 10.dp),
+            modifier = Modifier.testTag("files-sort")) {
+            Icon(painterResource(R.drawable.ic_sort), contentDescription = null, Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(tr(options.sort.label) + if (options.sortDescending) " ↓" else " ↑", style = MaterialTheme.typography.labelMedium)
+        }
+        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+            RemoteFileSort.entries.forEach { sort ->
+                DropdownMenuItem(text = { Text(tr(sort.label)) }, onClick = { options.chooseSort(sort); sortMenu = false },
+                    trailingIcon = if (sort == options.sort) { { Text(if (options.sortDescending) "↓" else "↑",
+                        color = MaterialTheme.colorScheme.primary) } } else null,
+                    modifier = Modifier.testTag("files-sort-${sort.name.lowercase()}"))
             }
-            DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                RemoteFileSort.entries.forEach { sort ->
-                    DropdownMenuItem(text = { Text(tr(sort.label)) }, onClick = { options.chooseSort(sort); sortMenu = false },
-                        trailingIcon = if (sort == options.sort) { { Text(if (options.sortDescending) "↓" else "↑",
-                            color = MaterialTheme.colorScheme.primary) } } else null,
-                        modifier = Modifier.testTag("files-sort-${sort.name.lowercase()}"))
-                }
+        }
+    }
+}
+
+/** The landscape bar's filter: a capsule field that is always there, in place of the toggled row under the bar. */
+@Composable
+private fun BarSearchField(value: String, enabled: Boolean, onValueChange: (String) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    BasicTextField(value, onValueChange, enabled = enabled, singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface), cursorBrush = SolidColor(colors.primary),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        modifier = Modifier.padding(start = 4.dp).width(210.dp).height(34.dp).testTag("files-filter")) { field ->
+        Row(Modifier.fillMaxSize().clip(CircleShape).background(colors.onSurface.copy(alpha = 0.08f)).padding(start = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(R.drawable.ic_search), contentDescription = null, Modifier.size(16.dp), tint = colors.onSurfaceVariant)
+            Box(Modifier.weight(1f).padding(horizontal = 7.dp)) {
+                if (value.isEmpty()) Text(tr("筛选当前目录"), style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                field()
+            }
+            if (value.isNotEmpty()) IconButton(onClick = { onValueChange("") }, modifier = Modifier.size(28.dp)) {
+                Icon(painterResource(R.drawable.ic_clear), contentDescription = tr("清除"), Modifier.size(16.dp), tint = colors.onSurfaceVariant)
             }
         }
     }
@@ -414,8 +472,9 @@ internal fun FileActionsMenu(entry: RemoteEntry, expanded: Boolean, busy: Boolea
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onMenu: () -> Unit,
+internal fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onMenu: () -> Unit, compact: Boolean = false,
     menu: @Composable () -> Unit = {}) {
+    if (compact) return CompactFileRow(entry, onOpen, onMenu, menu)
     val meta = remember(entry) {
         val link = entry.permissions.startsWith('l')
         listOfNotNull(if (link) tr("链接") else null,
@@ -443,5 +502,36 @@ internal fun RemoteFileRow(entry: RemoteEntry, onOpen: () -> Unit, onMenu: () ->
             }
             menu()
         }
+    }
+}
+
+/** A landscape table row: the name takes the width, then the size and the modified time in their own columns. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CompactFileRow(entry: RemoteEntry, onOpen: () -> Unit, onMenu: () -> Unit, menu: @Composable () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val link = entry.permissions.startsWith('l')
+    val hidden = entry.name.startsWith('.')
+    val meta = MaterialTheme.typography.bodySmall
+    Column {
+        Row(Modifier.fillMaxWidth().combinedClickable(role = Role.Button, onClick = onOpen,
+            onLongClickLabel = tr("文件操作"), onLongClick = onMenu).heightIn(min = 44.dp)
+            .padding(start = 12.dp, end = 4.dp).testTag("files-entry-${entry.name}"), verticalAlignment = Alignment.CenterVertically) {
+            RemoteFileIcon(entry.name, entry.isDirectory, entry.permissions, size = 24.dp, modifier = if (hidden) Modifier.alpha(0.6f) else Modifier)
+            Spacer(Modifier.width(12.dp))
+            Text(entry.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.MiddleEllipsis, style = MaterialTheme.typography.bodyLarge,
+                color = colors.onSurface.copy(alpha = if (hidden) 0.7f else 1f))
+            Text(when { link -> tr("链接"); entry.isDirectory -> ""; else -> formatRemoteSize(entry.size) }, Modifier.width(84.dp),
+                style = meta, color = colors.onSurfaceVariant, maxLines = 1, textAlign = TextAlign.End)
+            Text(formatRemoteMtime(entry.mtimeSeconds), Modifier.width(140.dp), style = meta, color = colors.onSurfaceVariant,
+                maxLines = 1, textAlign = TextAlign.End)
+            Box {
+                IconButton(onClick = onMenu, modifier = Modifier.testTag("files-row-menu-${entry.name}")) {
+                    Icon(painterResource(R.drawable.ic_more), contentDescription = trf("文件操作：%s", entry.name), tint = colors.onSurfaceVariant)
+                }
+                menu()
+            }
+        }
+        GroupedDivider(start = 48.dp)
     }
 }
