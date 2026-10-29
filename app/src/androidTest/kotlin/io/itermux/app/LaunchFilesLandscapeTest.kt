@@ -8,6 +8,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.itermux.app.data.Host
+import io.itermux.app.session.AgentMode
+import io.itermux.app.session.CodingAgent
+import io.itermux.app.ui.saveAgentChoice
 import io.itermux.app.ui.saveRecentStartDirectories
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
@@ -48,6 +51,8 @@ class LaunchFilesLandscapeTest {
         app.database.hosts().save(Host(id = id, name = "Landscape files", address = "127.0.0.1", port = 22228, username = "itermux_test",
             mode = "SHELL", encryptedPassword = app.vault.encrypt(password.toByteArray(), "$id:password")))
         app.appSettings().saveRecentStartDirectories(id, listOf("/tmp", "/usr", "/etc"))
+        // Another test may have left a different agent as the last one used.
+        app.appSettings().saveAgentChoice(CodingAgent.CODEX, AgentMode.YOLO)
         fun awaitTag(tag: String, timeout: Long = 20_000) = compose.waitUntil(timeout) {
             if (compose.onAllNodesWithText("信任并连接").fetchSemanticsNodes().isNotEmpty()) compose.onNodeWithText("信任并连接").performClick()
             compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()

@@ -29,6 +29,8 @@ done
 cat "$ROOT/ssh-core/src/test/resources/keys/"*.pub > "$FIXTURE/home/authorized_keys"
 chown itermux_test:itermux_test "$FIXTURE/home/authorized_keys"
 chmod 600 "$FIXTURE/home/authorized_keys"
+# Folders the launch sheet's device test walks: ~/projects/app, with ~/notes beside it.
+install -d -o itermux_test -g itermux_test "$FIXTURE/home/projects" "$FIXTURE/home/projects/app" "$FIXTURE/home/notes"
 if [ ! -f "$FIXTURE/host_ed25519" ]; then
   if [ -f "$ROOT/.private/test-host_ed25519" ]; then
     cp "$ROOT/.private/test-host_ed25519" "$FIXTURE/host_ed25519"
@@ -59,6 +61,8 @@ PermitTunnel no
 PrintMotd no
 PrintLastLog no
 LogLevel ERROR
+# The app browses, previews and transfers files over SFTP; sshd offers no subsystem unless one is named.
+Subsystem sftp internal-sftp
 EOF
 /usr/sbin/sshd -t -f "$FIXTURE/sshd_config"
 if [ ! -f "$FIXTURE/sshd.pid" ] || ! kill -0 "$(cat "$FIXTURE/sshd.pid")" 2>/dev/null; then

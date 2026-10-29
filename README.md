@@ -61,7 +61,7 @@ Windows 目录和监控命令测试使用 `ROAMTTY_PWSH=/path/to/pwsh ./gradlew 
 
 原生 Windows 监控集成测试 `WindowsHostMetricsIntegrationTest` 通过真实 SSH 运行生产采集器。使用一次性测试主机，设置 `ROAMTTY_WINDOWS_PASSWORD_FILE` 指向本地密码文件，以及 `ROAMTTY_WINDOWS_HOST`、`ROAMTTY_WINDOWS_PORT`、`ROAMTTY_WINDOWS_USER`（默认 `127.0.0.1:22249`、`vagrant`）。Android 的原生 Windows 监控用例需反向转发端口 22249、参数 `windowsNativeMonitor=true`，以及有 CIM 权限的管理员测试账号 `roamtty_admin` 和无 CIM 权限的普通测试账号 `roamtty_monitor`，密码均为 `Fixture-only-123!`；该公开密码只可用于隔离测试环境。
 
-真实 OpenSSH 测试为可选项：`scripts/prepare-openssh-test.sh`（需 root）在回环端口 22228（正常）和 22229（tmux 检查失败）启动隔离 sshd，`scripts/cleanup-openssh-test.sh` 清理；`ssh-core` 仅在存在 `.private/test-password` 时运行这些测试。设备测试通过 `adb reverse tcp:22228 tcp:22228` 访问。`scripts/ssh-key-echo.py` 提供按键回显与 SFTP 夹具，`scripts/process-death-test.sh` 验证进程被杀后的会话恢复。测试私钥是公开材料，不能用于真实服务器。
+真实 OpenSSH 测试为可选项：`scripts/prepare-openssh-test.sh`（需 root）在回环端口 22228（正常，含 SFTP）和 22229（tmux 检查失败）启动隔离 sshd，`scripts/cleanup-openssh-test.sh` 清理；`ssh-core` 仅在存在 `.private/test-password` 时运行这些测试。设备测试通过 `adb reverse tcp:22228 tcp:22228` 访问。`scripts/ssh-key-echo.py` 提供按键回显与 SFTP 夹具，`scripts/process-death-test.sh` 验证进程被杀后的会话恢复。测试私钥是公开材料，不能用于真实服务器。
 
 ## 文档
 
