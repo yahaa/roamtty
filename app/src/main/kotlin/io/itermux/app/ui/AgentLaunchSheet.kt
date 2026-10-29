@@ -17,18 +17,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import io.itermux.app.R
 import io.itermux.app.session.AgentLaunch
@@ -138,7 +134,7 @@ private fun AgentCard(agent: CodingAgent, selected: Boolean, modifier: Modifier 
         border = BorderStroke(if (selected) 1.5.dp else 0.5.dp, border)) {
         Box {
             Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.Row, vertical = 14.dp)) {
-                AgentBadge(agent, 36.dp)
+                AgentIcon(agent, 36.dp)
                 Spacer(Modifier.height(10.dp))
                 Text(agent.shortLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = colors.onSurface)
@@ -150,28 +146,6 @@ private fun AgentCard(agent: CodingAgent, selected: Boolean, modifier: Modifier 
                 Icon(painterResource(R.drawable.ic_check), contentDescription = null, Modifier.size(12.dp), tint = colors.onPrimary)
             }
         }
-    }
-}
-
-/** A small tile in each agent's own colour, so the three are told apart at a glance. */
-@Composable
-internal fun AgentBadge(agent: CodingAgent, size: androidx.compose.ui.unit.Dp) {
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val (background, glyphColor) = when (agent) {
-        CodingAgent.CLAUDE -> Brush.linearGradient(listOf(Color(0xFFE08A68), Color(0xFFC96442))) to Color.White
-        CodingAgent.CODEX -> Brush.linearGradient(listOf(Color(0xFF7C83FD), Color(0xFF3D6DF2))) to Color.White
-        CodingAgent.GROK -> (if (dark) Brush.linearGradient(listOf(Color(0xFFF5F5F5), Color(0xFFD9D9D9)))
-            else Brush.linearGradient(listOf(Color(0xFF2A2A2A), Color(0xFF050505)))) to (if (dark) Color.Black else Color.White)
-    }
-    val glyph = when (agent) {
-        CodingAgent.CLAUDE -> "✻"
-        CodingAgent.CODEX -> ">_"
-        CodingAgent.GROK -> "G"
-    }
-    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.28f)).background(background), contentAlignment = Alignment.Center) {
-        Text(glyph, color = glyphColor, fontWeight = FontWeight.Bold,
-            fontFamily = if (agent == CodingAgent.CODEX) FontFamily.Monospace else FontFamily.Default,
-            fontSize = (size.value * if (agent == CodingAgent.CLAUDE) 0.56f else 0.42f).sp)
     }
 }
 

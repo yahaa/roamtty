@@ -1,6 +1,7 @@
 package io.itermux.app.ui
 
 import android.content.SharedPreferences
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -107,6 +109,30 @@ internal fun RecentFolders(recent: List<String>, current: String, onPick: (Strin
                         Modifier.size(16.dp).clickable { onForget(dir) })
                 },
                 modifier = Modifier.testTag("launch-recent-${recent.indexOf(dir)}"))
+        }
+    }
+}
+
+/** The recent folders as a list, for the landscape side column; tapping one opens it, the cross forgets it. */
+@Composable
+internal fun RecentFolderList(recent: List<String>, current: String, onPick: (String) -> Unit, onForget: (String) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(shape = MaterialTheme.shapes.medium, color = colors.groupedContainer) {
+        Column {
+            recent.forEachIndexed { index, dir ->
+                if (index > 0) GroupedDivider()
+                Row(Modifier.fillMaxWidth().background(if (dir == current) colors.onSurface.copy(alpha = 0.08f) else Color.Transparent)
+                    .clickable { onPick(dir) }.height(40.dp).padding(start = Spacing.Row).testTag("launch-recent-$index"),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Icon(painterResource(R.drawable.ic_history), contentDescription = null, Modifier.size(16.dp), tint = colors.onSurfaceVariant)
+                    Text(folderName(dir), Modifier.weight(1f).padding(horizontal = 9.dp), style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+                    IconButton(onClick = { onForget(dir) }, modifier = Modifier.size(40.dp)) {
+                        Icon(painterResource(R.drawable.ic_clear), contentDescription = trf("移除 %s", dir), Modifier.size(16.dp),
+                            tint = colors.onSurfaceVariant)
+                    }
+                }
+            }
         }
     }
 }

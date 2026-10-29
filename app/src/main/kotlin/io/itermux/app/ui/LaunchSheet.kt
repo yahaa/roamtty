@@ -1,14 +1,26 @@
 package io.itermux.app.ui
 
+import android.content.res.Configuration
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -119,8 +131,156 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     }
 
     val colors = MaterialTheme.colorScheme
-    AppSheet(onDismiss, fullScreen = true) {
-        if (!typing) SheetHeader(title ?: if (forAgent) tr("用 Agent 打开") else tr("打开终端"), null, onDismiss)
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val heading = title ?: if (forAgent) tr("用 Agent 打开") else tr("打开终端")
+    val tmuxSessions = (tmux as? TmuxListing.Sessions)?.sessions
+    val attachReady = picked != null && tmuxSessions?.any { it.name == picked && it.attachable } == true
+
+    val tmuxBox: @Composable (Modifier) -> Unit = { modifier ->
+        Surface(modifier, shape = MaterialTheme.shapes.medium, color = colors.groupedContainer) {
+            Column {
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = Spacing.Page, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(tr("服务器上的 tmux 会话"), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { tmuxRetry++ }, enabled = ready && !tmuxLoading, modifier = Modifier.size(40.dp).testTag("launch-tmux-refresh")) {
+                        Icon(painterResource(R.drawable.ic_refresh), contentDescription = tr("刷新"), Modifier.size(20.dp))
+                    }
+                }
+                GroupedDivider()
+                Box(Modifier.weight(1f)) {
+                    val listing = tmux
+                    when {
+                        browser == null -> CenterNote(tr("输入密码后即可查看 tmux 会话"), tr("输入密码")) { askPassword = true }
+                        connection != null && !connection.active && !ready -> CenterNote(
+                            connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
+                            tr("重新连接")) { browser.start() }
+                        listing == TmuxListing.Missing -> CenterNote(tr("服务器未安装 tmux"), tr("重试")) { tmuxRetry++ }
+                        listing == TmuxListing.Failed -> CenterNote(tr("无法读取 tmux 会话"), tr("重试")) { tmuxRetry++ }
+                        listing is TmuxListing.Sessions && listing.sessions.isEmpty() ->
+                            CenterNote(tr("服务器上没有正在运行的 tmux 会话"), tr("刷新")) { tmuxRetry++ }
+                        listing is TmuxListing.Sessions -> TmuxSessionList(listing.sessions, picked, openTmux, tmuxLoading,
+                            home = shown?.home) { picked = it }
+                        else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // In landscape the card above names the session, so the button only says what it does.
+    val attachButton: @Composable (Modifier) -> Unit = { modifier ->
+        val name = picked
+        Button(onClick = { if (attachReady) onAttach?.invoke(name!!) }, enabled = attachReady,
+            contentPadding = PaddingValues(horizontal = Spacing.Page), modifier = modifier.heightIn(min = 48.dp).testTag("launch-attach")) {
+            Text(when {
+                name == null -> tr("选择一个 tmux 会话")
+                landscape -> tr("打开会话")
+                else -> trf("打开 tmux 会话 %s", name)
+            }, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+    val folderBox: @Composable (Modifier) -> Unit = { modifier ->
+        Surface(modifier, shape = MaterialTheme.shapes.medium, color = colors.groupedContainer) {
+            Column {
+                val text = filter
+                if (text != null) FolderFilter(text, { filter = it }, onClose = { filter = null },
+                    onGo = { matches.firstOrNull()?.let { current = shown!!.child(it) } })
+                else PathBar(segments, parent, canFilter = (shown?.folders?.size ?: 0) > FILTER_THRESHOLD,
+                    onNavigate = { current = it }, onFilter = { filter = "" })
+                GroupedDivider()
+                Box(Modifier.weight(1f)) {
+                    when {
+                        unsupported -> CenterNote(tr(StartDirectory.UNSUPPORTED_MESSAGE), tr("回到主目录")) { current = StartDirectory.HOME }
+                        browser == null -> CenterNote(tr("输入密码后即可浏览文件夹"), tr("输入密码")) { askPassword = true }
+                        connection != null && !connection.active && !ready -> CenterNote(
+                            connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
+                            tr("重新连接")) { browser.start() }
+                        failed -> CenterNote(tr("无法打开这个文件夹"), tr(if (StartDirectory.isHome(current)) "重试" else "回到主目录")) {
+                            current = StartDirectory.HOME
+                            retry++
+                        }
+                        shown == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                        else -> FolderList(shown, matches, stale || loading) { current = it }
+                    }
+                }
+            }
+        }
+    }
+    val launchButton: @Composable (Modifier) -> Unit = { modifier ->
+        val buttonColor by animateColorAsState(if (yolo) colors.error else colors.primary, label = "launch-button")
+        val name = folderName(current)
+        // Home always opens; other folders wait for their listing (native Windows resolves `~/x` from it), unless there is no login to list with.
+        Button(onClick = ::launch, enabled = !unsupported &&
+            (StartDirectory.isHome(current) || browser == null || (ready && !failed && !loading && !stale)),
+            colors = ButtonDefaults.buttonColors(containerColor = buttonColor,
+                contentColor = if (yolo) colors.onError else colors.onPrimary),
+            contentPadding = PaddingValues(horizontal = Spacing.Page),
+            modifier = modifier.heightIn(min = 48.dp).testTag("launch-open")) {
+            if (forAgent) {
+                Icon(painterResource(agent.iconRes), contentDescription = null, Modifier.size(18.dp))
+                Spacer(Modifier.width(Spacing.Tight))
+            }
+            val home = StartDirectory.isHome(current)
+            Text(when {
+                forAgent && home -> trf("在主目录启动 %s", agent.shortLabel)
+                forAgent -> trf("在 %s 启动 %s", name, agent.shortLabel)
+                home -> tr("在主目录打开终端")
+                else -> trf("在 %s 打开终端", name)
+            },
+                style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+    val forget: (String) -> Unit = { dir ->
+        recent = recent - dir
+        preferences.saveRecentStartDirectories(host.id, recent)
+    }
+
+    AppSheet(onDismiss, fullScreen = true, wide = landscape) {
+        if (landscape) {
+            // Landscape, like the host page there: one flat bar with close, the heading and the 工作目录 · tmux 会话 tabs;
+            // the folders take the whole height on the left, and a side column holds the recent folders, the agent
+            // pickers and the launch button.
+            Row(Modifier.fillMaxWidth().height(HOME_COMPACT_BAR_HEIGHT).padding(horizontal = 4.dp).testTag("launch-bar"),
+                verticalAlignment = Alignment.CenterVertically) {
+                ToolbarIcon(R.drawable.ic_close, tr("关闭"), Modifier.testTag("launch-close"), onClick = onDismiss)
+                Text(heading, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, end = Spacing.Row).weight(1f, fill = false))
+                if (canAttach) CapsuleTabs(listOf(tr("工作目录") to "launch-source-folder", tr("tmux 会话") to "launch-source-tmux"),
+                    if (attaching) 1 else 0, Modifier.testTag("launch-source")) { attaching = it == 1 }
+            }
+            Row(Modifier.weight(1f).fillMaxWidth().padding(start = Spacing.Row, end = Spacing.Row, bottom = Spacing.Row)
+                .testTag("launch-sheet"), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (attaching) tmuxBox(Modifier.weight(1f).fillMaxHeight()) else folderBox(Modifier.weight(1f).fillMaxHeight())
+                if (typing) return@Row
+                // The pickers and the button keep their place at the bottom; the recent folders scroll in what is left.
+                Column(Modifier.width(250.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                        if (!attaching && recent.isNotEmpty()) {
+                            SideLabel(tr("最近"))
+                            RecentFolderList(recent, current, onPick = { current = it }, onForget = forget)
+                        }
+                    }
+                    if (attaching) {
+                        tmuxSessions?.firstOrNull { it.name == picked }?.let { session ->
+                            SideLabel(tr("已选择"))
+                            TmuxSessionCard(session, session.name in openTmux, home = shown?.home)
+                        }
+                        attachButton(Modifier.fillMaxWidth())
+                    } else {
+                        if (forAgent) {
+                            SideLabel("Agent")
+                            AgentChooser(agent, mode, { agent = it }, { mode = it }, stacked = true)
+                        }
+                        launchButton(Modifier.fillMaxWidth())
+                    }
+                }
+            }
+            return@AppSheet
+        }
+        if (!typing) SheetHeader(heading, null, onDismiss)
         Column(Modifier.weight(1f).testTag("launch-sheet")) {
             if (canAttach && !typing) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page)
                 .padding(bottom = Spacing.Row).testTag("launch-source")) {
@@ -130,103 +290,15 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
                 }
             }
             if (attaching) {
-                Surface(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Spacing.Page), shape = MaterialTheme.shapes.medium,
-                    color = colors.groupedContainer) {
-                    Column {
-                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = Spacing.Page, end = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Text(tr("服务器上的 tmux 会话"), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { tmuxRetry++ }, enabled = ready && !tmuxLoading, modifier = Modifier.size(40.dp).testTag("launch-tmux-refresh")) {
-                                Icon(painterResource(R.drawable.ic_refresh), contentDescription = tr("刷新"), Modifier.size(20.dp))
-                            }
-                        }
-                        GroupedDivider()
-                        Box(Modifier.weight(1f)) {
-                            val listing = tmux
-                            when {
-                                browser == null -> CenterNote(tr("输入密码后即可查看 tmux 会话"), tr("输入密码")) { askPassword = true }
-                                connection != null && !connection.active && !ready -> CenterNote(
-                                    connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
-                                    tr("重新连接")) { browser.start() }
-                                listing == TmuxListing.Missing -> CenterNote(tr("服务器未安装 tmux"), tr("重试")) { tmuxRetry++ }
-                                listing == TmuxListing.Failed -> CenterNote(tr("无法读取 tmux 会话"), tr("重试")) { tmuxRetry++ }
-                                listing is TmuxListing.Sessions && listing.sessions.isEmpty() ->
-                                    CenterNote(tr("服务器上没有正在运行的 tmux 会话"), tr("刷新")) { tmuxRetry++ }
-                                listing is TmuxListing.Sessions -> TmuxSessionList(listing.sessions, picked, openTmux, tmuxLoading,
-                                    home = shown?.home) { picked = it }
-                                else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                                }
-                            }
-                        }
-                    }
-                }
-                val name = picked
-                val ok = name != null && (tmux as? TmuxListing.Sessions)?.sessions?.any { it.name == name && it.attachable } == true
-                Button(onClick = { if (ok) onAttach?.invoke(name!!) }, enabled = ok,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row)
-                        .heightIn(min = 48.dp).testTag("launch-attach")) {
-                    Text(if (name != null) trf("打开 tmux 会话 %s", name) else tr("选择一个 tmux 会话"),
-                        style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+                tmuxBox(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Spacing.Page))
+                attachButton(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row))
                 return@Column
             }
-            if (recent.isNotEmpty() && !typing) RecentFolders(recent, current, onPick = { current = it }, onForget = { dir ->
-                recent = recent - dir
-                preferences.saveRecentStartDirectories(host.id, recent)
-            })
-            Surface(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Spacing.Page), shape = MaterialTheme.shapes.medium,
-                color = colors.groupedContainer) {
-                Column {
-                    val text = filter
-                    if (text != null) FolderFilter(text, { filter = it }, onClose = { filter = null },
-                        onGo = { matches.firstOrNull()?.let { current = shown!!.child(it) } })
-                    else PathBar(segments, parent, canFilter = (shown?.folders?.size ?: 0) > FILTER_THRESHOLD,
-                        onNavigate = { current = it }, onFilter = { filter = "" })
-                    GroupedDivider()
-                    Box(Modifier.weight(1f)) {
-                        when {
-                            unsupported -> CenterNote(tr(StartDirectory.UNSUPPORTED_MESSAGE), tr("回到主目录")) { current = StartDirectory.HOME }
-                            browser == null -> CenterNote(tr("输入密码后即可浏览文件夹"), tr("输入密码")) { askPassword = true }
-                            connection != null && !connection.active && !ready -> CenterNote(
-                                connection.message.takeIf { it.isNotBlank() }?.let { tr(it) } ?: phaseLabel(connection.phase),
-                                tr("重新连接")) { browser.start() }
-                            failed -> CenterNote(tr("无法打开这个文件夹"), tr(if (StartDirectory.isHome(current)) "重试" else "回到主目录")) {
-                                current = StartDirectory.HOME
-                                retry++
-                            }
-                            shown == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                            }
-                            else -> FolderList(shown, matches, stale || loading) { current = it }
-                        }
-                    }
-                }
-            }
+            if (recent.isNotEmpty() && !typing) RecentFolders(recent, current, onPick = { current = it }, onForget = forget)
+            folderBox(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Spacing.Page))
             if (typing) return@Column
             if (forAgent) AgentChooser(agent, mode, { agent = it }, { mode = it })
-            val buttonColor by animateColorAsState(if (yolo) colors.error else colors.primary, label = "launch-button")
-            val name = folderName(current)
-            // Home always opens; other folders wait for their listing (native Windows resolves `~/x` from it), unless there is no login to list with.
-            Button(onClick = ::launch, enabled = !unsupported &&
-                (StartDirectory.isHome(current) || browser == null || (ready && !failed && !loading && !stale)),
-                colors = ButtonDefaults.buttonColors(containerColor = buttonColor,
-                    contentColor = if (yolo) colors.onError else colors.onPrimary),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row)
-                    .heightIn(min = 48.dp).testTag("launch-open")) {
-                if (forAgent) {
-                    Icon(painterResource(R.drawable.ic_agent), contentDescription = null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(Spacing.Tight))
-                }
-                val home = StartDirectory.isHome(current)
-                Text(when {
-                    forAgent && home -> trf("在主目录启动 %s", agent.shortLabel)
-                    forAgent -> trf("在 %s 启动 %s", name, agent.shortLabel)
-                    home -> tr("在主目录打开终端")
-                    else -> trf("在 %s 打开终端", name)
-                },
-                    style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+            launchButton(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page, vertical = Spacing.Row))
         }
     }
     if (askPassword) CredentialsDialog(ConnectRequest(host, SessionMode.SHELL), { askPassword = false }) { password, passphrase ->
@@ -234,6 +306,31 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
         login = PluginTarget(host, password, passphrase)
     }
     own?.pending?.collectAsStateWithLifecycle()?.value?.let { PromptDialog(it) }
+}
+
+@Composable
+private fun SideLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+}
+
+/** A segmented capsule like the home page's and the host page's tabs, for a flat landscape bar. */
+@Composable
+internal fun CapsuleTabs(options: List<Pair<String, String>>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(modifier.clip(CircleShape).background(colors.onSurface.copy(alpha = 0.07f)).padding(3.dp).selectableGroup(),
+        verticalAlignment = Alignment.CenterVertically) {
+        options.forEachIndexed { index, (label, tag) ->
+            val active = index == selected
+            Box(Modifier.height(32.dp).clip(CircleShape).background(if (active) colors.onSurface.copy(alpha = 0.14f) else Color.Transparent)
+                .selectable(active, role = Role.Tab, onClick = { onSelect(index) }).padding(horizontal = 14.dp).testTag(tag),
+                contentAlignment = Alignment.Center) {
+                Text(label, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                    color = if (active) colors.onSurface else colors.onSurfaceVariant,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+            }
+        }
+    }
 }
 
 @Composable

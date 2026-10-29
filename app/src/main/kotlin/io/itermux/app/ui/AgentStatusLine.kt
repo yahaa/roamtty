@@ -38,6 +38,13 @@ internal fun CodingAgent.brand(): Color = when (this) {
     CodingAgent.GROK -> MaterialTheme.colorScheme.onSurface
 }
 
+/** The agent's own mark, drawn in [brand] on its tile and in the text colour on a button. */
+internal val CodingAgent.iconRes: Int get() = when (this) {
+    CodingAgent.CLAUDE -> R.drawable.ic_agent_claude
+    CodingAgent.CODEX -> R.drawable.ic_agent_codex
+    CodingAgent.GROK -> R.drawable.ic_agent_grok
+}
+
 /**
  * An agent's mark on a tile in its own colours; with [state], a dot in the corner shows what it is doing, so a list of
  * sessions tells at a glance which agent is busy and which waits for an answer.
@@ -45,11 +52,7 @@ internal fun CodingAgent.brand(): Color = when (this) {
 @Composable
 internal fun AgentIcon(agent: CodingAgent, size: Dp, state: AgentStatus.State? = null) {
     val brand = agent.brand()
-    val icon = when (agent) {
-        CodingAgent.CLAUDE -> R.drawable.ic_agent_claude
-        CodingAgent.CODEX -> R.drawable.ic_agent_codex
-        CodingAgent.GROK -> R.drawable.ic_agent_grok
-    }
+    val icon = agent.iconRes
     Box(Modifier.size(size).testTag("agent-icon-${agent.command}")) {
         Surface(color = brand.copy(alpha = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) 0.12f else 0.18f),
             shape = RoundedCornerShape(size * 0.28f), modifier = Modifier.fillMaxSize()) {

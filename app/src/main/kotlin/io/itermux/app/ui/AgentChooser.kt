@@ -23,29 +23,43 @@ import io.itermux.app.session.agent
 import io.itermux.app.tr
 import kotlinx.coroutines.launch
 
-/** Agent and permission as two dropdowns on one line; YOLO is red, and its "!" says what it allows. */
+/**
+ * Agent and permission as two dropdowns, on one line or, [stacked] in a landscape side column, one above the other;
+ * YOLO is red, and its "!" says what it allows. Agents show the same mark as in the session list.
+ */
 @Composable
-internal fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAgent) -> Unit, onMode: (AgentMode) -> Unit) {
+internal fun AgentChooser(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAgent) -> Unit, onMode: (AgentMode) -> Unit,
+    stacked: Boolean = false) {
+    if (stacked) Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
+        AgentPickers(agent, mode, onAgent, onMode, Modifier.fillMaxWidth())
+    } else Row(Modifier.fillMaxWidth().padding(start = Spacing.Page, end = Spacing.Page, top = Spacing.Row),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
+        AgentPickers(agent, mode, onAgent, onMode, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun AgentPickers(agent: CodingAgent, mode: AgentMode, onAgent: (CodingAgent) -> Unit, onMode: (AgentMode) -> Unit,
+    modifier: Modifier) {
     val colors = MaterialTheme.colorScheme
     val yolo = mode == AgentMode.YOLO
-    Row(Modifier.fillMaxWidth().padding(start = Spacing.Page, end = Spacing.Page, top = Spacing.Row),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-        Picker(Modifier.weight(1f), "agent-picker", anchor = {
-            AgentBadge(agent, 20.dp)
+    run {
+        Picker(modifier, "agent-picker", anchor = {
+            AgentIcon(agent, 28.dp)
             Spacer(Modifier.width(Spacing.Tight))
             Text(agent.shortLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false))
         }) { close ->
             CodingAgent.entries.forEach { option ->
                 PickerItem(option == agent, "agent-option-${option.name.lowercase()}", onClick = { onAgent(option); close() },
-                    leading = { AgentBadge(option, 24.dp) }) {
+                    leading = { AgentIcon(option, 28.dp) }) {
                     Text(option.shortLabel, style = MaterialTheme.typography.bodyLarge)
                     Text(option.command, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         color = colors.onSurfaceVariant)
                 }
             }
         }
-        Picker(Modifier.weight(1f), "agent-mode-picker", borderColor = if (yolo) colors.error else null, anchor = {
+        Picker(modifier, "agent-mode-picker", borderColor = if (yolo) colors.error else null, anchor = {
             Text(modeLabel(mode, agent), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (yolo) colors.error else colors.onSurface, modifier = Modifier.weight(1f, fill = false))
             if (yolo) YoloWarning()
