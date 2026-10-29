@@ -180,6 +180,22 @@ class SessionService : Service() {
     }
 
     /**
+     * Drops the local connection without ending a remote tmux session. Use when deleting a host or clearing an
+     * endpoint's trust: the dialog promises remote work keeps running. [forgetCard] removes the session list entry;
+     * otherwise a tmux card stays so the user can reconnect.
+     */
+    fun disconnectLocal(id: String, forgetCard: Boolean = true) {
+        val existing = mutableSessions.value.find { it.id == id } ?: return
+        stateWatchers.remove(id)?.cancel()
+        existing.disconnect()
+        if (forgetCard || existing.external || existing.mode != SessionMode.TMUX) {
+            mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+        }
+        saveSessions()
+        refreshNotification()
+    }
+
+    /**
      * Ends a session outright: a tmux session is killed on the server first, with everything running in it, and the
      * card goes. A tmux session that cannot be reached keeps its card so it can still be ended later. A tmux session
      * that was already on the server is only detached: its card goes and it keeps running.

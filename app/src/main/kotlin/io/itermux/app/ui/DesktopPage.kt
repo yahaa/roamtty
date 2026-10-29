@@ -78,6 +78,7 @@ import io.itermux.app.trf
 import io.itermux.desktop.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -583,7 +584,13 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
                     PanelButton(tr("发送手机剪贴板"), R.drawable.ic_upload, "desktop-op-clip-send", Modifier.weight(1f)) {
                         val text = context.clipboardText()
                         if (text.isEmpty()) clipNote = tr("手机剪贴板为空")
-                        else { connection.send(DesktopProtocol.clipSet(text.take(1 shl 20))); clipNote = tr("已发送到远程剪贴板") }
+                        else {
+                            clipNote = tr("已发送到远程剪贴板")
+                            // Encode and fragment off the UI thread (large Unicode clipboards can be multi-MiB).
+                            scope.launch(Dispatchers.Default) {
+                                connection.send(DesktopProtocol.clipSet(text.take(1 shl 20)))
+                            }
+                        }
                     }
                     PanelButton(tr("获取远程剪贴板"), R.drawable.ic_download, "desktop-op-clip-get", Modifier.weight(1f)) {
                         connection.send(DesktopProtocol.req(DesktopProtocol.REQ_CLIP_GET))

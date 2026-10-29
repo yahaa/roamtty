@@ -552,12 +552,19 @@ fun ItermuxScreen(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).padding(bottom = Spacing.Tight)
                                     .focusRequester(searchFocus).testTag("host-search"))
                         }
-                        // A live connection already proves the host is up, whatever the last probe said. Sessions keep
-                        // the endpoint they were opened with, so one still on an edited host's old address does not count.
-                        val connectedEndpoints = sessions.filter { (sessionStates[it.id]?.phase ?: it.state.value.phase) == Phase.CONNECTED }
-                            .map { it.host.endpointKey }.toSet()
+                        // A live terminal or desktop already proves the host is up. Match by address:port so several
+                        // host cards pointing at the same server skip the unauthenticated SSH greeting probe together.
+                        val liveTargets = buildSet {
+                            sessions.filter { (sessionStates[it.id]?.phase ?: it.state.value.phase) == Phase.CONNECTED }
+                                .forEach { add("${it.host.address}:${it.host.port}") }
+                            desktops.values.forEach { c ->
+                                val phase = c.phase.value
+                                if (phase is DesktopPhase.Connected || phase is DesktopPhase.Recovering || phase is DesktopPhase.Connecting)
+                                    add("${c.host.address}:${c.host.port}")
+                            }
+                        }
                         ProbeHostReachability(hostReachability, hosts,
-                            connected = hosts.filter { it.endpointKey in connectedEndpoints }.map { it.id }.toSet())
+                            connected = hosts.filter { "${it.address}:${it.port}" in liveTargets }.map { it.id }.toSet())
                         HorizontalPager(homePager, Modifier.weight(1f).nestedScroll(barScroll).testTag("home-pager"),
                             key = { HOME_TAB_TAGS[it] }) { tab ->
                             if (tab == 0) HomeSessionsTab(sessionsByRecency, hosts.isNotEmpty(), search,
@@ -585,7 +592,7 @@ fun ItermuxScreen(
                             else HomeHostsTab(hosts, search, hostGridState,
                                 reachability = { host ->
                                     hostReachability.statusOf(host).let { probed ->
-                                        if (host.endpointKey in connectedEndpoints && probed !is HostReachability.Online) HostReachability.Online(null) else probed
+                                        if ("${host.address}:${host.port}" in liveTargets && probed !is HostReachability.Online) HostReachability.Online(null) else probed
                                     }
                                 },
                                 onAdd = { editHostId = null; editorOpen = true },
@@ -739,7 +746,9 @@ fun ItermuxScreen(
         deleteHost?.let { host ->
             DeleteHostDialog(host, onDismiss = { deleteHost = null }) {
                 scope.launch {
-                    sessions.filter { it.host.id == host.id }.forEach { service?.close(it.id); service?.forget(it.id) }
+                    // Keep remote tmux running; only drop the phone's links (and any desktop keep-alive).
+                    sessions.filter { it.host.id == host.id }.forEach { service?.disconnectLocal(it.id, forgetCard = true) }
+                    service?.desktops?.close(host.id)
                     app.database.hosts().delete(host.id)
                     DesktopThumbnails.remove(app, host.id)
                     deleteHost = null
@@ -762,7 +771,14 @@ fun ItermuxScreen(
             val endpoint = session.host.target().endpoint
             ReverifyHostDialog(endpoint, onDismiss = { reverify = null }) {
                 scope.launch {
-                    sessions.filter { it.host.target().endpoint == endpoint }.forEach { service?.close(it.id) }
+                    // Close local links only; remote tmux must keep running across a fingerprint re-check.
+                    sessions.filter { it.host.target().endpoint == endpoint }.forEach {
+                        service?.disconnectLocal(it.id, forgetCard = it.mode != SessionMode.TMUX || it.external)
+                    }
+                    service?.desktops?.connections?.value?.values
+                        ?.filter { it.host.target().endpoint == endpoint }
+                        ?.map { it.host.id }?.distinct()
+                        ?.forEach { service?.desktops?.close(it) }
                     app.database.hosts().forgetPin(endpoint)
                     reverify = null
                     connect(session.host, session.mode, session.title.value, reuseSessionId = session.id.takeIf { session.mode == SessionMode.TMUX })

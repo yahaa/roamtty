@@ -5,8 +5,8 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
-import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
@@ -48,10 +48,18 @@ class UdpLink(
     @Volatile private var closed = false
     /**
      * Every datagram leaves from this one thread, in order. Callers include the main thread (touches
-     * become pointer input there), where Android refuses network calls: such a send threw
-     * NetworkOnMainThreadException into the catch below and the cursor never moved over UDP.
+     * become pointer input there), where Android refuses network calls. Fragmentation and FEC also
+     * run here so a multi-megabyte clipboard does not stall the UI. The queue is bounded; stale
+     * pointer moves coalesce into [pendingPointer] instead of piling up.
      */
-    private val sender = Executors.newSingleThreadExecutor { r -> Thread(r, "udp-send").apply { isDaemon = true } }
+    private val senderQueue = LinkedBlockingQueue<Runnable>(SEND_QUEUE_CAP)
+    @Volatile private var pendingPointer: ByteArray? = null
+    private val sender = thread(name = "udp-send", isDaemon = true) {
+        while (!closed) {
+            val task = try { senderQueue.poll(100, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { null } ?: continue
+            try { task.run() } catch (e: Exception) { log("udp send: $e") }
+        }
+    }
     @Volatile private var lastRxUs = 0L
     @Volatile private var lastServerT = 0L
     @Volatile private var lastHeartbeatUs = 0L
@@ -118,16 +126,25 @@ class UdpLink(
         }
     }
 
+    private fun enqueue(task: Runnable): Boolean {
+        if (closed) return false
+        if (senderQueue.offer(task)) return true
+        // Prefer dropping work that is already represented by [pendingPointer] over blocking the UI.
+        return false
+    }
+
     private fun raw(plain: ByteArray) {
+        enqueue {
+            if (closed) return@enqueue
+            emit(plain)
+        }
+    }
+
+    private fun emit(plain: ByteArray) {
         if (closed) return
-        try {
-            sender.execute {
-                if (closed) return@execute
-                val packet = crypto.seal(UdpWire.DIR_C2S, seq.getAndIncrement(), plain)
-                if (dropRate > 0 && Math.random() < dropRate) return@execute
-                try { socket.send(DatagramPacket(packet, packet.size, InetSocketAddress(host, port))) } catch (_: Exception) {}
-            }
-        } catch (_: RejectedExecutionException) {}
+        val packet = crypto.seal(UdpWire.DIR_C2S, seq.getAndIncrement(), plain)
+        if (dropRate > 0 && Math.random() < dropRate) return
+        try { socket.send(DatagramPacket(packet, packet.size, InetSocketAddress(host, port))) } catch (_: Exception) {}
     }
 
     private fun heartbeat() {
@@ -137,11 +154,30 @@ class UdpLink(
 
     /** Sends a whole protocol frame; [reliable] ones are resent until the host acknowledges them. */
     fun send(frame: ByteArray, reliable: Boolean) {
+        if (!reliable && coalesceable(frame)) {
+            pendingPointer = frame
+            enqueue {
+                val latest = pendingPointer ?: return@enqueue
+                // Only clear if nothing newer arrived; otherwise the next enqueue will send it.
+                if (pendingPointer === latest) pendingPointer = null
+                sendOnSender(latest, reliable = false)
+            }
+            return
+        }
+        val accepted = enqueue { sendOnSender(frame, reliable) }
+        if (!accepted && reliable) {
+            // Last resort: do not silently drop keys/buttons; run on the caller only when the queue is wedged.
+            sendOnSender(frame, reliable)
+        }
+    }
+
+    private fun sendOnSender(frame: ByteArray, reliable: Boolean) {
+        if (closed) return
         // Ids are u32 on the wire (RACKs come back as u32): wrap the same way here, so they still match.
         val id = (if (reliable) reliableSeq.getAndIncrement() * 2 + 1 else plainSeq.getAndIncrement() * 2) and 0xFFFFFFFFL
         val frags = UdpWire.fragment(id, if (reliable) UdpWire.FLAG_RELIABLE else 0, frame, if (reliable && frame.size > UdpWire.SHARD) 0.25f else 0f)
         if (reliable) unacked[id] = Unacked(frame, frags, now(), 0)
-        frags.forEach { raw(it.encode()) }
+        frags.forEach { emit(it.encode()) }
     }
 
     private fun tick() {
@@ -204,10 +240,11 @@ class UdpLink(
         log("udp rebound to port ${socket.localPort}")
     }
 
-    fun close() { closed = true; sender.shutdown(); socket.close() }
+    fun close() { closed = true; senderQueue.clear(); sender.interrupt(); socket.close() }
 
     companion object {
         const val ALIVE_US = 3_000_000L
+        private const val SEND_QUEUE_CAP = 512
 
         /** Which client frames must arrive: everything except pointer moves, wheel, ACK and pings. */
         fun reliable(frame: ByteArray): Boolean = when (frame[0].toInt() and 0xFF) {
@@ -215,5 +252,10 @@ class UdpLink(
             DesktopProtocol.INPUT -> (frame.getOrNull(4)?.toInt() ?: 0) !in setOf(1, 2, 4)
             else -> true
         }
+
+        /** Absolute/relative moves and wheel: the next one supersedes any still queued. */
+        fun coalesceable(frame: ByteArray): Boolean =
+            (frame.getOrNull(0)?.toInt() ?: 0) and 0xFF == DesktopProtocol.INPUT &&
+                (frame.getOrNull(4)?.toInt() ?: 0) in setOf(1, 2, 4)
     }
 }

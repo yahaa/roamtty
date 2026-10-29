@@ -19,26 +19,39 @@ internal class DesktopRegistry(private val app: ItermuxApp, private val scope: C
 
     operator fun get(hostId: String): DesktopConnection? = mutable.value[hostId]
 
-    /** The host's desktop, started if it is not running; an existing one keeps its link and secrets. */
+    /**
+     * The host's desktop. A live connection keeps its link; an ended/failed one is replaced so a
+     * corrected password or key passphrase is used on the next login.
+     */
     fun open(host: Host, password: String, passphrase: String, width: Int, height: Int, dpi: Int): DesktopConnection {
         val existing = mutable.value[host.id]
-        if (existing != null && existing.host.loginTarget == host.loginTarget) {
-            if (!existing.active) existing.start()
+        if (existing != null && existing.host.loginTarget == host.loginTarget && existing.active) {
             return existing
         }
-        existing?.let { it.close(); it.release() }
-        val connection = DesktopConnection(host, app, scope, password, passphrase, width, height, dpi, onEnded = { onChange() })
+        if (existing != null) {
+            mutable.value = mutable.value - host.id
+            existing.close()
+            existing.release()
+        }
+        val connection = DesktopConnection(host, app, scope, password, passphrase, width, height, dpi, onEnded = ::onEnded)
         mutable.value = mutable.value + (host.id to connection)
         connection.start()
         onChange()
         return connection
     }
 
+    private fun onEnded(connection: DesktopConnection) {
+        if (mutable.value[connection.host.id] !== connection) return
+        mutable.value = mutable.value - connection.host.id
+        connection.release()
+        onChange()
+    }
+
     fun close(hostId: String) {
         val c = mutable.value[hostId] ?: return
+        mutable.value = mutable.value - hostId
         c.close()
         c.release()
-        mutable.value = mutable.value - hostId
         onChange()
     }
 

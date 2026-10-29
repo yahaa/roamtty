@@ -20,6 +20,7 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 
 /** The cursor the plugin reports, in native pixels of the selected display; [shape] null until its image came. */
@@ -45,9 +46,9 @@ internal class DesktopConnection(
     val host: Host,
     private val app: ItermuxApp,
     private val scope: CoroutineScope,
-    /** Typed secrets, kept in memory so a dropped link logs in again by itself. */
-    private val password: String,
-    private val passphrase: String,
+    /** Typed secrets, kept in memory so a dropped link logs in again by itself; cleared in [release]. */
+    private var password: String,
+    private var passphrase: String,
     /** The phone's screen: its long edge caps the encode size. */
     private val clientWidth: Int,
     private val clientHeight: Int,
@@ -102,7 +103,8 @@ internal class DesktopConnection(
     private var sessionId: String? = null
     private var resumeToken: String? = null
     private val received = ConcurrentHashMap<Long, Long>()
-    private val shapes = ConcurrentHashMap<Long, CursorImage>()
+    private val shapes = LinkedHashMap<Long, CursorImage>(32, 0.75f, true)
+    private val shapesLock = Any()
     @Volatile private var lastPong = 0L
     @Volatile private var pingSentUs = 0L
     /** The last ping got its pong; only an unanswered one counts as waiting. */
@@ -226,10 +228,26 @@ internal class DesktopConnection(
             if (!everConnected && phase.value !is DesktopPhase.NeedsAction) phase.value = DesktopPhase.Connecting(DesktopPhase.Step.START)
             val s = remote.openStream(serveCommand()) ?: return Outcome.Dropped()
             stream = s
-            val first = try { DesktopProtocol.readLine(s.input) } catch (_: Exception) { null }
+            val first = try {
+                withTimeout(HANDSHAKE_MS) {
+                    // Closing the stream unblocks a silent plugin's readLine.
+                    val reader = async(Dispatchers.IO) { try { DesktopProtocol.readLine(s.input) } catch (_: Exception) { null } }
+                    try { reader.await() } catch (e: CancellationException) { s.close(); throw e }
+                }
+            } catch (_: TimeoutCancellationException) {
+                s.close()
+                line(tr("桌面插件握手超时"))
+                null
+            } catch (_: Exception) { null }
             if (first == null) {
                 val status = withTimeoutOrNull(3000) { while (!s.closed) delay(30); s.exitStatus }
-                val errors = runCatching { s.errors.readBytes().toString(Charsets.UTF_8).trim() }.getOrDefault("")
+                val errors = withTimeoutOrNull(1000) {
+                    withContext(Dispatchers.IO) {
+                        val buf = ByteArray(8 * 1024)
+                        val n = runCatching { s.errors.read(buf) }.getOrDefault(-1)
+                        if (n > 0) buf.copyOf(n).toString(Charsets.UTF_8).trim() else ""
+                    }
+                }.orEmpty()
                 s.close()
                 if (errors.isNotEmpty()) line(errors.takeLast(500))
                 if (status == 127 || status == WindowsDesktop.NOT_FOUND) { install(remote, target.first, target.second)?.let { return it }; continue }
@@ -358,7 +376,7 @@ internal class DesktopConnection(
         resumeToken = hello.resumeToken
         if (display.value !in hello.displays.indices) display.value = hello.displays.indexOfFirst { it.primary }.coerceAtLeast(0)
         stats.value = stats.value.copy(encoder = hello.hardware)
-        val channel = Channel<ByteArray>(Channel.UNLIMITED)
+        val channel = Channel<ByteArray>(SSH_SEND_CAP)
         outgoing = channel
         received.clear()
         lastVideoFrame = -1L
@@ -424,6 +442,10 @@ internal class DesktopConnection(
                 link = null
                 player.stop()
                 received.clear()
+                synchronized(shapesLock) {
+                    shapes.values.forEach { runCatching { it.bitmap.recycle() } }
+                    shapes.clear()
+                }
                 stats.value = stats.value.copy(link = "SSH", lossPercent = null)
             }
         }
@@ -550,11 +572,29 @@ internal class DesktopConnection(
                     (m.rgba[o + 3].toInt() and 0xFF shl 24) or (m.rgba[o].toInt() and 0xFF shl 16) or
                         (m.rgba[o + 1].toInt() and 0xFF shl 8) or (m.rgba[o + 2].toInt() and 0xFF)
                 }
-                if (m.width > 0 && m.height > 0) shapes[m.hash] = CursorImage(Bitmap.createBitmap(pixels, m.width, m.height, Bitmap.Config.ARGB_8888), m.hotX, m.hotY)
-                cursor.value?.let { c -> cursor.value = c.copy(shape = c.shape ?: shapes[m.hash]) }
+                if (m.width > 0 && m.height > 0) {
+                    val image = CursorImage(Bitmap.createBitmap(pixels, m.width, m.height, Bitmap.Config.ARGB_8888), m.hotX, m.hotY)
+                    val recycled = synchronized(shapesLock) {
+                        val previous = shapes.put(m.hash, image)
+                        val dropped = mutableListOf<CursorImage>()
+                        previous?.let(dropped::add)
+                        while (shapes.size > MAX_SHAPES) {
+                            val eldest = shapes.entries.iterator().next()
+                            shapes.remove(eldest.key)
+                            dropped += eldest.value
+                        }
+                        dropped
+                    }
+                    recycled.forEach { runCatching { it.bitmap.recycle() } }
+                }
+                val shape = synchronized(shapesLock) { shapes[m.hash] }
+                cursor.value?.let { c -> cursor.value = c.copy(shape = c.shape ?: shape) }
             }
             is ServerMessage.Audio -> if (audio.value && (phase.value as? DesktopPhase.Connected)?.paused != true) player.submit(m)
-            is ServerMessage.CursorPos -> cursor.value = RemoteCursor(m.x, m.y, m.visible, shapes[m.shape])
+            is ServerMessage.CursorPos -> {
+                val shape = synchronized(shapesLock) { shapes[m.shape] }
+                cursor.value = RemoteCursor(m.x, m.y, m.visible, shape)
+            }
             is ServerMessage.State -> {
                 if (m.kicked) { kicked = true; stream?.close() }
                 m.clip?.let { remoteClipboard.tryEmit(it) }
@@ -681,7 +721,17 @@ internal class DesktopConnection(
         if (job?.isActive != true) { phase.value = DesktopPhase.Idle; onEnded(this) }
     }
 
-    fun release() { decoder.close(); player.stop() }
+    fun release() {
+        password = ""
+        passphrase = ""
+        synchronized(shapesLock) {
+            shapes.values.forEach { runCatching { it.bitmap.recycle() } }
+            shapes.clear()
+        }
+        decoder.close()
+        player.stop()
+    }
+
 
     /** e2e only: drop this share of UDP datagrams on the phone side (1.0 blocks UDP). */
     internal fun testUdpDrop(rate: Double) { link?.dropRate = rate }
@@ -691,5 +741,8 @@ internal class DesktopConnection(
         private const val TAG = "RoamttyDesktop"
         const val RECOVER_LIMIT_MS = 30_000L
         const val POOR_MS = 300L
+        private const val HANDSHAKE_MS = 15_000L
+        private const val SSH_SEND_CAP = 256
+        private const val MAX_SHAPES = 48
     }
 }
