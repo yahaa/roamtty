@@ -147,6 +147,11 @@ fun ItermuxScreen(
             else -> Unit
         }
     }
+    // A failed desktop stays for its page to explain; once that page is left it goes, with its secrets.
+    LaunchedEffect(page, desktopHostId, service) {
+        val registry = service?.desktops ?: return@LaunchedEffect
+        registry.connections.value.keys.filter { page != AppPage.DESKTOP || it != desktopHostId }.forEach(registry::dropEnded)
+    }
     /** The home page's tabs: sessions first, then hosts. */
     val homePager = rememberPagerState { 2 }
     /** Shows session [id] on the terminal page, or on [on]. */
@@ -558,9 +563,8 @@ fun ItermuxScreen(
                             sessions.filter { (sessionStates[it.id]?.phase ?: it.state.value.phase) == Phase.CONNECTED }
                                 .forEach { add("${it.host.address}:${it.host.port}") }
                             desktops.values.forEach { c ->
-                                val phase = c.phase.value
-                                if (phase is DesktopPhase.Connected || phase is DesktopPhase.Recovering || phase is DesktopPhase.Connecting)
-                                    add("${c.host.address}:${c.host.port}")
+                                // Only a desktop streaming now: connecting or recovering proves nothing about the host.
+                                if (c.phase.value is DesktopPhase.Connected) add("${c.host.address}:${c.host.port}")
                             }
                         }
                         ProbeHostReachability(hostReachability, hosts,

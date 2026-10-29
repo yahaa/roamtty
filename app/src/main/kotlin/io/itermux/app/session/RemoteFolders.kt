@@ -84,11 +84,15 @@ data class RemoteFolders(val home: String, val path: String, val folders: List<S
                 path=${'$'}{path%.}
                 path=${'$'}{path%?}
                 safe_path "${'$'}path" || exit 3
-                # Physical home matches pwd -P on macOS (/var → /private/var) so ~/ children resolve.
-                home=${'$'}(cd -- "${'$'}HOME" 2>/dev/null && pwd -P && printf '.') || exit 3
-                home=${'$'}{home%.}
-                home=${'$'}{home%?}
-                safe_path "${'$'}home" || exit 3
+                # The physical home, as pwd -P gives the path (a symlinked home, macOS /var → /private/var), so the
+                # path shows as ~/…; a home that cannot be entered stays as it was.
+                if home=${'$'}(cd -- "${'$'}HOME" 2>/dev/null && pwd -P && printf '.'); then
+                  home=${'$'}{home%.}
+                  home=${'$'}{home%?}
+                  safe_path "${'$'}home" || home=${'$'}HOME
+                else
+                  home=${'$'}HOME
+                fi
                 printf '%s\n' "${'$'}home" "${'$'}path"
                 n=0
                 for f in *; do
@@ -113,24 +117,11 @@ data class RemoteFolders(val home: String, val path: String, val folders: List<S
         private fun isSupportedName(name: String) = name.isNotEmpty() && name != "." && name != ".." &&
             '/' !in name && StartDirectory.isSupported(name)
 
-        fun displayPath(path: String, home: String): String {
-            if (home.isEmpty() || home == "/") return path
-            val ignoreCase = WindowsShell.isPath(home)
-            if (path.equals(home, ignoreCase = ignoreCase)) return StartDirectory.HOME
-            val homePrefix = home.trimEnd('/') + "/"
-            if (path.startsWith(homePrefix, ignoreCase = ignoreCase)) return "~/" + path.substring(home.trimEnd('/').length + 1)
-            // macOS /var vs /private/var (and similar aliases): compare canonical forms when both exist.
-            val canonical = runCatching {
-                val homeCanon = java.io.File(home).canonicalPath.trimEnd('/')
-                val pathCanon = java.io.File(path).canonicalPath
-                when {
-                    pathCanon.equals(homeCanon, ignoreCase = ignoreCase) -> StartDirectory.HOME
-                    pathCanon.startsWith("$homeCanon/", ignoreCase = ignoreCase) ->
-                        "~/" + pathCanon.substring(homeCanon.length + 1)
-                    else -> null
-                }
-            }.getOrNull()
-            return canonical ?: path
+        fun displayPath(path: String, home: String): String = when {
+            home.isEmpty() || home == "/" -> path
+            path.equals(home, ignoreCase = WindowsShell.isPath(home)) -> StartDirectory.HOME
+            path.startsWith("${home.trimEnd('/')}/", ignoreCase = WindowsShell.isPath(home)) -> "~/" + path.substring(home.trimEnd('/').length + 1)
+            else -> path
         }
     }
 }

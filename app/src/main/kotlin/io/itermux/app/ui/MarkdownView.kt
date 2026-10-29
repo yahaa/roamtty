@@ -136,10 +136,15 @@ private fun CodeBlock(block: MdBlock.Code, font: FontFamily) {
     val theme = rememberCodeTheme()
     val context = LocalContext.current
     val language = remember(block.language) { Languages.forFence(block.language) ?: Languages.PLAIN }
-    // Highlight off the UI thread: a large fence would otherwise hitch the first composition frame.
-    val text by produceState<AnnotatedString?>(null, block.code, language, theme) {
-        value = null
-        value = withContext(Dispatchers.Default) { annotatedCode(SyntaxHighlighter.highlight(block.code, language), theme) }
+    // A large fence is highlighted off the UI thread, shown plain until then: the same text, so nothing moves.
+    // Small ones (nearly all) highlight in place, as fast as before and without a plain frame first.
+    val large = block.code.length > HIGHLIGHT_INLINE_CHARS
+    val inline = remember(block.code, language, theme, large) {
+        if (large) AnnotatedString(block.code) else annotatedCode(SyntaxHighlighter.highlight(block.code, language), theme)
+    }
+    var text by remember(inline) { mutableStateOf(inline) }
+    if (large) LaunchedEffect(inline) {
+        text = withContext(Dispatchers.Default) { annotatedCode(SyntaxHighlighter.highlight(block.code, language), theme) }
     }
     // Dark pages sink code into a deeper well; light pages need a tinted block to stand out from the paper.
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
@@ -155,15 +160,9 @@ private fun CodeBlock(block: MdBlock.Code, font: FontFamily) {
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            val shown = text
-            if (shown == null) {
-                Text(tr("正在高亮…"), Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
-                    fontFamily = font, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                Text(shown, Modifier.horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
-                    fontFamily = font, fontSize = 13.sp, lineHeight = 19.sp, softWrap = false,
-                    color = MaterialTheme.colorScheme.onSurface)
-            }
+            Text(text, Modifier.horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+                fontFamily = font, fontSize = 13.sp, lineHeight = 19.sp, softWrap = false,
+                color = MaterialTheme.colorScheme.onSurface)
         }
     }
 }
@@ -207,6 +206,8 @@ private fun MarkdownTable(table: MdBlock.Table, colors: MarkdownColors) {
 }
 
 private const val MAX_TABLE_ROWS = 80
+/** Fences longer than this are highlighted on a background thread. */
+private const val HIGHLIGHT_INLINE_CHARS = 8_000
 
 /** Images next to the document load over SFTP; web images stay links so opening a file never phones home. */
 @Composable

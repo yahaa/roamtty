@@ -101,7 +101,6 @@ private object EnglishText {
         "桌面插件握手超时" to "Desktop plugin handshake timed out",
         "桌面插件校验失败" to "The desktop plugin failed its checksum",
         "正在打开桌面" to "Opening the desktop",
-        "正在高亮…" to "Highlighting…",
         "…共 %d 行，仅显示前 %d 行" to "…%d rows total, showing the first %d",
         "注册插件…" to "Registering the plugin…",
         "流畅" to "Smooth",

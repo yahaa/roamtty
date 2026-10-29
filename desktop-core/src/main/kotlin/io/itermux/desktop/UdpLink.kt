@@ -4,9 +4,8 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
@@ -41,7 +40,8 @@ class UdpLink(
     private val replay = ReplayWindow()
     private val reasm = Reassembler()
     private val lock = Any()
-    private class Unacked(val frame: ByteArray, val frags: List<Packet.Frag>, var at: Long, var tries: Int)
+    /** [frags] is null until the send thread has fragmented the frame; nothing to resend before that. */
+    private class Unacked(val frame: ByteArray, @Volatile var frags: List<Packet.Frag>?, var at: Long, var tries: Int)
     private val unacked = ConcurrentHashMap<Long, Unacked>()
     /** NACKs sent per (msg, block) and when: repeated every max(2×RTT, 30 ms), three times at most. */
     private val nacked = HashMap<Pair<Long, Int>, Pair<Int, Long>>()
@@ -49,15 +49,24 @@ class UdpLink(
     /**
      * Every datagram leaves from this one thread, in order. Callers include the main thread (touches
      * become pointer input there), where Android refuses network calls. Fragmentation and FEC also
-     * run here so a multi-megabyte clipboard does not stall the UI. The queue is bounded; stale
-     * pointer moves coalesce into [pendingPointer] instead of piling up.
+     * run here so a multi-megabyte clipboard does not stall the UI. While the thread is behind, a
+     * pointer frame merges into the one queued last of its kind (moves replace, deltas add), so the
+     * order against buttons and keys holds; past [SEND_QUEUE_CAP] the remaining pointer frames go.
      */
-    private val senderQueue = LinkedBlockingQueue<Runnable>(SEND_QUEUE_CAP)
-    @Volatile private var pendingPointer: ByteArray? = null
+    private sealed class Out {
+        class Raw(val plain: ByteArray) : Out()
+        class Plain(var frame: ByteArray) : Out()
+        class Reliable(val id: Long, val frame: ByteArray, val unacked: Unacked) : Out()
+    }
+    private val queue = ArrayDeque<Out>()
+    private val queueLock = Object()
     private val sender = thread(name = "udp-send", isDaemon = true) {
-        while (!closed) {
-            val task = try { senderQueue.poll(100, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { null } ?: continue
-            try { task.run() } catch (e: Exception) { log("udp send: $e") }
+        while (true) {
+            val next = synchronized(queueLock) {
+                while (queue.isEmpty() && !closed) try { queueLock.wait() } catch (_: InterruptedException) {}
+                if (closed) null else queue.removeFirst()
+            } ?: break
+            try { transmit(next) } catch (e: Exception) { log("udp send: $e") }
         }
     }
     @Volatile private var lastRxUs = 0L
@@ -126,17 +135,32 @@ class UdpLink(
         }
     }
 
-    private fun enqueue(task: Runnable): Boolean {
-        if (closed) return false
-        if (senderQueue.offer(task)) return true
-        // Prefer dropping work that is already represented by [pendingPointer] over blocking the UI.
-        return false
+    private fun enqueue(item: Out) {
+        synchronized(queueLock) {
+            if (closed) return
+            queue.addLast(item)
+            queueLock.notify()
+        }
     }
 
-    private fun raw(plain: ByteArray) {
-        enqueue {
-            if (closed) return@enqueue
-            emit(plain)
+    private fun raw(plain: ByteArray) = enqueue(Out.Raw(plain))
+
+    private fun transmit(item: Out) {
+        when (item) {
+            is Out.Raw -> emit(item.plain)
+            is Out.Plain -> {
+                // Ids are u32 on the wire: wrap the same way as reliable ones.
+                val id = (plainSeq.getAndIncrement() * 2) and 0xFFFFFFFFL
+                UdpWire.fragment(id, 0, item.frame, 0f).forEach { emit(it.encode()) }
+            }
+            is Out.Reliable -> {
+                // Handed to SSH by [giveUp] while it waited here: the host gets it from there.
+                if (unacked[item.id] !== item.unacked) return
+                val frags = UdpWire.fragment(item.id, UdpWire.FLAG_RELIABLE, item.frame, if (item.frame.size > UdpWire.SHARD) 0.25f else 0f)
+                item.unacked.frags = frags
+                item.unacked.at = now()
+                frags.forEach { emit(it.encode()) }
+            }
         }
     }
 
@@ -154,30 +178,23 @@ class UdpLink(
 
     /** Sends a whole protocol frame; [reliable] ones are resent until the host acknowledges them. */
     fun send(frame: ByteArray, reliable: Boolean) {
-        if (!reliable && coalesceable(frame)) {
-            pendingPointer = frame
-            enqueue {
-                val latest = pendingPointer ?: return@enqueue
-                // Only clear if nothing newer arrived; otherwise the next enqueue will send it.
-                if (pendingPointer === latest) pendingPointer = null
-                sendOnSender(latest, reliable = false)
-            }
+        if (reliable) {
+            // The id and the resend entry exist at once, so a [giveUp] right after still hands this frame over in order.
+            val id = (reliableSeq.getAndIncrement() * 2 + 1) and 0xFFFFFFFFL
+            val u = Unacked(frame, null, now(), 0)
+            unacked[id] = u
+            enqueue(Out.Reliable(id, frame, u))
             return
         }
-        val accepted = enqueue { sendOnSender(frame, reliable) }
-        if (!accepted && reliable) {
-            // Last resort: do not silently drop keys/buttons; run on the caller only when the queue is wedged.
-            sendOnSender(frame, reliable)
+        synchronized(queueLock) {
+            if (closed) return
+            val last = queue.lastOrNull() as? Out.Plain
+            val merged = last?.let { merge(it.frame, frame) }
+            if (merged != null) { last.frame = merged; return }
+            if (queue.size >= SEND_QUEUE_CAP && coalesceable(frame)) return
+            queue.addLast(Out.Plain(frame))
+            queueLock.notify()
         }
-    }
-
-    private fun sendOnSender(frame: ByteArray, reliable: Boolean) {
-        if (closed) return
-        // Ids are u32 on the wire (RACKs come back as u32): wrap the same way here, so they still match.
-        val id = (if (reliable) reliableSeq.getAndIncrement() * 2 + 1 else plainSeq.getAndIncrement() * 2) and 0xFFFFFFFFL
-        val frags = UdpWire.fragment(id, if (reliable) UdpWire.FLAG_RELIABLE else 0, frame, if (reliable && frame.size > UdpWire.SHARD) 0.25f else 0f)
-        if (reliable) unacked[id] = Unacked(frame, frags, now(), 0)
-        frags.forEach { emit(it.encode()) }
     }
 
     private fun tick() {
@@ -192,8 +209,9 @@ class UdpLink(
             val u = unacked[id] ?: continue
             if (t - u.at < resendAfter) continue
             if (u.tries >= 10) { giveUp(); break }
+            val frags = u.frags ?: continue
             u.tries++; u.at = t
-            u.frags.forEach { raw(it.encode()) }
+            frags.forEach { raw(it.encode()) }
         }
         val (reports, missing, lost) = synchronized(lock) {
             // A retransmit only beats the next frame when the round trip is under about two frames.
@@ -240,7 +258,10 @@ class UdpLink(
         log("udp rebound to port ${socket.localPort}")
     }
 
-    fun close() { closed = true; senderQueue.clear(); sender.interrupt(); socket.close() }
+    fun close() {
+        synchronized(queueLock) { closed = true; queue.clear(); queueLock.notifyAll() }
+        socket.close()
+    }
 
     companion object {
         const val ALIVE_US = 3_000_000L
@@ -253,9 +274,32 @@ class UdpLink(
             else -> true
         }
 
-        /** Absolute/relative moves and wheel: the next one supersedes any still queued. */
-        fun coalesceable(frame: ByteArray): Boolean =
-            (frame.getOrNull(0)?.toInt() ?: 0) and 0xFF == DesktopProtocol.INPUT &&
-                (frame.getOrNull(4)?.toInt() ?: 0) in setOf(1, 2, 4)
+        private fun inputKind(frame: ByteArray): Int =
+            if (frame.size > 4 && frame[0].toInt() and 0xFF == DesktopProtocol.INPUT) frame[4].toInt() and 0xFF else -1
+
+        /** Absolute/relative moves and wheel: a later one can stand in for one still queued. */
+        fun coalesceable(frame: ByteArray): Boolean = inputKind(frame) in setOf(1, 2, 4)
+
+        /**
+         * One frame doing what [queued] then [next] do, or null when they must both go: an absolute move
+         * replaces one on the same display, relative moves and wheel steps add up.
+         */
+        fun merge(queued: ByteArray, next: ByteArray): ByteArray? {
+            val kind = inputKind(next)
+            if (kind != inputKind(queued) || queued.size != next.size) return null
+            val a = ByteBuffer.wrap(queued, 5, queued.size - 5)
+            val b = ByteBuffer.wrap(next, 5, next.size - 5)
+            return when (kind) {
+                1 -> if (queued.size >= 6 && queued[5] == next[5]) next else null
+                2, 4 -> {
+                    val dx = a.short + b.short
+                    val dy = a.short + b.short
+                    // Past what a frame holds the sum would be clipped: send both instead.
+                    if (dx !in Short.MIN_VALUE..Short.MAX_VALUE || dy !in Short.MIN_VALUE..Short.MAX_VALUE) null
+                    else if (kind == 2) DesktopProtocol.rel(dx, dy) else DesktopProtocol.wheel(dx, dy)
+                }
+                else -> null
+            }
+        }
     }
 }

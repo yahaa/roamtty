@@ -39,6 +39,9 @@ internal class MoshClient(
     // Client → server state: every state is "all user events up to count".
     private val events = ArrayList<ByteArray>()
     private var eventBase = 0L
+    /** Bytes in [events], bounded by [MAX_UNACKED_BYTES]. */
+    private var pendingBytes = 0L
+    private var inputCapped = false
     private val totalEvents get() = eventBase + events.size
     private val sentStates = ArrayDeque<LongArray>().apply { add(longArrayOf(0, 0)) }
     private var ackedNum = 0L
@@ -168,16 +171,18 @@ internal class MoshClient(
 
     private fun push(event: Mosh.UserEvent) {
         val encoded = event.encode()
-        // Bound unacked input so a shell that never stalls cannot grow without limit while offline.
-        var pending = events.sumOf { it.size } + encoded.size
-        while (events.isNotEmpty() && pending > MAX_UNACKED_BYTES) {
-            val dropped = events.removeAt(0)
-            pending -= dropped.size
-            eventBase++
-            dropped.fill(0)
-            log("mosh unacked input capped, dropped oldest event")
+        // Every state is "all events up to n", sent as a diff from the acknowledged one: an unacknowledged event
+        // cannot be dropped without the two sides disagreeing. Bound the backlog by refusing new keys instead
+        // (typing on into a dead link). One event always goes through when nothing is pending; resizes are tiny and kept.
+        if (event is Mosh.UserEvent.Keys && pendingBytes > 0 && pendingBytes + encoded.size > MAX_UNACKED_BYTES) {
+            encoded.fill(0)
+            if (!inputCapped) log("mosh unacked input over ${MAX_UNACKED_BYTES / 1024} KiB, dropping new keys")
+            inputCapped = true
+            return
         }
+        inputCapped = false
         events += encoded
+        pendingBytes += encoded.size
         if (inputPendingSince < 0) inputPendingSince = clock()
     }
 
@@ -288,7 +293,7 @@ internal class MoshClient(
         ackedCount = count
         val drop = (count - eventBase).toInt()
         if (drop > 0) {
-            events.subList(0, drop).apply { forEach { it.fill(0) }; clear() }
+            events.subList(0, drop).apply { forEach { pendingBytes -= it.size; it.fill(0) }; clear() }
             eventBase = count
         }
         if (ackedCount >= totalEvents) inputPendingSince = -1L
@@ -322,8 +327,8 @@ internal class MoshClient(
 
     companion object {
         private const val MAX_FRAGMENT = 400
-        /** Soft cap on unacknowledged user input held for resend (keys + resizes). */
-        private const val MAX_UNACKED_BYTES = 256 * 1024
+        /** Cap on unacknowledged user input held for resend; far above any paste a live link has in flight. */
+        private const val MAX_UNACKED_BYTES = 1024 * 1024
         private const val HEARTBEAT_MS = 3000L
         private const val ACK_DELAY_MS = 20L
         private const val PORT_HOP_MS = 10_000L

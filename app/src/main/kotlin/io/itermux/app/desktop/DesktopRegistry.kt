@@ -40,11 +40,23 @@ internal class DesktopRegistry(private val app: ItermuxApp, private val scope: C
         return connection
     }
 
+    /**
+     * A desktop that failed stays so its page can show why and offer a retry (which needs its secrets); it goes when
+     * the page is left ([dropEnded]) or the next [open] replaces it. One closed outright goes at once.
+     */
     private fun onEnded(connection: DesktopConnection) {
         if (mutable.value[connection.host.id] !== connection) return
-        mutable.value = mutable.value - connection.host.id
-        connection.release()
+        if (connection.phase.value !is DesktopPhase.Failed) {
+            mutable.value = mutable.value - connection.host.id
+            connection.release()
+        }
         onChange()
+    }
+
+    /** Drops [hostId]'s desktop if it is no longer running (failed), with its secrets and decoder. */
+    fun dropEnded(hostId: String) {
+        val c = mutable.value[hostId] ?: return
+        if (!c.active) close(hostId)
     }
 
     fun close(hostId: String) {

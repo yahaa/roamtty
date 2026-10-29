@@ -69,14 +69,9 @@ internal object DesktopThumbnails {
     fun remove(context: Context, hostId: String) {
         generation(hostId).incrementAndGet()
         synchronized(lockFor(hostId)) {
-            file(context, hostId).delete()
-            dir(context).listFiles()?.filter {
-                it.name.startsWith(file(context, hostId).name) && it.extension == "tmp" ||
-                    it.name.startsWith(file(context, hostId).name + ".")
-            }?.forEach { it.delete() }
-            // Also clear any leftover *.tmp for this host id stem.
-            val stem = file(context, hostId).name
-            dir(context).listFiles()?.filter { it.name.startsWith(stem) && it.name != stem }?.forEach { it.delete() }
+            // The picture and any temp file a save left behind (`<name>.<thread>.<nanos>.tmp`).
+            val name = file(context, hostId).name
+            dir(context).listFiles()?.filter { it.name == name || it.name.startsWith("$name.") }?.forEach { it.delete() }
         }
         mutableVersions.value = mutableVersions.value + (hostId to System.currentTimeMillis())
     }

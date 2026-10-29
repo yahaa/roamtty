@@ -102,45 +102,45 @@ internal class AudioPlayer {
             fun inTrack() = (written - (activeTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL)).coerceAtLeast(0)
             try {
                 activeTrack.play()
-            while (!Thread.currentThread().isInterrupted) {
-                val (arrived, next) = queue.pollFirst(200, TimeUnit.MILLISECONDS) ?: continue
-                // Ran dry: the track's own count, not the play head reaching what was written (it moves
-                // in the mixer's steps, which reads as empty for a moment in normal playback).
-                val ran = activeTrack.underrunCount
-                val decision = jitter.arrive(arrived, next.seq, (inTrack() * 1000 / RATE).toInt(), ran > underruns)
-                underruns = ran
-                targetMs = jitter.targetMs
-                if (decision == AudioJitter.Decision.Drop) { dropped++; continue }
-                val cushion = (decision as AudioJitter.Decision.Play).cushionMs
-                if (cushion > 0) {
-                    val silence = ByteArray(msToBytes(cushion))
-                    activeTrack.write(silence, 0, silence.size)
-                    written += silence.size / 4
-                    cushions++
-                }
-                val want = (RATE * jitter.rate).toInt()
-                if (want != rate && activeTrack.setPlaybackRate(want) == AudioTrack.SUCCESS) rate = want
-                playbackRate = rate
-                packets++
-                val input = activeCodec.dequeueInputBuffer(20_000)
-                if (input >= 0) {
-                    activeCodec.getInputBuffer(input)!!.apply { clear(); put(next.data, next.offset, next.data.size - next.offset) }
-                    activeCodec.queueInputBuffer(input, 0, next.data.size - next.offset, next.seq * AudioJitter.PACKET_MS * 1000, 0)
-                }
-                while (true) {
-                    val out = activeCodec.dequeueOutputBuffer(info, if (input >= 0) 5_000 else 0)
-                    if (out < 0) break
-                    if (info.size > 0) {
-                        if (pcm.size < info.size) pcm = ByteArray(info.size)
-                        activeCodec.getOutputBuffer(out)!!.apply { position(info.offset); get(pcm, 0, info.size) }
-                        activeTrack.write(pcm, 0, info.size)
-                        written += info.size / 4
-                        measure(pcm, info.size)
+                while (!Thread.currentThread().isInterrupted) {
+                    val (arrived, next) = queue.pollFirst(200, TimeUnit.MILLISECONDS) ?: continue
+                    // Ran dry: the track's own count, not the play head reaching what was written (it moves
+                    // in the mixer's steps, which reads as empty for a moment in normal playback).
+                    val ran = activeTrack.underrunCount
+                    val decision = jitter.arrive(arrived, next.seq, (inTrack() * 1000 / RATE).toInt(), ran > underruns)
+                    underruns = ran
+                    targetMs = jitter.targetMs
+                    if (decision == AudioJitter.Decision.Drop) { dropped++; continue }
+                    val cushion = (decision as AudioJitter.Decision.Play).cushionMs
+                    if (cushion > 0) {
+                        val silence = ByteArray(msToBytes(cushion))
+                        activeTrack.write(silence, 0, silence.size)
+                        written += silence.size / 4
+                        cushions++
                     }
-                    activeCodec.releaseOutputBuffer(out, false)
+                    val want = (RATE * jitter.rate).toInt()
+                    if (want != rate && activeTrack.setPlaybackRate(want) == AudioTrack.SUCCESS) rate = want
+                    playbackRate = rate
+                    packets++
+                    val input = activeCodec.dequeueInputBuffer(20_000)
+                    if (input >= 0) {
+                        activeCodec.getInputBuffer(input)!!.apply { clear(); put(next.data, next.offset, next.data.size - next.offset) }
+                        activeCodec.queueInputBuffer(input, 0, next.data.size - next.offset, next.seq * AudioJitter.PACKET_MS * 1000, 0)
+                    }
+                    while (true) {
+                        val out = activeCodec.dequeueOutputBuffer(info, if (input >= 0) 5_000 else 0)
+                        if (out < 0) break
+                        if (info.size > 0) {
+                            if (pcm.size < info.size) pcm = ByteArray(info.size)
+                            activeCodec.getOutputBuffer(out)!!.apply { position(info.offset); get(pcm, 0, info.size) }
+                            activeTrack.write(pcm, 0, info.size)
+                            written += info.size / 4
+                            measure(pcm, info.size)
+                        }
+                        activeCodec.releaseOutputBuffer(out, false)
+                    }
+                    queuedMs = (inTrack() * 1000 / RATE).toInt()
                 }
-                queuedMs = (inTrack() * 1000 / RATE).toInt()
-            }
             } catch (_: InterruptedException) {
             } catch (e: Exception) {
                 Log.w(TAG, "audio stopped", e)
