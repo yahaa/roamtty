@@ -29,6 +29,8 @@ done
 cat "$ROOT/ssh-core/src/test/resources/keys/"*.pub > "$FIXTURE/home/authorized_keys"
 chown itermux_test:itermux_test "$FIXTURE/home/authorized_keys"
 chmod 600 "$FIXTURE/home/authorized_keys"
+# Folders the launch sheet's device test walks: ~/projects/app, with ~/notes beside it.
+install -d -o itermux_test -g itermux_test "$FIXTURE/home/projects" "$FIXTURE/home/projects/app" "$FIXTURE/home/notes"
 if [ ! -f "$FIXTURE/host_ed25519" ]; then
   if [ -f "$ROOT/.private/test-host_ed25519" ]; then
     cp "$ROOT/.private/test-host_ed25519" "$FIXTURE/host_ed25519"
