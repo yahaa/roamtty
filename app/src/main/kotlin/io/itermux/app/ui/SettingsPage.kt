@@ -16,6 +16,8 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -68,62 +70,86 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         exempt = power.isIgnoringBatteryOptimizations(context.packageName)
     }
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val appearanceSection: @Composable () -> Unit = {
+        GroupedSection(header = tr("外观")) {
+            Column(Modifier.selectableGroup()) {
+                AppTheme.entries.forEachIndexed { index, option ->
+                    if (index > 0) GroupedDivider()
+                    CheckRow(tr(option.label), theme == option, Modifier.testTag("settings-theme-${option.name.lowercase()}")) {
+                        onThemeChange(option)
+                    }
+                }
+            }
+        }
+    }
+    val fontSection: @Composable () -> Unit = {
+        TerminalFontSetting(fontSelection, fontRevision, hasCustom, customName, fontImportError,
+            onImport = { pickFont.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream", "*/*")) },
+            onClear = { TerminalFonts.clearCustomFont(context); fontImportError = null },
+            onSelect = { TerminalFonts.setSelection(context, it); fontImportError = null })
+    }
+    val languageSection: @Composable () -> Unit = {
+        GroupedSection(header = tr("语言")) {
+            Column(Modifier.selectableGroup()) {
+                AppLanguage.entries.forEachIndexed { index, option ->
+                    if (index > 0) GroupedDivider()
+                    CheckRow(option.label, language == option, Modifier.testTag("settings-language-${option.name.lowercase()}")) {
+                        onLanguageChange(option)
+                    }
+                }
+            }
+        }
+    }
+    val backgroundSection: @Composable () -> Unit = {
+        GroupedSection(header = tr("后台连接"),
+            footer = if (colorOs) tr("ColorOS 会在应用退到后台几秒后断开它的网络，连接和 Agent 提醒都会停住。请在应用详情 → 耗电管理中选「完全允许后台行为」，可能增加耗电。")
+                else tr("锁屏后保持 SSH 需要允许后台运行，可能增加耗电。部分手机还需在系统设置中允许自启动。")) {
+            if (exempt) GroupedRow(tr("已允许不受电池优化限制"), Modifier.testTag("battery-exempt"),
+                trailing = { Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = StatusColors.success) })
+            else GroupedRow(tr("允许后台运行"), Modifier.testTag("allow-background"),
+                titleColor = MaterialTheme.colorScheme.primary, trailing = { Chevron() }, onClick = {
+                    try {
+                        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    } catch (_: ActivityNotFoundException) {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            "package:${context.packageName}".toUri()))
+                    }
+                })
+            // Its own setting, apart from Android's battery optimisation; apps cannot read or open it directly.
+            if (colorOs) {
+                GroupedDivider()
+                GroupedRow(tr("允许完全后台行为"), Modifier.testTag("allow-full-background"),
+                    titleColor = MaterialTheme.colorScheme.primary, trailing = { Chevron() }, onClick = {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            "package:${context.packageName}".toUri()))
+                    })
+            }
+        }
+    }
+    if (landscape) {
+        // Landscape: the title is the bar's (see ItermuxScreen), and the sections are two columns in the same reading
+        // order, the look and the terminal on the left, what happens in the background on the right.
+        LandscapeColumns(Modifier.verticalScroll(rememberScrollState()).padding(start = Spacing.Page, end = Spacing.Page,
+            top = Spacing.Hairline, bottom = Spacing.Section), left = {
+            appearanceSection(); languageSection(); fontSection()
+        }, right = {
+            NotificationSetting(colorOs); DownloadDirectorySetting(); DesktopSetting(); backgroundSection()
+        })
+        return
+    }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.widthIn(max = 600.dp).fillMaxWidth().verticalScroll(rememberScrollState())
             .padding(bottom = Spacing.Section)) {
             LargeTitle(tr("设置"), Modifier.padding(bottom = Spacing.Tight))
             Column(Modifier.padding(horizontal = Spacing.Page), verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
-                GroupedSection(header = tr("外观")) {
-                    Column(Modifier.selectableGroup()) {
-                        AppTheme.entries.forEachIndexed { index, option ->
-                            if (index > 0) GroupedDivider()
-                            CheckRow(tr(option.label), theme == option, Modifier.testTag("settings-theme-${option.name.lowercase()}")) {
-                                onThemeChange(option)
-                            }
-                        }
-                    }
-                }
-                TerminalFontSetting(fontSelection, fontRevision, hasCustom, customName, fontImportError,
-                    onImport = { pickFont.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream", "*/*")) },
-                    onClear = { TerminalFonts.clearCustomFont(context); fontImportError = null },
-                    onSelect = { TerminalFonts.setSelection(context, it); fontImportError = null })
-                GroupedSection(header = tr("语言")) {
-                    Column(Modifier.selectableGroup()) {
-                        AppLanguage.entries.forEachIndexed { index, option ->
-                            if (index > 0) GroupedDivider()
-                            CheckRow(option.label, language == option, Modifier.testTag("settings-language-${option.name.lowercase()}")) {
-                                onLanguageChange(option)
-                            }
-                        }
-                    }
-                }
+                appearanceSection()
+                fontSection()
+                languageSection()
                 NotificationSetting(colorOs)
                 DownloadDirectorySetting()
                 DesktopSetting()
-                GroupedSection(header = tr("后台连接"),
-                    footer = if (colorOs) tr("ColorOS 会在应用退到后台几秒后断开它的网络，连接和 Agent 提醒都会停住。请在应用详情 → 耗电管理中选「完全允许后台行为」，可能增加耗电。")
-                        else tr("锁屏后保持 SSH 需要允许后台运行，可能增加耗电。部分手机还需在系统设置中允许自启动。")) {
-                    if (exempt) GroupedRow(tr("已允许不受电池优化限制"), Modifier.testTag("battery-exempt"),
-                        trailing = { Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = StatusColors.success) })
-                    else GroupedRow(tr("允许后台运行"), Modifier.testTag("allow-background"),
-                        titleColor = MaterialTheme.colorScheme.primary, trailing = { Chevron() }, onClick = {
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                            } catch (_: ActivityNotFoundException) {
-                                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                    "package:${context.packageName}".toUri()))
-                            }
-                        })
-                    // Its own setting, apart from Android's battery optimisation; apps cannot read or open it directly.
-                    if (colorOs) {
-                        GroupedDivider()
-                        GroupedRow(tr("允许完全后台行为"), Modifier.testTag("allow-full-background"),
-                            titleColor = MaterialTheme.colorScheme.primary, trailing = { Chevron() }, onClick = {
-                                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                    "package:${context.packageName}".toUri()))
-                            })
-                    }
-                }
+                backgroundSection()
             }
         }
     }

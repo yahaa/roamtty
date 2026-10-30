@@ -26,6 +26,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -104,6 +105,38 @@ internal fun ToolbarIcon(icon: Int, description: String, modifier: Modifier = Mo
     IconButton(onClick = onClick, enabled = enabled, modifier = modifier.size(48.dp)) {
         Icon(painterResource(icon), contentDescription = description, modifier = Modifier.size(24.dp),
             tint = if (enabled) tint else tint.copy(alpha = 0.38f))
+    }
+}
+
+/**
+ * Every page's bar in landscape, where height is short: flat and 48dp, the control that leaves at the start, the title
+ * beside it (with a short [detail] after it when there is one), and the page's actions at the end. Pages and sheets
+ * alike use it, so the bar looks and sits the same wherever the phone is turned.
+ */
+@Composable
+internal fun LandscapeBar(title: String, modifier: Modifier = Modifier, detail: String? = null,
+    leading: (@Composable RowScope.() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
+    Row(modifier.fillMaxWidth().height(HOME_COMPACT_BAR_HEIGHT).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        leading?.invoke(this)
+        Row(Modifier.weight(1f).padding(start = if (leading == null) Spacing.Row else 2.dp, end = Spacing.Tight),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).semantics { heading() })
+            if (!detail.isNullOrEmpty()) Text(detail, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false).testTag("landscape-bar-detail"))
+        }
+        actions()
+    }
+}
+
+/** Landscape content as two columns of sections, read down the left then down the right, each as wide as the other. */
+@Composable
+internal fun LandscapeColumns(modifier: Modifier = Modifier, spacing: Dp = Spacing.Section,
+    left: @Composable ColumnScope.() -> Unit, right: @Composable ColumnScope.() -> Unit) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.Page)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(spacing), content = left)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(spacing), content = right)
     }
 }
 

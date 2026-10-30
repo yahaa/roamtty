@@ -1,5 +1,6 @@
 package io.itermux.app.ui
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,6 +13,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -44,24 +46,37 @@ internal fun CommonCommandsContent(history: CommonCommandsState, connected: Bool
     }
     val ready = history as? CommonCommandsState.Ready
     val terminalFont = rememberTerminalFontFamily()
-    AppSheet(onDismiss) {
-        Row(Modifier.fillMaxWidth().padding(start = Spacing.Page + Spacing.Hairline, end = Spacing.Tight, bottom = Spacing.Row),
-            verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(tr("常用命令"), style = MaterialTheme.typography.titleLarge)
-                Text(tr("点按即执行"), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val refresh: @Composable () -> Unit = {
+        ToolbarIcon(R.drawable.ic_refresh, tr("刷新"), Modifier.testTag("common-commands-refresh"),
+            enabled = connected && history !is CommonCommandsState.Loading,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant, onClick = onRefresh)
+    }
+    val caption = ready?.takeIf { filtered.isNotEmpty() }?.let { trf("%d 条 · %s", filtered.size, it.source) }
+    AppSheet(onDismiss, fullScreen = landscape, wide = landscape) {
+        // Landscape: one flat bar with the count after the title and the search in it, so the list keeps the height.
+        if (landscape) LandscapeBar(tr("常用命令"), detail = caption, leading = {
+            ToolbarIcon(R.drawable.ic_close, tr("关闭"), onClick = onDismiss)
+        }) {
+            CompactSearchField(query, { query = it }, tr("搜索命令"), Modifier.width(260.dp).testTag("common-commands-search"))
+            refresh()
+        } else {
+            Row(Modifier.fillMaxWidth().padding(start = Spacing.Page + Spacing.Hairline, end = Spacing.Tight, bottom = Spacing.Row),
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(tr("常用命令"), style = MaterialTheme.typography.titleLarge)
+                    Text(tr("点按即执行"), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                refresh()
+                ToolbarIcon(R.drawable.ic_close, tr("关闭"), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = onDismiss)
             }
-            ToolbarIcon(R.drawable.ic_refresh, tr("刷新"), Modifier.testTag("common-commands-refresh"),
-                enabled = connected && history !is CommonCommandsState.Loading,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant, onClick = onRefresh)
-            ToolbarIcon(R.drawable.ic_close, tr("关闭"), tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                onClick = onDismiss)
+            AppSearchField(query, { query = it }, tr("搜索命令"),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).testTag("common-commands-search"))
         }
-        AppSearchField(query, { query = it }, tr("搜索命令"),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).testTag("common-commands-search"))
         LazyColumn(Modifier.fillMaxSize().testTag("common-commands-list"),
-            contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = Spacing.Page, bottom = Spacing.Section)) {
+            contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, top = if (landscape) Spacing.Hairline else Spacing.Page, bottom = Spacing.Section)) {
             when (history) {
                 CommonCommandsState.Idle, CommonCommandsState.Loading -> item {
                     Row(Modifier.fillMaxWidth().padding(vertical = Spacing.Section), verticalAlignment = Alignment.CenterVertically,
@@ -74,7 +89,7 @@ internal fun CommonCommandsContent(history: CommonCommandsState, connected: Bool
                 is CommonCommandsState.Unavailable -> item { EmptyNote(tr(history.reason)) }
                 is CommonCommandsState.Ready -> {
                     if (filtered.isEmpty()) item { EmptyNote(tr(if (query.isBlank()) "未找到可用命令" else "无匹配命令")) }
-                    else item(key = "caption") {
+                    else if (!landscape) item(key = "caption") {
                         Text(trf("%d 条 · %s", filtered.size, history.source), style = MaterialTheme.typography.sectionHeader,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Tight))

@@ -115,12 +115,9 @@ internal fun ContinueSessionSheet(host: Host, openTmux: Set<String>, onDismiss: 
         if (landscape) {
             // Like the launch sheet there: one flat bar, the list over the whole height, and a side column with the
             // picked session and the button at its foot.
-            Row(Modifier.fillMaxWidth().height(HOME_COMPACT_BAR_HEIGHT).padding(horizontal = 4.dp).testTag("continue-bar"),
-                verticalAlignment = Alignment.CenterVertically) {
+            LandscapeBar(heading, Modifier.testTag("continue-bar"), leading = {
                 ToolbarIcon(R.drawable.ic_close, tr("关闭"), Modifier.testTag("continue-close"), onClick = onDismiss)
-                Text(heading, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, end = Spacing.Row))
-            }
+            })
             Row(Modifier.weight(1f).fillMaxWidth().padding(start = Spacing.Row, end = Spacing.Row, bottom = Spacing.Row),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 listBox(Modifier.weight(1f).fillMaxHeight())

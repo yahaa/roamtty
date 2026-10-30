@@ -544,6 +544,12 @@ fun ItermuxScreen(
                         val shown = (placeable.height + barOffset.roundToInt()).coerceAtLeast(0)
                         layout(placeable.width, shown) { placeable.place(0, barOffset.roundToInt()) }
                     })
+                // Settings in landscape: the flat bar of every other landscape page, the drawer at its start.
+                else if (toolbarVisible && landscape && page == AppPage.SETTINGS) LandscapeBar(tr("设置"), leading = {
+                    ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo"), onClick = openDrawer)
+                }) {
+                    ToolbarIcon(R.drawable.ic_close, tr("关闭设置"), Modifier.testTag("close-settings")) { page = settingsReturnPage }
+                }
                 else if (toolbarVisible) AppToolbar(
                     navigation = {
                         // As wide as the search on the right, so the home tabs sit in the middle of the screen.
