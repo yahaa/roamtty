@@ -195,6 +195,8 @@ class SessionService : Service() {
             .setContentIntent(open).setAutoCancel(true).setShowWhen(true)
             .setPriority(if (kind == AgentAlerts.Kind.WAITING) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
+            // A group of its own: without one, the system folds it into one bundle with the ongoing notification.
+            .setGroup("$ALERT_GROUP${connection.id}")
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public).build()
         getSystemService(NotificationManager::class.java).notify(connection.id, ALERT, notification)
         alerts[connection.id] = kind
@@ -398,6 +400,8 @@ class SessionService : Service() {
             .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("%d 个会话", active))
             .setContentText(text)
             .setOngoing(true).setSilent(true).setContentIntent(launch)
+            // Kept apart from the agent notifications; see showAlert.
+            .setGroup(ONGOING_GROUP)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build()
     }
     // This is a user-controlled SSH session, not a fixed-duration job. A timer would silently
@@ -428,6 +432,8 @@ class SessionService : Service() {
         private const val NOTIFICATION = 20
         /** Agent notifications share this id; each is tagged with its session's id. */
         private const val ALERT = 21
+        private const val ALERT_GROUP = "agent-alert-"
+        private const val ONGOING_GROUP = "ongoing"
         private const val WAITING_CHANNEL = "agent-waiting"
         private const val DONE_CHANNEL = "agent-done"
     }
