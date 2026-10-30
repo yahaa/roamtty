@@ -30,6 +30,8 @@ internal class SpanBuffer {
 object SyntaxHighlighter {
     /** Rows longer than this are split so a minified file cannot produce one enormous text layout. */
     const val MAX_ROW_LENGTH = 2000
+    /** The longest pattern token (URL, timestamp, …) matched; longer runs are cut there. */
+    private const val MAX_TOKEN_LENGTH = 2000
     private const val TAB_WIDTH = 4
 
     fun highlight(rawText: String, language: CodeLanguage): CodeDocument {
@@ -137,8 +139,11 @@ object SyntaxHighlighter {
     }
 
     internal fun tokenizeCode(language: CodeLanguage, text: String, from: Int, to: Int, out: SpanBuffer) {
-        val lineMatchers: List<Matcher> = language.lineRules.map { it.pattern.matcher(text) }
-        val patternMatchers: List<Matcher> = language.patterns.map { it.pattern.matcher(text) }
+        // Android's ICU-backed Matcher copies its whole input on every reset or region change, so pointing one at
+        // [text] made each attempt cost the length of the file. Rules and patterns never span lines: match each
+        // against a copy of the rest of its line.
+        val lineMatchers: List<Matcher> = language.lineRules.map { it.pattern.matcher("") }
+        val patternMatchers: List<Matcher> = language.patterns.map { it.pattern.matcher("") }
         val orderedStrings = language.strings.sortedByDescending { it.open.length }
         var i = from
         var lineBegin = from
@@ -148,14 +153,15 @@ object SyntaxHighlighter {
         var lastSignificant = ' '
         loop@ while (i < to) {
             if (i == lineBegin && lineMatchers.isNotEmpty()) {
-                val end = lineEnd(text, i, to)
+                val line = text.substring(i, lineEnd(text, i, to))
+                val begin = i
                 for ((index, matcher) in lineMatchers.withIndex()) {
-                    matcher.region(i, end)
+                    matcher.reset(line)
                     if (matcher.lookingAt()) {
                         for ((group, type) in language.lineRules[index].groups) {
-                            if (matcher.start(group) >= 0) out.add(matcher.start(group), matcher.end(group), type)
+                            if (matcher.start(group) >= 0) out.add(begin + matcher.start(group), begin + matcher.end(group), type)
                         }
-                        if (matcher.end() > i) { i = matcher.end(); lineHasContent = true; lastSignificant = text[i - 1] }
+                        if (matcher.end() > 0) { i = begin + matcher.end(); lineHasContent = true; lastSignificant = text[i - 1] }
                         break
                     }
                 }
@@ -202,10 +208,11 @@ object SyntaxHighlighter {
             for ((index, matcher) in patternMatchers.withIndex()) {
                 val pattern = language.patterns[index]
                 if (pattern.trigger(c) && (i == from || !isIdentPart(text[i - 1], language))) {
-                    matcher.region(i, to)
-                    if (matcher.lookingAt() && matcher.end() > i) {
-                        out.add(i, matcher.end(), pattern.type)
-                        i = matcher.end(); lastSignificant = text[i - 1]; continue@loop
+                    // A token is short: cap the copy so a minified one-line file stays linear.
+                    matcher.reset(text.substring(i, minOf(lineEnd(text, i, to), i + MAX_TOKEN_LENGTH)))
+                    if (matcher.lookingAt() && matcher.end() > 0) {
+                        out.add(i, i + matcher.end(), pattern.type)
+                        i += matcher.end(); lastSignificant = text[i - 1]; continue@loop
                     }
                 }
             }
