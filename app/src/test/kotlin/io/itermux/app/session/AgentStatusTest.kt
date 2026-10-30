@@ -172,6 +172,62 @@ class AgentStatusTest {
         }
     }
 
+    @Test fun aTurnWaitingForBackgroundWorkGoesOnUntilThatWorkWakesItAndEnds() {
+        val dir = Files.createTempDirectory("agent-hook").toFile()
+        try {
+            val script = File(dir, "agent-hook.sh").apply { writeText(AgentHooks.script) }
+            File(dir, "tmux").apply {
+                writeText("#!/bin/sh\ncase \"\$1\" in\n  show-options) cat \"$dir/opt\$5\" 2>/dev/null ;;\n" +
+                    "  set-option) if [ \"\$2\" = -u ]; then rm -f \"$dir/opt\$6\"; else printf '%s' \"\$6\" > \"$dir/opt\$5\"; fi ;;\nesac\n")
+                setExecutable(true)
+            }
+            fun hook(agent: String, event: String, json: String = "{}") {
+                val process = ProcessBuilder("sh", script.path, agent, event).apply {
+                    environment()["PATH"] = "${dir.path}:${System.getenv("PATH")}"
+                    environment()["TMUX_PANE"] = "%1"
+                    environment()["ROAMTTY_AGENT"] = "grok"
+                }.start()
+                process.outputStream.use { it.write(json.toByteArray()) }
+                assertEquals(0, process.waitFor())
+            }
+            fun option(name: String) = File(dir, "opt$name").takeIf { it.exists() }?.readText()
+            fun reported() = option("@roamtty_agent")!!.split('|').let { "${it[0]}|${it[3]}|${it[4]}" }
+
+            hook("claude", "prompt", """{"prompt":"run the suite"}""")
+            val turn = option("@roamtty_turn")
+            // Claude Code's Stop as it comes while a background shell runs (an answer quoting the key changes nothing).
+            hook("claude", "stop", """{"stop_hook_active":false,"last_assistant_message":"started \"background_tasks\":[{}]",""" +
+                """"background_tasks":[{"id":"b1","type":"shell","status":"running","description":"Run the suite","command":"make test"}],"session_crons":[]}""")
+            assertEquals("working|Background|make test", reported())
+            assertNull(option("@roamtty_worked"))
+            // Idle for a minute only to look at: it stays at work.
+            hook("claude", "notify", """{"notification_type":"idle_prompt","message":"Claude is waiting for your input"}""")
+            assertEquals("working|Background|make test", reported())
+            // The work ends and wakes it: the same turn and task go on, then end.
+            hook("claude", "prompt", """{"prompt":"<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>"}""")
+            assertEquals(turn, option("@roamtty_turn"))
+            assertEquals("run the suite", option("@roamtty_task"))
+            hook("claude", "stop", """{"last_assistant_message":"All green.","background_tasks":[],"session_crons":[]}""")
+            assertEquals("idle||", reported())
+            assertNotNull(option("@roamtty_worked"))
+            assertEquals("All green.", option("@roamtty_reply"))
+            // Grok names it in camelCase; a subagent says what it does. Only a scheduled wakeup is no work in flight.
+            hook("grok", "prompt", """{"prompt":"review"}""")
+            hook("grok", "stop", """{"lastAssistantMessage":"spawned","backgroundTasks":[{"id":"a1","type":"subagent","status":"running","description":"Review the diff","agentType":"general"}],"sessionCrons":[]}""")
+            assertEquals("working|Background|Review the diff", reported())
+            hook("grok", "stop", """{"lastAssistantMessage":"ok","backgroundTasks":[],"sessionCrons":[{"id":"c1","schedule":"*/5 * * * *"}]}""")
+            assertEquals("idle||", reported())
+            // A new prompt of the user's while work runs in the background starts a turn of its own.
+            hook("claude", "stop", """{"background_tasks":[{"id":"b2","type":"shell","status":"running","command":"sleep 60"}]}""")
+            File(dir, "opt@roamtty_turn").delete()
+            hook("claude", "prompt", """{"prompt":"something else"}""")
+            assertNotNull("the user's prompt starts a turn", option("@roamtty_turn"))
+            assertEquals("something else", option("@roamtty_task"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun readsTheReplyOfAnIdleAgentOnly() {
         val idle = AgentStatus.parse("claude|idle|1000|claude|||75|fix the bug|All fixed.\n/home/v\n1042\n")!!
         assertEquals("fix the bug", idle.task)
