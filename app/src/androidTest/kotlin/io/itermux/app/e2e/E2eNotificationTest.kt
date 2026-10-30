@@ -184,6 +184,58 @@ class E2eNotificationTest {
             .getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString())
     }
 
+    /** Taps the switch of the system's page for the ongoing notification's channel, as the settings row opens it. */
+    private fun toggleBackgroundChannel(name: String) {
+        app.startActivity(Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, app.packageName)
+            .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, SessionService.CHANNEL)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        Thread.sleep(2_000)
+        E2e.screenshot("n05-channel-$name")
+        fun nodes(node: AccessibilityNodeInfo): List<AccessibilityNodeInfo> =
+            listOf(node) + (0 until node.childCount).mapNotNull(node::getChild).flatMap(::nodes)
+        val switch = listOfNotNull(shell.rootInActiveWindow).flatMap(::nodes).firstOrNull { it.isCheckable }
+        assertNotNull("no switch on the channel page", switch)
+        val bounds = Rect().also { switch!!.getBoundsInScreen(it) }
+        sh("input tap ${bounds.centerX()} ${bounds.centerY()}")
+        Thread.sleep(1_000)
+        sh("input keyevent KEYCODE_BACK")
+    }
+
+    /**
+     * The ongoing notification can be hidden the one way Android allows, by turning its channel off: the connection stays
+     * and an agent's request is still notified.
+     */
+    @Test fun n05_hiddenOngoingNotificationKeepsConnectionsAndAlerts() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("隐藏常驻通知", mode = SessionMode.TMUX))
+        val session = open(host, "sleep 30; printf '{\"prompt\":\"deploy\"}' | $hook prompt; " +
+            "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push\"}}' | $hook tool; " +
+            "printf '{\"notification_type\":\"permission_prompt\"}' | $hook notify; sleep 600")
+        val manager = app.getSystemService(android.app.NotificationManager::class.java)
+        fun ongoing() = manager.activeNotifications.firstOrNull { it.id == 20 && it.tag == null }
+        waitFor("the ongoing notification", 10_000) { ongoing() != null }
+        assertEquals("Roamtty 在后台保持连接",
+            ongoing()!!.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString())
+        try {
+            toggleBackgroundChannel("off")
+            waitFor("the channel to be off", 5_000) {
+                manager.getNotificationChannel(SessionService.CHANNEL).importance == android.app.NotificationManager.IMPORTANCE_NONE
+            }
+            waitFor("the ongoing notification to go", 5_000) { ongoing() == null }
+            sh("input keyevent KEYCODE_HOME")
+            waitFor("the request's notification", 60_000) { notifications().any { it.tag == session.id } }
+            assertEquals(Phase.CONNECTED, session.state.value.phase)
+            assertNull(ongoing())
+            Thread.sleep(1_000)
+            E2e.screenshot("n05-alert-without-ongoing")
+        } finally {
+            toggleBackgroundChannel("on")
+            waitFor("the channel back on", 5_000) {
+                manager.getNotificationChannel(SessionService.CHANNEL).importance != android.app.NotificationManager.IMPORTANCE_NONE
+            }
+        }
+    }
+
     /**
      * The usual way through a request: its notification is tapped, the request answered in the session, and the turn
      * ends while that session is on screen, so the end needs no notification, not even once the app has gone.

@@ -141,6 +141,14 @@ private fun NotificationSetting() {
                 }
             }
         }
+        // Android keeps a foreground service's notification; the user can only turn its channel off, in the system's page.
+        GroupedDivider()
+        GroupedRow(tr("隐藏后台连接通知"), Modifier.testTag("settings-notify-hide-background"),
+            titleColor = MaterialTheme.colorScheme.primary, trailing = { Chevron() }, onClick = {
+                context.startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    .putExtra(Settings.EXTRA_CHANNEL_ID, io.itermux.app.session.SessionService.CHANNEL))
+            })
     }
 }
 
