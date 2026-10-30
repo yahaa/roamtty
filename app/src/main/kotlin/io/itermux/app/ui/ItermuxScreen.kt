@@ -683,9 +683,12 @@ fun ItermuxScreen(
                     // the map still holds the empty value it had before.
                     val connection = desktops[desktopHostId] ?: desktopHostId?.let { service?.desktops?.get(it) }
                     if (connection != null) key(connection) {
+                        // The buttons capture the host, not the connection: Compose keeps the last tapped node (and its
+                        // lambda) until the next touch, which would hold a closed desktop's buffers till then.
+                        val desktopHost = connection.host
                         DesktopPage(connection, onLeave = { page = AppPage.HOME },
-                            onDisconnect = { service?.desktops?.close(connection.host.id); page = AppPage.HOME },
-                            onFiles = { browseFiles(hosts.firstOrNull { it.id == connection.host.id } ?: connection.host) },
+                            onDisconnect = { service?.desktops?.close(desktopHost.id); page = AppPage.HOME },
+                            onFiles = { browseFiles(hosts.firstOrNull { it.id == desktopHost.id } ?: desktopHost) },
                             modifier = Modifier.weight(1f))
                     // A recreated activity (rotation) binds the service again first; only a desktop that is really gone goes home.
                     } else if (service != null) LaunchedEffect(Unit) { page = AppPage.HOME }

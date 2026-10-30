@@ -537,4 +537,83 @@ class E2eDesktopTest {
             remote("DISPLAY=:77 setxkbmap -rules evdev -model pc105 -layout us; rm -f ~/desktop-keys.txt")
         }
     }
+
+    /** Threads, open files and native heap of this process, after a GC. */
+    private fun nativeFootprint(): Triple<Int, Int, Double> {
+        E2e.gc()
+        val threads = java.io.File("/proc/self/task").list()?.size ?: -1
+        val fds = java.io.File("/proc/self/fd").list()?.size ?: -1
+        return Triple(threads, fds, android.os.Debug.getNativeHeapAllocatedSize() / 1048576.0)
+    }
+
+    /** What each open file descriptor points at (socket:[…] numbers vary, so only their kind counts). */
+    private fun fdTargets(): List<String> = java.io.File("/proc/self/fd").listFiles().orEmpty()
+        .map { runCatching { android.system.Os.readlink(it.path) }.getOrDefault("?").replace(Regex("\\[\\d+]"), "") }
+
+    /** Opens the desktop from the card, waits for a picture, then 断开连接; returns the closed connection. */
+    private fun desktopRound(sessionId: String, round: Int): java.lang.ref.WeakReference<DesktopConnection> {
+        click("home-session-desktop-$sessionId", 15_000)
+        E2e.waitTag(compose, "desktop-page")
+        waitPhase(45_000, "round $round first frame") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
+        assertTrue("round $round: ${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)
+        compose.waitUntil(10_000) { decodedFrames() > 0 }
+        val ref = java.lang.ref.WeakReference(desktop())
+        click("desktop-rail-operations")
+        E2e.waitTag(compose, "desktop-operations")
+        compose.onNodeWithTag("desktop-op-disconnect").performScrollTo()
+        click("desktop-op-disconnect")
+        E2e.waitTag(compose, "home-pager")
+        compose.waitUntil(10_000) { service.desktops[hostId] == null }
+        return ref
+    }
+
+    /**
+     * Opening and disconnecting a desktop again and again leaves nothing behind: no connection, decoder or
+     * audio thread, file descriptor or native buffer per round. The first round warms codecs and libraries.
+     */
+    @Test fun d08_repeatedDesktopsDoNotAccumulate() {
+        val host = runBlocking { E2e.save(E2e.host("desktop-sweep")) }
+        hostId = host.id
+        val session = runBlocking {
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+        }
+        runBlocking { assertEquals(io.itermux.ssh.Phase.CONNECTED, E2e.connected(session)) }
+        compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
+        val refs = mutableListOf(desktopRound(session.id, 0))
+        idle(1_500)
+        val (threads0, fds0, native0) = nativeFootprint()
+        val pss0 = E2e.pssMb()
+        val targets0 = fdTargets()
+        val rounds = 10
+        val fdsPerRound = mutableListOf<Int>()
+        for (round in 1..rounds) {
+            refs += desktopRound(session.id, round)
+            fdsPerRound += java.io.File("/proc/self/fd").list()?.size ?: -1
+        }
+        // Compose keeps the last laid-out and last tapped nodes (with their click lambdas) of a page that has gone
+        // until the next layout or touch; a recreated Activity drops them, as the other leak sweeps do.
+        compose.activityRule.scenario.recreate()
+        E2e.waitTag(compose, "home-pager")
+        idle(1_500)
+        val deadline = System.currentTimeMillis() + 15_000
+        while (refs.any { it.get() != null } && System.currentTimeMillis() < deadline) { E2e.gc(); idle(250) }
+        val (threads, fds, native) = nativeFootprint()
+        val pss = E2e.pssMb()
+        val alive = refs.count { it.get() != null }
+        val newFds = fdTargets().toMutableList().apply { targets0.forEach { remove(it) } }.groupingBy { it }.eachCount()
+        val summary = "threads $threads0→$threads, fds $fds0→$fds, native ${"%.1f".format(native0)}→${"%.1f".format(native)} MB, " +
+            "pss ${"%.1f".format(pss0)}→${"%.1f".format(pss)} MB, " +
+            "alive rounds ${refs.indices.filter { refs[it].get() != null }}, new fds $newFds, fds per round $fdsPerRound"
+        E2e.metric("desktop_sweep_retained", alive, "count")
+        E2e.metric("desktop_sweep_native_growth_mb", native - native0, "MB")
+        E2e.metric("desktop_sweep_pss_growth_mb", pss - pss0, "MB")
+        E2e.metric("desktop_sweep_thread_growth", threads - threads0, "count")
+        E2e.metric("desktop_sweep_fd_growth", fdsPerRound.last() - fdsPerRound[rounds / 2 - 1], "count")
+        assertEquals("closed desktops still reachable ($summary)", 0, alive)
+        assertTrue("threads grew over $rounds desktops ($summary)", threads - threads0 <= 2)
+        // The graphics and codec buffer pools (dups of one ashmem region) fill over the first rounds, then stay level.
+        val lateFdGrowth = fdsPerRound.last() - fdsPerRound[rounds / 2 - 1]
+        assertTrue("file descriptors kept growing over the last ${rounds / 2} desktops ($summary)", lateFdGrowth <= 3)
+        assertTrue("native heap grew over $rounds desktops ($summary)", native - native0 < 6.0)
+    }
 }
