@@ -124,4 +124,141 @@ class E2eNotificationTest {
         Thread.sleep(500)
         E2e.screenshot("n01-opened-session")
     }
+
+    private val hook = "sh ~/.roamtty/agent-hook.sh claude"
+
+    /** Opens a tmux session on [host] that runs [command] with Claude's hooks, and waits for it to connect. */
+    private suspend fun open(host: io.itermux.app.data.Host, command: String) = withContext(Dispatchers.Main) {
+        service.open(host, SessionMode.TMUX, Credentials(E2e.password.toByteArray())).also {
+            it.runWhenConnected(command, agentHooks = CodingAgent.CLAUDE)
+        }
+    }.also { assertEquals(Phase.CONNECTED, E2e.connected(it)) }
+
+    /** A turn on [task] that ends with [answer], [worked] seconds after it began (the start is set back). */
+    private fun turn(task: String, answer: String, worked: Int) = "printf '{\"prompt\":\"$task\"}' | $hook prompt; " +
+        "tmux set-option -q -t \"\$TMUX_PANE\" @roamtty_turn \$(( \$(date +%s) - $worked )); " +
+        "printf '{\"last_assistant_message\":\"$answer\"}' | $hook stop"
+
+    private fun notifications() = app.getSystemService(android.app.NotificationManager::class.java).activeNotifications
+
+    /**
+     * With the app in the background, a turn that worked over a minute ends in a silent notification of the host, how
+     * long it worked and the start of the answer; a short one ends without one.
+     */
+    @Test fun n02_backgroundTurnsThatEnd() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("后台完成", mode = SessionMode.TMUX))
+        val long = open(host, "sleep 15; ${turn("e2e", "All 48 passed.", 125)}; sleep 600")
+        val short = open(host, "sleep 15; ${turn("ls", "Listed 27 entries.", 8)}; sleep 600")
+        sh("input keyevent KEYCODE_HOME")
+        waitFor("the app to leave the screen", 10_000) { activities(Stage.STOPPED).isNotEmpty() }
+        waitFor("the long turn's notification", 60_000) { notifications().any { it.tag == long.id } }
+        waitFor("the short turn to report", 20_000) { short.lastAgentStatus.value?.workedSeconds != null }
+        val done = notifications().single { it.tag == long.id }.notification
+        assertEquals("Claude 已完成", done.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString())
+        assertEquals("${host.name} · 2 分钟 · All 48 passed.", done.extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString())
+        assertEquals("agent-done", done.channelId)
+        assertNull("a turn of 8 s notified", notifications().firstOrNull { it.tag == short.id })
+        // Shown on its own, not folded into one bundle with the ongoing notification.
+        assertNull("folded into ${notifications().single { it.tag == long.id }.overrideGroupKey}",
+            notifications().single { it.tag == long.id }.overrideGroupKey)
+        sh("cmd statusbar expand-notifications")
+        Thread.sleep(1_500)
+        E2e.screenshot("n02-shade")
+        sh("cmd statusbar collapse")
+    }
+
+    /** A turn that ends after the user looked at its session and left the app is notified as any other. */
+    @Test fun n04_aTurnThatEndsAfterTheUserLeftIsNotified() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("离开后完成", mode = SessionMode.TMUX))
+        val session = open(host, "sleep 20; ${turn("refactor", "Refactored 3 files.", 90)}; sleep 600")
+        // The user opens the session and watches it work for a while.
+        app.startActivity(Intent(app, MainActivity::class.java).putExtra(MainActivity.EXTRA_SESSION, session.id)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        Thread.sleep(3_000)
+        E2e.screenshot("n04-watching")
+        sh("input keyevent KEYCODE_HOME")
+        waitFor("the app to leave the screen", 10_000) { activities(Stage.STOPPED).isNotEmpty() }
+        assertNull("notified before the turn ended", notifications().firstOrNull { it.tag == session.id })
+        waitFor("the notification once the turn ends", 60_000) { notifications().any { it.tag == session.id } }
+        assertEquals("Claude 已完成", notifications().single { it.tag == session.id }.notification.extras
+            .getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString())
+    }
+
+    /** Taps the switch of the system's page for the ongoing notification's channel, as the settings row opens it. */
+    private fun toggleBackgroundChannel(name: String) {
+        app.startActivity(Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, app.packageName)
+            .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, SessionService.CHANNEL)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        Thread.sleep(2_000)
+        E2e.screenshot("n05-channel-$name")
+        fun nodes(node: AccessibilityNodeInfo): List<AccessibilityNodeInfo> =
+            listOf(node) + (0 until node.childCount).mapNotNull(node::getChild).flatMap(::nodes)
+        val switch = listOfNotNull(shell.rootInActiveWindow).flatMap(::nodes).firstOrNull { it.isCheckable }
+        assertNotNull("no switch on the channel page", switch)
+        val bounds = Rect().also { switch!!.getBoundsInScreen(it) }
+        sh("input tap ${bounds.centerX()} ${bounds.centerY()}")
+        Thread.sleep(1_000)
+        sh("input keyevent KEYCODE_BACK")
+    }
+
+    /**
+     * The ongoing notification can be hidden the one way Android allows, by turning its channel off: the connection stays
+     * and an agent's request is still notified.
+     */
+    @Test fun n05_hiddenOngoingNotificationKeepsConnectionsAndAlerts() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("隐藏常驻通知", mode = SessionMode.TMUX))
+        val session = open(host, "sleep 30; printf '{\"prompt\":\"deploy\"}' | $hook prompt; " +
+            "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push\"}}' | $hook tool; " +
+            "printf '{\"notification_type\":\"permission_prompt\"}' | $hook notify; sleep 600")
+        val manager = app.getSystemService(android.app.NotificationManager::class.java)
+        fun ongoing() = manager.activeNotifications.firstOrNull { it.id == 20 && it.tag == null }
+        waitFor("the ongoing notification", 10_000) { ongoing() != null }
+        assertEquals("1 个会话",
+            ongoing()!!.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString())
+        try {
+            toggleBackgroundChannel("off")
+            waitFor("the channel to be off", 5_000) {
+                manager.getNotificationChannel(SessionService.CHANNEL).importance == android.app.NotificationManager.IMPORTANCE_NONE
+            }
+            waitFor("the ongoing notification to go", 5_000) { ongoing() == null }
+            sh("input keyevent KEYCODE_HOME")
+            waitFor("the request's notification", 60_000) { notifications().any { it.tag == session.id } }
+            assertEquals(Phase.CONNECTED, session.state.value.phase)
+            assertNull(ongoing())
+            Thread.sleep(1_000)
+            E2e.screenshot("n05-alert-without-ongoing")
+        } finally {
+            toggleBackgroundChannel("on")
+            waitFor("the channel back on", 5_000) {
+                manager.getNotificationChannel(SessionService.CHANNEL).importance != android.app.NotificationManager.IMPORTANCE_NONE
+            }
+        }
+    }
+
+    /**
+     * The usual way through a request: its notification is tapped, the request answered in the session, and the turn
+     * ends while that session is on screen, so the end needs no notification, not even once the app has gone.
+     */
+    @Test fun n03_aTurnThatEndsInSightIsNotNotified() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("看着完成", mode = SessionMode.TMUX))
+        // `head` waits for the answer as the agent would, and keeps the pane off the shell.
+        val session = open(host, "sleep 15; printf '{\"prompt\":\"run ls\"}' | $hook prompt; " +
+            "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}}' | $hook tool; " +
+            "printf '{\"notification_type\":\"permission_prompt\"}' | $hook notify; head -n1 >/dev/null; " +
+            "${turn("run ls", "Listed 27 entries.", 90)}; sleep 600")
+        sh("input keyevent KEYCODE_HOME")
+        waitFor("the app to leave the screen", 10_000) { activities(Stage.STOPPED).isNotEmpty() }
+        waitFor("the request's notification", 60_000) { notifications().any { it.tag == session.id } }
+        notifications().single { it.tag == session.id }.notification.contentIntent.send()
+        waitFor("the app back on screen", 10_000) { activities(Stage.RESUMED).isNotEmpty() }
+        waitFor("the notification to go as its session shows", 10_000) { notifications().none { it.tag == session.id } }
+        assertTrue("the request was not answered", withContext(Dispatchers.Main) { session.approveAgent() })
+        waitFor("the turn to end", 20_000) { session.lastAgentStatus.value?.workedSeconds != null }
+        Thread.sleep(1_000)
+        assertNull(notifications().firstOrNull { it.tag == session.id })
+        sh("input keyevent KEYCODE_HOME")
+        Thread.sleep(5_000)
+        assertNull(notifications().firstOrNull { it.tag == session.id })
+    }
 }

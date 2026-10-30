@@ -82,14 +82,17 @@ class SessionService : Service() {
     }
     fun refreshLanguage() {
         getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(
-            NotificationChannel(CHANNEL, tr("SSH 会话"), NotificationManager.IMPORTANCE_LOW).apply { description = tr("保持主动打开的 SSH 连接") },
+            // Android shows a foreground service's notification; since Android 13 the user may turn this channel off and
+            // the service, and the connections, carry on.
+            NotificationChannel(CHANNEL, tr("后台连接"), NotificationManager.IMPORTANCE_LOW)
+                .apply { description = tr("让 SSH 在后台保持连接。关掉这个类别只是不显示通知，连接不受影响。") },
             NotificationChannel(WAITING_CHANNEL, tr("Agent 等你确认"), NotificationManager.IMPORTANCE_HIGH)
                 .apply { description = tr("Agent 停下来请求权限或提问时提醒") },
             // A finished turn waits in the shade without a sound; the user can raise it in the system settings.
             NotificationChannel(DONE_CHANNEL, tr("Agent 已完成"), NotificationManager.IMPORTANCE_LOW)
                 .apply { description = tr("Agent 做完一轮（运行超过 1 分钟）时提醒") },
         ))
-        if (foreground) refreshNotification()
+        if (foreground) { postedNotice = null; refreshNotification() }
     }
     suspend fun awaitRestoration() { restoration.join() }
     private fun saveSessions() = journal.save(mutableSessions.value)
@@ -195,6 +198,8 @@ class SessionService : Service() {
             .setContentIntent(open).setAutoCancel(true).setShowWhen(true)
             .setPriority(if (kind == AgentAlerts.Kind.WAITING) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
+            // A group of its own: without one, the system folds it into one bundle with the ongoing notification.
+            .setGroup("$ALERT_GROUP${connection.id}")
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public).build()
         getSystemService(NotificationManager::class.java).notify(connection.id, ALERT, notification)
         alerts[connection.id] = kind
@@ -377,6 +382,7 @@ class SessionService : Service() {
         ServiceCompat.startForeground(this, NOTIFICATION, notification(),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
         foreground = true
+        postedNotice = notice()
         refreshNotification()
         return START_NOT_STICKY
     }
@@ -398,6 +404,8 @@ class SessionService : Service() {
             .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("%d 个会话", active))
             .setContentText(text)
             .setOngoing(true).setSilent(true).setContentIntent(launch)
+            // Kept apart from the agent notifications; see showAlert.
+            .setGroup(ONGOING_GROUP)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build()
     }
     // This is a user-controlled SSH session, not a fixed-duration job. A timer would silently
@@ -411,8 +419,16 @@ class SessionService : Service() {
         if (!active) {
             if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false }
             stopSelf()
-        } else if (foreground) getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification())
+            postedNotice = null
+        } else if (foreground && notice() != postedNotice) {
+            // Posted again only when what it says changes.
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification())
+            postedNotice = notice()
+        }
     }
+    /** What the ongoing notification says: the live sessions, and the live desktops by host; see [notification]. */
+    private fun notice() = listOf(sessions.value.count { it.state.value.active }.toString()) + desktops.live.map { it.host.id }
+    private var postedNotice: List<String>? = null
     override fun onDestroy() {
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         mutableSessions.value.forEach { it.disconnect() }
@@ -424,10 +440,13 @@ class SessionService : Service() {
     }
     companion object {
         const val MAX_SESSIONS_PER_HOST = 8
-        private const val CHANNEL = "ssh-sessions"
+        /** The ongoing notification's channel, which the settings page opens for the user to turn off. */
+        const val CHANNEL = "ssh-sessions"
         private const val NOTIFICATION = 20
         /** Agent notifications share this id; each is tagged with its session's id. */
         private const val ALERT = 21
+        private const val ALERT_GROUP = "agent-alert-"
+        private const val ONGOING_GROUP = "ongoing"
         private const val WAITING_CHANNEL = "agent-waiting"
         private const val DONE_CHANNEL = "agent-done"
     }

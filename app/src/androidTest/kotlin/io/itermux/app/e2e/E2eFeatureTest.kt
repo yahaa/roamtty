@@ -713,6 +713,7 @@ class E2eFeatureTest {
             compose.waitUntil(3_000) { prefs.getString("theme", null) == "LIGHT" }
             compose.onNodeWithTag("settings-notify-waiting_only").performScrollTo().performClick()
             compose.waitUntil(3_000) { prefs.getString("notify.agents", null) == "WAITING_ONLY" }
+            compose.onNodeWithTag("settings-notify-hide-background").performScrollTo().assertExists()
             E2e.capture(compose, "f17-notifications")
             compose.onNodeWithTag("settings-font-open").performScrollTo().performClick()
             click("settings-font-fira_code")
