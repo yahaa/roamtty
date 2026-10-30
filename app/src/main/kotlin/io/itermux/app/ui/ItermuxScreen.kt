@@ -742,8 +742,7 @@ fun ItermuxScreen(
         }
         launchRequest?.let { (host, forAgent, initialAgent, newSession) ->
             LaunchSheet(host, forAgent, monitor = null, onDismiss = { launchRequest = null }, initialAgent = initialAgent,
-                title = if (newSession) tr(if (forAgent) "选择工作目录" else "新建会话") else null, openTmux = sessions.openTmuxNames(host),
-                onAttach = { launchRequest = null; attachOn(host, it) }) { directory, agent ->
+                title = if (newSession) tr(if (forAgent) "选择工作目录" else "新建会话") else null) { directory, agent ->
                 launchRequest = null
                 launchOn(host, directory, agent)
             }
