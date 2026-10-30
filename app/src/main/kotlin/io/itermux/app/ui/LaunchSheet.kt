@@ -165,12 +165,9 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
         if (landscape) {
             // Landscape, like the host page there: one flat bar with close and the heading; the folders take the
             // whole height on the left, and a side column holds the recent folders, the agent pickers and the launch button.
-            Row(Modifier.fillMaxWidth().height(HOME_COMPACT_BAR_HEIGHT).padding(horizontal = 4.dp).testTag("launch-bar"),
-                verticalAlignment = Alignment.CenterVertically) {
+            LandscapeBar(heading, Modifier.testTag("launch-bar"), leading = {
                 ToolbarIcon(R.drawable.ic_close, tr("关闭"), Modifier.testTag("launch-close"), onClick = onDismiss)
-                Text(heading, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, end = Spacing.Row).weight(1f, fill = false))
-            }
+            })
             Row(Modifier.weight(1f).fillMaxWidth().padding(start = Spacing.Row, end = Spacing.Row, bottom = Spacing.Row)
                 .testTag("launch-sheet"), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 folderBox(Modifier.weight(1f).fillMaxHeight())

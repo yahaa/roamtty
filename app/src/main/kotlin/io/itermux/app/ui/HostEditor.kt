@@ -170,17 +170,24 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
         Surface(Modifier.fillMaxSize().testTag("host-editor"), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
             Column(Modifier.fillMaxSize()) {
-                // Modal form bar: cancel and save stay on opposite edges, the title is centered.
-                // In landscape, where height is short, the bar is the compact one of the other landscape pages.
-                Box(Modifier.fillMaxWidth().heightIn(min = if (landscape) HOME_COMPACT_BAR_HEIGHT else 56.dp).padding(horizontal = 4.dp),
-                    contentAlignment = Alignment.Center) {
-                    TextButton(onClick = { draft.close(); onDismiss() }, enabled = !busy, modifier = Modifier.align(Alignment.CenterStart)) { Text(tr("取消")) }
-                    Text(if (forSession) tr("新建会话") else if (original == null) tr("添加主机") else tr("编辑主机"), style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 96.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    TextButton(enabled = !busy, modifier = Modifier.align(Alignment.CenterEnd).testTag("save-host"),
+                val formTitle = if (forSession) tr("新建会话") else if (original == null) tr("添加主机") else tr("编辑主机")
+                val cancel: @Composable (Modifier) -> Unit = { modifier ->
+                    TextButton(onClick = { draft.close(); onDismiss() }, enabled = !busy, modifier = modifier) { Text(tr("取消")) }
+                }
+                val save: @Composable (Modifier) -> Unit = { modifier ->
+                    TextButton(enabled = !busy, modifier = modifier.testTag("save-host"),
                         onClick = { focusManager.clearFocus(); keyboard?.hide(); draft.save(app, original) }) {
                         Text(if (busy) tr("处理中") else if (forSession) tr("下一步") else tr("保存"), fontWeight = FontWeight.SemiBold)
                     }
+                }
+                // In landscape, where height is short, the bar is the one of every other landscape page.
+                if (landscape) LandscapeBar(formTitle, leading = { cancel(Modifier) }) { save(Modifier) }
+                // Modal form bar: cancel and save stay on opposite edges, the title is centered.
+                else Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), contentAlignment = Alignment.Center) {
+                    cancel(Modifier.align(Alignment.CenterStart))
+                    Text(formTitle, style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 96.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    save(Modifier.align(Alignment.CenterEnd))
                 }
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                     // Landscape and wide screens: the four sections as two rows of two, so every field is in view at once.

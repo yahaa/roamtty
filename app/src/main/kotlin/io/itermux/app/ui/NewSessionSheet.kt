@@ -3,8 +3,13 @@ package io.itermux.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import android.content.res.Configuration
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -44,43 +49,60 @@ internal fun NewSessionSheet(hosts: List<Host>, onDismiss: () -> Unit, onNewHost
     val agent = picked?.let { name -> CodingAgent.entries.firstOrNull { it.name == name } }
     val continuing = picked == CONTINUE
     val tmuxHosts = hosts.filter { it.multiplexer == HostPlugin.TMUX }
-    AppSheet(onDismiss = onDismiss, fillHeight = false, onBack = { close -> if (picked != null) picked = null else close() }) {
-        LazyColumn(Modifier.weight(1f, fill = false).testTag("new-session-sheet")) {
-            if (picked == null) {
-                item { SheetHeader(tr("新建会话"), tr(if (tmuxHosts.isEmpty()) "选择要运行的 AI Agent，或打开终端。"
-                    else "启动 AI Agent、打开终端，或继续已有会话。"), onDismiss) }
-                items(CodingAgent.entries, key = { it.name }) { option ->
-                    NewSessionRow(option.shortLabel, option.command, "new-session-pick-${option.command}",
-                        leading = { AgentIcon(option, 40.dp) }) { picked = option.name }
-                }
-                item(key = "terminal") {
-                    NewSessionRow(tr("终端"), tr("登录 shell"), "new-session-pick-terminal", leading = { TerminalTile(40.dp) }) {
-                        picked = TERMINAL
-                    }
-                }
-                if (tmuxHosts.isNotEmpty()) item(key = "continue") {
-                    NewSessionRow(tr("继续会话"), tr("回到服务器上还在运行的会话"), "new-session-pick-continue", leading = {
-                        IconTile(R.drawable.ic_history)
-                    }) { tmuxHosts.singleOrNull()?.let(onContinue) ?: run { picked = CONTINUE } }
-                }
-            } else {
-                item {
-                    SheetHeader(tr("选择主机"), if (continuing) tr("继续哪台主机上的会话？")
-                        else trf("在哪台主机上运行 %s？", agent?.shortLabel ?: tr("终端")), onDismiss, onBack = { picked = null })
-                }
-                items(if (continuing) tmuxHosts else hosts, key = { it.id }) { host ->
-                    NewSessionRow(host.name, "${host.username}@${host.address}:${host.port}", "new-session-host-${host.id}",
-                        leading = { HostSystemIcon(host.os, 40.dp) }) { if (continuing) onContinue(host) else onPick(host, agent) }
-                }
-                if (!continuing) item(key = "new-host") {
-                    NewSessionRow(tr("新主机"), tr("填写地址和登录方式"), "new-session-new-host", leading = { IconTile(R.drawable.ic_add) }) {
-                        onNewHost(agent)
-                    }
-                }
+    val title = if (picked == null) tr("新建会话") else tr("选择主机")
+    val subtitle = when {
+        picked == null -> tr(if (tmuxHosts.isEmpty()) "选择要运行的 AI Agent，或打开终端。" else "启动 AI Agent、打开终端，或继续已有会话。")
+        continuing -> tr("继续哪台主机上的会话？")
+        else -> trf("在哪台主机上运行 %s？", agent?.shortLabel ?: tr("终端"))
+    }
+    val choices = buildList {
+        if (picked == null) {
+            CodingAgent.entries.forEach { option ->
+                add(Choice(option.name, option.shortLabel, option.command, "new-session-pick-${option.command}", { AgentIcon(option, 40.dp) }) {
+                    picked = option.name
+                })
             }
+            add(Choice("terminal", tr("终端"), tr("登录 shell"), "new-session-pick-terminal", { TerminalTile(40.dp) }) { picked = TERMINAL })
+            if (tmuxHosts.isNotEmpty()) add(Choice("continue", tr("继续会话"), tr("回到服务器上还在运行的会话"), "new-session-pick-continue",
+                { IconTile(R.drawable.ic_history) }) { tmuxHosts.singleOrNull()?.let(onContinue) ?: run { picked = CONTINUE } })
+        } else {
+            (if (continuing) tmuxHosts else hosts).forEach { host ->
+                add(Choice(host.id, host.name, "${host.username}@${host.address}:${host.port}", "new-session-host-${host.id}",
+                    { HostSystemIcon(host.os, 40.dp) }) { if (continuing) onContinue(host) else onPick(host, agent) })
+            }
+            if (!continuing) add(Choice("new-host", tr("新主机"), tr("填写地址和登录方式"), "new-session-new-host", { IconTile(R.drawable.ic_add) }) {
+                onNewHost(agent)
+            })
+        }
+    }
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    AppSheet(onDismiss = onDismiss, fillHeight = false, fullScreen = landscape, wide = landscape,
+        onBack = { close -> if (picked != null) picked = null else close() }) {
+        if (landscape) {
+            // Landscape: the flat bar with the question after the title, and the choices as two columns, so all of them
+            // are in view without scrolling.
+            LandscapeBar(title, detail = subtitle, leading = {
+                if (picked != null) ToolbarIcon(R.drawable.ic_chevron_left, tr("返回"), Modifier.testTag("sheet-back")) { picked = null }
+                else ToolbarIcon(R.drawable.ic_close, tr("关闭"), onClick = onDismiss)
+            }) {
+                if (picked != null) ToolbarIcon(R.drawable.ic_close, tr("关闭"), onClick = onDismiss)
+            }
+            LazyVerticalGrid(GridCells.Fixed(2), Modifier.weight(1f).fillMaxWidth().testTag("new-session-sheet"),
+                contentPadding = PaddingValues(start = 4.dp, end = 4.dp, bottom = Spacing.Row)) {
+                gridItems(choices, key = { it.key }) { NewSessionRow(it, compact = true) }
+            }
+            return@AppSheet
+        }
+        LazyColumn(Modifier.weight(1f, fill = false).testTag("new-session-sheet")) {
+            item(key = "header") { SheetHeader(title, subtitle, onDismiss, onBack = if (picked != null) { { picked = null } } else null) }
+            items(choices, key = { it.key }) { NewSessionRow(it) }
         }
     }
 }
+
+/** One row of the sheet: what it starts or where, and what a tap does. */
+private class Choice(val key: String, val title: String, val subtitle: String, val tag: String,
+    val leading: @Composable () -> Unit, val onClick: () -> Unit)
 
 private const val TERMINAL = "terminal"
 private const val CONTINUE = "continue"
@@ -108,13 +130,14 @@ internal fun TerminalTile(size: androidx.compose.ui.unit.Dp) {
 }
 
 @Composable
-private fun NewSessionRow(title: String, subtitle: String, tag: String, leading: @Composable () -> Unit, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 64.dp)
-        .padding(start = 24.dp, end = 20.dp, top = 8.dp, bottom = 8.dp).testTag(tag), verticalAlignment = Alignment.CenterVertically) {
-        leading()
+private fun NewSessionRow(choice: Choice, compact: Boolean = false) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = choice.onClick).heightIn(min = 64.dp)
+        .padding(start = if (compact) Spacing.Page else 24.dp, end = if (compact) Spacing.Row else 20.dp, top = 8.dp, bottom = 8.dp)
+        .testTag(choice.tag), verticalAlignment = Alignment.CenterVertically) {
+        choice.leading()
         Column(Modifier.weight(1f).padding(horizontal = Spacing.Row)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall,
+            Text(choice.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(choice.subtitle, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Chevron()

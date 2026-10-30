@@ -8,12 +8,15 @@ import io.itermux.app.BuildConfig
 import io.itermux.app.code.MarkdownParser
 
 import android.content.Context
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
@@ -43,7 +46,11 @@ private enum class AboutPage { GUIDE, PRIVACY, LICENSES }
         AboutPage.PRIVACY -> tr("隐私政策")
         AboutPage.LICENSES -> tr("第三方许可")
     }
-    AlertDialog(onDismissRequest = dismiss, title = { Text(title) }, text = {
+    // Landscape, where height is short: a wider dialog with the guide as two columns, so more of it is in view.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    AlertDialog(onDismissRequest = dismiss, title = { Text(title) },
+        modifier = if (landscape) Modifier.fillMaxWidth(0.86f) else Modifier,
+        properties = DialogProperties(usePlatformDefaultWidth = !landscape), text = {
         // The policy scrolls inside its own list, so only the plain-text pages scroll the column.
         val scroll = if (page == AboutPage.PRIVACY) Modifier else Modifier.verticalScroll(rememberScrollState())
         Column(scroll, verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -51,12 +58,17 @@ private enum class AboutPage { GUIDE, PRIVACY, LICENSES }
                 AboutPage.GUIDE -> {
                     Text(trf("版本 %s", BuildConfig.VERSION_NAME), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    guideSections().forEach { (heading, body) ->
+                    val sections = guideSections()
+                    val section: @Composable (Pair<String, String>) -> Unit = { (heading, body) ->
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(heading, style = MaterialTheme.typography.titleSmall)
                             Text(body, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
+                    val half = (sections.size + 1) / 2
+                    if (landscape) LandscapeColumns(spacing = 14.dp, left = { sections.take(half).forEach { section(it) } },
+                        right = { sections.drop(half).forEach { section(it) } })
+                    else sections.forEach { section(it) }
                 }
                 AboutPage.PRIVACY -> MarkdownView(privacyPolicy, null, Modifier.weight(1f, fill = false).fillMaxWidth(),
                     background = AlertDialogDefaults.containerColor, contentPadding = PaddingValues(0.dp))

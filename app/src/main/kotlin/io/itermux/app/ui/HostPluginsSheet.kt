@@ -156,11 +156,9 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
     AppSheet(onDismiss = onDismiss, fullScreen = landscape, wide = landscape) {
         if (landscape) {
             // Landscape, where height is short: one flat bar like the launch sheet's, check again as its refresh button.
-            Row(Modifier.fillMaxWidth().height(HOME_COMPACT_BAR_HEIGHT).padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
+            LandscapeBar(tr("安装插件"), detail = host.name, leading = {
                 ToolbarIcon(R.drawable.ic_close, tr("关闭"), onClick = onDismiss)
-                Text("${tr("安装插件")} · ${host.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, end = Spacing.Row).weight(1f))
+            }) {
                 ToolbarIcon(R.drawable.ic_refresh, tr("重新检测"), Modifier.testTag("host-plugins-refresh"),
                     enabled = installing == null && (ready || !connection.active), onClick = controller::start)
             }
