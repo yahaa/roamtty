@@ -822,6 +822,61 @@ class E2eFeatureTest {
     }
 
     /**
+     * An agent that waits, and one that finished a turn of over a minute, each get a system notification of who, what
+     * and where; tapping one opens its session, which takes the notification away.
+     */
+    @Test fun f26_agentNotificationsOpenTheirSession() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("通知", mode = SessionMode.TMUX))
+        val hook = "sh ~/.roamtty/agent-hook.sh claude"
+        suspend fun open(command: String) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            service.open(host, SessionMode.TMUX, io.itermux.ssh.Credentials(E2e.password.toByteArray())).also { session ->
+                session.runWhenConnected(command, agentHooks = io.itermux.app.session.CodingAgent.CLAUDE)
+            }
+        }
+        val waiting = open("printf '{\"prompt\":\"build the release apk\"}' | $hook prompt; " +
+            "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"./gradlew assembleRelease\"}}' | $hook tool; " +
+            "printf '{\"notification_type\":\"permission_prompt\",\"message\":\"Claude needs your permission\"}' | $hook notify; sleep 600")
+        // The turn began two minutes ago, so it counts as long.
+        val finished = open("printf '{\"prompt\":\"fix the links\"}' | $hook prompt; " +
+            "tmux set-option -q -t \"\$TMUX_PANE\" @roamtty_turn \$(( \$(date +%s) - 125 )); " +
+            "printf '{\"last_assistant_message\":\"Fixed 12 broken image links.\"}' | $hook stop; sleep 600")
+        // A short turn ends without one.
+        val short = open("printf '{\"prompt\":\"say hi\"}' | $hook prompt; " +
+            "printf '{\"last_assistant_message\":\"Hi.\"}' | $hook stop; sleep 600")
+        listOf(waiting, finished, short).forEach { assertEquals(Phase.CONNECTED, E2e.connected(it)) }
+        val manager = app.getSystemService(android.app.NotificationManager::class.java)
+        fun posted(id: String) = manager.activeNotifications.firstOrNull { it.tag == id }?.notification
+        fun title(id: String) = posted(id)?.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
+        fun text(id: String) = posted(id)?.extras?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
+        compose.waitUntil(40_000) { posted(waiting.id) != null && posted(finished.id) != null }
+        assertEquals("Claude 等你确认", title(waiting.id))
+        assertEquals("${host.name} · ./gradlew assembleRelease", text(waiting.id))
+        assertEquals("Claude 已完成", title(finished.id))
+        assertEquals("${host.name} · 2 分钟 · Fixed 12 broken image links.", text(finished.id))
+        // The short turn has reported by now too: the session list shows it done.
+        compose.waitUntil(20_000) { short.lastAgentStatus.value?.workedSeconds != null }
+        assertNull(posted(short.id))
+        val shell = E2e.instrumentation.uiAutomation
+        shell.executeShellCommand("cmd statusbar expand-notifications").close()
+        Thread.sleep(1_500)
+        E2e.screenshot("f26-notification-shade")
+        shell.executeShellCommand("cmd statusbar collapse").close()
+        Thread.sleep(500)
+        // Tapping the waiting one opens its terminal and withdraws it; the other stays.
+        val launched = compose.activity.intent
+        posted(waiting.id)!!.contentIntent.send()
+        E2e.waitTag(compose, "terminal")
+        // The tap's intent replaced the activity's, which ActivityScenario looks for to close it.
+        compose.runOnUiThread { compose.activity.intent = launched }
+        compose.waitUntil(10_000) { posted(waiting.id) == null }
+        assertNotNull(posted(finished.id))
+        E2e.capture(compose, "f26-opened-session")
+        // Closing a session takes its notification along.
+        compose.runOnUiThread { service.close(finished.id) }
+        compose.waitUntil(10_000) { posted(finished.id) == null }
+    }
+
+    /**
      * Every agent's card is as tall as the next, whatever it has to say; in landscape the home page has one short bar
      * with the tabs, the filters, search and add, which slides away as the list scrolls on and comes back as it scrolls back.
      */

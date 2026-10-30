@@ -23,7 +23,10 @@ import java.time.Instant
 private const val SPLASH_MIN_MS = 1600L
 
 class MainActivity : ComponentActivity() {
-    companion object { const val EXTRA_DESKTOP_HOST = "io.itermux.DESKTOP_HOST" }
+    companion object {
+        const val EXTRA_DESKTOP_HOST = "io.itermux.DESKTOP_HOST"
+        const val EXTRA_SESSION = "io.itermux.SESSION"
+    }
     private var service by mutableStateOf<SessionService?>(null)
     private var bound = false
     private var terminalChrome = false
@@ -31,11 +34,14 @@ class MainActivity : ComponentActivity() {
     private var pendingShareImages by mutableStateOf<List<Uri>>(emptyList())
     /** The notification's desktop line was tapped: the host whose desktop page to show. */
     private var pendingDesktopHost by mutableStateOf<String?>(null)
+    /** An agent notification was tapped: the session to show. */
+    private var pendingSession by mutableStateOf<String?>(null)
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             service = (binder as SessionService.LocalBinder).service.also {
                 // Returning to the app (often after a night of sleep) must not show a frozen terminal.
                 it.verifyConnections()
+                it.setAppVisible(true)
             }
         }
         override fun onServiceDisconnected(name: ComponentName?) { service = null }
@@ -60,7 +66,10 @@ class MainActivity : ComponentActivity() {
         }
         pendingShareImages = savedInstanceState?.getStringArrayList("pendingShareImages")?.map(Uri::parse)
             ?: ShareImageIntents.takeImageUris(intent)
-        if (savedInstanceState == null) pendingDesktopHost = intent.getStringExtra(EXTRA_DESKTOP_HOST)
+        if (savedInstanceState == null) {
+            pendingDesktopHost = intent.getStringExtra(EXTRA_DESKTOP_HOST)
+            pendingSession = intent.getStringExtra(EXTRA_SESSION)
+        }
         setContent {
             ItermuxScreen(
                 application as ItermuxApp,
@@ -69,6 +78,8 @@ class MainActivity : ComponentActivity() {
                 onShareImagesConsumed = { pendingShareImages = emptyList() },
                 pendingDesktopHost = pendingDesktopHost,
                 onDesktopHostConsumed = { pendingDesktopHost = null },
+                pendingSession = pendingSession,
+                onSessionConsumed = { pendingSession = null },
             ) { visible, light ->
                 terminalChrome = visible
                 lightTheme = light
@@ -81,6 +92,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         pendingShareImages = pendingShareImages + ShareImageIntents.takeImageUris(intent)
         intent.getStringExtra(EXTRA_DESKTOP_HOST)?.let { pendingDesktopHost = it }
+        intent.getStringExtra(EXTRA_SESSION)?.let { pendingSession = it }
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putStringArrayList("pendingShareImages", ArrayList(pendingShareImages.map(Uri::toString)))
@@ -122,6 +134,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onStop() {
         android.util.Log.i("RoamttyConn", "activity stop")
+        service?.setAppVisible(false)
         if (bound) { unbindService(connection); bound = false }
         // Keep the terminal UI and editor state while the activity is in the background.
         // The foreground service still owns the connection; onStart rebinds to the current service.

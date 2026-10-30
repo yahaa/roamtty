@@ -35,6 +35,11 @@ class SessionService : Service() {
     private lateinit var restoration: Job
     private lateinit var wakeLock: PowerManager.WakeLock
     private val stateWatchers = mutableMapOf<String, Job>()
+    /** The agent notification each session shows now, by session id; see [AgentAlerts]. */
+    private val alerts = mutableMapOf<String, AgentAlerts.Kind>()
+    /** The session the app's terminal page shows, which needs no notification while the app is in sight. */
+    private var viewing: String? = null
+    private var appVisible = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val app get() = application as ItermuxApp
     /** Remote desktops, one per host; see [DesktopRegistry]. */
@@ -49,6 +54,10 @@ class SessionService : Service() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Roamtty:SSH").apply { setReferenceCounted(false) }
         refreshLanguage()
         watchNetwork()
+        // A session that goes takes its notification with it.
+        scope.launch {
+            sessions.collect { list -> (alerts.keys - list.map { it.id }.toSet()).forEach(::withdrawAlert) }
+        }
         restoration = scope.launch {
             val usedNumbers = mutableMapOf<String, MutableSet<Int>>()
             mutableSessions.value = journal.read().mapNotNull { entry ->
@@ -71,9 +80,14 @@ class SessionService : Service() {
         }
     }
     fun refreshLanguage() {
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL, tr("SSH 会话"), NotificationManager.IMPORTANCE_LOW).apply { description = tr("保持主动打开的 SSH 连接") }
-        )
+        getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(
+            NotificationChannel(CHANNEL, tr("SSH 会话"), NotificationManager.IMPORTANCE_LOW).apply { description = tr("保持主动打开的 SSH 连接") },
+            NotificationChannel(WAITING_CHANNEL, tr("Agent 等你确认"), NotificationManager.IMPORTANCE_HIGH)
+                .apply { description = tr("Agent 停下来请求权限或提问时提醒") },
+            // A finished turn waits in the shade without a sound; the user can raise it in the system settings.
+            NotificationChannel(DONE_CHANNEL, tr("Agent 已完成"), NotificationManager.IMPORTANCE_LOW)
+                .apply { description = tr("Agent 做完一轮（运行超过 1 分钟）时提醒") },
+        ))
         if (foreground) refreshNotification()
     }
     suspend fun awaitRestoration() { restoration.join() }
@@ -141,7 +155,64 @@ class SessionService : Service() {
     private fun track(connection: TerminalConnection) {
         ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
         saveSessions()
-        stateWatchers[connection.id] = scope.launch { connection.state.collect { refreshNotification() } }
+        stateWatchers[connection.id] = scope.launch {
+            launch { watchAgent(connection) }
+            connection.state.collect { refreshNotification() }
+        }
+    }
+
+    /** Notifies what [connection]'s agent reports from now on; the report it starts with was told of already. */
+    private suspend fun watchAgent(connection: TerminalConnection) {
+        var previous: AgentStatus? = null
+        var first = true
+        connection.lastAgentStatus.collect { current ->
+            if (!first) when (val change = AgentAlerts.next(previous, current, alerts[connection.id])) {
+                is AgentAlerts.Change.Show -> if (current != null) showAlert(connection, change.kind, current)
+                AgentAlerts.Change.Withdraw -> withdrawAlert(connection.id)
+                AgentAlerts.Change.Keep -> Unit
+            }
+            first = false
+            previous = current
+        }
+    }
+
+    /** Tells the user [connection]'s agent waits or finished; tapping it opens that session. */
+    private fun showAlert(connection: TerminalConnection, kind: AgentAlerts.Kind, status: AgentStatus) {
+        if (appVisible && connection.id == viewing) return
+        val title = AgentAlerts.title(kind, CodingAgent.fromCommand(status.agent) ?: connection.launchedAgent.value)
+        val channel = if (kind == AgentAlerts.Kind.WAITING) WAITING_CHANNEL else DONE_CHANNEL
+        val open = PendingIntent.getActivity(this, connection.id.hashCode(),
+            Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_SESSION, connection.id),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        // The lock screen names the agent and the host, not the command or the answer.
+        val public = NotificationCompat.Builder(this, channel).setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title).setContentText(connection.host.name).build()
+        val notification = NotificationCompat.Builder(this, channel).setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title).setContentText(AgentAlerts.text(kind, connection.host.name, status))
+            .setContentIntent(open).setAutoCancel(true).setShowWhen(true)
+            .setPriority(if (kind == AgentAlerts.Kind.WAITING) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public).build()
+        getSystemService(NotificationManager::class.java).notify(connection.id, ALERT, notification)
+        alerts[connection.id] = kind
+    }
+
+    /** Also cancels one an earlier run of the service left: sessions keep their ids in the journal. */
+    private fun withdrawAlert(id: String) {
+        alerts.remove(id)
+        getSystemService(NotificationManager::class.java).cancel(id, ALERT)
+    }
+
+    /** The session the app's terminal page shows, null for none: in sight, its notification goes and it gets none. */
+    fun setViewing(id: String?) {
+        viewing = id
+        if (appVisible) id?.let(::withdrawAlert)
+    }
+
+    /** Whether the app is on screen; told by the activity, as the UI does not recompose once it is stopped. */
+    fun setAppVisible(visible: Boolean) {
+        appVisible = visible
+        if (visible) viewing?.let(::withdrawAlert)
     }
 
     /**
@@ -293,7 +364,6 @@ class SessionService : Service() {
 
     fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; desktops.closeAll(); refreshNotification() }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == DISCONNECT_ALL) { disconnectAll(); stopSelf(); return START_NOT_STICKY }
         ServiceCompat.startForeground(this, NOTIFICATION, notification(),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
         foreground = true
@@ -307,20 +377,18 @@ class SessionService : Service() {
         val launch = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).apply {
             if (desktopHost != null) putExtra(MainActivity.EXTRA_DESKTOP_HOST, desktopHost)
         }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val close = PendingIntent.getService(this, 1, Intent(this, SessionService::class.java).setAction(DISCONNECT_ALL), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val active = sessions.value.count { it.state.value.active }
-        // Live desktops get the line, by name.
+        // Only the count: what needs the user comes as notifications of its own. Live desktops get the line, by name.
         val text = when (live.size) {
-            0 -> tr("轻触返回终端 · 长任务建议使用 tmux")
+            0 -> null
             1 -> trf("%s 桌面 · 已连接", live[0].host.name)
             else -> trf("%d 个桌面已连接 · %s", live.size, live.joinToString("、") { it.host.name })
         }
         return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("Roamtty · %d 个 SSH 会话", active))
+            .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("%d 个会话", active))
             .setContentText(text)
             .setOngoing(true).setSilent(true).setContentIntent(launch)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .addAction(0, tr("全部断开"), close).build()
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build()
     }
     // This is a user-controlled SSH session, not a fixed-duration job. A timer would silently
     // break long connections again. Every inactive state, explicit disconnect and onDestroy release it.
@@ -347,6 +415,9 @@ class SessionService : Service() {
         const val MAX_SESSIONS_PER_HOST = 8
         private const val CHANNEL = "ssh-sessions"
         private const val NOTIFICATION = 20
-        private const val DISCONNECT_ALL = "io.itermux.DISCONNECT_ALL"
+        /** Agent notifications share this id; each is tagged with its session's id. */
+        private const val ALERT = 21
+        private const val WAITING_CHANNEL = "agent-waiting"
+        private const val DONE_CHANNEL = "agent-done"
     }
 }

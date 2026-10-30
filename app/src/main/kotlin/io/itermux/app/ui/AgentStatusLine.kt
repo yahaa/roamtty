@@ -19,7 +19,6 @@ import io.itermux.app.R
 import io.itermux.app.session.CodingAgent
 import androidx.compose.ui.platform.testTag
 import io.itermux.app.session.AgentStatus
-import io.itermux.app.trf
 
 /** The colour an agent state is shown in. */
 @Composable
@@ -63,10 +62,4 @@ internal fun AgentIcon(agent: CodingAgent, size: Dp, state: AgentStatus.State? =
         if (state != null) Box(Modifier.align(Alignment.BottomEnd).size(size * 0.34f).clip(CircleShape)
             .background(MaterialTheme.colorScheme.surface).padding(size * 0.05f).clip(CircleShape).background(state.color()))
     }
-}
-
-internal fun duration(seconds: Long): String = when {
-    seconds < 60 -> trf("%d 秒", seconds)
-    seconds < 3600 -> trf("%d 分钟", seconds / 60)
-    else -> trf("%d 小时 %d 分钟", seconds / 3600, seconds % 3600 / 60)
 }
