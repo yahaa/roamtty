@@ -577,6 +577,12 @@ private object EnglishText {
         "Agent 已完成" to "Agent finished",
         "Agent 做完一轮（运行超过 1 分钟）时提醒" to "When an agent finishes a turn that ran over 1 minute",
         "%s 等你确认" to "%s needs you",
+        "通知" to "Notifications",
+        "等你确认和完成时" to "When an agent needs you or finishes",
+        "只在等你确认时" to "Only when an agent needs you",
+        "不提醒" to "Off",
+        "Agent 等你确认或做完一轮（超过 1 分钟）时提醒，点通知进入该会话。声音和振动在系统通知设置中调整。" to
+            "Agents notify you when they need you or finish a turn of over 1 minute; tap one to open its session. Set sound and vibration in the system notification settings.",
         "%s 已完成" to "%s finished",
         "未发送：连接未就绪或输入队列已满。" to "Not sent: the connection is not ready or the input queue is full.",
         "单次发送上限为 128 KiB，请分段发送。" to "The limit is 128 KiB per send. Split the input.",

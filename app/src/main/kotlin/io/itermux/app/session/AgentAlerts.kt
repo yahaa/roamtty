@@ -1,5 +1,8 @@
 package io.itermux.app.session
 
+import android.content.Context
+import androidx.core.content.edit
+import io.itermux.app.appSettings
 import io.itermux.app.trf
 
 /**
@@ -9,6 +12,24 @@ import io.itermux.app.trf
  */
 object AgentAlerts {
     enum class Kind { WAITING, DONE }
+
+    /** Which notifications the user wants, the one notification setting in the app. */
+    enum class Setting(val label: String) {
+        ALL("等你确认和完成时"), WAITING_ONLY("只在等你确认时"), OFF("不提醒");
+
+        fun allows(kind: Kind) = when (this) {
+            ALL -> true
+            WAITING_ONLY -> kind == Kind.WAITING
+            OFF -> false
+        }
+    }
+
+    const val SETTING_KEY = "notify.agents"
+
+    fun setting(context: Context): Setting =
+        Setting.entries.firstOrNull { it.name == context.appSettings().getString(SETTING_KEY, null) } ?: Setting.ALL
+
+    fun setSetting(context: Context, setting: Setting) = context.appSettings().edit { putString(SETTING_KEY, setting.name) }
 
     /** What a session's notification does on a new report. */
     sealed interface Change {

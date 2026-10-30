@@ -49,6 +49,12 @@ class AgentAlertsTest {
         assertEquals(Change.Keep, AgentAlerts.next(done, null, Kind.DONE))
     }
 
+    @Test fun theSettingChoosesWhichKindsCome() {
+        assertEquals(listOf(true, true), Kind.entries.map(AgentAlerts.Setting.ALL::allows))
+        assertEquals(listOf(true, false), Kind.entries.map(AgentAlerts.Setting.WAITING_ONLY::allows))
+        assertEquals(listOf(false, false), Kind.entries.map(AgentAlerts.Setting.OFF::allows))
+    }
+
     @Test fun theNotificationSaysWhoWhatAndWhere() {
         assertEquals("Claude 等你确认", AgentAlerts.title(Kind.WAITING, CodingAgent.CLAUDE))
         assertEquals("Agent 已完成", AgentAlerts.title(Kind.DONE, null))

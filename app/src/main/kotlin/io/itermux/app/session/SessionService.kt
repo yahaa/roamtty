@@ -58,6 +58,7 @@ class SessionService : Service() {
         scope.launch {
             sessions.collect { list -> (alerts.keys - list.map { it.id }.toSet()).forEach(::withdrawAlert) }
         }
+        app.appSettings().registerOnSharedPreferenceChangeListener(settingListener)
         restoration = scope.launch {
             val usedNumbers = mutableMapOf<String, MutableSet<Int>>()
             mutableSessions.value = journal.read().mapNotNull { entry ->
@@ -179,6 +180,8 @@ class SessionService : Service() {
     /** Tells the user [connection]'s agent waits or finished; tapping it opens that session. */
     private fun showAlert(connection: TerminalConnection, kind: AgentAlerts.Kind, status: AgentStatus) {
         if (appVisible && connection.id == viewing) return
+        // One the user turned off still replaces what the session showed, which is out of date now.
+        if (!AgentAlerts.setting(this).allows(kind)) { withdrawAlert(connection.id); return }
         val title = AgentAlerts.title(kind, CodingAgent.fromCommand(status.agent) ?: connection.launchedAgent.value)
         val channel = if (kind == AgentAlerts.Kind.WAITING) WAITING_CHANNEL else DONE_CHANNEL
         val open = PendingIntent.getActivity(this, connection.id.hashCode(),
@@ -201,6 +204,13 @@ class SessionService : Service() {
     private fun withdrawAlert(id: String) {
         alerts.remove(id)
         getSystemService(NotificationManager::class.java).cancel(id, ALERT)
+    }
+
+    /** Turning a kind of notification off in the settings takes the ones shown away. */
+    private val settingListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key != AgentAlerts.SETTING_KEY) return@OnSharedPreferenceChangeListener
+        val setting = AgentAlerts.setting(this)
+        alerts.filterValues { !setting.allows(it) }.keys.forEach(::withdrawAlert)
     }
 
     /** The session the app's terminal page shows, null for none: in sight, its notification goes and it gets none. */
@@ -407,6 +417,7 @@ class SessionService : Service() {
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         mutableSessions.value.forEach { it.disconnect() }
         desktops.closeAll()
+        app.appSettings().unregisterOnSharedPreferenceChangeListener(settingListener)
         scope.cancel()
         if (wakeLock.isHeld) wakeLock.release()
         super.onDestroy()
