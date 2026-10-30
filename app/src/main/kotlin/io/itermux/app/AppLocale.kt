@@ -572,7 +572,7 @@ private object EnglishText {
         "提交" to "Submit",
         "让 SSH 在后台保持连接。关掉这个类别只是不显示通知，连接不受影响。" to
             "Keeps SSH connected in the background. Turning this category off only hides the notification; connections stay.",
-        "Roamtty 在后台保持连接" to "Roamtty keeps connections in the background",
+        "%d 个会话" to "%d sessions",
         "隐藏后台连接通知" to "Hide the background connection notification",
         "Agent 等你确认" to "Agent needs you",
         "Agent 停下来请求权限或提问时提醒" to "When an agent stops to ask for permission or a question",

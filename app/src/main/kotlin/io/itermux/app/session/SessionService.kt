@@ -393,15 +393,15 @@ class SessionService : Service() {
         val launch = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).apply {
             if (desktopHost != null) putExtra(MainActivity.EXTRA_DESKTOP_HOST, desktopHost)
         }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        // Says only that connections are kept: what needs the user comes as notifications of its own. Live desktops get
-        // the line, by name.
+        val active = sessions.value.count { it.state.value.active }
+        // Only the count: what needs the user comes as notifications of its own. Live desktops get the line, by name.
         val text = when (live.size) {
             0 -> null
             1 -> trf("%s 桌面 · 已连接", live[0].host.name)
             else -> trf("%d 个桌面已连接 · %s", live.size, live.joinToString("、") { it.host.name })
         }
         return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification).setContentTitle(tr("Roamtty 在后台保持连接"))
+            .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("%d 个会话", active))
             .setContentText(text)
             .setOngoing(true).setSilent(true).setContentIntent(launch)
             // Kept apart from the agent notifications; see showAlert.
@@ -421,13 +421,13 @@ class SessionService : Service() {
             stopSelf()
             postedNotice = null
         } else if (foreground && notice() != postedNotice) {
-            // Posted again only when what it says changes, so one the user swiped away stays away.
+            // Posted again only when what it says changes.
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification())
             postedNotice = notice()
         }
     }
-    /** What the ongoing notification says: the live desktops, by host; see [notification]. */
-    private fun notice() = desktops.live.map { it.host.id }
+    /** What the ongoing notification says: the live sessions, and the live desktops by host; see [notification]. */
+    private fun notice() = listOf(sessions.value.count { it.state.value.active }.toString()) + desktops.live.map { it.host.id }
     private var postedNotice: List<String>? = null
     override fun onDestroy() {
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }

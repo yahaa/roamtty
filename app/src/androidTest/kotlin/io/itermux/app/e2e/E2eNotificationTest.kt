@@ -214,7 +214,7 @@ class E2eNotificationTest {
         val manager = app.getSystemService(android.app.NotificationManager::class.java)
         fun ongoing() = manager.activeNotifications.firstOrNull { it.id == 20 && it.tag == null }
         waitFor("the ongoing notification", 10_000) { ongoing() != null }
-        assertEquals("Roamtty 在后台保持连接",
+        assertEquals("1 个会话",
             ongoing()!!.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString())
         try {
             toggleBackgroundChannel("off")
