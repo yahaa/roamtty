@@ -1041,6 +1041,12 @@ class E2eFeatureTest {
         E2e.waitTag(compose, "launch-tmux-selected", timeoutMs = 20_000)
         compose.onNodeWithTag("continue-attach").assert(hasText("打开会话"))
         E2e.capture(compose, "f22-host-continue-landscape")
+        // Turning back with the sheet up keeps the host page under it.
+        compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+        E2e.waitTag(compose, "continue-attach")
+        E2e.waitTag(compose, "host-detail")
+        compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+        E2e.waitTag(compose, "continue-bar")
         click("continue-close")
         E2e.waitTag(compose, "host-detail-continue")
         E2e.capture(compose, "f22-host-detail-landscape")
