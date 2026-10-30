@@ -89,8 +89,8 @@ private fun Picker(modifier: Modifier, tag: String, borderColor: Color? = null, 
             shape = MaterialTheme.shapes.small, color = colors.groupedContainer,
             border = BorderStroke(if (borderColor != null) 1.dp else 0.5.dp, borderColor ?: colors.outlineVariant)) {
             Row(Modifier.heightIn(min = 44.dp).padding(start = Spacing.Row, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                anchor()
-                Spacer(Modifier.weight(1f))
+                // Its own row, so a weighted label gets all the width the arrow leaves rather than sharing it with a spacer.
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, content = anchor)
                 Icon(painterResource(R.drawable.ic_expand_down), contentDescription = null, Modifier.size(18.dp),
                     tint = colors.onSurfaceVariant)
             }

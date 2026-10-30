@@ -5,8 +5,11 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class AgentLaunchTest {
-    @Test fun standardPermissionRunsTheBareAgent() {
-        assertEquals("cd -- '/home/v/app' && claude --settings ~/.roamtty/claude-hooks.json", AgentLaunch(CodingAgent.CLAUDE, "/home/v/app", AgentMode.STANDARD).commandLine)
+    @Test fun standardPermissionAsksBeforeActing() {
+        assertEquals("cd -- '/home/v/app' && claude --permission-mode default --settings ~/.roamtty/claude-hooks.json",
+            AgentLaunch(CodingAgent.CLAUDE, "/home/v/app", AgentMode.STANDARD).commandLine)
+        assertEquals("codex", AgentLaunch(CodingAgent.CODEX, "/a", AgentMode.STANDARD).agentCommand)
+        assertEquals("grok", AgentLaunch(CodingAgent.GROK, "/a", AgentMode.STANDARD).agentCommand)
     }
     @Test fun yoloAddsEachAgentsBypassFlag() {
         assertEquals("claude --dangerously-skip-permissions", AgentLaunch(CodingAgent.CLAUDE, "/a", AgentMode.YOLO).agentCommand)
@@ -27,7 +30,7 @@ class AgentLaunchTest {
             AgentLaunch(CodingAgent.CODEX, "/srv/it's \$(x) dir").commandLine)
     }
     @Test fun homeFolderNeedsNoCd() {
-        assertEquals("claude --settings ~/.roamtty/claude-hooks.json", AgentLaunch(CodingAgent.CLAUDE, "~").commandLine)
+        assertEquals("claude --permission-mode default --settings ~/.roamtty/claude-hooks.json", AgentLaunch(CodingAgent.CLAUDE, "~").commandLine)
         assertEquals("cd -- ~/'work/app' && ~/.roamtty/grok", AgentLaunch(CodingAgent.GROK, "~/work/app").commandLine)
     }
     @Test fun codexAndGrokStartThroughTheirLauncherWithTheirFlags() {

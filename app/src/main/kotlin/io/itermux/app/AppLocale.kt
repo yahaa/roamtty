@@ -574,6 +574,11 @@ private object EnglishText {
             "Keeps SSH connected in the background. Turning this category off only hides the notification; connections stay.",
         "%d 个会话" to "%d sessions",
         "隐藏后台连接通知" to "Hide the background connection notification",
+        "允许完全后台行为" to "Allow full background activity",
+        "ColorOS 会在应用退到后台几秒后断开它的网络，连接和 Agent 提醒都会停住。请在应用详情 → 耗电管理中选「完全允许后台行为」，可能增加耗电。" to
+            "ColorOS cuts an app's network a few seconds after it leaves the screen, which stops connections and agent notifications. In App info → Battery usage, choose \"Allow full background activity\". This may use more battery.",
+        "这台手机离开 App 后要收到提醒，还需在下方「后台连接」中允许完全后台行为。" to
+            " On this phone, notifications only arrive while you are away after you allow full background activity under Background connection below.",
         "Agent 等你确认" to "Agent needs you",
         "Agent 停下来请求权限或提问时提醒" to "When an agent stops to ask for permission or a question",
         "Agent 已完成" to "Agent finished",

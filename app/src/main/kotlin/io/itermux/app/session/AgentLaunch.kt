@@ -2,11 +2,13 @@ package io.itermux.app.session
 
 /**
  * AI coding CLIs the file browser can start in a folder. [readOnlyFlag] starts a plan (Claude) or read-only sandbox;
- * [yoloFlag] skips approval prompts. Users can subsequently change the CLI's permissions.
+ * [yoloFlag] skips approval prompts; [standardFlag] makes the agent ask before edits and commands when its own default
+ * would not (newer Claude Code starts in auto mode). Users can subsequently change the CLI's permissions.
  */
 enum class CodingAgent(val label: String, val shortLabel: String, val command: String, val readOnlyFlag: String,
-    val yoloFlag: String) {
-    CLAUDE("Claude Code", "Claude", "claude", "--permission-mode plan", "--dangerously-skip-permissions"),
+    val yoloFlag: String, val standardFlag: String = "") {
+    // "default" is the asking mode's old name; newer versions call it manual but still take it, older ones only know it.
+    CLAUDE("Claude Code", "Claude", "claude", "--permission-mode plan", "--dangerously-skip-permissions", "--permission-mode default"),
     CODEX("Codex", "Codex", "codex", "--sandbox read-only", "--dangerously-bypass-approvals-and-sandbox"),
     GROK("Grok", "Grok", "grok", "--sandbox read-only", "--always-approve");
 
@@ -36,7 +38,7 @@ data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: 
 
     val agentCommand: String get() = when (mode) {
         AgentMode.READ_ONLY -> "${agent.command} ${agent.readOnlyFlag}"
-        AgentMode.STANDARD -> agent.command
+        AgentMode.STANDARD -> if (agent.standardFlag.isEmpty()) agent.command else "${agent.command} ${agent.standardFlag}"
         AgentMode.YOLO -> "${agent.command} ${agent.yoloFlag}"
     }
 

@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.ActivityNotFoundException
 import android.provider.OpenableColumns
 import androidx.core.net.toUri
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -62,6 +63,7 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
         }
     }
 
+    val colorOs = remember { isColorOs() }
     // Also refreshes after returning from the system battery settings.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         exempt = power.isIgnoringBatteryOptimizations(context.packageName)
@@ -95,11 +97,12 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
                         }
                     }
                 }
-                NotificationSetting()
+                NotificationSetting(colorOs)
                 DownloadDirectorySetting()
                 DesktopSetting()
                 GroupedSection(header = tr("后台连接"),
-                    footer = tr("锁屏后保持 SSH 需要允许后台运行，可能增加耗电。部分手机还需在系统设置中允许自启动。")) {
+                    footer = if (colorOs) tr("ColorOS 会在应用退到后台几秒后断开它的网络，连接和 Agent 提醒都会停住。请在应用详情 → 耗电管理中选「完全允许后台行为」，可能增加耗电。")
+                        else tr("锁屏后保持 SSH 需要允许后台运行，可能增加耗电。部分手机还需在系统设置中允许自启动。")) {
                     if (exempt) GroupedRow(tr("已允许不受电池优化限制"), Modifier.testTag("battery-exempt"),
                         trailing = { Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = StatusColors.success) })
                     else GroupedRow(tr("允许后台运行"), Modifier.testTag("allow-background"),
@@ -111,11 +114,26 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
                                     "package:${context.packageName}".toUri()))
                             }
                         })
+                    // Its own setting, apart from Android's battery optimisation; apps cannot read or open it directly.
+                    if (colorOs) {
+                        GroupedDivider()
+                        GroupedRow(tr("允许完全后台行为"), Modifier.testTag("allow-full-background"),
+                            titleColor = MaterialTheme.colorScheme.primary, trailing = { Chevron() }, onClick = {
+                                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    "package:${context.packageName}".toUri()))
+                            })
+                    }
                 }
             }
         }
     }
 }
+
+/**
+ * OPPO, OnePlus and realme phones run ColorOS, whose background manager cuts an app's network a few seconds after it
+ * leaves the screen, foreground service or not, unless the user allows it full background activity.
+ */
+private fun isColorOs() = Build.MANUFACTURER.lowercase() in setOf("oppo", "oneplus", "realme")
 
 /** Single-choice row: a trailing check mark marks the selection, as in grouped settings lists. */
 @Composable
@@ -129,10 +147,11 @@ internal fun CheckRow(title: String, selected: Boolean, modifier: Modifier = Mod
 
 /** 通知: which agent notifications come; sound, vibration and the lock screen are the system's settings. */
 @Composable
-private fun NotificationSetting() {
+private fun NotificationSetting(colorOs: Boolean) {
     val context = LocalContext.current
     var setting by remember { mutableStateOf(AgentAlerts.setting(context)) }
-    GroupedSection(header = tr("通知"), footer = tr("Agent 等你确认或做完一轮（超过 1 分钟）时提醒，点通知进入该会话。声音和振动在系统通知设置中调整。")) {
+    val footer = tr("Agent 等你确认或做完一轮（超过 1 分钟）时提醒，点通知进入该会话。声音和振动在系统通知设置中调整。")
+    GroupedSection(header = tr("通知"), footer = if (colorOs) footer + tr("这台手机离开 App 后要收到提醒，还需在下方「后台连接」中允许完全后台行为。") else footer) {
         Column(Modifier.selectableGroup()) {
             AgentAlerts.Setting.entries.forEachIndexed { index, option ->
                 if (index > 0) GroupedDivider()

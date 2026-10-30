@@ -62,5 +62,7 @@ class AgentAlertsTest {
         assertEquals("dev · AskUserQuestion", AgentAlerts.text(Kind.WAITING, "dev", status(State.WAITING, "AskUserQuestion")))
         assertEquals("macbook · 12 分钟 · All 48 passed", AgentAlerts.text(Kind.DONE, "macbook", done))
         assertEquals("macbook · 1 小时 5 分钟", AgentAlerts.text(Kind.DONE, "macbook", done.copy(workedSeconds = 3900, reply = "")))
+        // Agents answer in Markdown; the notification reads it as plain text.
+        assertEquals("macbook · 12 分钟 · PASS. Ran ./gradlew lint", AgentAlerts.text(Kind.DONE, "macbook", done.copy(reply = "**PASS.** Ran `./gradlew lint`")))
     }
 }
