@@ -11,6 +11,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,7 +62,7 @@ internal fun HostDetailPage(
     onLaunch: (directory: String, agent: AgentLaunch?) -> Unit,
     /** The tmux sessions on the host that already have a card. */
     openTmux: Set<String>,
-    /** Attaches a tmux session already on the server, picked on the launch sheet. */
+    /** Attaches a tmux session already on the server, picked on the continue sheet. */
     onAttach: (name: String) -> Unit,
     onBrowseFiles: () -> Unit,
     onEdit: () -> Unit,
@@ -76,6 +79,10 @@ internal fun HostDetailPage(
     var askPassword by remember(host.loginKey) { mutableStateOf(false) }
     /** null, or whether the launch sheet starts an AI agent. */
     var launching by remember(host.id) { mutableStateOf<Boolean?>(null) }
+    // Saved, so the sheet stays up when turning the phone recreates the activity.
+    var continuing by rememberSaveable(host.id) { mutableStateOf(false) }
+    // Only a host with tmux has sessions that outlive the phone to go back to.
+    val onContinue = { continuing = true }.takeIf { host.multiplexer == HostPlugin.TMUX }
     val monitor = login?.let { target ->
         remember(target) { HostMonitor(app, target, scope).also { it.start() } }
     }
@@ -88,7 +95,7 @@ internal fun HostDetailPage(
     val onLogin = { if (monitor != null && !host.needsTypedSecret(app)) monitor.start() else askPassword = true }
     if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
         HostDetailLandscape(host, reachability, monitor, onBack, onAgent = { launching = true }, onTerminal = { launching = false },
-            onBrowseFiles, onDesktop, { anchor -> HostDetailMenu(onManagePlugins, onEdit, onDelete, anchor) }, onLogin, modifier)
+            onContinue, onBrowseFiles, onDesktop, { anchor -> HostDetailMenu(onManagePlugins, onEdit, onDelete, anchor) }, onLogin, modifier)
     } else Column(modifier.fillMaxSize().testTag("host-detail")) {
         AppToolbar(title = host.name,
             navigation = { ToolbarIcon(R.drawable.ic_chevron_left, tr("返回主机列表"), Modifier.testTag("host-detail-back"), onClick = onBack) },
@@ -98,16 +105,27 @@ internal fun HostDetailPage(
                 verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
                 val metrics = monitor?.metrics?.collectAsStateWithLifecycle()?.value
                 HostHeader(host, reachability, metrics)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
-                    HostAction(tr("Agent"), R.drawable.ic_agent, primary = true, tag = "host-detail-agent",
-                        modifier = Modifier.weight(1f)) { launching = true }
-                    HostAction(tr("终端"), R.drawable.ic_sessions, tag = "host-detail-terminal", modifier = Modifier.weight(1f)) {
-                        launching = false
+                val labels = listOfNotNull(tr("Agent"), tr("终端"), onContinue?.let { tr("继续") }, tr("文件"), onDesktop?.let { tr("桌面") })
+                val measurer = rememberTextMeasurer()
+                val style = MaterialTheme.typography.labelLarge
+                val density = LocalDensity.current
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    // Five buttons on a narrow phone: the icons step aside before a label would be cut short.
+                    val each = (maxWidth - Spacing.Tight * (labels.size - 1)) / labels.size
+                    val widest = labels.maxOf { with(density) { measurer.measure(it, style).size.width.toDp() } }
+                    val icons = widest + ACTION_ICON_CHROME <= each
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
+                        HostAction(tr("Agent"), R.drawable.ic_agent, primary = true, tag = "host-detail-agent",
+                            modifier = Modifier.weight(1f), icon = icons) { launching = true }
+                        HostAction(tr("终端"), R.drawable.ic_sessions, tag = "host-detail-terminal", modifier = Modifier.weight(1f),
+                            icon = icons) { launching = false }
+                        if (onContinue != null) HostAction(tr("继续"), R.drawable.ic_history, tag = "host-detail-continue",
+                            modifier = Modifier.weight(1f), icon = icons, onClick = onContinue)
+                        HostAction(tr("文件"), R.drawable.ic_folder, tag = "host-detail-files", modifier = Modifier.weight(1f),
+                            icon = icons, onClick = onBrowseFiles)
+                        if (onDesktop != null) HostAction(tr("桌面"), R.drawable.ic_desktop, tag = "host-detail-desktop",
+                            modifier = Modifier.weight(1f), icon = icons, onClick = onDesktop)
                     }
-                    HostAction(tr("文件"), R.drawable.ic_folder, tag = "host-detail-files", modifier = Modifier.weight(1f),
-                        onClick = onBrowseFiles)
-                    if (onDesktop != null) HostAction(tr("桌面"), R.drawable.ic_desktop, tag = "host-detail-desktop",
-                        modifier = Modifier.weight(1f), onClick = onDesktop)
                 }
                 if (monitor == null) MonitorLoginCard { askPassword = true }
                 else MonitorSection(monitor, onLogin = onLogin)
@@ -123,11 +141,16 @@ internal fun HostDetailPage(
     monitor?.pending?.collectAsStateWithLifecycle()?.value?.let { PromptDialog(it) }
     launching?.let { forAgent ->
         // The page's own login lists folders, so the sheet opens straight onto them.
-        LaunchSheet(host, forAgent, monitor, onDismiss = { launching = null }, openTmux = openTmux,
-            onAttach = { launching = null; onAttach(it) }) { directory, agent ->
+        LaunchSheet(host, forAgent, monitor, onDismiss = { launching = null }) { directory, agent ->
             launching = null
             onLaunch(directory, agent)
         }
+    }
+    if (continuing) ContinueSessionSheet(host, openTmux, onDismiss = { continuing = false },
+        onNewTerminal = { continuing = false; launching = false },
+        onInstall = { continuing = false; onManagePlugins() }, monitor = monitor) {
+        continuing = false
+        onAttach(it)
     }
 }
 
@@ -169,13 +192,19 @@ private fun HostHeader(host: Host, reachability: HostReachability, metrics: Host
     }
 }
 
-/** A compact pill: icon beside the label, so the three actions take one slim row instead of a block of tiles. */
+/** What a titled action adds around its label: the icon, the gap and the padding on each side. */
+private val ACTION_ICON_CHROME = 18.dp + 6.dp + Spacing.Tight * 2
+
+/** A compact pill: icon beside the label, so the actions take one slim row instead of a block of tiles. */
 @Composable
-private fun HostAction(label: String, icon: Int, tag: String, modifier: Modifier = Modifier, primary: Boolean = false,
-    onClick: () -> Unit) {
+private fun HostAction(label: String, iconRes: Int, tag: String, modifier: Modifier = Modifier, primary: Boolean = false,
+    /** False drops the icon, leaving the label all the room. */
+    icon: Boolean = true, onClick: () -> Unit) {
     val content: @Composable RowScope.() -> Unit = {
-        Icon(painterResource(icon), contentDescription = null, Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
+        if (icon) {
+            Icon(painterResource(iconRes), contentDescription = null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+        }
         Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
     val shape = MaterialTheme.shapes.small

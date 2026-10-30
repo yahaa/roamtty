@@ -914,8 +914,8 @@ class E2eFeatureTest {
     }
 
     /**
-     * 新建会话 › 继续会话: with one tmux host it lists that host's running sessions straight away, one tap opens a
-     * detached one, and tapping the one already open switches to its card instead of attaching it twice.
+     * 新建会话 › 继续会话: with one tmux host it lists that host's running sessions straight away, picking a detached one
+     * and 打开会话 attaches it, and opening the one already open switches to its card instead of attaching it twice.
      */
     @Test fun f22_continueSessionAttachesARunningTmuxSession() = runBlocking<Unit> {
         val host = E2e.save(E2e.host("继续会话", mode = SessionMode.TMUX))
@@ -934,8 +934,9 @@ class E2eFeatureTest {
         click("new-session-pick-continue")
         E2e.waitTag(compose, "continue-sheet")
         E2e.waitTag(compose, "launch-tmux-$name", timeoutMs = 20_000)
-        E2e.capture(compose, "f22-continue-sheet")
         click("launch-tmux-$name")
+        E2e.capture(compose, "f22-continue-sheet")
+        click("continue-attach")
         compose.waitUntil(15_000) { newSessions(before).isNotEmpty() }
         val attached = newSessions(before).single()
         assertEquals(Phase.CONNECTED, E2e.connected(attached))
@@ -952,9 +953,29 @@ class E2eFeatureTest {
         click("new-session-pick-continue")
         E2e.waitTag(compose, "launch-tmux-${first.remoteSessionName}", timeoutMs = 20_000)
         click("launch-tmux-${first.remoteSessionName}")
+        click("continue-attach")
         E2e.waitTag(compose, "terminal")
         assertEquals(count, service.sessions.value.size)
         E2e.run(compose, "tmux kill-session -t $name")
+        // The host page's 继续 opens the same sheet over the page's own login, in either orientation.
+        backToHome()
+        hostsTab()
+        compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${host.id}"))
+        click("host-card-${host.id}")
+        E2e.waitTag(compose, "host-detail")
+        E2e.capture(compose, "f22-host-detail")
+        click("host-detail-continue")
+        E2e.waitTag(compose, "launch-tmux-${first.remoteSessionName}", timeoutMs = 20_000)
+        compose.onNodeWithTag("continue-attach").assert(hasText("打开会话"))
+        E2e.capture(compose, "f22-host-continue")
+        compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+        E2e.waitTag(compose, "continue-bar")
+        E2e.waitTag(compose, "launch-tmux-selected", timeoutMs = 20_000)
+        compose.onNodeWithTag("continue-attach").assert(hasText("打开会话"))
+        E2e.capture(compose, "f22-host-continue-landscape")
+        click("continue-close")
+        E2e.waitTag(compose, "host-detail-continue")
+        E2e.capture(compose, "f22-host-detail-landscape")
     }
 
     /** 强制删除 removes a disconnected tmux card at once and also ends its tmux session on the server. */

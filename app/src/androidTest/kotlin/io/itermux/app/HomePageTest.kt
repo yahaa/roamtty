@@ -86,9 +86,9 @@ class HomePageTest {
             compose.onNodeWithTag("new-session-sheet").performScrollToNode(hasTestTag("new-session-host-${host.id}"))
             compose.onNodeWithTag("new-session-host-${host.id}").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("new-session-sheet").fetchSemanticsNodes().isEmpty() }
-            // The terminal's third step can choose a folder or attach an existing tmux session.
+            // The terminal's third step only chooses a folder; running tmux sessions are 继续会话's.
             compose.onNodeWithTag("launch-sheet").assertIsDisplayed()
-            compose.onNodeWithTag("launch-source-folder").assertIsSelected()
+            compose.onNodeWithTag("launch-source").assertDoesNotExist()
             compose.onNodeWithTag("launch-open").assertIsDisplayed()
             capture("new-session-folder")
             Espresso.pressBack()

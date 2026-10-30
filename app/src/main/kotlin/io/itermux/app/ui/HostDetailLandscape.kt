@@ -47,7 +47,7 @@ private enum class HostDetailTab(val label: String, val tag: String) {
 
 /**
  * The host page in landscape, built like the home page there: one flat 48 dp bar with back, the 概览 · 进程 · 信息
- * tabs and the four actions, and below it the whole page in one scroll. The tabs follow the scroll: the one whose
+ * tabs and the actions, and below it the whole page in one scroll. The tabs follow the scroll: the one whose
  * section is under the bar is selected, and tapping one scrolls to its section.
  */
 @Composable
@@ -58,6 +58,8 @@ internal fun HostDetailLandscape(
     onBack: () -> Unit,
     onAgent: () -> Unit,
     onTerminal: () -> Unit,
+    /** Opens the host's running tmux sessions; null hides the button (no tmux). */
+    onContinue: (() -> Unit)?,
     onBrowseFiles: () -> Unit,
     onDesktop: (() -> Unit)?,
     /** The overflow menu around the button it is handed. */
@@ -94,7 +96,7 @@ internal fun HostDetailLandscape(
                     try { scroll.animateScrollTo(tops[tab] ?: 0) } finally { tapped = null }
                 }
             }
-            HostDetailActions(onAgent, onTerminal, onBrowseFiles, onDesktop, Modifier.weight(1f).padding(start = Spacing.Tight))
+            HostDetailActions(onAgent, onTerminal, onContinue, onBrowseFiles, onDesktop, Modifier.weight(1f).padding(start = Spacing.Tight))
             menu { ToolbarIcon(R.drawable.ic_more, tr("更多"), Modifier.testTag("host-detail-more"), onClick = it) }
         }
         Column(Modifier.fillMaxWidth().weight(1f).onSizeChanged { viewport = it.height }.verticalScroll(scroll)
@@ -139,9 +141,9 @@ private fun HostDetailTabs(selected: HostDetailTab, processes: Int?, onSelect: (
  * (Chinese always does); otherwise only Agent keeps it and the rest are round icons.
  */
 @Composable
-private fun HostDetailActions(onAgent: () -> Unit, onTerminal: () -> Unit, onBrowseFiles: () -> Unit, onDesktop: (() -> Unit)?,
-    modifier: Modifier = Modifier) {
-    val labels = listOfNotNull(tr("终端"), tr("文件"), onDesktop?.let { tr("桌面") })
+private fun HostDetailActions(onAgent: () -> Unit, onTerminal: () -> Unit, onContinue: (() -> Unit)?, onBrowseFiles: () -> Unit,
+    onDesktop: (() -> Unit)?, modifier: Modifier = Modifier) {
+    val labels = listOfNotNull(tr("终端"), onContinue?.let { tr("继续") }, tr("文件"), onDesktop?.let { tr("桌面") })
     val measurer = rememberTextMeasurer()
     val style = MaterialTheme.typography.labelLarge
     val density = LocalDensity.current
@@ -152,6 +154,7 @@ private fun HostDetailActions(onAgent: () -> Unit, onTerminal: () -> Unit, onBro
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             HostPill("Agent", R.drawable.ic_agent, "host-detail-agent", filled = true, onClick = onAgent)
             HostPill(tr("终端"), R.drawable.ic_sessions, "host-detail-terminal", titled = titled, onClick = onTerminal)
+            if (onContinue != null) HostPill(tr("继续"), R.drawable.ic_history, "host-detail-continue", titled = titled, onClick = onContinue)
             HostPill(tr("文件"), R.drawable.ic_folder, "host-detail-files", titled = titled, onClick = onBrowseFiles)
             if (onDesktop != null) HostPill(tr("桌面"), R.drawable.ic_desktop, "host-detail-desktop", titled = titled, onClick = onDesktop)
         }
