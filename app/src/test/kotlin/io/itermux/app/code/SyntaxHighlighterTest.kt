@@ -114,6 +114,19 @@ class SyntaxHighlighterTest {
         assertEquals(TokenType.LINK, log.typeOf("https://example.com/x"))
     }
 
+    @Test fun lineRulesAndPatternsMatchOnLaterLinesAtTheirOwnPositions() {
+        // Rules and patterns run on a copy of each line; their spans must land back at the right place in the file.
+        val diff = SyntaxHighlighter.highlight("context\n-old line\n  +not a rule\n+new", Languages.DIFF)
+        assertEquals(listOf(0, 9, TokenType.DELETED.ordinal), diff.lines[1].spans.toList())
+        assertEquals(listOf(0, 4, TokenType.INSERTED.ordinal), diff.lines[3].spans.toList())
+        val log = tokens("line 1\nline 2 at 12:00:01 see https://example.com/a\nhttps://example.com/b\"", Languages.LOG)
+        assertEquals(TokenType.CONSTANT, log.typeOf("12:00:01"))
+        assertEquals(TokenType.LINK, log.typeOf("https://example.com/a"))
+        assertEquals(TokenType.LINK, log.typeOf("https://example.com/b"))
+        // A pattern stops at its line's end rather than running into the next line.
+        assertEquals(TokenType.NUMBER, tokens("#fff\n#000000", Languages.CSS).typeOf("#fff"))
+    }
+
     @Test fun rustLifetimesDoNotSwallowTheLine() {
         val result = tokens("fn f<'a>(x: &'a str) -> Vec<u8> { println!(\"{}\", 'c'); }", Languages.RUST)
         assertEquals(TokenType.FUNCTION, result.typeOf("println!"))
