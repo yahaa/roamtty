@@ -89,7 +89,9 @@ fun ItermuxScreen(
     val recentUsage = app.recentUsage
     val recentHosts by recentUsage.hostIds.collectAsStateWithLifecycle()
     val recentSessions by recentUsage.sessionIds.collectAsStateWithLifecycle()
-    val hosts = remember(loadedHosts, recentHosts) { loadedHosts.orEmpty().recentFirst(recentHosts) { it.id } }
+    // A state, not a remembered value: after a rotation the hosts load while an inner scope that reads loadedHosts
+    // recomposes on its own, and a captured list would still be the empty one from before, sending the host page home.
+    val hosts by remember { derivedStateOf { loadedHosts.orEmpty().recentFirst(recentHosts) { it.id } } }
     val sessionFlow = remember(service) { service?.sessions ?: MutableStateFlow(emptyList()) }
     val sessions by sessionFlow.collectAsStateWithLifecycle()
     val sessionStates by remember(sessions) {
