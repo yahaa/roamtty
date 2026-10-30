@@ -2,11 +2,13 @@ package io.itermux.app.ui
 
 import io.itermux.app.tr
 
+import android.content.res.Configuration
 import android.provider.OpenableColumns
 import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -15,6 +17,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -98,8 +106,7 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
             finally { busy = false }
         }
     }
-    val connectionSection: @Composable () -> Unit = {
-        GroupedSection(header = tr("连接信息")) {
+    val connectionSection = SectionParts(tr("连接信息"), null) {
             FormField(name, { name = it }, tr("名称"), Modifier.testTag("host-name"), tr("例如：开发工作站"), enabled = !busy)
             GroupedDivider()
             FormField(address, { address = it }, tr("地址 / IP"), Modifier.testTag("host-address"), tr("例如：dev.example.com"),
@@ -111,18 +118,14 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                 FormField(port, { port = it.filter(Char::isDigit).take(5) }, tr("端口"), modifier = Modifier.width(96.dp).testTag("host-port"),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
             }
-        }
     }
-    val systemSection: @Composable () -> Unit = {
-        GroupedSection(header = tr("远端系统"),
-            footer = tr("保存时自动检测系统。未填写凭据或暂时无法连接时，将在下次连接成功后更新。")) {
+    val systemSection = SectionParts(tr("远端系统"),
+            tr("保存时自动检测系统。未填写凭据或暂时无法连接时，将在下次连接成功后更新。")) {
             GroupedRow(if (detecting) tr("正在检测系统…") else if (os == "UNKNOWN") tr("自动检测") else tr(HostSystem.fromStored(os).label),
                 leading = { HostSystemIcon(os, 32.dp) },
                 trailing = { if (detecting) TextButton(onClick = draft::skipDetection) { Text(tr("跳过检测")) } })
-        }
     }
-    val authenticationSection: @Composable () -> Unit = {
-        GroupedSection(header = tr("认证方式"), footer = when (auth) {
+    val authenticationSection = SectionParts(tr("认证方式"), when (auth) {
             "PASSWORD" -> tr("密码用于检测系统；仅勾选后才会在本机保存。留空可在连接时输入。")
             "KEY" -> tr("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅用于本次检测或连接，不会保存。")
             else -> tr("连接时显示服务器的认证问题，支持一次性验证码和多轮交互。")
@@ -154,23 +157,23 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                 FormField(passphrase, { passphrase = it }, tr("私钥口令（仅用于检测，可留空）"),
                     visualTransformation = PasswordVisualTransformation(), modifier = Modifier.testTag("host-passphrase"), enabled = !busy)
             }
-        }
     }
-    val modeSection: @Composable () -> Unit = {
-        GroupedSection(header = tr("会话模式"), footer = if (mode == "TMUX") tr("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux（Windows 主机为 psmux）。") else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。")) {
+    val modeSection = SectionParts(tr("会话模式"), if (mode == "TMUX") tr("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux（Windows 主机为 psmux）。") else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。")) {
             SegmentedControl(listOf(
                 Segment(tr("tmux · 推荐"), mode == "TMUX") { if (!busy) mode = "TMUX" },
                 Segment(tr("普通 SSH"), mode == "SHELL") { if (!busy) mode = "SHELL" },
             ), Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
-        }
     }
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Dialog(onDismissRequest = { if (!busy) { draft.close(); onDismiss() } }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         SheetSystemBars(MaterialTheme.colorScheme.background)
         Surface(Modifier.fillMaxSize().testTag("host-editor"), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
             Column(Modifier.fillMaxSize()) {
                 // Modal form bar: cancel and save stay on opposite edges, the title is centered.
-                Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), contentAlignment = Alignment.Center) {
+                // In landscape, where height is short, the bar is the compact one of the other landscape pages.
+                Box(Modifier.fillMaxWidth().heightIn(min = if (landscape) HOME_COMPACT_BAR_HEIGHT else 56.dp).padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.Center) {
                     TextButton(onClick = { draft.close(); onDismiss() }, enabled = !busy, modifier = Modifier.align(Alignment.CenterStart)) { Text(tr("取消")) }
                     Text(if (forSession) tr("新建会话") else if (original == null) tr("添加主机") else tr("编辑主机"), style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(horizontal = 96.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -180,26 +183,18 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                     }
                 }
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                    val wide = maxWidth >= 600.dp
+                    // Landscape and wide screens: the four sections as two rows of two, so every field is in view at once.
+                    val wide = landscape || maxWidth >= 600.dp
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                        .padding(horizontal = Spacing.Page, vertical = Spacing.Tight),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
+                        .padding(horizontal = Spacing.Page, vertical = if (wide) Spacing.Hairline else Spacing.Tight),
+                        verticalArrangement = Arrangement.spacedBy(if (wide) Spacing.Page else Spacing.Section)) {
                         error?.let { Text(tr(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(horizontal = Spacing.Page)) }
-                        if (wide) Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Section)) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
-                                connectionSection()
-                                systemSection()
-                            }
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
-                                authenticationSection()
-                                modeSection()
-                            }
-                        } else {
-                            connectionSection()
-                            systemSection()
-                            authenticationSection()
-                            modeSection()
+                        if (wide) {
+                            SectionPair(connectionSection, authenticationSection)
+                            SectionPair(systemSection, modeSection)
+                        } else listOf(connectionSection, systemSection, authenticationSection, modeSection).forEach { section ->
+                            GroupedSection(header = section.header, footer = section.footer, content = section.content)
                         }
                     }
                 }
@@ -208,6 +203,49 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
     }
     }
     draft.pending.value?.let { PromptDialog(it) }
+}
+
+/** One grouped section of the form, laid out alone in portrait or beside another in landscape. */
+private class SectionParts(val header: String, val footer: String?, val content: @Composable ColumnScope.() -> Unit)
+
+/**
+ * Two sections side by side: headers, panels and footers each on one line, and the two panels as tall as the taller
+ * one, so the columns line up however much the authentication panel holds. The panels are measured first and their
+ * backgrounds after, at the shared height: the segmented controls inside cannot answer intrinsic measurements.
+ */
+@Composable
+private fun SectionPair(left: SectionParts, right: SectionParts) {
+    val gap = Spacing.Page
+    Column(Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+            listOf(left, right).forEach {
+                Text(it.header, style = MaterialTheme.typography.sectionHeader, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f).padding(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Tight).semantics { heading() })
+            }
+        }
+        val shape = MaterialTheme.shapes.medium
+        val color = MaterialTheme.colorScheme.groupedContainer
+        Layout(contents = listOf(
+            { repeat(2) { Box(Modifier.clip(shape).background(color).testTag("section-panel")) } },
+            { listOf(left, right).forEach { Column(Modifier.clip(shape), content = it.content) } },
+        )) { (backgrounds, panels), constraints ->
+            val space = gap.roundToPx()
+            val width = (constraints.maxWidth - space) / 2
+            val placed = panels.map { it.measure(Constraints(minWidth = width, maxWidth = width)) }
+            val height = placed.maxOf { it.height }
+            val behind = backgrounds.map { it.measure(Constraints.fixed(width, height)) }
+            layout(constraints.maxWidth, height) {
+                behind.forEachIndexed { index, panel -> panel.place(index * (width + space), 0) }
+                placed.forEachIndexed { index, panel -> panel.place(index * (width + space), 0) }
+            }
+        }
+        if (left.footer != null || right.footer != null) Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+            listOf(left.footer, right.footer).forEach {
+                Text(it.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f).padding(start = Spacing.Page, end = Spacing.Page, top = Spacing.Tight))
+            }
+        }
+    }
 }
 
 /** A borderless field for grouped forms: the panel supplies the shape, dividers separate rows. */

@@ -2,6 +2,8 @@ package io.itermux.app.ui
 
 import io.itermux.app.tr
 
+import android.content.res.Configuration
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -10,6 +12,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
@@ -34,14 +38,18 @@ internal fun ItermuxDrawer(
 ) {
     // Reserve a visible, tappable scrim even on phones narrower than the default 360 dp sheet.
     val drawerWidth = (with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } * 0.82f).coerceAtMost(360.dp)
+    // In landscape, where height is short, the header is one line and Settings and Help one row of icons, so the open
+    // sessions keep most of the height.
+    val compact = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     ModalDrawerSheet(modifier = Modifier.width(drawerWidth).fillMaxHeight().testTag("navigation-drawer")) {
         Column(Modifier.fillMaxHeight()) {
-            Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 24.dp, bottom = 20.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                ItermuxLogo(Modifier.size(48.dp))
-                Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                    Text("Roamtty", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Text(tr("远程终端"), style = MaterialTheme.typography.bodySmall,
+            Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = if (compact) 4.dp else 24.dp,
+                bottom = if (compact) 0.dp else 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                ItermuxLogo(Modifier.size(if (compact) 30.dp else 48.dp))
+                Column(Modifier.weight(1f).padding(start = if (compact) 12.dp else 14.dp)) {
+                    Text("Roamtty", style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold)
+                    if (!compact) Text(tr("远程终端"), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 ToolbarIcon(R.drawable.ic_close, tr("关闭"), tint = MaterialTheme.colorScheme.onSurfaceVariant, onClick = onClose)
@@ -59,7 +67,7 @@ internal fun ItermuxDrawer(
                         }
                     },
                     modifier = Modifier.padding(horizontal = 12.dp).testTag("drawer-hosts"))
-                HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
+                HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = if (compact) 6.dp else 16.dp))
                 Text(tr("当前会话"), style = MaterialTheme.typography.sectionHeader,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
@@ -88,12 +96,27 @@ internal fun ItermuxDrawer(
                 }
             }
             HorizontalDivider()
-            NavigationDrawerItem(label = { Text(tr("设置")) }, selected = page == AppPage.SETTINGS, onClick = onSettings,
-                icon = { Icon(painterResource(R.drawable.ic_settings), contentDescription = null) },
-                modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp).testTag("drawer-settings"))
-            NavigationDrawerItem(label = { Text(tr("帮助")) }, selected = false, onClick = onGuide,
-                icon = { Icon(painterResource(R.drawable.ic_help), contentDescription = null) },
-                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp).testTag("drawer-guide"))
+            if (compact) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                DrawerIconItem(tr("设置"), R.drawable.ic_settings, Modifier.weight(1f).testTag("drawer-settings"), onSettings)
+                DrawerIconItem(tr("帮助"), R.drawable.ic_help, Modifier.weight(1f).testTag("drawer-guide"), onGuide)
+            } else {
+                NavigationDrawerItem(label = { Text(tr("设置")) }, selected = page == AppPage.SETTINGS, onClick = onSettings,
+                    icon = { Icon(painterResource(R.drawable.ic_settings), contentDescription = null) },
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp).testTag("drawer-settings"))
+                NavigationDrawerItem(label = { Text(tr("帮助")) }, selected = false, onClick = onGuide,
+                    icon = { Icon(painterResource(R.drawable.ic_help), contentDescription = null) },
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp).testTag("drawer-guide"))
+            }
         }
+    }
+}
+
+/** A footer item in landscape: the icon over a short label, sharing the row with the others. */
+@Composable
+private fun DrawerIconItem(title: String, icon: Int, modifier: Modifier, onClick: () -> Unit) {
+    Column(modifier.clip(MaterialTheme.shapes.medium).clickable(onClick = onClick).heightIn(min = 48.dp).padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
+        Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+        Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }

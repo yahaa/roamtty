@@ -3,6 +3,7 @@ package io.itermux.app.ui
 import io.itermux.app.tr
 import io.itermux.app.trf
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,9 +14,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -148,9 +152,20 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
     var sudoPassword by remember { mutableStateOf("") }
     val host = controller.host
     val ready = connection.phase == Phase.CONNECTED && probed
-    AppSheet(onDismiss = onDismiss) {
-        SheetHeader(tr("安装插件"), "${host.name} · ${host.username}@${host.address}:${host.port}", onDismiss)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.Tight)
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    AppSheet(onDismiss = onDismiss, fullScreen = landscape, wide = landscape) {
+        if (landscape) {
+            // Landscape, where height is short: one flat bar like the launch sheet's, check again as its refresh button.
+            Row(Modifier.fillMaxWidth().height(HOME_COMPACT_BAR_HEIGHT).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                ToolbarIcon(R.drawable.ic_close, tr("关闭"), onClick = onDismiss)
+                Text("${tr("安装插件")} · ${host.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, end = Spacing.Row).weight(1f))
+                ToolbarIcon(R.drawable.ic_refresh, tr("重新检测"), Modifier.testTag("host-plugins-refresh"),
+                    enabled = installing == null && (ready || !connection.active), onClick = controller::start)
+            }
+        } else SheetHeader(tr("安装插件"), "${host.name} · ${host.username}@${host.address}:${host.port}", onDismiss)
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = if (landscape) Spacing.Row else Spacing.Tight)
             .testTag("host-plugins-sheet"), verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
             when {
                 connection.active && !ready -> Row(Modifier.padding(horizontal = Spacing.Page), verticalAlignment = Alignment.CenterVertically) {
@@ -168,9 +183,37 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
                     else tr("无法检测插件。目前支持 Linux、macOS、BSD 和 Windows 主机。"),
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = Spacing.Page))
             }
-            GroupedSection(header = tr("插件"),
-                footer = if (nativeWindows) tr("通过 winget 安装，无需管理员权限；没有 winget 时从 GitHub 下载。新建会话在 psmux 中运行，断网后可恢复。")
-                    else trf("%s新建会话优先使用 mosh；装有 tmux 时在 tmux 中运行。", installHint(system))) {
+            val footer = if (nativeWindows) tr("通过 winget 安装，无需管理员权限；没有 winget 时从 GitHub 下载。新建会话在 psmux 中运行，断网后可恢复。")
+                else trf("%s新建会话优先使用 mosh；装有 tmux 时在 tmux 中运行。", installHint(system))
+            // Landscape: the plugins as cards side by side, each showing its state where the install button goes.
+            if (landscape) Column {
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(Spacing.Page)) {
+                    HostPlugin.offered(nativeWindows).forEach { plugin ->
+                        PluginCard(plugin, Modifier.weight(1f).fillMaxHeight()) {
+                            when {
+                                plugins?.contains(plugin) == true -> CardState(Modifier.testTag("plugin-installed-${plugin.id}")) {
+                                    Icon(painterResource(R.drawable.ic_check), contentDescription = null, modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary)
+                                    Text(tr("已安装"), color = MaterialTheme.colorScheme.primary)
+                                }
+                                installing == plugin -> CardState {
+                                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Text(tr("正在安装…"))
+                                }
+                                ready && plugins != null -> FilledTonalButton(onClick = { controller.install(plugin, sudoPassword) },
+                                    enabled = installing == null, modifier = Modifier.fillMaxWidth().testTag("plugin-install-${plugin.id}")) { Text(tr("安装")) }
+                                ready -> {}
+                                else -> CardState {
+                                    if (connection.active) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Text(tr("检测中…"))
+                                }
+                            }
+                        }
+                    }
+                }
+                Text(footer, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = Spacing.Page, end = Spacing.Page, top = Spacing.Tight))
+            } else GroupedSection(header = tr("插件"), footer = footer) {
                 HostPlugin.offered(nativeWindows).forEachIndexed { index, plugin ->
                     if (index > 0) GroupedDivider()
                     GroupedRow(plugin.id, Modifier.testTag("plugin-${plugin.id}"), subtitle = pluginDescription(plugin),
@@ -223,6 +266,33 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
         }
     }
     pending?.let { PromptDialog(it) }
+}
+
+/** A plugin as a card: what it does on top, and at its foot [action], its state or the install button. */
+@Composable
+private fun PluginCard(plugin: HostPlugin, modifier: Modifier, action: @Composable () -> Unit) {
+    Surface(modifier.testTag("plugin-${plugin.id}"), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.groupedContainer) {
+        Column(Modifier.padding(Spacing.Page), verticalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(painterResource(if (plugin.keepsSessions) R.drawable.ic_sessions else R.drawable.ic_live),
+                    contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                Text(plugin.id, style = MaterialTheme.typography.titleMedium)
+            }
+            Text(pluginDescription(plugin), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.weight(1f))
+            action()
+        }
+    }
+}
+
+/** A card's state where its install button would be: a muted full-width box. */
+@Composable
+private fun CardState(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    Row(modifier.fillMaxWidth().heightIn(min = 40.dp).clip(MaterialTheme.shapes.small)
+        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Tight, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+        ProvideTextStyle(MaterialTheme.typography.labelLarge.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)) { content() }
+    }
 }
 
 private fun pluginDescription(plugin: HostPlugin) = when (plugin) {
