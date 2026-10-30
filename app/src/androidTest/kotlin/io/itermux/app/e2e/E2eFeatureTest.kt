@@ -690,7 +690,7 @@ class E2eFeatureTest {
 
     // ---- app-wide ------------------------------------------------------------------------------------------
 
-    /** Settings: language, theme and terminal font apply at once and persist. */
+    /** Settings: language, theme, notifications and terminal font apply at once and persist. */
     @Test fun f17_settingsLanguageThemeFont() = runBlocking<Unit> {
         val prefs = E2e.context.getSharedPreferences("app-settings", android.content.Context.MODE_PRIVATE)
         val theme = prefs.getString("theme", null)
@@ -711,12 +711,15 @@ class E2eFeatureTest {
             E2e.capture(compose, "f17-dark")
             click("settings-theme-light")
             compose.waitUntil(3_000) { prefs.getString("theme", null) == "LIGHT" }
+            compose.onNodeWithTag("settings-notify-waiting_only").performScrollTo().performClick()
+            compose.waitUntil(3_000) { prefs.getString("notify.agents", null) == "WAITING_ONLY" }
+            E2e.capture(compose, "f17-notifications")
             compose.onNodeWithTag("settings-font-open").performScrollTo().performClick()
             click("settings-font-fira_code")
             E2e.waitText(compose, "Fira Code", substring = true)
             E2e.capture(compose, "f17-font")
         } finally {
-            prefs.edit().apply { if (theme == null) remove("theme") else putString("theme", theme) }.commit()
+            prefs.edit().apply { if (theme == null) remove("theme") else putString("theme", theme) }.remove("notify.agents").commit()
             E2e.context.getSharedPreferences("terminal-font", android.content.Context.MODE_PRIVATE).edit().clear().commit()
             io.itermux.app.AppLocale.set(E2e.context, io.itermux.app.AppLanguage.ZH_CN)
         }
@@ -819,6 +822,70 @@ class E2eFeatureTest {
         E2e.capture(compose, "f24-session-list")
         compose.onNodeWithTag("home-sessions-list").performScrollToNode(hasTestTag("home-session-${plain.id}"))
         tag("home-session-tag-tmux-${plain.id}").assertExists()
+    }
+
+    /**
+     * An agent that waits, and one that finished a turn of over a minute, each get a system notification of who, what
+     * and where; tapping one opens its session, which takes the notification away. Closing a session, or turning its
+     * kind off in the settings, takes it away too.
+     */
+    @Test fun f26_agentNotificationsOpenTheirSession() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("通知", mode = SessionMode.TMUX))
+        val hook = "sh ~/.roamtty/agent-hook.sh claude"
+        suspend fun open(command: String) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            service.open(host, SessionMode.TMUX, io.itermux.ssh.Credentials(E2e.password.toByteArray())).also { session ->
+                session.runWhenConnected(command, agentHooks = io.itermux.app.session.CodingAgent.CLAUDE)
+            }
+        }
+        val waiting = open("printf '{\"prompt\":\"build the release apk\"}' | $hook prompt; " +
+            "printf '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"./gradlew assembleRelease\"}}' | $hook tool; " +
+            "printf '{\"notification_type\":\"permission_prompt\",\"message\":\"Claude needs your permission\"}' | $hook notify; sleep 600")
+        // The turn began two minutes ago, so it counts as long.
+        fun finish(answer: String) = "printf '{\"prompt\":\"fix the links\"}' | $hook prompt; " +
+            "tmux set-option -q -t \"\$TMUX_PANE\" @roamtty_turn \$(( \$(date +%s) - 125 )); " +
+            "printf '{\"last_assistant_message\":\"$answer\"}' | $hook stop; sleep 600"
+        val finished = open(finish("Fixed 12 broken image links."))
+        val another = open(finish("Done."))
+        // A short turn ends without one.
+        val short = open("printf '{\"prompt\":\"say hi\"}' | $hook prompt; " +
+            "printf '{\"last_assistant_message\":\"Hi.\"}' | $hook stop; sleep 600")
+        listOf(waiting, finished, another, short).forEach { assertEquals(Phase.CONNECTED, E2e.connected(it)) }
+        val manager = app.getSystemService(android.app.NotificationManager::class.java)
+        fun posted(id: String) = manager.activeNotifications.firstOrNull { it.tag == id }?.notification
+        fun title(id: String) = posted(id)?.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
+        fun text(id: String) = posted(id)?.extras?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
+        compose.waitUntil(40_000) { listOf(waiting, finished, another).all { posted(it.id) != null } }
+        assertEquals("Claude 等你确认", title(waiting.id))
+        assertEquals("${host.name} · ./gradlew assembleRelease", text(waiting.id))
+        assertEquals("Claude 已完成", title(finished.id))
+        assertEquals("${host.name} · 2 分钟 · Fixed 12 broken image links.", text(finished.id))
+        // The short turn has reported by now too: the session list shows it done.
+        compose.waitUntil(20_000) { short.lastAgentStatus.value?.workedSeconds != null }
+        assertNull(posted(short.id))
+        val shell = E2e.instrumentation.uiAutomation
+        shell.executeShellCommand("cmd statusbar expand-notifications").close()
+        Thread.sleep(1_500)
+        E2e.screenshot("f26-notification-shade")
+        shell.executeShellCommand("cmd statusbar collapse").close()
+        Thread.sleep(500)
+        // Tapping the waiting one opens its terminal and withdraws it; the other stays.
+        val launched = compose.activity.intent
+        posted(waiting.id)!!.contentIntent.send()
+        E2e.waitTag(compose, "terminal")
+        // The tap's intent replaced the activity's, which ActivityScenario looks for to close it.
+        compose.runOnUiThread { compose.activity.intent = launched }
+        compose.waitUntil(10_000) { posted(waiting.id) == null }
+        assertNotNull(posted(finished.id))
+        E2e.capture(compose, "f26-opened-session")
+        // Closing a session takes its notification along.
+        compose.runOnUiThread { service.close(another.id) }
+        compose.waitUntil(10_000) { posted(another.id) == null }
+        assertNotNull(posted(finished.id))
+        // So does turning finished turns off.
+        try {
+            io.itermux.app.session.AgentAlerts.setSetting(app, io.itermux.app.session.AgentAlerts.Setting.WAITING_ONLY)
+            compose.waitUntil(10_000) { posted(finished.id) == null }
+        } finally { io.itermux.app.session.AgentAlerts.setSetting(app, io.itermux.app.session.AgentAlerts.Setting.ALL) }
     }
 
     /**

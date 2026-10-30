@@ -74,6 +74,9 @@ fun ItermuxScreen(
     /** A host whose desktop the notification asked to show. */
     pendingDesktopHost: String? = null,
     onDesktopHostConsumed: () -> Unit = {},
+    /** A session an agent notification asked to show. */
+    pendingSession: String? = null,
+    onSessionConsumed: () -> Unit = {},
     onChromeChange: (Boolean, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -302,6 +305,9 @@ fun ItermuxScreen(
     }
 
     val resumed by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+    // The session in front of the user needs no notification.
+    val viewing = selected.takeIf { page == AppPage.TERMINAL }
+    LaunchedEffect(service, viewing) { service?.setViewing(viewing) }
     val onSessionsTab = page == AppPage.HOME && homePager.currentPage == 0 && resumed.isAtLeast(Lifecycle.State.RESUMED)
     /** A live session to the same endpoint already shows the host is up, without probing it. */
     fun hostConnected(host: Host) = service?.sessions?.value.orEmpty().any {
@@ -360,6 +366,14 @@ fun ItermuxScreen(
         val system = HostSystem.fromStored(host.os)
         val family = when { system.isLinux -> "linux-"; system == HostSystem.MACOS -> "macos-"; system == HostSystem.WINDOWS -> "windows-"; else -> return false }
         return desktopTargets.any { it.startsWith(family) }
+    }
+    LaunchedEffect(pendingSession, service) {
+        val id = pendingSession ?: return@LaunchedEffect
+        val bound = service ?: return@LaunchedEffect
+        bound.awaitRestoration()
+        // A session closed since the notification came leaves the app where it was.
+        if (bound.sessions.value.any { it.id == id }) showSession(id)
+        onSessionConsumed()
     }
     LaunchedEffect(pendingDesktopHost, service) {
         val id = pendingDesktopHost ?: return@LaunchedEffect

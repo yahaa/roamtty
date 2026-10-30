@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.itermux.app.AppLanguage
 import io.itermux.app.TerminalFonts
+import io.itermux.app.session.AgentAlerts
 import io.itermux.app.tr
 import kotlinx.coroutines.*
 
@@ -94,6 +95,7 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
                         }
                     }
                 }
+                NotificationSetting()
                 DownloadDirectorySetting()
                 DesktopSetting()
                 GroupedSection(header = tr("后台连接"),
@@ -123,6 +125,23 @@ internal fun CheckRow(title: String, selected: Boolean, modifier: Modifier = Mod
             Icon(painterResource(R.drawable.ic_check), contentDescription = null, modifier = Modifier.size(20.dp)
                 .alpha(if (selected) 1f else 0f), tint = MaterialTheme.colorScheme.primary)
         })
+}
+
+/** 通知: which agent notifications come; sound, vibration and the lock screen are the system's settings. */
+@Composable
+private fun NotificationSetting() {
+    val context = LocalContext.current
+    var setting by remember { mutableStateOf(AgentAlerts.setting(context)) }
+    GroupedSection(header = tr("通知"), footer = tr("Agent 等你确认或做完一轮（超过 1 分钟）时提醒，点通知进入该会话。声音和振动在系统通知设置中调整。")) {
+        Column(Modifier.selectableGroup()) {
+            AgentAlerts.Setting.entries.forEachIndexed { index, option ->
+                if (index > 0) GroupedDivider()
+                CheckRow(tr(option.label), setting == option, Modifier.testTag("settings-notify-${option.name.lowercase()}")) {
+                    setting = option; AgentAlerts.setSetting(context, option)
+                }
+            }
+        }
+    }
 }
 
 /** 远程桌面: how long a left desktop stays connected, and (debug) the plugin source. */

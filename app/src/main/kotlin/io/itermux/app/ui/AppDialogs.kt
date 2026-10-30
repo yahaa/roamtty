@@ -85,7 +85,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
     "Sessions and AI agents" to "• AI agent starts Claude Code, Codex or Grok in a folder you pick. Claude's Plan mode analyses first and starts changing files after you approve the plan. Codex and Grok start Read-only with a sandbox; Grok can still write its state in ~/.grok/ and temporary directories. You can change permissions in the agent. Normal (asks before editing files or running commands) and YOLO (skips confirmations) modes are also available, and your last choice is remembered. Open terminal can also start in a chosen folder.\n" +
         "• Install plugins detects and installs tmux and mosh. With tmux, each new session gets its own remote tmux session that keeps running after a disconnect or closing the app; reconnecting reattaches it. With mosh, sessions use UDP (allow ports 60000–61000) and fall back to SSH if it does not answer.\n" +
         "• The session list on the home page shows every session (up to 8 per host), titled by the agent's task or its folder, with what the agent is doing; the side menu lists them too. A dropped tmux session keeps its card and reconnects. Close in a card's menu ends the remote tmux session and its tasks, logging in again first if the session is not connected.\n" +
-        "• The notification can disconnect everything. To stay connected while the screen is locked, allow background running in Settings.",
+        "• When an agent needs you or finishes a turn, a notification says so; tap it to open that session. To stay connected while the screen is locked, allow background running in Settings.",
     "Terminal gestures" to "• Tap the cursor's line (or within two lines of it) to show the keyboard; taps elsewhere leave it hidden. Double-tap sends Tab (completion) and brings ↑ above the pet, ↓ below it and ← to its left for picking a completion; triple-tap pastes the clipboard, pinch changes the font size.\n" +
         "• Swipe left or right to send Left or Right (arm Shift first for Shift+Left, which answers Codex questions). Swipe left or right and keep your finger down to jump to the start or end of the line.\n" +
         "• Hold the little ghost to open a ring of shortcuts for the program in front (Claude Code, Codex, Grok, Gemini, or keyboard keys in a plain shell); drag onto one and let go to send it. In a shell, rest on Fn to open F1–F12.\n" +
@@ -107,7 +107,7 @@ private fun guideSections(): List<Pair<String, String>> = if (AppLocale.language
     "会话与 AI Agent" to "• “AI Agent”在选定文件夹启动 Claude Code、Codex 或 Grok。Claude 的“计划”模式先分析，批准计划后开始修改；Codex 与 Grok 的“只读”使用沙箱启动，Grok 的 ~/.grok/ 状态目录和临时目录仍可写。你可在 Agent 中调整权限，也可选择普通（改文件或运行命令前先问你）或 YOLO（跳过确认）模式，应用会记住上次选择。“打开终端”同样可以先选起始文件夹。\n" +
         "• “安装插件”检测并安装 tmux 与 mosh。装有 tmux 时每个新会话有独立的远端 tmux 会话，断网或关闭 App 后任务继续运行，重连即附着原会话；装有 mosh 时优先走 UDP（需放行 60000–61000），无回应自动回退 SSH。\n" +
         "• 首页会话列表列出全部会话（每台主机最多 8 个），以 Agent 的任务或文件夹为标题并显示 Agent 的状态，侧边栏同样列出。断线的 tmux 会话保留卡片并可重连；卡片菜单中的“关闭”会结束远端 tmux 会话及其中任务，未连接时先重新登录再结束。\n" +
-        "• 通知栏可一键全部断开。锁屏后要保持连接，请在设置中允许后台运行。",
+        "• Agent 等你确认或做完一轮时会发通知，点通知直接进入该会话。锁屏后要保持连接，请在设置中允许后台运行。",
     "终端手势" to "• 点击光标所在行（上下各 2 行内都算）弹出键盘，点击其他位置不弹出；双击发送 Tab（补全），同时小精灵上方出现 ↑ 键、下方出现 ↓ 键、左边出现 ← 键用来选择补全项，三击粘贴剪贴板，双指缩放调整字号。\n" +
         "• 左右滑动发送 ← / →（先点亮 Shift 再左滑即发送 Shift+←，用于回答 Codex 的提问）；左右滑动后按住不放，可跳到行首或行尾。\n" +
         "• 长按小精灵，周围弹出当前程序的快捷键（Claude Code、Codex、Grok、Gemini；普通终端为 Ctrl、Shift、Fn 等按键），拖到某个键上松手即发送；在终端里停在 Fn 上会展开 F1–F12。\n" +
