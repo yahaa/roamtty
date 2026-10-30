@@ -69,10 +69,10 @@ object AgentAlerts {
         }
     }
 
-    /** One line: the host, then what the agent asks to run, or how long it worked and the start of its answer. */
+    /** One line: the host, then what the agent asks to run, or how long it worked and the start of its answer as plain text. */
     fun text(kind: Kind, host: String, status: AgentStatus): String = when (kind) {
         Kind.WAITING -> listOf(host, status.detail.ifEmpty { status.tool })
-        Kind.DONE -> listOf(host, status.workedSeconds?.let(::duration).orEmpty(), status.reply)
+        Kind.DONE -> listOf(host, status.workedSeconds?.let(::duration).orEmpty(), replyPreview(status.reply))
     }.filter { it.isNotBlank() }.joinToString(" · ")
 }
 
