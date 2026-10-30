@@ -112,7 +112,7 @@ host_metric cold_start_p50_ms "${sorted[$(( ${#sorted[@]} / 2 ))]}" ms
 host_metric cold_start_max_ms "${sorted[-1]}" ms
 
 echo "== Instrumentation (UI features + performance)"
-CLASS="io.itermux.app.e2e.E2eFeatureTest,io.itermux.app.e2e.E2eNotificationTest,io.itermux.app.e2e.E2eDesktopTest,io.itermux.app.e2e.E2ePerfTest,io.itermux.app.e2e.E2eFramesTest,io.itermux.app.e2e.E2eMemoryTest,io.itermux.app.desktop.DesktopMemoryTest"
+CLASS="io.itermux.app.e2e.E2eFeatureTest,io.itermux.app.e2e.E2eNotificationTest,io.itermux.app.e2e.E2eDesktopTest,io.itermux.app.e2e.E2ePerfTest,io.itermux.app.e2e.E2eFramesTest,io.itermux.app.e2e.E2eMemoryTest,io.itermux.app.e2e.E2eLeakSweepTest,io.itermux.app.desktop.DesktopMemoryTest"
 if [ -n "$ONLY" ]; then
   CLASS="$(echo "$ONLY" | sed -E 's/(^|,)(E2e)/\1io.itermux.app.e2e.\2/g')"
 fi

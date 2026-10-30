@@ -254,6 +254,24 @@
       "test": "E2eMemoryTest",
       "about": "failed logins still reachable after their cards are removed and GC runs"
     },
+    "sweep_retained_sessions": {
+      "max": 0,
+      "unit": "count",
+      "test": "E2eLeakSweepTest",
+      "about": "sessions from five whole journeys (terminal, files and previews, host monitor, settings, rotation) still reachable after GC"
+    },
+    "sweep_heap_growth_mb": {
+      "max": 4,
+      "unit": "MB",
+      "test": "E2eLeakSweepTest",
+      "about": "managed heap growth over journeys 2–5 after the first warmed caches"
+    },
+    "retained_activities": {
+      "max": 0,
+      "unit": "count",
+      "test": "E2eLeakSweepTest",
+      "about": "old Activities still reachable after eight recreations, five with a terminal open"
+    },
     "sftp_download_mbps": {
       "min": 5,
       "unit": "MiB/s",
