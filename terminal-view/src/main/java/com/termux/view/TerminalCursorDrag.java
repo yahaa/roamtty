@@ -36,23 +36,6 @@ final class TerminalCursorDrag {
         return row < current.firstRow || row > current.lastRow ? null : current;
     }
 
-    /**
-     * Roamtty: a tap on the text of the cursor's line (soft wraps included) moves the cursor there with
-     * horizontal arrows, like tapping into a text field. Stops at the end of the typed text; returns whether any
-     * arrow was sent.
-     */
-    boolean tapTo(MotionEvent event) {
-        TerminalTextLine current = cursorLineUnder(event);
-        if (current == null) return false;
-        int row = view.textRowAt(event.getY());
-        int cursorCell = current.cellAt(view.mEmulator.getCursorCol(), view.mEmulator.getCursorRow());
-        int column = Math.max(0, Math.min(current.columns - 1, Math.round(event.getX() / view.mRenderer.mFontWidth)));
-        int target = Math.max(0, Math.min(Math.max(cursorCell, current.contentEndCell()), current.cellAt(column, row)));
-        int delta = current.cursorStepAt(target) - current.cursorStepAt(cursorCell);
-        sendArrows(delta, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT);
-        return delta != 0;
-    }
-
     boolean start(MotionEvent event) {
         TerminalTextLine current = cursorLineUnder(event);
         if (current == null) return false;

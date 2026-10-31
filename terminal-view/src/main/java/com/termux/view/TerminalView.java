@@ -72,6 +72,7 @@ public final class TerminalView extends View {
     private Runnable mFlingRunnable;
     private MotionEvent mFlingEvent;
     private final TerminalCursorDrag mCursorDrag = new TerminalCursorDrag(this);
+    private final TerminalCursorTap mCursorTap = new TerminalCursorTap(this);
     private BaseInputConnection mInputConnection;
     /** Numbers input connections; the latest batch starts at the first one created after an IME last used one. */
     private int mInputGeneration;
@@ -164,7 +165,7 @@ public final class TerminalView extends View {
                     if (mClient.onOpenUrl(urlAtDown)) return true;
                 }
                 requestFocus();
-                mCursorDrag.tapTo(event);
+                mCursorTap.tapTo(event);
                 mClient.onSingleTapUp(event);
                 return true;
             }
@@ -376,6 +377,7 @@ public final class TerminalView extends View {
         if (session == mTermSession) return false;
 
         mCursorDrag.finish();
+        mCursorTap.cancel();
         stopScrolling();
         mTermSession = session;
         mEmulator = null;
@@ -753,6 +755,7 @@ public final class TerminalView extends View {
     public void onScreenUpdated(boolean skipScrolling) {
         if (mEmulator == null) return;
         mCursorDrag.onScreenUpdated();
+        mCursorTap.onScreenUpdated();
 
         int rowsInHistory = mEmulator.getScreen().getActiveTranscriptRows();
         if (mTopRow < -rowsInHistory) setTopRow(-rowsInHistory);
@@ -1284,6 +1287,7 @@ public final class TerminalView extends View {
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         mCursorDrag.finish();
+        mCursorTap.cancel();
         updateSize();
     }
 
@@ -1363,7 +1367,7 @@ public final class TerminalView extends View {
         return TerminalUrl.at(mEmulator, (int) Math.floor(x / mRenderer.mFontWidth), row);
     }
 
-    public void setCursorDraggingEnabled(boolean enabled) { mCursorDrag.setEnabled(enabled); }
+    public void setCursorDraggingEnabled(boolean enabled) { mCursorDrag.setEnabled(enabled); mCursorTap.setEnabled(enabled); }
 
     public boolean isCursorDragging() { return mCursorDrag.isActive(); }
 
