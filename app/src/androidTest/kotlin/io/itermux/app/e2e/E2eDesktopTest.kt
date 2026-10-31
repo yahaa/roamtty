@@ -432,7 +432,7 @@ class E2eDesktopTest {
         assertEquals("UDP", desktop().stats.value.link)
         assertTrue("pointer $before → $after", after!!.first > before!!.first + 50 && after.second < before.second - 30)
 
-        // Zoomed in, two fingers move the picture and leave the host's pointer alone.
+        // Zoomed in, two fingers still scroll the host (docs/desktop-gestures.md): the picture stays, and so does the pointer.
         compose.onNodeWithTag("desktop-touch").performTouchInput {
             pinch(center - Offset(50f, 0f), center - Offset(250f, 0f), center + Offset(50f, 0f), center + Offset(250f, 0f), 400)
         }
@@ -451,8 +451,8 @@ class E2eDesktopTest {
         }
         idle(500)
         val (panned, _) = surface()
-        E2e.capture(compose, "desktop-mouse-02-panned")
-        assertTrue("two fingers moved the picture: $zoomed → $panned", panned.x > zoomed.x + 100f)
+        E2e.capture(compose, "desktop-mouse-02-scrolled")
+        assertEquals("zoomed in, two fingers leave the picture where it is", zoomed, panned)
         assertEquals("the host's pointer stays", pointerZoomed, pointer())
     }
 

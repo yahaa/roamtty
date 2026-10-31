@@ -77,7 +77,8 @@ fun ItermuxScreen(
     /** A session an agent notification asked to show. */
     pendingSession: String? = null,
     onSessionConsumed: () -> Unit = {},
-    onChromeChange: (Boolean, Boolean) -> Unit,
+    /** Terminal chrome, light theme, and whether the system's back gesture works while the bars are hidden (the desktop). */
+    onChromeChange: (Boolean, Boolean, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -135,7 +136,7 @@ fun ItermuxScreen(
     // The file browser wears the terminal's chrome: a transparent status bar and no navigation bar.
     val terminalChrome = terminalVisible || page == AppPage.FILES || desktopVisible
     // Older IMEs reveal system bars without changing window focus. Restore immersive mode on close.
-    LaunchedEffect(terminalChrome, imeVisible, lightTheme, landscape) { onChromeChange(terminalChrome, lightTheme) }
+    LaunchedEffect(terminalChrome, imeVisible, lightTheme, landscape, desktopVisible) { onChromeChange(terminalChrome, lightTheme, desktopVisible) }
     BackHandler(page == AppPage.SETTINGS && !drawerState.isOpen) { page = settingsReturnPage }
     BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
