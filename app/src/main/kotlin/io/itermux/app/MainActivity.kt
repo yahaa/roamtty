@@ -30,6 +30,8 @@ class MainActivity : ComponentActivity() {
     private var service by mutableStateOf<SessionService?>(null)
     private var bound = false
     private var terminalChrome = false
+    /** The desktop: the system's back gesture works from its black bars even while the bars are hidden. */
+    private var systemGestures = false
     private var lightTheme = false
     private var pendingShareImages by mutableStateOf<List<Uri>>(emptyList())
     /** The notification's desktop line was tapped: the host whose desktop page to show. */
@@ -80,9 +82,10 @@ class MainActivity : ComponentActivity() {
                 onDesktopHostConsumed = { pendingDesktopHost = null },
                 pendingSession = pendingSession,
                 onSessionConsumed = { pendingSession = null },
-            ) { visible, light ->
+            ) { visible, light, gestures ->
                 terminalChrome = visible
                 lightTheme = light
+                systemGestures = gestures
                 updateSystemBars()
             }
         }
@@ -106,7 +109,11 @@ class MainActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         window.navigationBarColor = background
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            // Hidden bars normally take the first edge swipe to show themselves, and back is off until they do.
+            // The desktop keeps back working (from the black bars beside the picture, which excludes its own
+            // edges for edge swipes), as swiping back works there on iOS.
+            systemBarsBehavior = if (systemGestures) WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+                else WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             isAppearanceLightStatusBars = lightTheme
             isAppearanceLightNavigationBars = lightTheme
             // Landscape gives every row to content on all pages; the portrait terminal

@@ -4,7 +4,10 @@ import android.content.Context
 import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -71,6 +74,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.desktop.DesktopConnection
+import io.itermux.app.desktop.DesktopInputProbe
 import io.itermux.app.desktop.DesktopThumbnails
 import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.tr
@@ -117,9 +121,23 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
     }
     val hello by connection.hello.collectAsStateWithLifecycle()
     val os = hello?.os ?: connection.host.os.lowercase()
-    fun action(id: Int) = connection.input(DesktopProtocol.action(id))
+    val pageView = LocalView.current
+    // 显示桌面 and 所有窗口 answer with a tap at once: the host may take a moment to show it.
+    fun action(id: Int) {
+        pageView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        DesktopInputProbe.token("a$id")
+        connection.input(DesktopProtocol.action(id))
+    }
 
-    Box(modifier.fillMaxSize().background(Color.Black).testTag("desktop-page")) {
+    val backDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    Box(modifier.fillMaxSize().background(Color.Black).testTag("desktop-page").onPreviewKeyEvent { event ->
+        // Back (the key, and the system's back gesture, which arrives as it) goes straight to the back handlers. Left
+        // to Compose, the first one only clears the focus the picture holds for a hardware keyboard, and a second
+        // back was needed to leave.
+        if (event.nativeKeyEvent.keyCode != android.view.KeyEvent.KEYCODE_BACK) return@onPreviewKeyEvent false
+        if (event.type == KeyEventType.KeyUp && !event.nativeKeyEvent.isCanceled) backDispatcher?.onBackPressed()
+        true
+    }) {
         val rail: @Composable () -> Unit = {
             DesktopRail(landscape, panel, onPanel = { panel = if (panel == it) DesktopPanel.NONE else it },
                 onShowDesktop = { action(DesktopProtocol.ACTION_SHOW_DESKTOP) }, onAllWindows = { action(DesktopProtocol.ACTION_ALL_WINDOWS) })
@@ -144,7 +162,10 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
         }
         when (panel) {
             DesktopPanel.OPERATIONS -> OperationsPanel(connection, landscape, mode, virtualMouse, showStats,
-                onMode = { mode = it; settings.setPointerMode(connection.host.id, it) },
+                onMode = {
+                    if (it != mode) pageView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    mode = it; settings.setPointerMode(connection.host.id, it)
+                },
                 onVirtualMouse = { virtualMouse = it },
                 onShowStats = { showStats = it; settings.showStats = it },
                 onLeave = { panel = DesktopPanel.NONE; onLeave() },
@@ -221,32 +242,50 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
         gestures.viewport = viewport
     }
     val scope = rememberCoroutineScope()
-    var pending by remember { mutableStateOf<Job?>(null) }
     val focus = remember { FocusRequester() }
     // A hardware keyboard types into the picture whenever no panel holds the focus.
     LaunchedEffect(keys) { if (keys) runCatching { focus.requestFocus() } }
 
+    val view = LocalView.current
+    // Bumped by every gesture call: the cursor and the ring redraw from the engine's state.
+    var drawn by remember { mutableIntStateOf(0) }
+    val os = hello?.os ?: connection.host.os
     fun apply(actions: List<GestureAction>) {
         val d = displayIndex
         actions.forEach { a ->
             when (a) {
                 is GestureAction.MoveTo -> connection.input(DesktopProtocol.abs(d, a.x, a.y))
-                is GestureAction.MoveBy -> connection.input(DesktopProtocol.rel(a.dx, a.dy))
                 is GestureAction.Button -> connection.input(DesktopProtocol.button(a.button, a.down))
                 is GestureAction.Wheel -> connection.input(DesktopProtocol.wheel(a.dx, a.dy))
                 is GestureAction.View -> viewport = a.viewport
+                is GestureAction.Swipe -> DesktopSwipeShortcut.frames(a.direction, os).forEach(connection::input)
+                is GestureAction.Feedback -> view.performHapticFeedback(when (a.kind) {
+                    GestureFeedback.HOLD, GestureFeedback.PICKUP -> HapticFeedbackConstants.LONG_PRESS
+                    GestureFeedback.CLICK, GestureFeedback.SHORTCUT -> HapticFeedbackConstants.KEYBOARD_TAP
+                })
             }
+            DesktopInputProbe.record(a)
         }
+        drawn++
     }
+    // One timer on the main looper for whenever the engine next needs a tick (a hold, a waiting right click,
+    // inertia), on the uptime clock touches carry: not a coroutine delay, whose clock a test may hold still.
+    val ticker = remember { Handler(Looper.getMainLooper()) }
+    val tickToken = remember { Any() }
+    var pendingAt by remember { mutableStateOf<Long?>(null) }
     fun scheduleTick() {
-        pending?.cancel()
-        val at = gestures.tickAt ?: return
-        pending = scope.launch {
-            delay((at - SystemClock.uptimeMillis()).coerceAtLeast(0))
+        val at = gestures.tickAt
+        if (at == pendingAt) return
+        ticker.removeCallbacksAndMessages(tickToken)
+        pendingAt = at ?: return
+        ticker.postAtTime({
+            pendingAt = null
             apply(gestures.tick(SystemClock.uptimeMillis()))
             scheduleTick()
-        }
+        }, tickToken, at)
     }
+    // The host's cursor: taken unless the phone moved its own a moment ago.
+    LaunchedEffect(cursor) { cursor?.let { gestures.hostCursor(it.x, it.y, SystemClock.uptimeMillis()); drawn++ } }
     // The hosts list shows each desktop's last picture: one soon after it appears, then every few seconds, and on leaving.
     val context = LocalContext.current
     var surfaceView by remember { mutableStateOf<SurfaceView?>(null) }
@@ -265,7 +304,7 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
         }
     }
     // Leaving the page mid-drag or right after a tap must not leave the host's button down.
-    DisposableEffect(Unit) { onDispose { pending?.cancel(); apply(gestures.cancel()) } }
+    DisposableEffect(Unit) { onDispose { ticker.removeCallbacksAndMessages(tickToken); apply(gestures.cancel()) } }
 
     Box(Modifier.fillMaxSize().onSizeChanged { area = it }
         .focusRequester(focus).focusable().onKeyEvent { event ->
@@ -295,54 +334,91 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
                 val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
                 layout(area.width, area.height) { placeable.place(v.left.roundToInt(), v.top.roundToInt()) }
             }.testTag("desktop-surface"))
-        // The returning-home gesture works on the black bars only.
-        Box(Modifier.layout { measurable, _ ->
-            val w = v.contentWidth.roundToInt().coerceIn(1, area.width.coerceAtLeast(1))
-            val h = v.contentHeight.roundToInt().coerceIn(1, area.height.coerceAtLeast(1))
-            val p = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
-            layout(area.width, area.height) { p.place(v.left.roundToInt().coerceAtLeast(0), v.top.roundToInt().coerceAtLeast(0)) }
-        }.systemGestureExclusion())
+        // The system's back gesture works on the black bars only: the picture keeps its edges for edge swipes.
+        // (The rect, not a layout's bounds: a layout modifier reports the whole view as its size.)
+        Box(Modifier.fillMaxSize().systemGestureExclusion {
+            androidx.compose.ui.geometry.Rect(maxOf(0f, v.left), maxOf(0f, v.top),
+                minOf(it.size.width.toFloat(), v.left + v.contentWidth), minOf(it.size.height.toFloat(), v.top + v.contentHeight))
+        })
         Canvas(Modifier.fillMaxSize()) {
-            val c = cursor ?: return@Canvas
-            if (!c.visible) return@Canvas
-            val (x, y) = v.toView(c.x.toFloat(), c.y.toFloat())
-            // Drawn at the picture's scale, as big as it is on the computer, but never under CURSOR_MIN_DP
-            // tall: a phone shows a 4K desktop at a quarter of its size, where a true-size cursor is a speck.
-            // (A floor of a fixed scale drew HiDPI cursors, 48 px on Windows at 150 %, three times too big.)
-            val minPx = CURSOR_MIN_DP * density
-            val shape = c.shape
+            drawn.let { }
+            val c = cursor
+            if (!gestures.hasCursor || c?.visible == false) return@Canvas
+            // The phone's cursor: where its last move put it, ahead of the host's echo.
+            val (x, y) = v.toView(gestures.cursorX, gestures.cursorY)
+            // The host's image at the picture's scale, kept between CURSOR_MIN_DP and CURSOR_MAX_DP: the
+            // picture is often a fifth of the host's size, and zoomed in five times.
+            val shape = c?.shape
             if (shape != null) {
-                val s = maxOf(v.scale, minPx / shape.bitmap.height.coerceAtLeast(1))
+                val size = maxOf(shape.bitmap.width, shape.bitmap.height, 1)
+                val s = v.scale.coerceIn(CURSOR_MIN_DP * density / size, CURSOR_MAX_DP * density / size)
                 translate(x - shape.hotX * s, y - shape.hotY * s) {
                     scale(s, s, pivot = Offset.Zero) { drawImage(shape.bitmap.asImageBitmap()) }
                 }
             } else {
-                // No image from the host: an arrow the size of a standard 20 px one, outlined to show on white.
-                val u = maxOf(minPx, 20 * v.scale) / 18f
+                // No image from the host: the standard arrow, white with a black edge, 15 dp tall.
+                val u = 15 * density / 21f
                 val arrow = Path().apply {
-                    moveTo(x, y); lineTo(x, y + 16 * u); lineTo(x + 4 * u, y + 12 * u); lineTo(x + 7 * u, y + 18 * u)
-                    lineTo(x + 9 * u, y + 17 * u); lineTo(x + 6.5f * u, y + 11.5f * u); lineTo(x + 11.5f * u, y + 11.5f * u); close()
+                    moveTo(x, y); lineTo(x, y + 15.5f * u); lineTo(x + 4 * u, y + 11.7f * u); lineTo(x + 6.8f * u, y + 18 * u)
+                    lineTo(x + 9.3f * u, y + 16.9f * u); lineTo(x + 6.6f * u, y + 10.8f * u); lineTo(x + 11.5f * u, y + 10.8f * u); close()
                 }
                 drawPath(arrow, Color.White)
-                drawPath(arrow, Color.Black, style = Stroke(width = maxOf(1f, u * 0.8f)))
+                drawPath(arrow, Color.Black, style = Stroke(width = 1.2f * u))
             }
         }
+        // Read inside the ring alone, so a touch recomposes only it.
+        HoldRing({ drawn.let { gestures.indicator } }, density)
         Box(Modifier.fillMaxSize().testTag("desktop-touch").pointerInteropFilter { e ->
-            val t = e.eventTime
+            // Each pointer keeps its id while it touches: the engine follows fingers, not indices.
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { apply(gestures.down(e.x, e.y, t)); scheduleTick() }
-                MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) {
-                    apply(gestures.twoDown(e.getX(0), e.getY(0), e.getX(1), e.getY(1)))
-                    scheduleTick()
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                    gestures.mode = mode
+                    gestures.viewport = viewport
+                    if (e.actionMasked == MotionEvent.ACTION_DOWN) DesktopInputProbe.gestureStarted(e.eventTime)
+                    val i = e.actionIndex
+                    apply(gestures.began(e.getPointerId(i), e.getX(i), e.getY(i), e.eventTime))
                 }
-                MotionEvent.ACTION_MOVE -> if (e.pointerCount >= 2) apply(gestures.twoMove(e.getX(0), e.getY(0), e.getX(1), e.getY(1)))
-                    else { apply(gestures.move(e.x, e.y, t)); if (gestures.tickAt == null) pending?.cancel() }
-                MotionEvent.ACTION_POINTER_UP -> if (e.pointerCount == 2) gestures.twoUp()
-                MotionEvent.ACTION_UP -> { apply(gestures.up(e.x, e.y, t)); scheduleTick() }
-                MotionEvent.ACTION_CANCEL -> { pending?.cancel(); apply(gestures.cancel()) }
+                MotionEvent.ACTION_MOVE -> apply(gestures.moved((0 until e.pointerCount).map { Triple(e.getPointerId(it), e.getX(it), e.getY(it)) }, e.eventTime))
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                    val i = e.actionIndex
+                    apply(gestures.ended(e.getPointerId(i), e.getX(i), e.getY(i), e.eventTime))
+                    if (e.actionMasked == MotionEvent.ACTION_UP) DesktopInputProbe.gestureEnded(e.eventTime)
+                }
+                MotionEvent.ACTION_CANCEL -> apply(gestures.cancel())
             }
+            // The next tick follows whatever the touch changed (a hold, a waiting right click, inertia).
+            scheduleTick()
             true
         })
+    }
+}
+
+/**
+ * The hold ring under the fingers: nothing for a tap (it starts after [RING_DELAY_MS]), then it fills
+ * as the hold comes and turns solid when it fires, blue for the left button, red for the right.
+ */
+@Composable
+private fun HoldRing(indicator: () -> HoldIndicator?, density: Float) {
+    val ring = indicator() ?: return
+    var progress by remember(ring) { mutableFloatStateOf(if (ring.armed) 1f else 0f) }
+    if (!ring.armed) LaunchedEffect(ring) {
+        val start = ring.firesAt - (if (ring.fingers > 1) DesktopGestures.HOLD2_MS else DesktopGestures.HOLD_MS) + RING_DELAY_MS
+        while (true) {
+            val now = withFrameMillis { SystemClock.uptimeMillis() }
+            progress = ((now - start).toFloat() / (ring.firesAt - start).coerceAtLeast(1)).coerceIn(0f, 1f)
+            if (now >= ring.firesAt) break
+        }
+    }
+    if (progress <= 0f) return
+    val color = if (ring.fingers > 1) Color(0xFFFF3B30) else Color(0xFF0A84FF)
+    Canvas(Modifier.fillMaxSize().testTag(if (ring.armed) "desktop-hold-ring-armed" else "desktop-hold-ring")) {
+        val r = (if (ring.fingers > 1) 34f else 26f) * density
+        val topLeft = Offset(ring.x - r, ring.y - r)
+        val size = androidx.compose.ui.geometry.Size(2 * r, 2 * r)
+        if (ring.armed) {
+            drawCircle(color.copy(alpha = 0.3f), r, Offset(ring.x, ring.y))
+            drawCircle(color, r, Offset(ring.x, ring.y), style = Stroke(3 * density))
+        } else drawArc(Color.White.copy(alpha = 0.85f), -90f, 360f * progress, false, topLeft, size, style = Stroke(3 * density))
     }
 }
 
@@ -925,4 +1001,6 @@ internal fun DesktopCardButton(state: DesktopButton, tag: String, onClick: () ->
 }
 
 /** The smallest the remote cursor is drawn, in dp: about a phone's own text cursor height. */
-private const val CURSOR_MIN_DP = 11f
+private const val CURSOR_MIN_DP = 15f
+private const val CURSOR_MAX_DP = 24f
+private const val RING_DELAY_MS = 200L
