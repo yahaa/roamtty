@@ -520,6 +520,30 @@ class TerminalGesturesTest {
         compose.runOnIdle { assertFalse(terminal.isCursorDragging) }
     }
 
+    @Test fun tapOnTheCursorLineMovesTheCursorThereWithArrows() {
+        terminalContent()
+        compose.runOnIdle { feed("prior output\r\n\u276f hello 中文abc") }
+        val width = terminal.mRenderer.fontWidth
+        val y = rowY(emulator.cursorRow)
+        fun tap(column: Float) {
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(androidx.compose.ui.geometry.Offset(column * width, y)) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        // "❯ hello 中文abc": the caret lands on the nearer edge of the tapped cell; a wide glyph is one arrow.
+        tap(6.4f)
+        compose.runOnIdle { assertEquals("\u001b[D".repeat(7), input.toString()); input.setLength(0) }
+        // Past the typed text the cursor stops at its end, never in the blank padding.
+        tap(40f)
+        compose.runOnIdle { assertEquals("", input.toString()) }
+        // Output above the cursor line is for reading: a tap there sends nothing.
+        compose.runOnIdle { feed("\u001b[2;9H") }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(androidx.compose.ui.geometry.Offset(3f * width, rowY(0))) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertEquals("", input.toString()) }
+        tap(15f)
+        compose.runOnIdle { assertEquals("\u001b[C".repeat(5), input.toString()) }
+    }
+
     @Test fun longPressOutputStillSelectsText() {
         terminalContent()
         compose.runOnIdle { feed("copy this output\r\n$ ") }

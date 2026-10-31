@@ -164,6 +164,7 @@ public final class TerminalView extends View {
                     if (mClient.onOpenUrl(urlAtDown)) return true;
                 }
                 requestFocus();
+                mCursorDrag.tapTo(event);
                 mClient.onSingleTapUp(event);
                 return true;
             }
