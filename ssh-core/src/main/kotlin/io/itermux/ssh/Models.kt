@@ -118,6 +118,8 @@ object Tmux {
     /**
      * Attaches [sessionName], creating it with [BOTTOM_PROMPT_PANE] when missing. tmux before 3.0
      * joins a multi-word command into one string for the default shell, so it keeps a plain pane.
+     * `-u`: sshd on macOS runs commands without a UTF-8 locale, and the tmux client then draws every
+     * non-ASCII character as "_".
      */
     fun attachShellCommand(sessionName: String, existing: Boolean = false): String {
         val name = sanitizeSessionName(sessionName)
@@ -132,18 +134,18 @@ object Tmux {
         return "/bin/sh -c '$PATH_SETUP; " +
             "if [ \"\$(tmux display-message -p -t $name \"#{pane_mode}\" 2>/dev/null)\" = copy-mode ]; then " +
             "tmux send-keys -t $name -X cancel || true; fi; " +
-            "case \"\$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux new-session -A -D -s $name $options;; esac; " +
-            "exec tmux new-session -A -D -s $name /bin/sh -c \"$pane\" $options'"
+            "case \"\$(tmux -V 2>/dev/null)\" in \"tmux \"[0-2].*) exec tmux -u new-session -A -D -s $name $options;; esac; " +
+            "exec tmux -u new-session -A -D -s $name /bin/sh -c \"$pane\" $options'"
     }
 
     fun attachCommand(sessionName: String, existing: Boolean = false): String = "exec " + attachShellCommand(sessionName, existing)
 
     /**
      * A session that was already on the server, attached as it is: never created, its other clients stay attached and
-     * its status line stays; only mouse mode goes on, so swipes scroll its history.
+     * its status line stays; only mouse mode goes on, so swipes scroll its history. `-u` as in [attachShellCommand].
      */
     private fun attachExistingShellCommand(name: String): String =
-        "/bin/sh -c '$PATH_SETUP; exec tmux attach-session -t =$name \\; set-option -t $name mouse on'"
+        "/bin/sh -c '$PATH_SETUP; exec tmux -u attach-session -t =$name \\; set-option -t $name mouse on'"
 
     /**
      * POSIX script printing one line per tmux session on the server, `windows<TAB>attached clients<TAB>last activity<TAB>

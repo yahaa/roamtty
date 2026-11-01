@@ -20,9 +20,9 @@ class TmuxSessionNameTest {
         val legacy = Tmux.attachCommand(Tmux.LEGACY_SESSION)
         assertTrue(legacy.startsWith("exec /bin/sh -c '${Tmux.PATH_SETUP}; "))
         val options = "\\; set-option -t roamtty mouse on \\; set-option -t roamtty status off"
-        assertTrue(legacy.contains(") exec tmux new-session -A -D -s roamtty $options;; esac; "))
+        assertTrue(legacy.contains(") exec tmux -u new-session -A -D -s roamtty $options;; esac; "))
         assertTrue(legacy.endsWith(" $options'"))
-        assertTrue(legacy.contains("exec tmux new-session -A -D -s roamtty /bin/sh -c "))
+        assertTrue(legacy.contains("exec tmux -u new-session -A -D -s roamtty /bin/sh -c "))
         assertTrue(legacy.contains("#{pane_mode}"))
         assertTrue(legacy.indexOf("send-keys -t roamtty -X cancel") < legacy.indexOf("new-session -A -D"))
         // Only the outer quotes are single quotes, so any login shell passes the script through intact.
@@ -34,7 +34,7 @@ class TmuxSessionNameTest {
 
     @Test fun existingSessionAttachesWithoutCreatingOrDetaching() {
         val command = Tmux.attachCommand("work;rm", existing = true)
-        assertEquals("exec /bin/sh -c '${Tmux.PATH_SETUP}; exec tmux attach-session -t =workrm \\; set-option -t workrm mouse on'", command)
+        assertEquals("exec /bin/sh -c '${Tmux.PATH_SETUP}; exec tmux -u attach-session -t =workrm \\; set-option -t workrm mouse on'", command)
         assertEquals(2, command.count { it == '\'' })
         assertTrue(Tmux.attachShellCommand("work", existing = true).startsWith("/bin/sh -c '"))
     }

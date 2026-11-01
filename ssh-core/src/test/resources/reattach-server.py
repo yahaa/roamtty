@@ -60,7 +60,7 @@ class Server(paramiko.ServerInterface):
                 channel.send_exit_status(1 if mode == "missing-tmux" and self.attempt > 1 else 0)
                 channel.close()
                 return
-            if not command.startswith(b"exec ") or b"tmux new-session -A" not in command:
+            if not command.startswith(b"exec ") or b"tmux -u new-session -A" not in command:
                 channel.send_exit_status(127)
                 channel.close()
                 return
