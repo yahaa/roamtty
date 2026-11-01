@@ -8,14 +8,12 @@ import io.itermux.app.BuildConfig
 import io.itermux.app.code.MarkdownParser
 
 import android.content.Context
-import android.content.res.Configuration
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -47,7 +45,7 @@ private enum class AboutPage { GUIDE, PRIVACY, LICENSES }
         AboutPage.LICENSES -> tr("第三方许可")
     }
     // Landscape, where height is short: a wider dialog with the guide as two columns, so more of it is in view.
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     AlertDialog(onDismissRequest = dismiss, title = { Text(title) },
         modifier = if (landscape) Modifier.fillMaxWidth(0.86f) else Modifier,
         properties = DialogProperties(usePlatformDefaultWidth = !landscape), text = {

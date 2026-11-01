@@ -1,6 +1,5 @@
 package io.itermux.app.ui
 
-import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -20,7 +19,6 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -60,7 +58,7 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
     canChangeDirectory: Boolean, onChangeDirectory: () -> Unit, onDismiss: () -> Unit, onDownload: () -> Unit, onSaveAs: () -> Unit) {
     val transfer = session.transfers
     val options = rememberRemoteFileOptions()
-    val compact = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val compact = isLandscape()
     val listState = rememberLazyListState()
     var listing by remember { mutableStateOf<RemoteSearchDirectories?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -180,6 +178,7 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
             Text(tr("部分目录无法读取"), Modifier.weight(1f).padding(start = 24.dp), style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { retry++ }) { Text(tr("重试")) }
         }
+        val failure = error
         LazyColumn(Modifier.fillMaxWidth().weight(1f).testTag("download-files-list"), state = listState) {
             when {
                 selectedOnly -> {
@@ -191,8 +190,8 @@ private fun DownloadFilesSheet(session: TerminalConnection, enabled: Boolean, di
                 }
                 !enabled -> item { DirectoryMessage(tr("下载未开始，请重新连接后再试。")) }
                 loading || transfer.resolvingDownloadDirectory -> item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(24.dp)) }
-                error != null -> item {
-                    DirectoryMessage(tr(error!!))
+                failure != null -> item {
+                    DirectoryMessage(tr(failure))
                     TextButton(onClick = { retry++ }, modifier = Modifier.padding(horizontal = 24.dp)) { Text(tr("重试")) }
                     TextButton(onClick = { transfer.downloadDirectory = ""; query = "" }) { Text(tr("返回主目录")) }
                 }

@@ -1,6 +1,5 @@
 package io.itermux.app.ui
 
-import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -22,7 +21,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -48,6 +46,12 @@ import io.itermux.ssh.HostSystem
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
 import java.util.Locale
+import io.itermux.app.data.loginKey
+import io.itermux.app.data.needsTypedPassword
+import io.itermux.app.data.needsTypedSecret
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.text.style.TextAlign
 
 /**
  * What tapping a host opens: its details, live health read over a private SSH login, and the ways to work on it.
@@ -93,7 +97,7 @@ internal fun HostDetailPage(
     }
 
     val onLogin = { if (monitor != null && !host.needsTypedSecret(app)) monitor.start() else askPassword = true }
-    if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+    if (isLandscape()) {
         HostDetailLandscape(host, reachability, monitor, onBack, onAgent = { launching = true }, onTerminal = { launching = false },
             onContinue, onBrowseFiles, onDesktop, { anchor -> HostDetailMenu(onManagePlugins, onEdit, onDelete, anchor) }, onLogin, modifier)
     } else Column(modifier.fillMaxSize().testTag("host-detail")) {
@@ -430,13 +434,13 @@ private fun UsageBar(label: String, value: Double?, detail: String?) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 52.dp))
         Canvas(Modifier.weight(1f).height(6.dp)) {
-            val radius = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
+            val radius = CornerRadius(size.height / 2)
             drawRoundRect(track, cornerRadius = radius)
             if (value != null) drawRoundRect(tone, size = size.copy(width = size.width * (value.coerceIn(0.0, 100.0) / 100.0).toFloat()),
                 cornerRadius = radius)
         }
         Text(detail ?: "—", style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"), color = colors.onSurfaceVariant,
-            maxLines = 1, modifier = Modifier.padding(start = Spacing.Tight).widthIn(min = 72.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+            maxLines = 1, modifier = Modifier.padding(start = Spacing.Tight).widthIn(min = 72.dp), textAlign = TextAlign.End)
     }
 }
 
@@ -446,7 +450,7 @@ private fun Ring(value: Double?, tone: Color, size: Dp) {
     Canvas(Modifier.size(size)) {
         val stroke = 7.dp.toPx()
         val inset = stroke / 2
-        val arcSize = androidx.compose.ui.geometry.Size(this.size.width - stroke, this.size.height - stroke)
+        val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
         drawArc(track, 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
         if (value != null) drawArc(tone, -90f, (value.coerceIn(0.0, 100.0) * 3.6).toFloat(), false, Offset(inset, inset), arcSize,
             style = Stroke(stroke, cap = StrokeCap.Round))

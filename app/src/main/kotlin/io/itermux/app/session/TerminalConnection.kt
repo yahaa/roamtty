@@ -7,6 +7,7 @@ import com.termux.terminal.*
 import io.itermux.app.data.Host
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -15,11 +16,23 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import android.os.SystemClock
+import android.util.Log
+import io.itermux.app.ui.RESTORED_MESSAGE
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.URI
 import java.util.UUID
 
 data class PendingPrompt(val prompt: Prompt, val answer: CompletableDeferred<List<String>?> = CompletableDeferred())
+
+/** Logcat tag of the connection lifecycle: connects, drops, network changes and the activity in front. */
+internal const val CONNECTION_LOG_TAG = "RoamttyConn"
+
+/** 128 KiB: the most UTF-8 bytes one paste may send, and the most characters the editor's draft holds. */
+internal const val MAX_PASTE_SIZE = 128 * 1024
+
+private const val INPUT_NOT_SENT = "未发送：连接未就绪或输入队列已满。"
 
 internal fun clipSessionTitle(value: String): String = value.take(80).let {
     if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it
@@ -79,36 +92,26 @@ class TerminalConnection(
         attachExisting = external,
         preferMosh = preferMosh,
         elapsedMillis = SystemClock::elapsedRealtime,
-        log = { android.util.Log.i("RoamttyConn", "${host.name}#$sessionNumber $it") }
+        log = { Log.i(CONNECTION_LOG_TAG, "${host.name}#$sessionNumber $it") }
     )
     val state = if (credentials != null) ssh.state else MutableStateFlow(ConnectionState(
-        Phase.DISCONNECTED, io.itermux.app.ui.RESTORED_MESSAGE)).asStateFlow()
+        Phase.DISCONNECTED, RESTORED_MESSAGE)).asStateFlow()
     val detectedSystem = ssh.detectedSystem
     /** SSH or mosh once connected; null before the first connection. */
     val transport = ssh.transport
     /** tmux or psmux once a resumable session attached; null before that and for plain shells. */
     val multiplexer = ssh.multiplexer
     private val systemWatcher = if (credentials == null) null else scope.launch {
-        launch {
-            ssh.detectedPlugins.filterNotNull().collect { plugins ->
-                try { onPluginsDetected(plugins) }
-                catch (e: CancellationException) { throw e }
-                catch (_: Exception) { /* Metadata persistence must never tear down a terminal. */ }
-            }
-        }
-        launch {
-            ssh.detectedDesktop.filterNotNull().collect { desktop ->
-                try { onDesktopDetected(desktop) }
-                catch (e: CancellationException) { throw e }
-                catch (_: Exception) { /* Metadata persistence must never tear down a terminal. */ }
-            }
-        }
+        launch { ssh.detectedPlugins.persistEach(onPluginsDetected) }
+        launch { ssh.detectedDesktop.persistEach(onDesktopDetected) }
         launch { ssh.moshFallback.filterNotNull().collect { inputWarning.value = it } }
-        detectedSystem.filterNotNull().collect { system ->
-            try { onHostSystemDetected(system) }
-            catch (e: CancellationException) { throw e }
-            catch (_: Exception) { /* Metadata persistence must never tear down a terminal. */ }
-        }
+        detectedSystem.persistEach(onHostSystemDetected)
+    }
+    /** Hands each detected value to [save]; metadata persistence must never tear down a terminal. */
+    private suspend fun <T : Any> Flow<T?>.persistEach(save: suspend (T) -> Unit) = filterNotNull().collect { value ->
+        try { save(value) }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { }
     }
     /**
      * The agent this session was started to run, for sessions the app launched (told by their title once restored);
@@ -181,8 +184,7 @@ class TerminalConnection(
         val line = text.replace(Regex("\\s+"), " ").trim()
         if (line.isEmpty() || state.value.phase != Phase.CONNECTED) return false
         if (pollAgentStatus()?.state != AgentStatus.State.IDLE) return false
-        val input = if (parser.isBracketedPasteEnabled) "\u001b[200~$line\u001b[201~" else line
-        if (!ssh.write(input.toByteArray(Charsets.UTF_8))) return false
+        if (!ssh.write(pasteInput(line).toByteArray(Charsets.UTF_8))) return false
         delay(150)
         return ssh.write("\r".toByteArray())
     }
@@ -196,7 +198,7 @@ class TerminalConnection(
         ssh.connect { bytes ->
             val now = SystemClock.elapsedRealtime()
             if (lastOutput != 0L && now - lastOutput > 10_000)
-                android.util.Log.i("RoamttyConn", "${host.name}#$sessionNumber output resumed after ${now - lastOutput} ms, view bound=${onScreenChanged != null}")
+                Log.i(CONNECTION_LOG_TAG, "${host.name}#$sessionNumber output resumed after ${now - lastOutput} ms, view bound=${onScreenChanged != null}")
             lastOutput = now
             withContext(Dispatchers.Main.immediate) {
                 parser.append(bytes, bytes.size)
@@ -240,14 +242,14 @@ class TerminalConnection(
         return ScreenApp.detect(rows, parser.cursorRow)
     }
     override fun write(data: ByteArray, offset: Int, count: Int) {
-        if (!ssh.write(data.copyOfRange(offset, offset + count))) inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
+        if (!ssh.write(data.copyOfRange(offset, offset + count))) inputWarning.value = tr(INPUT_NOT_SENT)
     }
     override fun writeCodePoint(prependEscape: Boolean, codePoint: Int) {
         if (!Character.isValidCodePoint(codePoint)) return
         write((if (prependEscape) "\u001b" else "") + String(Character.toChars(codePoint)))
     }
     fun paste(text: String) {
-        if (text.toByteArray(Charsets.UTF_8).size > 128 * 1024) {
+        if (text.toByteArray(Charsets.UTF_8).size > MAX_PASTE_SIZE) {
             inputWarning.value = tr("单次发送上限为 128 KiB，请分段发送。")
             return
         }
@@ -255,19 +257,18 @@ class TerminalConnection(
     }
     /** Explicit image insertion must not be lost to a disappearing CLI banner. */
     fun insertImagePath(path: String) {
-        val text = CodexImageAttach.pathForPaste(path)
-        val input = if (parser.isBracketedPasteEnabled) "\u001b[200~$text\u001b[201~" else text
-        if (!ssh.write(input.toByteArray(Charsets.UTF_8))) {
-            throw java.io.IOException(tr("未发送：连接未就绪或输入队列已满。"))
-        }
+        val input = pasteInput(CodexImageAttach.pathForPaste(path))
+        if (!ssh.write(input.toByteArray(Charsets.UTF_8))) throw IOException(tr(INPUT_NOT_SENT))
     }
+    /** [text] as the program reads a paste: wrapped in bracketed-paste marks when it asked for them. */
+    private fun pasteInput(text: String) = if (parser.isBracketedPasteEnabled) "\u001b[200~$text\u001b[201~" else text
     suspend fun upload(remotePath: String, source: InputStream, onProgress: (Long) -> Unit = {}) = ssh.upload(remotePath, source, onProgress)
     suspend fun download(remotePath: String, destination: OutputStream, onProgress: (Long) -> Unit = {}, onSize: (Long) -> Unit = {}) = ssh.download(remotePath, destination, onProgress, onSize)
     suspend fun listRemoteDirectory(remotePath: String = "") = ssh.listRemoteDirectory(remotePath)
     suspend fun readFileContent(remotePath: String, maxBytes: Int) = ssh.readFileContent(remotePath, maxBytes)
     private var reportedDirectory: String? = null
     override fun onWorkingDirectoryChanged(uri: String) {
-        reportedDirectory = runCatching { java.net.URI(uri) }.getOrNull()?.takeIf { it.scheme == "file" }
+        reportedDirectory = runCatching { URI(uri) }.getOrNull()?.takeIf { it.scheme == "file" }
             ?.path?.takeIf(::isValidRemoteDirectory)
     }
     suspend fun currentWorkingDirectory(): String? = ssh.currentWorkingDirectory() ?: reportedDirectory
@@ -304,7 +305,7 @@ class TerminalConnection(
         }
         val input = ShellHistoryCommands.executionInput(command, parser.isBracketedPasteEnabled)
         if (!ssh.write(input.toByteArray(Charsets.UTF_8))) {
-            inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
+            inputWarning.value = tr(INPUT_NOT_SENT)
             return@launch
         }
         recentCommands = ShellHistoryCommands.mergeRecent(listOf(command), recentCommands)
@@ -327,7 +328,7 @@ class TerminalConnection(
             val input = "$command\r".toByteArray(Charsets.UTF_8)
             try {
                 if (!enqueueStartupCommand(ssh.state, ssh.inputEpoch, revision) { epoch -> ssh.write(input, epoch) })
-                    inputWarning.value = tr("未发送：连接未就绪或输入队列已满。")
+                    inputWarning.value = tr(INPUT_NOT_SENT)
             } finally { input.fill(0) }
         }
     }
@@ -353,8 +354,8 @@ class TerminalConnection(
         return true
     }
 
-    /** Detects a connection that died while the phone slept or changed networks. */
     suspend fun killRemoteSession() = ssh.killTmuxSession()
+    /** Detects a connection that died while the phone slept or changed networks. */
     fun verifyAlive() { if (job != null) scope.launch { ssh.verifyAlive() } }
 
     override fun reset() { parser.reset(); onScreenChanged?.invoke() }

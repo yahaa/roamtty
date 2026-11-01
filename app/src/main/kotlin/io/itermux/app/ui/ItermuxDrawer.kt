@@ -2,7 +2,6 @@ package io.itermux.app.ui
 
 import io.itermux.app.tr
 
-import android.content.res.Configuration
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,7 +12,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
@@ -40,7 +38,7 @@ internal fun ItermuxDrawer(
     val drawerWidth = (with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } * 0.82f).coerceAtMost(360.dp)
     // In landscape, where height is short, the header is one line and Settings and Help one row of icons, so the open
     // sessions keep most of the height.
-    val compact = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val compact = isLandscape()
     ModalDrawerSheet(modifier = Modifier.width(drawerWidth).fillMaxHeight().testTag("navigation-drawer")) {
         Column(Modifier.fillMaxHeight()) {
             Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = if (compact) 4.dp else 24.dp,

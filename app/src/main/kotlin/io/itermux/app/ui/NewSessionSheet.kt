@@ -3,11 +3,9 @@ package io.itermux.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import android.content.res.Configuration
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +31,7 @@ import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.ssh.HostPlugin
 import kotlinx.coroutines.launch
+import androidx.compose.ui.unit.Dp
 
 /**
  * A new session in two steps: first what runs (an AI agent or a plain terminal), then the host it runs on; the
@@ -75,7 +74,7 @@ internal fun NewSessionSheet(hosts: List<Host>, onDismiss: () -> Unit, onNewHost
             })
         }
     }
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     AppSheet(onDismiss = onDismiss, fillHeight = false, fullScreen = landscape, wide = landscape,
         onBack = { close -> if (picked != null) picked = null else close() }) {
         if (landscape) {
@@ -118,11 +117,11 @@ private fun IconTile(icon: Int) {
 
 /** A plain terminal's tile, beside the agents' own. */
 @Composable
-internal fun TerminalTile(size: androidx.compose.ui.unit.Dp) {
+internal fun TerminalTile(size: Dp) {
     val colors = MaterialTheme.colorScheme
     // A wash of the text colour, like the agents' brand washes, so the tile shows on a card as well as on the sheet.
     val wash = colors.onSurface.copy(alpha = if (colors.background.luminance() > 0.5f) 0.08f else 0.12f)
-    Box(Modifier.size(size).clip(androidx.compose.foundation.shape.RoundedCornerShape(size * 0.28f)).background(wash)
+    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.28f)).background(wash)
         .testTag("terminal-icon"), contentAlignment = Alignment.Center) {
         Text("\$_", color = colors.onSurfaceVariant, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.titleSmall)

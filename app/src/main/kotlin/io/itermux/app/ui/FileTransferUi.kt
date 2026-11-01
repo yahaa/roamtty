@@ -3,7 +3,6 @@ package io.itermux.app.ui
 import io.itermux.app.tr
 import io.itermux.app.trf
 
-import android.content.res.Configuration
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -21,7 +20,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -133,7 +131,7 @@ private fun UploadFileSheet(session: TerminalConnection, uri: Uri) {
     val transfer = session.transfers
     val connection by session.state.collectAsStateWithLifecycle()
     val status by transfer.status.collectAsStateWithLifecycle()
-    val compact = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val compact = isLandscape()
     fun dismiss() { transfer.uploadUri = null }
     LaunchedEffect(uri) {
         // Start where the terminal is, like downloads; fall back to the SFTP home.
@@ -278,11 +276,12 @@ internal fun RemoteDirectoryPicker(session: TerminalConnection, directory: Strin
             }
         }
         HorizontalDivider()
+        val failure = error
         LazyColumn(Modifier.fillMaxWidth().weight(1f).testTag("remote-path-menu"), state = listState) {
             when {
                 loading -> item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(24.dp)) }
-                error != null -> item {
-                    DirectoryMessage(trf("读取失败：%s", tr(error!!.take(120))))
+                failure != null -> item {
+                    DirectoryMessage(trf("读取失败：%s", tr(failure.take(120))))
                     Row(Modifier.padding(horizontal = 12.dp)) {
                         TextButton(onClick = { retry++ }, modifier = Modifier.testTag("remote-path-retry")) { Text(tr("重试")) }
                         if (currentPath.isNotEmpty()) TextButton(onClick = { onDirectoryChange("") }) { Text(tr("返回主目录")) }

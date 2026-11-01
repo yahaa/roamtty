@@ -3,7 +3,6 @@ package io.itermux.app.ui
 import io.itermux.app.tr
 import io.itermux.app.trf
 
-import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -14,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -33,6 +31,8 @@ import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
+import io.itermux.app.data.credentialsFor
+import io.itermux.app.session.pageLogin
 
 /** Host and the one-time secrets typed for it; the sheet's SSH login lives while the sheet is open. */
 internal data class PluginTarget(val host: Host, val password: String = "", val passphrase: String = "")
@@ -152,7 +152,7 @@ internal fun HostPluginsSheet(controller: HostPluginsController, onDismiss: () -
     var sudoPassword by remember { mutableStateOf("") }
     val host = controller.host
     val ready = connection.phase == Phase.CONNECTED && probed
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     AppSheet(onDismiss = onDismiss, fullScreen = landscape, wide = landscape) {
         if (landscape) {
             // Landscape, where height is short: one flat bar like the launch sheet's, check again as its refresh button.

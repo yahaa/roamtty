@@ -3,6 +3,7 @@ package io.itermux.app.session
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import java.util.Locale
 
 internal enum class DownloadPhase { WAITING, RUNNING, COMPLETE, FAILED, CANCELLED }
 
@@ -14,21 +15,21 @@ internal data class DownloadItem(val path: String, val total: Long = -1, val byt
 
 /** Reserve all original basenames first so generated suffixes cannot steal another file's name. */
 internal fun downloadNames(files: List<DownloadItem>): Map<String, String> {
-    val reserved = files.map { it.name.lowercase(java.util.Locale.ROOT) }.toMutableSet()
+    val reserved = files.map { it.name.lowercase(Locale.ROOT) }.toMutableSet()
     val used = mutableSetOf<String>()
     val nextSuffix = mutableMapOf<String, Int>()
     return files.associate { file ->
         var name = file.name
-        if (!used.add(name.lowercase(java.util.Locale.ROOT))) {
+        if (!used.add(name.lowercase(Locale.ROOT))) {
             val dot = name.lastIndexOf('.').takeIf { it > 0 } ?: name.length
             val stem = name.substring(0, dot)
             val extension = name.substring(dot)
-            val key = name.lowercase(java.util.Locale.ROOT)
+            val key = name.lowercase(Locale.ROOT)
             var number = nextSuffix[key] ?: 2
             do { name = "$stem (${number++})$extension" }
-            while (!reserved.add(name.lowercase(java.util.Locale.ROOT)))
+            while (!reserved.add(name.lowercase(Locale.ROOT)))
             nextSuffix[key] = number
-            used.add(name.lowercase(java.util.Locale.ROOT))
+            used.add(name.lowercase(Locale.ROOT))
         }
         file.path to name
     }

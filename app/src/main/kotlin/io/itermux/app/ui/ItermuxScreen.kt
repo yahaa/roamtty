@@ -10,6 +10,8 @@ import android.content.res.Configuration
 import android.os.Build
 import android.widget.Toast
 import android.os.SystemClock
+import android.content.pm.PackageManager
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
@@ -63,6 +65,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
+import io.itermux.app.data.credentialsFor
+import io.itermux.app.data.needsTypedSecret
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -117,7 +121,7 @@ fun ItermuxScreen(
     }
     var page by rememberSaveable { mutableStateOf(AppPage.HOME) }
     val configuration = LocalConfiguration.current
-    val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     val settings = remember(context) { context.appSettings() }
     var theme by remember { mutableStateOf(settings.appTheme()) }
     var settingsReturnPage by rememberSaveable { mutableStateOf(AppPage.HOME) }
@@ -180,9 +184,9 @@ fun ItermuxScreen(
     }
     BackHandler(page == AppPage.TERMINAL) { leaveTerminal() }
     LaunchedEffect(service, sessions, selected, page) {
-        service?.awaitRestoration()
-        if (service != null && page == AppPage.TERMINAL && service.sessions.value.none { it.id == selected }) page = AppPage.HOME
-        if (service != null && page == AppPage.FILES && service.sessions.value.none { it.id == selected }) page = AppPage.HOME
+        val bound = service ?: return@LaunchedEffect
+        bound.awaitRestoration()
+        if ((page == AppPage.TERMINAL || page == AppPage.FILES) && bound.sessions.value.none { it.id == selected }) page = AppPage.HOME
     }
     var search by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
@@ -233,10 +237,16 @@ fun ItermuxScreen(
     var pluginTarget by remember { mutableStateOf<PluginTarget?>(null) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     fun toast(message: String) { Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
+    /** The bound service, or null after telling the user it is not ready yet. */
+    fun readyService(): SessionService? = service ?: run { toast(tr("会话服务尚未就绪，请稍后重试")); null }
+    /** The saved copy of [host]: one edited since a session copied it (a password saved, plugins found) wins. */
+    fun savedHost(host: Host) = hosts.firstOrNull { it.id == host.id } ?: host
+    /** Whether [session] is connected, read from the collected states so the screen recomposes when it changes. */
+    fun connected(session: TerminalConnection) = (sessionStates[session.id] ?: session.state.value).phase == Phase.CONNECTED
     /** [open] shows the session once it connects; a reconnect from the session list stays on the list. */
     fun start(request: ConnectRequest, password: String = "", passphrase: String = "", open: Boolean = true) {
-        val bound = service ?: run { toast(tr("会话服务尚未就绪，请稍后重试")); return }
-        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        val bound = readyService() ?: return
+        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             permission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         scope.launch {
@@ -345,9 +355,9 @@ fun ItermuxScreen(
 
     /** The phone's screen in pixels and its density, which cap the desktop's encode size. */
     fun startDesktop(host: Host, password: String = "", passphrase: String = "") {
-        val bound = service ?: run { toast(tr("会话服务尚未就绪，请稍后重试")); return }
+        val bound = readyService() ?: return
         val metrics = context.resources.displayMetrics
-        val (w, h) = if (Build.VERSION.SDK_INT >= 30) context.getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics.bounds.let { it.width() to it.height() }
+        val (w, h) = if (Build.VERSION.SDK_INT >= 30) context.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds.let { it.width() to it.height() }
             else metrics.widthPixels to metrics.heightPixels
         bound.openDesktop(host, password, passphrase, w, h, metrics.densityDpi)
         desktopHostId = host.id
@@ -355,7 +365,7 @@ fun ItermuxScreen(
     }
     /** The desktop button: straight in when it is already open, else log in (asking for an unsaved secret first). */
     fun openDesktop(host: Host) {
-        val bound = service ?: run { toast(tr("会话服务尚未就绪，请稍后重试")); return }
+        val bound = readyService() ?: return
         val existing = bound.desktops[host.id]
         if (existing != null && existing.active) {
             desktopHostId = host.id
@@ -370,6 +380,10 @@ fun ItermuxScreen(
         val family = when { system.isLinux -> "linux-"; system == HostSystem.MACOS -> "macos-"; system == HostSystem.WINDOWS -> "windows-"; else -> return false }
         return desktopTargets.any { it.startsWith(family) }
     }
+    /** The desktop button of [host], as [DesktopButton.derive] tells it from the host's probe and its desktop's [phase]. */
+    fun desktopButton(host: Host, online: Boolean, sessionConnected: Boolean, phase: DesktopPhase) = DesktopButton.derive(
+        online, sessionConnected, HostSystem.fromStored(host.os).let { if (it.isLinux) "LINUX" else it.name },
+        desktopSupported(host), DesktopProbe.decode(host.desktop), host.desktopProbedAt, System.currentTimeMillis(), phase)
     LaunchedEffect(pendingSession, service) {
         val id = pendingSession ?: return@LaunchedEffect
         val bound = service ?: return@LaunchedEffect
@@ -393,11 +407,7 @@ fun ItermuxScreen(
 
     /** Open the SFTP browser: reuse a CONNECTED session for this host, else connect a SHELL session. */
     fun browseFiles(host: Host) {
-        val bound = service
-        if (bound == null) {
-            toast(tr("会话服务尚未就绪，请稍后重试"))
-            return
-        }
+        readyService() ?: return
         val existing = sessions.connectedTo(host)
         if (existing != null) {
             showSession(existing.id, AppPage.FILES)
@@ -583,7 +593,7 @@ fun ItermuxScreen(
                         // A live terminal or desktop already proves the host is up. Match by address:port so several
                         // host cards pointing at the same server skip the unauthenticated SSH greeting probe together.
                         val liveTargets = buildSet {
-                            sessions.filter { (sessionStates[it.id]?.phase ?: it.state.value.phase) == Phase.CONNECTED }
+                            sessions.filter(::connected)
                                 .forEach { add("${it.host.address}:${it.host.port}") }
                             desktops.values.forEach { c ->
                                 // Only a desktop streaming now: connecting or recovering proves nothing about the host.
@@ -605,15 +615,13 @@ fun ItermuxScreen(
                                 compact = compactHome,
                                 gridState = sessionGridState,
                                 desktop = { session ->
-                                    val host = hosts.firstOrNull { it.id == session.host.id } ?: session.host
+                                    val host = savedHost(session.host)
                                     val connection = desktops[host.id]
                                     val idle = remember { MutableStateFlow<DesktopPhase>(DesktopPhase.Idle) }
                                     val desktopPhase by (connection?.phase ?: idle).collectAsStateWithLifecycle()
                                     val sessionState by session.state.collectAsStateWithLifecycle()
                                     val offline = !hostConnected(host) && hostReachability.statusOf(host) == HostReachability.Offline
-                                    val button = DesktopButton.derive(!offline, sessionState.phase == Phase.CONNECTED,
-                                        HostSystem.fromStored(host.os).let { if (it.isLinux) "LINUX" else it.name }, desktopSupported(host),
-                                        DesktopProbe.decode(host.desktop), host.desktopProbedAt, System.currentTimeMillis(), desktopPhase)
+                                    val button = desktopButton(host, !offline, sessionState.phase == Phase.CONNECTED, desktopPhase)
                                     DesktopCardButton(button, "home-session-desktop-${session.id}") { openDesktop(host) }
                                 })
                             else HomeHostsTab(hosts, search, hostGridState,
@@ -634,9 +642,7 @@ fun ItermuxScreen(
                                     val desktopPhase by (desktops[host.id]?.phase ?: idle).collectAsStateWithLifecycle()
                                     // A host needs no open session for its desktop: the desktop logs in on its own. An
                                     // offline one keeps its picture, so it is derived as if online; its card knows better.
-                                    DesktopButton.derive(true, true,
-                                        HostSystem.fromStored(host.os).let { if (it.isLinux) "LINUX" else it.name }, desktopSupported(host),
-                                        DesktopProbe.decode(host.desktop), host.desktopProbedAt, System.currentTimeMillis(), desktopPhase)
+                                    desktopButton(host, online = true, sessionConnected = true, desktopPhase)
                                 },
                                 onDesktop = ::openDesktop,
                                 onDisconnectDesktop = { host -> service?.desktops?.close(host.id) },
@@ -646,9 +652,9 @@ fun ItermuxScreen(
                 } else if (page == AppPage.HOST) {
                     val detailHost = hosts.firstOrNull { it.id == detailHostId }
                     if (detailHost != null) key(detailHost.id) {
-                        val connected = sessions.any { it.host.id == detailHost.id && (sessionStates[it.id]?.phase ?: it.state.value.phase) == Phase.CONNECTED }
+                        val detailConnected = sessions.any { it.host.id == detailHost.id && connected(it) }
                         HostDetailPage(detailHost,
-                            hostReachability.statusOf(detailHost).let { if (connected && it !is HostReachability.Online) HostReachability.Online(null) else it },
+                            hostReachability.statusOf(detailHost).let { if (detailConnected && it !is HostReachability.Online) HostReachability.Online(null) else it },
                             onBack = { page = AppPage.HOME },
                             onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
                             openTmux = sessions.openTmuxNames(detailHost),
@@ -670,9 +676,9 @@ fun ItermuxScreen(
                             RemoteFileBrowserPage(filesSession, onBack = ::showSessionHost, Modifier.weight(1f),
                                 // A new terminal session (tmux when the host has it) so the agent outlives the browser.
                                 onLaunchAgent = { launch ->
-                                    begin(launchRequest(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host, launch.directory, launch))
+                                    begin(launchRequest(savedHost(filesSession.host), launch.directory, launch))
                                 }, onOpenTerminal = { directory ->
-                                    launchOn(hosts.firstOrNull { it.id == filesSession.host.id } ?: filesSession.host, directory, null)
+                                    launchOn(savedHost(filesSession.host), directory, null)
                                 })
                         }
                     } else {
@@ -689,7 +695,7 @@ fun ItermuxScreen(
                         val desktopHost = connection.host
                         DesktopPage(connection, onLeave = { page = AppPage.HOME },
                             onDisconnect = { service?.desktops?.close(desktopHost.id); page = AppPage.HOME },
-                            onFiles = { browseFiles(hosts.firstOrNull { it.id == desktopHost.id } ?: desktopHost) },
+                            onFiles = { browseFiles(savedHost(desktopHost)) },
                             modifier = Modifier.weight(1f))
                     // A recreated activity (rotation) binds the service again first; only a desktop that is really gone goes home.
                     } else if (service != null) LaunchedEffect(Unit) { page = AppPage.HOME }
@@ -706,7 +712,7 @@ fun ItermuxScreen(
                     // Reconnecting preserves the journal id but replaces the transport and emulator.
                     if (active != null) key(active) {
                         // The saved host, not the session's copy: a password saved since then spares a prompt.
-                        val reconnect = { begin(active.reconnectRequest(hosts.firstOrNull { it.id == active.host.id } ?: active.host)) }
+                        val reconnect = { begin(active.reconnectRequest(savedHost(active.host))) }
                         val activeState by active.state.collectAsStateWithLifecycle()
                         val autoReconnect = reconnectsOnOpen(activeState)
                         // Set once the automatic attempt left this entry disconnected, e.g. a dismissed password prompt.
@@ -728,7 +734,7 @@ fun ItermuxScreen(
                             onReverify = { reverify = active },
                             // Closing ends the terminal page too: back to where it was opened from.
                             onClose = { leaveTerminal(); closeSession(active) },
-                            onDesktop = (hosts.firstOrNull { it.id == active.host.id } ?: active.host).let { h ->
+                            onDesktop = savedHost(active.host).let { h ->
                                 { openDesktop(h) }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES }
                             })
                     }
@@ -827,6 +833,8 @@ fun ItermuxScreen(
     }
 }
 
-/** A launch sheet to open: on [host], for an agent or a terminal, with [agent] already picked when there is one. */
-/** [newSession]: the last step of a new session from the sessions tab, after what runs and the host were picked. */
+/**
+ * A launch sheet to open: on [host], for an agent or a terminal, with [agent] already picked when there is one.
+ * [newSession]: the last step of a new session from the sessions tab, after what runs and the host were picked.
+ */
 private data class LaunchRequest(val host: Host, val forAgent: Boolean, val agent: CodingAgent? = null, val newSession: Boolean = false)

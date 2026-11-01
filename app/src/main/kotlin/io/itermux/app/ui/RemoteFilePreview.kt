@@ -1,6 +1,5 @@
 package io.itermux.app.ui
 
-import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -27,7 +26,6 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -134,7 +132,7 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
         } },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         // Landscape is short on rows: hide the system bars and fold the status line into the header.
-        val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val landscape = isLandscape()
         // Portrait fullscreen keeps the status bar, see-through, with the content scrolling under it.
         val underStatusBar = fullscreen && !landscape
         SheetSystemBars(immersive = landscape, hideNavigation = underStatusBar)
@@ -211,8 +209,9 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
                 val value = preview
+                val failure = error
                 when {
-                    error != null -> PreviewMessage(error!!, Modifier.weight(1f)) {
+                    failure != null -> PreviewMessage(failure, Modifier.weight(1f)) {
                         TextButton(onClick = { revision++ }, enabled = connected, modifier = Modifier.testTag("file-preview-retry")) { Text(tr("重试")) }
                     }
                     value == null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -227,7 +226,7 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                         val insets = if (value.truncated) sideInsets else sideInsets.add(topInset)
                         if (value.document == null) PreviewMessage(tr("此文件为空"), Modifier.weight(1f))
-                        else if (showRendered) MarkdownView(value.markdown!!, loadImage, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen),
+                        else if (showRendered && value.markdown != null) MarkdownView(value.markdown, loadImage, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen),
                             insets = insets)
                         else CodeViewer(value.document, options.codeWrap, options.codeFontSize, listState, horizontal,
                             matches, currentMatch, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen), insets)

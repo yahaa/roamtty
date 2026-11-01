@@ -1,6 +1,5 @@
 package io.itermux.app.ui
 
-import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,7 +12,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -46,7 +44,7 @@ internal fun CommonCommandsContent(history: CommonCommandsState, connected: Bool
     }
     val ready = history as? CommonCommandsState.Ready
     val terminalFont = rememberTerminalFontFamily()
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     val refresh: @Composable () -> Unit = {
         ToolbarIcon(R.drawable.ic_refresh, tr("刷新"), Modifier.testTag("common-commands-refresh"),
             enabled = connected && history !is CommonCommandsState.Loading,

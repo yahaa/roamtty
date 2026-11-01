@@ -3,7 +3,6 @@ package io.itermux.app.ui
 import io.itermux.app.tr
 import io.itermux.app.trf
 
-import android.content.res.Configuration
 import android.view.KeyEvent
 import android.view.View
 import androidx.activity.compose.BackHandler
@@ -37,7 +36,6 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
@@ -81,7 +79,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }
     val context = LocalContext.current
     val inputScope = rememberCoroutineScope()
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     val settings = remember { TerminalSettings(context) }
     var fontSize by rememberSaveable { mutableIntStateOf(settings.fontSize) }
     // Snapshot reads: changing font in Settings recomposes this pane and AndroidView.update.
@@ -220,7 +218,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
     }
     fun updateDraft(value: TextFieldValue) {
-        draft = if (value.text.length <= 128 * 1024) value else TextFieldValue(value.text.take(128 * 1024))
+        draft = if (value.text.length <= MAX_PASTE_SIZE) value else TextFieldValue(value.text.take(MAX_PASTE_SIZE))
         session.draft = draft.text
     }
     val arrowKeys = setOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN)
@@ -301,7 +299,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     fun clipboardText(): String? = context.clipboardText().ifEmpty { null }
     fun showClipboard() {
         // Stage clipboard content in the editor; reading clipboard requires a user gesture.
-        clipboardText()?.let { updateDraft(insertDraftText(draft, it, 128 * 1024)); editor = true; hideKeyboard() }
+        clipboardText()?.let { updateDraft(insertDraftText(draft, it, MAX_PASTE_SIZE)); editor = true; hideKeyboard() }
     }
     // AndroidView can outlive a recomposition/reconnection. Always paste into the current session.
     val pasteClipboard by rememberUpdatedState {
@@ -601,7 +599,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }
     pending?.let { request -> PromptDialog(request) }
     FileTransferUi(session, fileAction, onInsertPath = { path ->
-        updateDraft(insertDraftText(draft, CodexImageAttach.pathForPaste(path), 128 * 1024)); editor = true; hideKeyboard()
+        updateDraft(insertDraftText(draft, CodexImageAttach.pathForPaste(path), MAX_PASTE_SIZE)); editor = true; hideKeyboard()
     }) { fileAction = null }
     if (commonCommandsOpen) CommonCommandsSheet(session, onSelect = { command ->
         commonCommandsOpen = false

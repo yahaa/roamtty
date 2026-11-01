@@ -2,7 +2,6 @@ package io.itermux.app.ui
 
 import io.itermux.app.tr
 
-import android.content.res.Configuration
 import android.provider.OpenableColumns
 import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -19,7 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Constraints
@@ -43,6 +41,7 @@ import io.itermux.app.ItermuxApp
 import io.itermux.app.data.Host
 import io.itermux.ssh.HostSystem
 import kotlinx.coroutines.*
+import java.io.ByteArrayOutputStream
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -83,7 +82,7 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
             try {
                 val result = withContext(Dispatchers.IO) {
                     val bytes = context.contentResolver.openInputStream(uri)?.use { stream ->
-                        val buffer = java.io.ByteArrayOutputStream()
+                        val buffer = ByteArrayOutputStream()
                         val chunk = ByteArray(4096)
                         while (true) {
                             val count = stream.read(chunk)
@@ -164,7 +163,7 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
                 Segment(tr("普通 SSH"), mode == "SHELL") { if (!busy) mode = "SHELL" },
             ), Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
     }
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     Dialog(onDismissRequest = { if (!busy) { draft.close(); onDismiss() } }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         SheetSystemBars(MaterialTheme.colorScheme.background)
         Surface(Modifier.fillMaxSize().testTag("host-editor"), color = MaterialTheme.colorScheme.background) {

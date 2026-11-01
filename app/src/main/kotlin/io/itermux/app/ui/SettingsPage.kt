@@ -16,8 +16,6 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
-import android.content.res.Configuration
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -70,7 +68,7 @@ internal fun SettingsPage(theme: AppTheme, onThemeChange: (AppTheme) -> Unit,
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         exempt = power.isIgnoringBatteryOptimizations(context.packageName)
     }
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     val appearanceSection: @Composable () -> Unit = {
         GroupedSection(header = tr("外观")) {
             Column(Modifier.selectableGroup()) {

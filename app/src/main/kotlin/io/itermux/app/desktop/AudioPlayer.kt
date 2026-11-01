@@ -12,6 +12,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
+import android.os.Build
 
 /**
  * The host's sound (AUDIO frames): Opus packets through the platform's decoder onto a low-latency
@@ -70,7 +71,7 @@ internal class AudioPlayer {
             codec = try { openDecoder() } catch (e: Exception) {
                 Log.w(TAG, "no Opus decoder", e); return
             }
-            val startThreshold = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+            val startThreshold = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             val minBuffer = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
             track = try {
                 AudioTrack.Builder()

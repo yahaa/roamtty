@@ -12,11 +12,11 @@ import io.itermux.app.MainActivity
 import io.itermux.app.ui.TerminalToolbox
 import io.itermux.app.desktop.DesktopConnection
 import io.itermux.app.desktop.DesktopSettings
+import io.itermux.app.data.credentialsFor
 import io.itermux.app.e2e.E2e.app
 import io.itermux.app.session.PendingPrompt
 import io.itermux.app.session.SessionService
-import io.itermux.app.ui.credentialsFor
-import io.itermux.app.ui.pageLogin
+import io.itermux.app.session.pageLogin
 import io.itermux.desktop.DesktopPhase
 import io.itermux.desktop.HidUsage
 import io.itermux.ssh.SessionMode

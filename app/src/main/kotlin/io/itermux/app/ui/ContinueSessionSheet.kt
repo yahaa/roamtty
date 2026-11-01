@@ -1,12 +1,10 @@
 package io.itermux.app.ui
 
-import android.content.res.Configuration
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -22,6 +20,8 @@ import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.CancellationException
+import io.itermux.app.data.loginKey
+import io.itermux.app.data.needsTypedPassword
 
 /**
  * The tmux sessions already running on [host]: tapping one picks it (the most recently used to start with), the button
@@ -65,7 +65,7 @@ internal fun ContinueSessionSheet(host: Host, openTmux: Set<String>, onDismiss: 
         finally { loading = false }
     }
 
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     val heading = trf("继续会话 · %s", host.name)
     val sessions = (tmux as? TmuxListing.Sessions)?.sessions
     val attachReady = picked != null && sessions?.any { it.name == picked && it.attachable } == true
@@ -104,7 +104,7 @@ internal fun ContinueSessionSheet(host: Host, openTmux: Set<String>, onDismiss: 
     // The same words in both orientations: the list (and in landscape the card) already names the session.
     val attachButton: @Composable (Modifier) -> Unit = { modifier ->
         val name = picked
-        Button(onClick = { if (attachReady) onAttach(name!!) }, enabled = attachReady,
+        Button(onClick = { if (attachReady && name != null) onAttach(name) }, enabled = attachReady,
             contentPadding = PaddingValues(horizontal = Spacing.Page), modifier = modifier.heightIn(min = 48.dp).testTag("continue-attach")) {
             Text(if (name == null) tr("选择一个 tmux 会话") else tr("打开会话"),
                 style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)

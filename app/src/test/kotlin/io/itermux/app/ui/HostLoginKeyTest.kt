@@ -4,6 +4,7 @@ import io.itermux.app.data.Host
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
+import io.itermux.app.data.loginKey
 
 class HostLoginKeyTest {
     private val host = Host(id = "h1", name = "Ubuntu", address = "43.163.113.102", username = "ubuntu", auth = "KEY",
