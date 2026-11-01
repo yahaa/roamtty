@@ -520,6 +520,76 @@ class TerminalGesturesTest {
         compose.runOnIdle { assertFalse(terminal.isCursorDragging) }
     }
 
+    @Test fun tapOnTheCursorLineMovesTheCursorThereWithArrows() {
+        terminalContent()
+        compose.runOnIdle { feed("prior output\r\n\u276f hello 中文abc") }
+        val width = terminal.mRenderer.fontWidth
+        val y = rowY(emulator.cursorRow)
+        fun tap(column: Float) {
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(androidx.compose.ui.geometry.Offset(column * width, y)) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        // "❯ hello 中文abc": the caret lands on the nearer edge of the tapped cell; a wide glyph is one arrow.
+        tap(6.4f)
+        compose.runOnIdle { assertEquals("\u001b[D".repeat(7), input.toString()); input.setLength(0) }
+        // Past the typed text the cursor stops at its end, never in the blank padding.
+        tap(40f)
+        compose.runOnIdle { assertEquals("", input.toString()) }
+        // Output above the cursor line is for reading: a tap there sends nothing.
+        compose.runOnIdle { feed("\u001b[2;9H") }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(androidx.compose.ui.geometry.Offset(3f * width, rowY(0))) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertEquals("", input.toString()) }
+        tap(15f)
+        compose.runOnIdle { assertEquals("\u001b[C".repeat(5), input.toString()) }
+    }
+
+    @Test fun tapOnAnotherRowOfAMultiLineInputMovesUpThenAlongOnceTheAppEchoes() {
+        terminalContent()
+        val rule = "\u2500".repeat(40)
+        // Claude Code style: the input sits between rules, a status line under it; the cursor ends row 5.
+        compose.runOnIdle { feed("\u25cf done\r\n$rule\r\n\u276f first line\r\n  second\r\n  \u4e2d\u6587 third\r\n  tail\r\n$rule\r\n  status") ; feed("\u001b[6;7H") }
+        val width = terminal.mRenderer.fontWidth
+        fun tap(column: Float, row: Int) {
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(androidx.compose.ui.geometry.Offset(column * width, rowY(row))) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        tap(5f, 2)
+        compose.runOnIdle {
+            assertEquals("Rows first; the column waits for the app's echo", "\u001b[A".repeat(3), input.toString())
+            input.setLength(0)
+            feed("\u001b[4;5H")
+            assertEquals("Not there yet", "", input.toString())
+            // The app keeps its own column memory: it put the cursor at column 6 of row 2.
+            feed("\u001b[3;7H")
+            assertEquals("\u001b[D", input.toString())
+            input.setLength(0)
+            feed("\u001b[3;5H")
+            assertEquals("Only one echo is answered", "", input.toString())
+        }
+        // Down to the CJK row: a wide glyph is one arrow from wherever the app lands.
+        tap(4.4f, 4)
+        compose.runOnIdle {
+            assertEquals("\u001b[B".repeat(2), input.toString())
+            input.setLength(0)
+            feed("\u001b[5;3H")
+            assertEquals("\u001b[C", input.toString())
+            input.setLength(0)
+        }
+        // The rule and the output above the box are not input.
+        tap(5f, 1)
+        tap(3f, 0)
+        compose.runOnIdle { assertEquals("", input.toString()) }
+    }
+
+    @Test fun shellPromptRowsAboveTheCursorNeverSendUp() {
+        terminalContent()
+        compose.runOnIdle { feed("\r\nfile-a\r\nfile-b\r\n$ ls") }
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(androidx.compose.ui.geometry.Offset(2f * terminal.mRenderer.fontWidth, rowY(2))) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertEquals("", input.toString()) }
+    }
+
     @Test fun longPressOutputStillSelectsText() {
         terminalContent()
         compose.runOnIdle { feed("copy this output\r\n$ ") }

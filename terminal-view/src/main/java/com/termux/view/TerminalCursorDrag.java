@@ -23,12 +23,22 @@ final class TerminalCursorDrag {
     boolean isActive() { return line != null; }
     void setEnabled(boolean enabled) { this.enabled = enabled; if (!enabled) finish(); }
 
-    boolean start(MotionEvent event) {
-        if (!enabled || view.mTermSession == null || view.getTopRow() != 0 ||
-            !view.mEmulator.isCursorEnabled() || event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) return false;
+    private boolean canMoveCursor(MotionEvent event) {
+        return enabled && view.mTermSession != null && view.getTopRow() == 0 &&
+            view.mEmulator.isCursorEnabled() && !event.isFromSource(android.view.InputDevice.SOURCE_MOUSE);
+    }
+
+    /** The cursor's own logical line when [event] lands on it, else null. */
+    private TerminalTextLine cursorLineUnder(MotionEvent event) {
+        if (!canMoveCursor(event)) return null;
         int row = view.textRowAt(event.getY());
         TerminalTextLine current = TerminalTextLine.at(view.mEmulator, view.mEmulator.getCursorRow());
-        if (row < current.firstRow || row > current.lastRow) return false;
+        return row < current.firstRow || row > current.lastRow ? null : current;
+    }
+
+    boolean start(MotionEvent event) {
+        TerminalTextLine current = cursorLineUnder(event);
+        if (current == null) return false;
         line = current;
         rows = view.mEmulator.mRows;
         alternateBuffer = view.mEmulator.isAlternateBufferActive();
