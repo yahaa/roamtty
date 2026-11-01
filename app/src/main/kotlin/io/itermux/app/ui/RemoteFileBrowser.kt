@@ -1,12 +1,10 @@
 package io.itermux.app.ui
 
-import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.activity.compose.BackHandler
@@ -122,7 +120,7 @@ internal fun RemoteFileBrowserPage(session: TerminalConnection, onBack: () -> Un
     val currentPath = listing?.path ?: browser.directory
     // Landscape, like the host page there: one 48dp bar that also carries the summary, the sort and the search field,
     // and compact rows with the size and the time in columns.
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     Column(modifier.fillMaxSize().testTag("remote-file-browser")) {
         Row(Modifier.fillMaxWidth().then(if (landscape) Modifier.height(HOME_COMPACT_BAR_HEIGHT) else Modifier.heightIn(min = 56.dp))
             .padding(horizontal = 4.dp).testTag("files-bar"), verticalAlignment = Alignment.CenterVertically) {

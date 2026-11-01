@@ -1,7 +1,6 @@
 package io.itermux.app.ui
 
 import android.content.Context
-import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Handler
@@ -53,7 +52,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -85,6 +83,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.Constraints
 
 private val PanelColor = Color(0xF21C1C1E)
 private val RailColor = Color(0xFF141416)
@@ -104,7 +106,7 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
     modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val settings = remember { DesktopSettings(context) }
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     val phase by connection.phase.collectAsStateWithLifecycle()
     val video by connection.videoSize.collectAsStateWithLifecycle()
     val pending by connection.pending.collectAsStateWithLifecycle()
@@ -129,7 +131,7 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
         connection.input(DesktopProtocol.action(id))
     }
 
-    val backDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     Box(modifier.fillMaxSize().background(Color.Black).testTag("desktop-page").onPreviewKeyEvent { event ->
         // Back (the key, and the system's back gesture, which arrives as it) goes straight to the back handlers. Left
         // to Compose, the first one only clears the focus the picture holds for a hardware keyboard, and a second
@@ -331,13 +333,13 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
             modifier = Modifier.layout { measurable, _ ->
                 val w = v.contentWidth.roundToInt().coerceAtLeast(1)
                 val h = v.contentHeight.roundToInt().coerceAtLeast(1)
-                val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
+                val placeable = measurable.measure(Constraints.fixed(w, h))
                 layout(area.width, area.height) { placeable.place(v.left.roundToInt(), v.top.roundToInt()) }
             }.testTag("desktop-surface"))
         // The system's back gesture works on the black bars only: the picture keeps its edges for edge swipes.
         // (The rect, not a layout's bounds: a layout modifier reports the whole view as its size.)
         Box(Modifier.fillMaxSize().systemGestureExclusion {
-            androidx.compose.ui.geometry.Rect(maxOf(0f, v.left), maxOf(0f, v.top),
+            Rect(maxOf(0f, v.left), maxOf(0f, v.top),
                 minOf(it.size.width.toFloat(), v.left + v.contentWidth), minOf(it.size.height.toFloat(), v.top + v.contentHeight))
         })
         Canvas(Modifier.fillMaxSize()) {
@@ -414,7 +416,7 @@ private fun HoldRing(indicator: () -> HoldIndicator?, density: Float) {
     Canvas(Modifier.fillMaxSize().testTag(if (ring.armed) "desktop-hold-ring-armed" else "desktop-hold-ring")) {
         val r = (if (ring.fingers > 1) 34f else 26f) * density
         val topLeft = Offset(ring.x - r, ring.y - r)
-        val size = androidx.compose.ui.geometry.Size(2 * r, 2 * r)
+        val size = Size(2 * r, 2 * r)
         if (ring.armed) {
             drawCircle(color.copy(alpha = 0.3f), r, Offset(ring.x, ring.y))
             drawCircle(color, r, Offset(ring.x, ring.y), style = Stroke(3 * density))

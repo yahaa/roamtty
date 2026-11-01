@@ -2,9 +2,7 @@ package io.itermux.app.ui
 
 import io.itermux.app.tr
 
-import android.content.res.Configuration
 import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -20,7 +18,7 @@ import io.itermux.ssh.Phase
 /** Picks the connected session that receives images shared to the app while several are connected. */
 @Composable
 internal fun ShareTargetSheet(choices: List<TerminalConnection>, onDismiss: () -> Unit, onPick: (TerminalConnection) -> Unit) {
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     AppSheet(onDismiss = onDismiss, fullScreen = landscape, wide = landscape) {
         // Landscape: the flat bar of every other landscape page, so the sessions keep the height.
         if (landscape) LandscapeBar(tr("选择会话以上传图片"), detail = tr("选择接收图片的主机和会话。"), leading = {

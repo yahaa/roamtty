@@ -80,8 +80,10 @@ class RemoteBrowserState(private val scope: CoroutineScope) {
         runAction(tr("正在创建文件夹…")) { action(joinRemotePath(directory, name)) }
     }
 
-    /** SFTP listings describe the link itself; resolve it before choosing folder or preview. */
-    /** Only the latest link tap may act, and only if the user is still in the folder it was tapped in. */
+    /**
+     * SFTP listings describe the link itself; resolve it before choosing folder or preview. Only the latest link tap
+     * may act, and only if the user is still in the folder it was tapped in.
+     */
     fun openLink(path: String, isDirectory: suspend (String) -> Boolean) {
         cancelPendingOpen()
         val from = directory

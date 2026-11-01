@@ -1,6 +1,7 @@
 package io.itermux.app.session
 
 import io.itermux.ssh.TmuxSessionInfo
+import java.security.MessageDigest
 
 /**
  * What an AI agent in a tmux session reports through the hooks [AgentHooks] adds: its state, the tool it is running and
@@ -194,7 +195,7 @@ object AgentHooks {
     internal fun codexHookHash(eventKey: String, command: String): String {
         val json = "{\"event_name\":\"$eventKey\",\"hooks\":[{\"async\":false,\"command\":\"$command\"," +
             "\"timeout\":$CODEX_TIMEOUT,\"type\":\"command\"}]}"
-        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(json.toByteArray(Charsets.UTF_8))
+        val digest = MessageDigest.getInstance("SHA-256").digest(json.toByteArray(Charsets.UTF_8))
         return "sha256:" + digest.joinToString("") { "%02x".format(it) }
     }
 

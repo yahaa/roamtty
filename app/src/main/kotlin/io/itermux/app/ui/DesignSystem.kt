@@ -1,6 +1,7 @@
 package io.itermux.app.ui
 
 import io.itermux.app.tr
+import android.content.res.Configuration
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -21,6 +22,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -306,3 +308,8 @@ internal fun IconTag(icon: Int, label: String, tag: String, onClick: () -> Unit,
             .then(if (badgeTag != null) Modifier.testTag(badgeTag) else Modifier))
     }
 }
+
+/** Whether the screen is in landscape; read from the configuration, so a rotation recomposes the caller. */
+@Composable
+@ReadOnlyComposable
+internal fun isLandscape(): Boolean = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE

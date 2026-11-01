@@ -6,10 +6,13 @@ import io.itermux.app.trf
 import android.app.*
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.Uri
 import android.os.*
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -23,12 +26,15 @@ import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.update
+import java.util.UUID
 
 class SessionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutableSessions = MutableStateFlow<List<TerminalConnection>>(emptyList())
     val sessions = mutableSessions.asStateFlow()
-    val pendingSharedImages = MutableStateFlow<List<android.net.Uri>>(emptyList())
+    val pendingSharedImages = MutableStateFlow<List<Uri>>(emptyList())
     private val binder = LocalBinder()
     private var foreground = false
     private lateinit var journal: SessionJournal
@@ -41,7 +47,10 @@ class SessionService : Service() {
     private var viewing: String? = null
     private var appVisible = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    /** What the ongoing notification said when last posted; see [notice]. */
+    private var postedNotice: List<String>? = null
     private val app get() = application as ItermuxApp
+    private val notifications get() = getSystemService(NotificationManager::class.java)
     /** Remote desktops, one per host; see [DesktopRegistry]. */
     internal val desktops by lazy { DesktopRegistry(app, scope) { scope.launch { watchDesktops() } } }
     private var desktopWatcher: Job? = null
@@ -66,22 +75,16 @@ class SessionService : Service() {
                     val used = usedNumbers.getOrPut(host.id) { mutableSetOf() }
                     val number = entry.sessionNumber.takeIf { it > 0 && it !in used } ?: nextSessionNumber(used)
                     used.add(number)
-                    TerminalConnection(
-                        host, entry.mode, null, app.pins, scope, entry.id, entry.title,
-                        sessionNumber = number,
-                        remoteSessionName = entry.remoteSessionName,
-                        external = entry.external,
-                        onRename = ::saveSessions,
-                        lastAgentStatus = entry.agentStatus,
-                        onAgentReport = ::saveSessions
-                    )
+                    newConnection(host, entry.mode, credentials = null, id = entry.id, title = entry.title,
+                        sessionNumber = number, remoteSessionName = entry.remoteSessionName, external = entry.external,
+                        lastAgentStatus = entry.agentStatus)
                 }
             }
             saveSessions()
         }
     }
     fun refreshLanguage() {
-        getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(
+        notifications.createNotificationChannels(listOf(
             // Android shows a foreground service's notification; since Android 13 the user may turn this channel off and
             // the service, and the connections, carry on.
             NotificationChannel(CHANNEL, tr("后台连接"), NotificationManager.IMPORTANCE_LOW)
@@ -96,6 +99,29 @@ class SessionService : Service() {
     }
     suspend fun awaitRestoration() { restoration.join() }
     private fun saveSessions() = journal.save(mutableSessions.value)
+    private fun find(id: String) = mutableSessions.value.find { it.id == id }
+    private fun remove(id: String) = mutableSessions.update { list -> list.filterNot { it.id == id } }
+
+    /**
+     * A session on [host]; restored entries have no [credentials] and stay disconnected until [reconnect].
+     * Callbacks capture the host, never another connection: a reconnect's replacement would otherwise keep the
+     * connection it replaced (and its terminal buffer) alive, chaining every reconnect of the session.
+     */
+    private fun newConnection(host: Host, mode: SessionMode, credentials: Credentials?, id: String, title: String,
+        sessionNumber: Int, remoteSessionName: String, external: Boolean, lastAgentStatus: AgentStatus?,
+        preferMosh: Boolean = false) = TerminalConnection(
+        host, mode, credentials, app.pins, scope, id, title,
+        sessionNumber = sessionNumber,
+        remoteSessionName = remoteSessionName,
+        external = external,
+        onRename = ::saveSessions,
+        onHostSystemDetected = { updateHostSystem(host, it) },
+        preferMosh = preferMosh,
+        onPluginsDetected = { updatePlugins(host, it) },
+        onDesktopDetected = { updateDesktop(host, it) },
+        lastAgentStatus = lastAgentStatus,
+        onAgentReport = ::saveSessions
+    )
     /**
      * Opens a new local entry. TMUX mode allocates a fresh remote session name, unless [attach] names a tmux session
      * already on the server to attach as it is.
@@ -106,19 +132,11 @@ class SessionService : Service() {
         check(mutableSessions.value.count { it.host.id == host.id } < MAX_SESSIONS_PER_HOST) {
             trf("每台主机最多保留 %d 个会话，请先关闭这台主机的旧会话", MAX_SESSIONS_PER_HOST)
         }
-        val connection = TerminalConnection(
-            host, if (attach != null) SessionMode.TMUX else mode, credentials, app.pins, scope,
-            initialTitle = attach.orEmpty(),
+        val connection = newConnection(host, if (attach != null) SessionMode.TMUX else mode, credentials,
+            id = UUID.randomUUID().toString(), title = attach.orEmpty(),
             sessionNumber = nextSessionNumber(mutableSessions.value.filter { it.host.id == host.id }.map { it.sessionNumber }),
             remoteSessionName = attach ?: if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION,
-            external = attach != null,
-            onRename = ::saveSessions,
-            onHostSystemDetected = { updateHostSystem(host, it) },
-            preferMosh = preferMosh,
-            onPluginsDetected = { updatePlugins(host, it) },
-            onDesktopDetected = { updateDesktop(host, it) },
-            onAgentReport = ::saveSessions
-        )
+            external = attach != null, lastAgentStatus = null, preferMosh = preferMosh)
         mutableSessions.value += connection
         track(connection)
         return connection
@@ -151,7 +169,7 @@ class SessionService : Service() {
         desktopWatcher = scope.launch {
             val all = desktops.connections.value.values.toList()
             if (all.isEmpty()) { refreshNotification(); return@launch }
-            kotlinx.coroutines.flow.merge(*all.map { it.phase }.toTypedArray()).collect { refreshNotification() }
+            merge(*all.map { it.phase }.toTypedArray()).collect { refreshNotification() }
         }
     }
 
@@ -201,18 +219,18 @@ class SessionService : Service() {
             // A group of its own: without one, the system folds it into one bundle with the ongoing notification.
             .setGroup("$ALERT_GROUP${connection.id}")
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public).build()
-        getSystemService(NotificationManager::class.java).notify(connection.id, ALERT, notification)
+        notifications.notify(connection.id, ALERT, notification)
         alerts[connection.id] = kind
     }
 
     /** Also cancels one an earlier run of the service left: sessions keep their ids in the journal. */
     private fun withdrawAlert(id: String) {
         alerts.remove(id)
-        getSystemService(NotificationManager::class.java).cancel(id, ALERT)
+        notifications.cancel(id, ALERT)
     }
 
     /** Turning a kind of notification off in the settings takes the ones shown away. */
-    private val settingListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+    private val settingListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key != AgentAlerts.SETTING_KEY) return@OnSharedPreferenceChangeListener
         val setting = AgentAlerts.setting(this)
         alerts.filterValues { !setting.allows(it) }.keys.forEach(::withdrawAlert)
@@ -236,30 +254,14 @@ class SessionService : Service() {
      */
     suspend fun reconnect(id: String, credentials: Credentials): TerminalConnection {
         awaitRestoration()
-        val existing = mutableSessions.value.find { it.id == id }
-            ?: error(tr("会话不存在"))
+        val existing = find(id) ?: error(tr("会话不存在"))
         stateWatchers.remove(id)?.cancel()
         existing.disconnect()
         // Plugins may have been installed since this entry was created; keep the entry's mode.
         val current = app.database.hosts().find(existing.host.id) ?: existing.host
-        // Callbacks capture the host, never `existing`: each replacement would otherwise keep the connection it
-        // replaced (and its terminal buffer) alive, chaining every reconnect of the session.
-        val host = existing.host
-        val replacement = TerminalConnection(
-            host, existing.mode, credentials, app.pins, scope,
-            id = existing.id,
-            initialTitle = existing.title.value,
-            sessionNumber = existing.sessionNumber,
-            remoteSessionName = existing.remoteSessionName,
-            external = existing.external,
-            onRename = ::saveSessions,
-            onHostSystemDetected = { updateHostSystem(host, it) },
-            preferMosh = current.prefersMosh,
-            onPluginsDetected = { updatePlugins(host, it) },
-            onDesktopDetected = { updateDesktop(host, it) },
-            lastAgentStatus = existing.lastAgentStatus.value,
-            onAgentReport = ::saveSessions
-        )
+        val replacement = newConnection(existing.host, existing.mode, credentials, existing.id, existing.title.value,
+            existing.sessionNumber, existing.remoteSessionName, existing.external, existing.lastAgentStatus.value,
+            preferMosh = current.prefersMosh)
         mutableSessions.value = mutableSessions.value.map { if (it.id == id) replacement else it }
         track(replacement)
         return replacement
@@ -271,11 +273,11 @@ class SessionService : Service() {
      * otherwise a tmux card stays so the user can reconnect.
      */
     fun disconnectLocal(id: String, forgetCard: Boolean = true) {
-        val existing = mutableSessions.value.find { it.id == id } ?: return
+        val existing = find(id) ?: return
         stateWatchers.remove(id)?.cancel()
         existing.disconnect()
         if (forgetCard || existing.external || existing.mode != SessionMode.TMUX) {
-            mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+            remove(id)
         }
         saveSessions()
         refreshNotification()
@@ -287,31 +289,31 @@ class SessionService : Service() {
      * that was already on the server is only detached: its card goes and it keeps running.
      */
     fun close(id: String) {
-        val existing = mutableSessions.value.find { it.id == id } ?: return
+        val existing = find(id) ?: return
         stateWatchers.remove(id)?.cancel()
         if (existing.external) {
             existing.disconnect()
-            mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+            remove(id)
         } else if (existing.mode == SessionMode.TMUX && existing.state.value.phase == Phase.CONNECTED) {
-            mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+            remove(id)
             scope.launch {
-                if (!existing.killRemoteSession()) android.util.Log.w("RoamttyConn", "close $id: remote tmux not ended")
+                if (!existing.killRemoteSession()) Log.w(CONNECTION_LOG_TAG, "close $id: remote tmux not ended")
                 existing.disconnect()
             }
         } else {
             existing.disconnect()
-            if (existing.mode != SessionMode.TMUX) mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+            if (existing.mode != SessionMode.TMUX) remove(id)
         }
         saveSessions()
         refreshNotification()
     }
     fun forget(id: String) {
-        val existing = mutableSessions.value.find { it.id == id } ?: return
+        val existing = find(id) ?: return
         check(!existing.state.value.active)
         stateWatchers.remove(id)?.cancel()
         // A transport that ended by itself still has service-scoped metadata/history observers.
         existing.disconnect()
-        mutableSessions.value = mutableSessions.value.filterNot { it.id == id }
+        remove(id)
         saveSessions()
     }
     /**
@@ -319,7 +321,7 @@ class SessionService : Service() {
      * Returns null on success, else why the session may still be running (the entry is kept).
      */
     suspend fun terminate(id: String, credentials: Credentials, interaction: suspend (Prompt) -> List<String>?): String? {
-        val existing = mutableSessions.value.find { it.id == id } ?: return null
+        val existing = find(id) ?: return null
         check(!existing.state.value.active)
         return endRemoteSession(existing, credentials, interaction).also { if (it == null) forget(id) }
     }
@@ -328,7 +330,7 @@ class SessionService : Service() {
      * own that answers no question, so returns null once it ended, else why it may still be running.
      */
     suspend fun forceDelete(id: String, credentials: Credentials): String? {
-        val existing = mutableSessions.value.find { it.id == id } ?: return null
+        val existing = find(id) ?: return null
         forget(id)
         if (existing.mode != SessionMode.TMUX || existing.external) return null
         return endRemoteSession(existing, credentials) { null }
@@ -340,21 +342,22 @@ class SessionService : Service() {
         var status: Int? = null
         try {
             ssh.administer { remote ->
-                status = remote.run(Tmux.killSessionScript(existing.remoteSessionName), 15_000) {}
+                var exit = remote.run(Tmux.killSessionScript(existing.remoteSessionName), 15_000) {}
                 // A native Windows shell cannot run the POSIX script; its sessions live in psmux.
-                if (status != 0 && existing.host.installedPlugins?.contains(HostPlugin.PSMUX) == true)
-                    status = remote.runCommand(Psmux.killSessionCommand(existing.remoteSessionName), 15_000) {}
+                if (exit != 0 && existing.host.installedPlugins?.contains(HostPlugin.PSMUX) == true)
+                    exit = remote.runCommand(Psmux.killSessionCommand(existing.remoteSessionName), 15_000) {}
+                status = exit
             }
         } finally { ssh.disconnect() }
-        return when (status) {
+        return when (val exit = status) {
             0 -> null
             null -> ssh.state.value.message.takeIf { it.isNotBlank() }?.let(::tr) ?: tr("无法连接服务器")
-            else -> trf("tmux 退出码 %d", status!!)
+            else -> trf("tmux 退出码 %d", exit)
         }
     }
     /** Sockets bound to a lost network or frozen by a long sleep can look connected for minutes. */
     fun verifyConnections() {
-        android.util.Log.i("RoamttyConn", "verify ${mutableSessions.value.size} sessions")
+        Log.i(CONNECTION_LOG_TAG, "verify ${mutableSessions.value.size} sessions")
         mutableSessions.value.forEach { it.verifyAlive() }
     }
 
@@ -364,12 +367,12 @@ class SessionService : Service() {
             override fun onAvailable(network: Network) {
                 // The first callback reports the network the sessions already use.
                 val changed = current != null && current != network
-                android.util.Log.i("RoamttyConn", "default network $network available, changed=$changed")
+                Log.i(CONNECTION_LOG_TAG, "default network $network available, changed=$changed")
                 current = network
                 if (changed) scope.launch { verifyConnections(); desktops.networkChanged() }
             }
             // No replacement network (airplane mode, Wi-Fi gone without mobile data) sends no onAvailable.
-            override fun onLost(network: Network) { android.util.Log.i("RoamttyConn", "default network $network lost"); scope.launch { verifyConnections() } }
+            override fun onLost(network: Network) { Log.i(CONNECTION_LOG_TAG, "default network $network lost"); scope.launch { verifyConnections() } }
         }
         networkCallback = runCatching {
             getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback)
@@ -422,13 +425,12 @@ class SessionService : Service() {
             postedNotice = null
         } else if (foreground && notice() != postedNotice) {
             // Posted again only when what it says changes.
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification())
+            notifications.notify(NOTIFICATION, notification())
             postedNotice = notice()
         }
     }
     /** What the ongoing notification says: the live sessions, and the live desktops by host; see [notification]. */
     private fun notice() = listOf(sessions.value.count { it.state.value.active }.toString()) + desktops.live.map { it.host.id }
-    private var postedNotice: List<String>? = null
     override fun onDestroy() {
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         mutableSessions.value.forEach { it.disconnect() }

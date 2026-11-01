@@ -1,6 +1,5 @@
 package io.itermux.app.ui
 
-import android.content.res.Configuration
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -9,7 +8,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -32,6 +30,8 @@ import io.itermux.app.trf
 import io.itermux.ssh.SessionMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import io.itermux.app.data.loginKey
+import io.itermux.app.data.needsTypedPassword
 
 /**
  * One sheet to open a terminal or, with [forAgent], start Claude Code, Codex or Grok on [host]. The folder is
@@ -101,14 +101,14 @@ internal fun LaunchSheet(host: Host, forAgent: Boolean, monitor: HostMonitor?, o
     }
 
     val colors = MaterialTheme.colorScheme
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = isLandscape()
     val heading = title ?: if (forAgent) tr("用 Agent 打开") else tr("打开终端")
     val folderBox: @Composable (Modifier) -> Unit = { modifier ->
         Surface(modifier, shape = MaterialTheme.shapes.medium, color = colors.groupedContainer) {
             Column {
                 val text = filter
                 if (text != null) FolderFilter(text, { filter = it }, onClose = { filter = null },
-                    onGo = { matches.firstOrNull()?.let { current = shown!!.child(it) } })
+                    onGo = { shown?.let { folder -> matches.firstOrNull()?.let { current = folder.child(it) } } })
                 else PathBar(segments, parent, canFilter = (shown?.folders?.size ?: 0) > FILTER_THRESHOLD,
                     onNavigate = { current = it }, onFilter = { filter = "" })
                 GroupedDivider()

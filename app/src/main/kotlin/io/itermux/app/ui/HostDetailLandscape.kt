@@ -39,6 +39,7 @@ import io.itermux.app.trf
 import io.itermux.ssh.HostSystem
 import kotlinx.coroutines.launch
 import java.util.Locale
+import androidx.compose.ui.geometry.CornerRadius
 
 /** The landscape host page's sections, each with its tab. */
 private enum class HostDetailTab(val label: String, val tag: String) {
@@ -276,7 +277,7 @@ private fun Meter(value: Double?) {
     val tone = levelColor(value)
     val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     Canvas(Modifier.fillMaxWidth().padding(bottom = 4.dp).height(5.dp)) {
-        val radius = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
+        val radius = CornerRadius(size.height / 2)
         drawRoundRect(track, cornerRadius = radius)
         if (value != null) drawRoundRect(tone, size = size.copy(width = size.width * (value.coerceIn(0.0, 100.0) / 100.0).toFloat()),
             cornerRadius = radius)

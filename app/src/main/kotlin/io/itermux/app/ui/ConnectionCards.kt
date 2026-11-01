@@ -94,8 +94,9 @@ import io.itermux.ssh.HostPlugin
             .combinedClickable(onClickLabel = if (opensDesktop) tr("打开桌面") else tr("查看详情"), role = Role.Button,
                 onLongClickLabel = tr("主机选项"), onLongClick = { menu = true }, onClick = if (opensDesktop) openDesktop else openDetail)
             .testTag("host-screen-${host.id}")) {
+            val shownPicture = picture
             when {
-                picture != null -> HostScreenPicture(picture!!, offline, strip)
+                shownPicture != null -> HostScreenPicture(shownPicture, offline, strip)
                 hasDesktop -> HostScreenBackdrop(host.os, offline, strip)
                 else -> HostScreenNoDesktop(strip)
             }

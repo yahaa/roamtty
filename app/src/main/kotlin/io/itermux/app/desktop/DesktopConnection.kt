@@ -7,8 +7,6 @@ import io.itermux.app.data.Host
 import io.itermux.app.session.PendingPrompt
 import io.itermux.app.tr
 import io.itermux.app.trf
-import io.itermux.app.ui.credentialsFor
-import io.itermux.app.ui.pageLogin
 import io.itermux.desktop.*
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
@@ -18,10 +16,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import io.itermux.app.data.credentialsFor
+import io.itermux.app.session.pageLogin
 
 /** The cursor the plugin reports, in native pixels of the selected display; [shape] null until its image came. */
 internal data class RemoteCursor(val x: Int, val y: Int, val visible: Boolean, val shape: CursorImage?)
@@ -125,6 +127,20 @@ internal class DesktopConnection(
     @Volatile private var goodSince = 0L
     private var frameWindow = 0
     private var byteWindow = 0L
+    private var statsAt = System.currentTimeMillis()
+    private var audioPacketsSeen = 0L
+    /** A keyframe request came within a second of the last one and waits for the next tick; see [askKeyframe]. */
+    @Volatile private var keyAskPending = false
+    /** Per stream, for the log: inputs sent, and those view-only held back. */
+    @Volatile private var inputsSent = 0
+    @Volatile private var inputsDropped = 0
+    /** The macOS agent was reloaded once for this connection after serve found it not running. */
+    @Volatile private var agentReloaded = false
+    /** One forced install per connection when Windows says nobody is signed in (see the not_logged_in case). */
+    private var serviceInstallTried = false
+    /** The host's shell is cmd.exe or PowerShell, a native Windows host (known once the probe answered). */
+    @Volatile var windowsHost = false
+        private set
 
     val active: Boolean get() = phase.value !is DesktopPhase.Idle && phase.value !is DesktopPhase.Failed
 
@@ -164,8 +180,9 @@ internal class DesktopConnection(
                 }
                 if (outcome is Outcome.Streamed && !closing) {
                     // The stream ran and ended by itself: try to get it back right away.
-                    recoveringSince = System.currentTimeMillis()
-                    phase.value = DesktopPhase.Recovering(recoveringSince!!)
+                    val since = System.currentTimeMillis()
+                    recoveringSince = since
+                    phase.value = DesktopPhase.Recovering(since)
                 }
             }
         } finally {
@@ -257,7 +274,7 @@ internal class DesktopConnection(
                 withTimeoutOrNull(1000) {
                     runInterruptible(Dispatchers.IO) {
                         try { while (errLen < err.size) { val r = s.errors.read(err, errLen, err.size - errLen); if (r < 0) break; errLen += r } }
-                        catch (_: java.io.IOException) {}
+                        catch (_: IOException) {}
                     }
                 }
                 val errors = err.copyOf(errLen).toString(Charsets.UTF_8).trim()
@@ -310,19 +327,11 @@ internal class DesktopConnection(
         runCatching { app.database.hosts().updateDesktop(host.id, host.address, host.port, host.username, probe.desktop, System.currentTimeMillis()) }
     }
 
-    /** The macOS agent was reloaded once for this connection after serve found it not running. */
-    @Volatile private var agentReloaded = false
-
-    /** The host's shell is cmd.exe or PowerShell (a native Windows host). */
-    /** One forced install per connection when Windows says nobody is signed in (see the not_logged_in case). */
-    private var serviceInstallTried = false
-        /** The host runs Windows (known once the probe answered). */
-    @Volatile var windowsHost = false
-        private set
-
     private fun serveCommand(): String {
         // Resume tokens are base64: no quotes or spaces to escape in either shell.
-        val resume = if (sessionId != null && resumeToken != null) " --resume $sessionId --token ${resumeToken!!.filter { it.isLetterOrDigit() || it in "+/=" }}" else ""
+        val session = sessionId
+        val token = resumeToken
+        val resume = if (session != null && token != null) " --resume $session --token ${token.filter { it.isLetterOrDigit() || it in "+/=" }}" else ""
         val client = "${maxOf(clientWidth, clientHeight)}x${minOf(clientWidth, clientHeight)}@$clientDpi"
         val args = "--proto ${DesktopProtocol.SUPPORTED.last} --client $client$resume"
         return if (windowsHost) WindowsDesktop.serveCommand(args) else "\"\$HOME/.roamtty/bin/roamtty-desktop\" serve $args"
@@ -474,7 +483,7 @@ internal class DesktopConnection(
     private suspend fun startUdp(hello: Hello) {
         val offer = hello.udp ?: return
         val override = settings.udpHostOverride
-        val address = withContext(Dispatchers.IO) { runCatching { java.net.InetAddress.getByName(override.ifEmpty { host.address }) }.getOrNull() }
+        val address = withContext(Dispatchers.IO) { runCatching { InetAddress.getByName(override.ifEmpty { host.address }) }.getOrNull() }
             ?: return
         val l = UdpLink(address, offer.port, offer.key,
             onFrame = { frame -> runCatching { DesktopProtocol.decode(frame) }.getOrNull()?.let(::handle) },
@@ -489,8 +498,6 @@ internal class DesktopConnection(
         Log.i(TAG, "${host.name}: UDP offered on ${address.hostAddress}:${offer.port}")
     }
 
-    @Volatile private var keyAskPending = false
-
     /**
      * At most one keyframe request a second: a lost frame on UDP otherwise asks for each one after it.
      * A request inside that second waits for it rather than vanishing, or a still screen would stay broken.
@@ -502,9 +509,6 @@ internal class DesktopConnection(
         lastKeyAsk = now
         send(DesktopProtocol.req(DesktopProtocol.REQ_KEYFRAME))
     }
-
-    private var statsAt = System.currentTimeMillis()
-    private var audioPacketsSeen = 0L
 
     private fun tick() {
         val now = System.currentTimeMillis()
@@ -530,7 +534,7 @@ internal class DesktopConnection(
             else missedPings >= 2 || rtt > POOR_MS
         if (bad) { poorSince = now; goodSince = 0 } else if (goodSince == 0L) goodSince = now
         (phase.value as? DesktopPhase.Connected)?.let { c ->
-            val poor = if (bad) true else if (c.poor && now - goodSince < 5000) true else false
+            val poor = bad || (c.poor && now - goodSince < 5000)
             if (poor != c.poor) {
                 Log.i(TAG, "${host.name}: poor=$poor (udp=${l?.alive} silent=${l?.silentUs?.div(1000)}ms loss=${l?.loss} rtt=$rtt missed=$missedPings)")
                 phase.value = c.copy(poor = poor)
@@ -538,11 +542,10 @@ internal class DesktopConnection(
         }
         if (now - statsAt >= 1000) {
             val seconds = (now - statsAt) / 1000.0
-            val l = link
-            val udp = l?.alive == true
+            val udp = l?.takeIf { it.alive }
             stats.value = stats.value.copy(fps = (frameWindow / seconds).toInt(), kbps = (byteWindow * 8 / 1000 / seconds).toInt(),
-                decoder = decoder.decoderName, frames = decoder.decodedFrames, link = if (udp) "UDP" else "SSH",
-                lossPercent = if (udp) l!!.loss * 100 else null, fecRecovered = l?.fecRecovered ?: 0, lostFrames = l?.lostMessages ?: 0,
+                decoder = decoder.decoderName, frames = decoder.decodedFrames, link = if (udp != null) "UDP" else "SSH",
+                lossPercent = udp?.let { it.loss * 100 }, fecRecovered = l?.fecRecovered ?: 0, lostFrames = l?.lostMessages ?: 0,
                 // A still screen sends no frames: the last measured second stands.
                 latency = latency.take() ?: stats.value.latency,
                 audioMs = player.packets.takeIf { it != audioPacketsSeen }?.let { audioPacketsSeen = it; player.queuedMs })
@@ -652,10 +655,6 @@ internal class DesktopConnection(
         send(bytes)
     }
 
-    /** Per stream, for the log: inputs sent, and those view-only held back. */
-    @Volatile private var inputsSent = 0
-    @Volatile private var inputsDropped = 0
-
     fun setViewOnly(on: Boolean) {
         viewOnly.value = on
         send(DesktopProtocol.req(if (on) DesktopProtocol.REQ_VIEW_ONLY_ON else DesktopProtocol.REQ_VIEW_ONLY_OFF))
@@ -732,7 +731,6 @@ internal class DesktopConnection(
         decoder.close()
         player.stop()
     }
-
 
     /** e2e only: drop this share of UDP datagrams on the phone side (1.0 blocks UDP). */
     internal fun testUdpDrop(rate: Double) { link?.dropRate = rate }

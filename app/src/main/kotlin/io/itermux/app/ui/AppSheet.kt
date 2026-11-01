@@ -1,6 +1,5 @@
 package io.itermux.app.ui
 
-import android.content.res.Configuration
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.material3.*
@@ -18,7 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.window.DialogWindowProvider
@@ -77,7 +75,7 @@ internal fun SheetSystemBars(background: Color = MaterialTheme.colorScheme.surfa
     val window = (LocalView.current.parent as? DialogWindowProvider)?.window
     val light = background.luminance() > 0.5f
     // Landscape is short on rows everywhere, so sheets hide the bars just like the pages beneath them.
-    val hideBars = immersive || LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val hideBars = immersive || isLandscape()
     SideEffect {
         window?.let {
             WindowCompat.getInsetsController(it, it.decorView).apply {

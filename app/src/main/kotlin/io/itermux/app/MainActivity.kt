@@ -4,6 +4,7 @@ import android.content.*
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.*
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import io.itermux.app.session.CONNECTION_LOG_TAG
 import io.itermux.app.session.SessionService
 import io.itermux.app.ui.DarkColors
 import io.itermux.app.ui.ItermuxScreen
@@ -19,6 +21,7 @@ import io.itermux.app.ui.LightColors
 import androidx.compose.ui.graphics.toArgb
 import java.time.Duration
 import java.time.Instant
+import android.graphics.Color
 
 private const val SPLASH_MIN_MS = 1600L
 
@@ -105,7 +108,7 @@ class MainActivity : ComponentActivity() {
         val background = (if (lightTheme) LightColors else DarkColors).background.toArgb()
         // The terminal and the file browser draw their own background under a transparent status bar.
         @Suppress("DEPRECATION")
-        window.statusBarColor = if (terminalChrome) android.graphics.Color.TRANSPARENT else background
+        window.statusBarColor = if (terminalChrome) Color.TRANSPARENT else background
         @Suppress("DEPRECATION")
         window.navigationBarColor = background
         WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -136,11 +139,11 @@ class MainActivity : ComponentActivity() {
     }
     override fun onStart() {
         super.onStart()
-        android.util.Log.i("RoamttyConn", "activity start")
+        Log.i(CONNECTION_LOG_TAG, "activity start")
         bound = bindService(Intent(this, SessionService::class.java), connection, BIND_AUTO_CREATE)
     }
     override fun onStop() {
-        android.util.Log.i("RoamttyConn", "activity stop")
+        Log.i(CONNECTION_LOG_TAG, "activity stop")
         service?.setAppVisible(false)
         if (bound) { unbindService(connection); bound = false }
         // Keep the terminal UI and editor state while the activity is in the background.

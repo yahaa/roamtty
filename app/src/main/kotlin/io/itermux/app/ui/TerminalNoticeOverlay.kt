@@ -20,6 +20,7 @@ import io.itermux.app.trf
 import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.Phase
 import kotlin.math.roundToInt
+import androidx.compose.ui.Alignment
 
 /** In-window dialog placement preserves terminal/IME focus and never changes the PTY grid.
  * The parent already consumes IME insets; measure again on every keyboard/layout frame.
@@ -97,7 +98,7 @@ private fun TerminalNoticeCard(
             // Landscape IMEs can leave less than 160dp. Put actions beside the text there,
             // so a footer cannot consume the entire text viewport or clip the heading.
             if (maxHeight < 240.dp) {
-                Row(Modifier.padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                         Text(title, style = MaterialTheme.typography.titleMedium)
@@ -105,7 +106,7 @@ private fun TerminalNoticeCard(
                         content()
                     }
                     Column(Modifier.widthIn(max = 160.dp).verticalScroll(rememberScrollState()),
-                        horizontalAlignment = androidx.compose.ui.Alignment.End, content = { actions() })
+                        horizontalAlignment = Alignment.End, content = { actions() })
                 }
             } else Column(Modifier.padding(20.dp)) {
                 // Long errors/fingerprints scroll while actions remain above the keyboard.
@@ -115,7 +116,7 @@ private fun TerminalNoticeCard(
                     content()
                 }
                 Spacer(Modifier.height(16.dp))
-                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, androidx.compose.ui.Alignment.End),
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                     verticalArrangement = Arrangement.spacedBy(4.dp), content = { actions() })
             }
         }
