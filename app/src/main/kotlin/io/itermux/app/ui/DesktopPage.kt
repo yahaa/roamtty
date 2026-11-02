@@ -10,6 +10,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.ViewConfiguration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -44,13 +45,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -114,6 +120,10 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
     var mode by remember { mutableStateOf(settings.pointerMode(connection.host.id)) }
     var virtualMouse by rememberSaveable { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(settings.showStats) }
+    val statsBox = remember { StatsBox(settings.statsPosition) }
+    // Closing the figures with their ✕ says once where to bring them back.
+    var statsHint by remember { mutableStateOf(false) }
+    LaunchedEffect(statsHint) { if (statsHint) { delay(2500); statsHint = false } }
     val hasPicture = video.first > 0
     BackHandler(panel != DesktopPanel.NONE) { panel = DesktopPanel.NONE }
     BackHandler(panel == DesktopPanel.NONE) { onLeave() }
@@ -146,9 +156,12 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
         }
         val screen: @Composable (Modifier) -> Unit = { m ->
             Box(m.background(Color.Black)) {
-                if (hasPicture) DesktopScreen(connection, mode, keys = panel == DesktopPanel.NONE)
+                if (hasPicture) DesktopScreen(connection, mode, keys = panel == DesktopPanel.NONE, statsBox,
+                    onStatsMoved = { settings.statsPosition = it })
                 if (virtualMouse && hasPicture) VirtualMouse(connection)
-                DesktopStatusOverlay(connection, phase, hasPicture, showStats, onRetry = { connection.start() }, onClose = onDisconnect)
+                DesktopStatusOverlay(connection, phase, hasPicture, showStats, statsBox, statsHint,
+                    onCloseStats = { showStats = false; settings.showStats = false; statsHint = true },
+                    onRetry = { connection.start() }, onClose = onDisconnect)
             }
         }
         if (landscape) Row(Modifier.fillMaxSize()) {
@@ -170,6 +183,8 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
                 },
                 onVirtualMouse = { virtualMouse = it },
                 onShowStats = { showStats = it; settings.showStats = it },
+                statsMoved = statsBox.moved,
+                onResetStats = { statsBox.reset(); settings.statsPosition = 0f to 0f; showStats = true; settings.showStats = true },
                 onLeave = { panel = DesktopPanel.NONE; onLeave() },
                 onDisconnect = { panel = DesktopPanel.NONE; onDisconnect() },
                 onFiles = { panel = DesktopPanel.NONE; onFiles() },
@@ -222,7 +237,8 @@ private fun portraitRailBottom(): Dp {
 /** The picture, the cursor drawn locally, and every touch turned into input. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys: Boolean) {
+private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys: Boolean, stats: StatsBox,
+    onStatsMoved: (Pair<Float, Float>) -> Unit) {
     val density = LocalDensity.current.density
     val hello by connection.hello.collectAsStateWithLifecycle()
     val displayIndex by connection.display.collectAsStateWithLifecycle()
@@ -308,6 +324,88 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
     // Leaving the page mid-drag or right after a tap must not leave the host's button down.
     DisposableEffect(Unit) { onDispose { ticker.removeCallbacksAndMessages(tickToken); apply(gestures.cancel()) } }
 
+    // Each pointer keeps its id while it touches: the engine follows fingers, not indices.
+    fun feed(e: MotionEvent) {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                gestures.mode = mode
+                gestures.viewport = viewport
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) DesktopInputProbe.gestureStarted(e.eventTime)
+                val i = e.actionIndex
+                apply(gestures.began(e.getPointerId(i), e.getX(i), e.getY(i), e.eventTime))
+            }
+            MotionEvent.ACTION_MOVE -> apply(gestures.moved((0 until e.pointerCount).map { Triple(e.getPointerId(it), e.getX(it), e.getY(it)) }, e.eventTime))
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                val i = e.actionIndex
+                apply(gestures.ended(e.getPointerId(i), e.getX(i), e.getY(i), e.eventTime))
+                if (e.actionMasked == MotionEvent.ACTION_UP) DesktopInputProbe.gestureEnded(e.eventTime)
+            }
+            MotionEvent.ACTION_CANCEL -> apply(gestures.cancel())
+        }
+        // The next tick follows whatever the touch changed (a hold, a waiting right click, inertia).
+        scheduleTick()
+    }
+    // A touch that starts on the network figures waits: a still hold moves them, anything else is replayed
+    // to the picture as it came ([OverlayTouch]), so the figures never take a gesture from the desktop.
+    val overlay = remember { OverlayTouch(ViewConfiguration.get(context).scaledTouchSlop.toFloat()) }
+    val held = remember { ArrayList<MotionEvent>() }
+    val holdToken = remember { Any() }
+    // Where the touch area sits in the window, the first finger and where it is: plain fields, read per event.
+    val track = remember { object { var origin = Offset.Zero; var firstId = 0; var last = Offset.Zero } }
+    fun release() {
+        ticker.removeCallbacksAndMessages(holdToken)
+        held.forEach { it.recycle() }
+        held.clear()
+    }
+    fun pickUp() {
+        release()
+        stats.startDrag(track.last.x, track.last.y)
+        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+    }
+    fun drop() {
+        if (stats.dragging) { stats.dragging = false; onStatsMoved(stats.fx to stats.fy) }
+    }
+    fun route(e: MotionEvent) {
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+            release(); drop()
+            track.firstId = e.getPointerId(0)
+            track.last = Offset(e.x, e.y)
+            val onBox = stats.bounds?.contains(Offset(e.x + track.origin.x, e.y + track.origin.y)) == true
+            if (overlay.down(onBox, e.x, e.y, e.eventTime) != OverlayTouch.Owner.PENDING) return feed(e)
+            held += MotionEvent.obtain(e)
+            ticker.postAtTime({ if (overlay.tick(SystemClock.uptimeMillis()) == OverlayTouch.Owner.BOX) pickUp() },
+                holdToken, overlay.holdAt ?: return)
+            return
+        }
+        val before = overlay.owner
+        val first = e.findPointerIndex(track.firstId).coerceAtLeast(0)
+        val x = e.getX(first)
+        val y = e.getY(first)
+        val after = when (e.actionMasked) {
+            MotionEvent.ACTION_MOVE -> overlay.moved(x, y, e.eventTime)
+            MotionEvent.ACTION_POINTER_DOWN -> overlay.otherFinger()
+            MotionEvent.ACTION_UP -> overlay.up(e.eventTime)
+            MotionEvent.ACTION_CANCEL -> before.also { overlay.reset() }
+            else -> before
+        }
+        if (before == OverlayTouch.Owner.PENDING) track.last = Offset(x, y)
+        when (after) {
+            OverlayTouch.Owner.PENDING -> held += MotionEvent.obtain(e)
+            OverlayTouch.Owner.PICTURE -> {
+                if (before == OverlayTouch.Owner.PENDING) { held.forEach(::feed); release() }
+                feed(e)
+            }
+            OverlayTouch.Owner.BOX -> {
+                if (before == OverlayTouch.Owner.PENDING) pickUp()
+                if (e.actionMasked == MotionEvent.ACTION_MOVE) stats.dragTo(x, y)
+                if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) drop()
+            }
+            OverlayTouch.Owner.NONE -> {}
+        }
+        if (e.actionMasked == MotionEvent.ACTION_CANCEL && before == OverlayTouch.Owner.PENDING) release()
+    }
+    DisposableEffect(Unit) { onDispose { release(); stats.dragging = false } }
+
     Box(Modifier.fillMaxSize().onSizeChanged { area = it }
         .focusRequester(focus).focusable().onKeyEvent { event ->
             // A hardware keyboard: physical keys straight through as HID usages.
@@ -370,28 +468,8 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
         }
         // Read inside the ring alone, so a touch recomposes only it.
         HoldRing({ drawn.let { gestures.indicator } }, density)
-        Box(Modifier.fillMaxSize().testTag("desktop-touch").pointerInteropFilter { e ->
-            // Each pointer keeps its id while it touches: the engine follows fingers, not indices.
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                    gestures.mode = mode
-                    gestures.viewport = viewport
-                    if (e.actionMasked == MotionEvent.ACTION_DOWN) DesktopInputProbe.gestureStarted(e.eventTime)
-                    val i = e.actionIndex
-                    apply(gestures.began(e.getPointerId(i), e.getX(i), e.getY(i), e.eventTime))
-                }
-                MotionEvent.ACTION_MOVE -> apply(gestures.moved((0 until e.pointerCount).map { Triple(e.getPointerId(it), e.getX(it), e.getY(it)) }, e.eventTime))
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                    val i = e.actionIndex
-                    apply(gestures.ended(e.getPointerId(i), e.getX(i), e.getY(i), e.eventTime))
-                    if (e.actionMasked == MotionEvent.ACTION_UP) DesktopInputProbe.gestureEnded(e.eventTime)
-                }
-                MotionEvent.ACTION_CANCEL -> apply(gestures.cancel())
-            }
-            // The next tick follows whatever the touch changed (a hold, a waiting right click, inertia).
-            scheduleTick()
-            true
-        })
+        Box(Modifier.fillMaxSize().testTag("desktop-touch").onGloballyPositioned { track.origin = it.positionInWindow() }
+            .pointerInteropFilter { e -> route(e); true })
     }
 }
 
@@ -427,7 +505,7 @@ private fun HoldRing(indicator: () -> HoldIndicator?, density: Float) {
 /** Connecting steps, needs, failures, the network figures and the recovering card, over the picture. */
 @Composable
 private fun BoxScope.DesktopStatusOverlay(connection: DesktopConnection, phase: DesktopPhase, hasPicture: Boolean,
-    showStats: Boolean, onRetry: () -> Unit, onClose: () -> Unit) {
+    showStats: Boolean, statsBox: StatsBox, statsHint: Boolean, onCloseStats: () -> Unit, onRetry: () -> Unit, onClose: () -> Unit) {
     val log by connection.log.collectAsStateWithLifecycle()
     val notice by connection.notice.collectAsStateWithLifecycle()
     val showCard = !hasPicture || phase is DesktopPhase.Failed || phase is DesktopPhase.NeedsAction
@@ -460,7 +538,7 @@ private fun BoxScope.DesktopStatusOverlay(connection: DesktopConnection, phase: 
         }
     }
     if (hasPicture) {
-        NetworkStats(connection, phase, showStats, Modifier.align(Alignment.TopStart).padding(8.dp))
+        NetworkStats(connection, phase, showStats, statsBox, onCloseStats)
         val recovering = phase as? DesktopPhase.Recovering
         var longEnough by remember(recovering?.sinceMs) { mutableStateOf(false) }
         LaunchedEffect(recovering?.sinceMs) {
@@ -472,7 +550,7 @@ private fun BoxScope.DesktopStatusOverlay(connection: DesktopConnection, phase: 
             Text(tr("正在恢复…"), color = Ink, fontSize = 14.sp)
         }
     }
-    notice?.let { Text(it, Modifier.align(Alignment.TopCenter).padding(10.dp).clip(CircleShape).background(PanelColor)
+    (notice ?: tr("网络状态已隐藏，可在「操作」中重新打开").takeIf { statsHint })?.let { Text(it, Modifier.align(Alignment.TopCenter).padding(10.dp).clip(CircleShape).background(PanelColor)
         .padding(horizontal = 14.dp, vertical = 6.dp).testTag("desktop-notice"), color = Ink, fontSize = 13.sp) }
 }
 
@@ -562,12 +640,47 @@ private fun transportName(context: Context): String {
 }
 
 /**
- * The figures over the picture's top left corner, one short line each, the way game streaming shows
- * them; shown only when 显示网络状态 is on in 操作. They never take a touch: the picture under them
- * still gets it. Switched off, only a poor or recovering link still says so.
+ * Where the network figures sit over the picture, as fractions of the room it leaves them (0, 0 the top
+ * left), and their drag. The long press that starts one is [DesktopScreen]'s ([OverlayTouch]).
+ */
+@Stable
+internal class StatsBox(initial: Pair<Float, Float>) {
+    var fx by mutableFloatStateOf(initial.first.coerceIn(0f, 1f))
+        private set
+    var fy by mutableFloatStateOf(initial.second.coerceIn(0f, 1f))
+        private set
+    var dragging by mutableStateOf(false)
+    /** The figures in window pixels while shown, null while not. */
+    var bounds: Rect? = null
+    /** The room the picture leaves them, in pixels: what a fraction is of. */
+    var room = IntSize.Zero
+    private var from = Offset.Zero
+    private var fromFraction = Offset.Zero
+    val moved get() = fx != 0f || fy != 0f
+
+    fun startDrag(x: Float, y: Float) {
+        from = Offset(x, y); fromFraction = Offset(fx, fy); dragging = true
+    }
+
+    /** Follows the finger from where the drag started, kept inside the picture. */
+    fun dragTo(x: Float, y: Float) {
+        if (!dragging) return
+        if (room.width > 0) fx = (fromFraction.x + (x - from.x) / room.width).coerceIn(0f, 1f)
+        if (room.height > 0) fy = (fromFraction.y + (y - from.y) / room.height).coerceIn(0f, 1f)
+    }
+
+    fun reset() { fx = 0f; fy = 0f }
+}
+
+/**
+ * The figures over the picture, one short line each, the way game streaming shows them; shown only when
+ * 显示网络状态 is on in 操作, top left until a long press moves them. Only their ✕ takes a touch: anything
+ * else on them reaches the picture under them ([OverlayTouch]). Switched off, only a poor or recovering
+ * link still says so.
  */
 @Composable
-private fun NetworkStats(connection: DesktopConnection, phase: DesktopPhase, show: Boolean, modifier: Modifier) {
+private fun NetworkStats(connection: DesktopConnection, phase: DesktopPhase, show: Boolean, box: StatsBox, onClose: () -> Unit) {
+    val modifier = Modifier.padding(8.dp)
     val context = LocalContext.current
     val stats by connection.stats.collectAsStateWithLifecycle()
     val poor = (phase as? DesktopPhase.Connected)?.poor == true
@@ -605,16 +718,38 @@ private fun NetworkStats(connection: DesktopConnection, phase: DesktopPhase, sho
         stats.audioMs?.let { "${tr("声音")} ${tr("缓冲")} $it ms" to InkDim },
         transport to InkDim,
     )
-    Column(modifier.clip(RoundedCornerShape(6.dp)).background(Color(0x8C000000)).padding(horizontal = 7.dp, vertical = 4.dp)
-        .testTag("desktop-stats")) {
-        lines.forEach { (text, color) -> Text(text, color = color, fontSize = 11.sp, lineHeight = 14.sp, fontFamily = FontFamily.Monospace, maxLines = 1) }
+    DisposableEffect(box) { onDispose { box.bounds = null } }
+    val shape = RoundedCornerShape(6.dp)
+    // The figures at their place in the room the picture leaves them; the layout itself fills the picture
+    // but takes no touch.
+    Layout(content = {
+        Box(Modifier.graphicsLayer { if (box.dragging) { scaleX = 1.04f; scaleY = 1.04f } }.clip(shape)
+            .background(if (box.dragging) Color(0xB3000000) else Color(0x8C000000))
+            .then(if (box.dragging) Modifier.border(1.5.dp, Color.White.copy(alpha = 0.6f), shape) else Modifier)
+            .onGloballyPositioned { box.bounds = it.boundsInWindow() }.testTag("desktop-stats")) {
+            Column(Modifier.padding(start = 7.dp, end = 26.dp, top = 4.dp, bottom = 4.dp)) {
+                lines.forEach { (text, color) -> Text(text, color = color, fontSize = 11.sp, lineHeight = 14.sp, fontFamily = FontFamily.Monospace, maxLines = 1) }
+            }
+            Box(Modifier.align(Alignment.TopEnd).size(26.dp).clickable(onClick = onClose).testTag("desktop-stats-close"),
+                contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_close), tr("关闭"), Modifier.size(12.dp), tint = InkDim)
+            }
+        }
+    }, modifier = Modifier.fillMaxSize()) { measurables, constraints ->
+        val margin = 8.dp.roundToPx()
+        val p = measurables.single().measure(constraints.copy(minWidth = 0, minHeight = 0))
+        box.room = IntSize((constraints.maxWidth - p.width - 2 * margin).coerceAtLeast(0),
+            (constraints.maxHeight - p.height - 2 * margin).coerceAtLeast(0))
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            p.place(margin + (box.fx * box.room.width).roundToInt(), margin + (box.fy * box.room.height).roundToInt())
+        }
     }
 }
 
 @Composable
 private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: Boolean, mode: PointerMode, virtualMouse: Boolean,
     showStats: Boolean, onMode: (PointerMode) -> Unit, onVirtualMouse: (Boolean) -> Unit, onShowStats: (Boolean) -> Unit,
-    onLeave: () -> Unit, onDisconnect: () -> Unit, onFiles: () -> Unit, onDismiss: () -> Unit) {
+    statsMoved: Boolean, onResetStats: () -> Unit, onLeave: () -> Unit, onDisconnect: () -> Unit, onFiles: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val viewOnly by connection.viewOnly.collectAsStateWithLifecycle()
@@ -686,7 +821,12 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
                 "desktop-audio") { connection.setAudio(it) }
             ToggleRow(tr("仅观看"), tr("不向电脑发送任何操作"), viewOnly, "desktop-view-only") { connection.setViewOnly(it) }
             ToggleRow(tr("虚拟鼠标"), tr("悬浮的左键、右键和滚轮"), virtualMouse, "desktop-virtual-mouse") { onVirtualMouse(it) }
-            ToggleRow(tr("显示网络状态"), tr("画面左上角显示延迟、帧率和码率"), showStats, "desktop-show-stats") { onShowStats(it) }
+            Column {
+                ToggleRow(tr("显示网络状态"), tr("画面上显示延迟、帧率和码率，长按可拖动"), showStats, "desktop-show-stats") { onShowStats(it) }
+                if (statsMoved) Text(tr("恢复默认位置（左上角）"), color = Accent, fontSize = 13.sp, modifier = Modifier
+                    .padding(top = 2.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onResetStats)
+                    .padding(vertical = 6.dp).testTag("desktop-stats-reset"))
+            }
             Section(tr("帧率")) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DesktopSettings.FPS.filter { it <= maxOf(60, refresh) }.forEach { f ->
