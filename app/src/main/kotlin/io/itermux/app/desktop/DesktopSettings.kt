@@ -23,6 +23,11 @@ internal class DesktopSettings(context: Context) {
         get() = prefs.getBoolean("desktop.showStats", false)
         set(value) = prefs.edit { putBoolean("desktop.showStats", value) }
 
+    /** Where the network figures sit, as fractions of the room the picture leaves them: 0, 0 is the top left. */
+    var statsPosition: Pair<Float, Float>
+        get() = prefs.getFloat("desktop.statsX", 0f) to prefs.getFloat("desktop.statsY", 0f)
+        set(value) = prefs.edit { putFloat("desktop.statsX", value.first); putFloat("desktop.statsY", value.second) }
+
     /** Debug and e2e builds only: a base URL that replaces the pinned release, for a plugin not yet published. */
     var pluginBaseUrl: String
         get() = prefs.getString("desktop.pluginBaseUrl", "").orEmpty()

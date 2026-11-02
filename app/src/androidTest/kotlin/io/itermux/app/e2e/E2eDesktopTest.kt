@@ -81,7 +81,7 @@ class E2eDesktopTest {
         E2e.cleanup(if (::service.isInitialized) service else null)
     }
 
-    @After fun tearDown() { DesktopSettings(E2e.context).apply { pluginBaseUrl = ""; udpHostOverride = ""; testLoss = 0.0; showStats = false } }
+    @After fun tearDown() { DesktopSettings(E2e.context).apply { pluginBaseUrl = ""; udpHostOverride = ""; testLoss = 0.0; showStats = false; statsPosition = 0f to 0f } }
 
     private fun click(tag: String, timeoutMs: Long = 10_000) {
         E2e.waitTag(compose, tag, timeoutMs)
@@ -615,5 +615,72 @@ class E2eDesktopTest {
         val lateFdGrowth = fdsPerRound.last() - fdsPerRound[rounds / 2 - 1]
         assertTrue("file descriptors kept growing over the last ${rounds / 2} desktops ($summary)", lateFdGrowth <= 3)
         assertTrue("native heap grew over $rounds desktops ($summary)", native - native0 < 6.0)
+    }
+
+    /**
+     * The network figures: a tap on them still reaches the desktop, a still long press moves them (and
+     * nothing of it reaches the desktop), their ✕ hides them, and 操作 brings them back to the top left.
+     */
+    @Test fun d09_statsBoxCloseAndDragKeepGestures() {
+        DesktopSettings(E2e.context).statsPosition = 0f to 0f
+        val host = runBlocking { E2e.save(E2e.host("desktop-stats")) }
+        hostId = host.id
+        val session = runBlocking {
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+        }
+        runBlocking { E2e.connected(session) }
+        compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
+        click("home-session-desktop-${session.id}", 15_000)
+        E2e.waitTag(compose, "desktop-page")
+        waitPhase(45_000, "first frame") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
+        assertTrue("${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)
+        compose.waitUntil(5_000) { decodedFrames() > 0 }
+        showStats(true)
+        fun stats() = compose.onNodeWithTag("desktop-stats", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val home = stats()
+        val picture = compose.onNodeWithTag("desktop-touch").fetchSemanticsNode().boundsInRoot
+
+        // A tap on the figures is the desktop's: the host's pointer goes under it.
+        remote("DISPLAY=:77 xdotool mousemove 1200 700")
+        idle(500)
+        compose.onNodeWithTag("desktop-stats", useUnmergedTree = true).performTouchInput { click(Offset(width * 0.3f, height * 0.6f)) }
+        idle(1_000)
+        val tapped = pointer()!!
+        assertTrue("a tap on the figures reaches the desktop: pointer $tapped", tapped.first < 600 && tapped.second < 400)
+        assertEquals("a tap does not move the figures", home, stats())
+
+        // A still long press picks them up and drags them; the desktop sees none of it.
+        compose.onNodeWithTag("desktop-stats", useUnmergedTree = true).performTouchInput {
+            down(center)
+            advanceEventTime(600)
+            repeat(10) { moveBy(Offset(picture.width * 0.04f, picture.height * 0.04f)) }
+            up()
+        }
+        idle(800)
+        E2e.capture(compose, "desktop-stats-01-dragged")
+        val moved = stats()
+        assertTrue("dragged: $home → $moved", moved.left > home.left + picture.width * 0.2f && moved.top > home.top + picture.height * 0.2f)
+        assertEquals("the drag did not reach the desktop", tapped, pointer())
+        val saved = DesktopSettings(E2e.context).statsPosition
+        assertTrue("position saved: $saved", saved.first > 0f && saved.second > 0f)
+
+        // ✕ hides them and says where they come back from; the setting follows.
+        click("desktop-stats-close")
+        compose.onNodeWithTag("desktop-stats").assertDoesNotExist()
+        assertEquals(false, DesktopSettings(E2e.context).showStats)
+        E2e.waitTag(compose, "desktop-notice")
+        E2e.capture(compose, "desktop-stats-02-closed")
+
+        // 操作 offers the top left again, and turns them back on there.
+        click("desktop-rail-operations")
+        E2e.waitTag(compose, "desktop-operations")
+        compose.onNodeWithTag("desktop-stats-reset").performScrollTo()
+        click("desktop-stats-reset")
+        click("desktop-op-close")
+        E2e.waitGone(compose, hasTestTag("desktop-operations"))
+        E2e.waitTag(compose, "desktop-stats")
+        assertEquals(home, stats())
+        assertEquals(0f to 0f, DesktopSettings(E2e.context).statsPosition)
+        assertEquals(true, DesktopSettings(E2e.context).showStats)
     }
 }

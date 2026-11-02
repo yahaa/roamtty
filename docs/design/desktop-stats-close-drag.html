@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>远程桌面 · 网速信息框 关闭 / 拖动 预览</title>
+<style>
+  :root { --ink:#fff; --dim:rgba(255,255,255,.62); --warn:#f5b041; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:#111; color:#ddd; font-family:-apple-system,"PingFang SC","Noto Sans SC",sans-serif; }
+  .wrap { max-width:1100px; margin:0 auto; padding:16px; }
+  h1 { font-size:18px; margin:4px 0 6px; color:#fff; }
+  p.note { font-size:13px; color:#aaa; margin:4px 0 14px; line-height:1.6; }
+  .phone { position:relative; width:100%; aspect-ratio:2000/918; background:#000; border-radius:22px; overflow:hidden; border:6px solid #222; user-select:none; touch-action:none; }
+  .desk { position:absolute; left:12.6%; right:9.2%; top:0; bottom:0;
+    background:linear-gradient(180deg,#5b6b4a 0%,#3e4a33 35%,#6f7a5c 60%,#2f3a26 100%); }
+  .desk::before { content:""; position:absolute; inset:0;
+    background:repeating-linear-gradient(90deg,transparent 0 9%,rgba(70,40,25,.75) 9% 13%,transparent 13% 31%,rgba(80,45,28,.7) 31% 36%,transparent 36% 62%,rgba(60,35,20,.8) 62% 70%,transparent 70%); }
+  .clock { position:absolute; left:0; right:0; top:12%; text-align:center; color:rgba(255,255,255,.75); font-size:clamp(28px,7vw,80px); font-weight:700; }
+  .rail { position:absolute; right:0; top:0; bottom:0; width:9.2%; background:#000; display:flex; flex-direction:column; justify-content:space-around; align-items:center; color:#ddd; font-size:clamp(9px,1.4vw,16px); }
+  .rail div { text-align:center; } .rail b { display:block; font-size:clamp(16px,2.6vw,30px); font-weight:400; }
+
+  /* stats box */
+  .stats { position:absolute; left:7%; top:2%; padding:10px 34px 10px 12px; border-radius:10px;
+    background:rgba(0,0,0,.42); font-size:clamp(9px,1.45vw,15px); line-height:1.5; color:var(--ink);
+    transition:box-shadow .15s, transform .15s, background .15s; cursor:default; }
+  .stats .dim { color:var(--dim); } .stats .warn { color:var(--warn); }
+  .stats .x { position:absolute; top:4px; right:4px; width:26px; height:26px; border-radius:13px;
+    display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.75); font-size:15px;
+    background:rgba(255,255,255,.08); cursor:pointer; }
+  .stats .x:active { background:rgba(255,255,255,.25); }
+  .stats.pressing { background:rgba(0,0,0,.55); }
+  .stats.dragging { transform:scale(1.04); background:rgba(0,0,0,.62); box-shadow:0 0 0 1.5px rgba(255,255,255,.55),0 8px 24px rgba(0,0,0,.6); cursor:grabbing; }
+  .ring { position:absolute; inset:-2px; border-radius:12px; pointer-events:none; border:2px solid transparent; }
+  .stats.pressing .ring { border-color:rgba(255,255,255,.35); animation:fill .4s linear forwards; }
+  @keyframes fill { from{ opacity:.2 } to{ opacity:1 } }
+
+  .toast { position:absolute; left:50%; bottom:8%; transform:translateX(-50%); background:rgba(30,30,30,.92); color:#fff; padding:8px 14px; border-radius:18px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; }
+  .toast.on { opacity:1; }
+
+  .panel { position:absolute; right:9.2%; top:0; bottom:0; width:34%; background:rgba(28,28,30,.97); padding:14px; display:none; font-size:13px; }
+  .panel.on { display:block; }
+  .row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #333; }
+  .row small { display:block; color:#999; font-size:11px; margin-top:2px; }
+  .sw { width:40px; height:22px; border-radius:11px; background:#555; position:relative; cursor:pointer; flex:none; }
+  .sw::after { content:""; position:absolute; left:2px; top:2px; width:18px; height:18px; border-radius:9px; background:#fff; transition:left .15s; }
+  .sw.on { background:#3b82f6; } .sw.on::after { left:20px; }
+  .link { color:#7fb2ff; font-size:12px; cursor:pointer; margin-top:8px; display:inline-block; }
+
+  .spec { margin-top:18px; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; }
+  .card { background:#1b1b1d; border:1px solid #2a2a2c; border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.65; color:#ccc; }
+  .card h3 { margin:0 0 6px; font-size:14px; color:#fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>网速信息框：右上角 ✕ 关闭 · 长按拖动</h1>
+  <p class="note">可直接在下方交互：点 ✕ 关闭；长按信息框 0.4 秒（边框亮起、略放大、手机轻震）后拖动，松手停在原处。点右侧「操作」可重新打开 / 复位位置。</p>
+
+  <div class="phone" id="phone">
+    <div class="desk"><div class="clock">17:48</div></div>
+    <div class="rail">
+      <div><b>▦</b>所有窗口</div><div><b>▭</b>显示桌面</div><div><b>⌨</b>键盘</div>
+      <div id="opsBtn" style="cursor:pointer"><b>☰</b>操作</div>
+    </div>
+
+    <div class="stats" id="stats">
+      <div class="ring"></div>
+      <div class="x" id="close" title="关闭">✕</div>
+      <div class="warn">UDP 404 ms</div>
+      <div>0 fps&nbsp; 0.0 Mbps</div>
+      <div>端到端 —</div>
+      <div class="dim">主机端 23 · 网络 — · 手机端 —</div>
+      <div>丢包 1.3%&nbsp; FEC 1</div>
+      <div class="dim">2772×1800 videotoolbox</div>
+      <div class="dim">移动数据</div>
+    </div>
+
+    <div class="panel" id="panel">
+      <div style="color:#fff;font-size:15px;margin-bottom:6px">操作</div>
+      <div class="row"><div>显示网络状态<small>画面上显示延迟、帧率和码率；长按可拖动</small></div><div class="sw on" id="sw"></div></div>
+      <span class="link" id="reset">恢复默认位置（左上角）</span>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <div class="spec">
+    <div class="card"><h3>✕ 关闭</h3>右上角 26dp 小圆按钮（触控区 40dp）。点后信息框消失，等同在「操作 → 显示网络状态」里关掉，设置会记住；底部提示「已隐藏，可在 操作 中重新打开」。</div>
+    <div class="card"><h3>长按拖动</h3>长按 400ms 进入拖动态：边框高亮 + 放大 4% + 轻震。之后跟手移动，限制在画面区域内（不压右侧按钮栏）。短按 / 普通滑动不触发，不影响远程桌面的点击与滚动。</div>
+    <div class="card"><h3>位置记忆</h3>松手后保存位置（按画面比例存，横竖屏切换都不会跑出屏幕）。「操作」面板加一个「恢复默认位置」入口。</div>
+  </div>
+</div>
+
+<script>
+const phone=document.getElementById('phone'), stats=document.getElementById('stats'),
+      closeBtn=document.getElementById('close'), toast=document.getElementById('toast'),
+      panel=document.getElementById('panel'), sw=document.getElementById('sw');
+function showToast(t){ toast.textContent=t; toast.classList.add('on'); clearTimeout(showToast.t); showToast.t=setTimeout(()=>toast.classList.remove('on'),2200); }
+function setShown(v){ stats.style.display=v?'':'none'; sw.classList.toggle('on',v); }
+closeBtn.addEventListener('pointerdown',e=>e.stopPropagation());
+closeBtn.addEventListener('click',e=>{ e.stopPropagation(); setShown(false); showToast('网络状态已隐藏，可在「操作」中重新打开'); });
+document.getElementById('opsBtn').onclick=()=>panel.classList.toggle('on');
+sw.onclick=()=>setShown(!sw.classList.contains('on'));
+document.getElementById('reset').onclick=()=>{ stats.style.left='7%'; stats.style.top='2%'; setShown(true); showToast('已恢复默认位置'); };
+
+let timer=null, dragging=false, start=null, origin=null;
+stats.addEventListener('pointerdown',e=>{
+  stats.setPointerCapture(e.pointerId);
+  start={x:e.clientX,y:e.clientY}; origin={x:stats.offsetLeft,y:stats.offsetTop};
+  stats.classList.add('pressing');
+  timer=setTimeout(()=>{ dragging=true; stats.classList.remove('pressing'); stats.classList.add('dragging'); navigator.vibrate&&navigator.vibrate(15); },400);
+});
+stats.addEventListener('pointermove',e=>{
+  if(!start) return;
+  const dx=e.clientX-start.x, dy=e.clientY-start.y;
+  if(!dragging){ if(Math.hypot(dx,dy)>8){ clearTimeout(timer); stats.classList.remove('pressing'); start=null; } return; }
+  const desk=phone.querySelector('.desk'), minX=desk.offsetLeft*0, maxX=desk.offsetLeft+desk.offsetWidth-stats.offsetWidth,
+        maxY=phone.clientHeight-stats.offsetHeight;
+  stats.style.left=Math.max(minX,Math.min(maxX,origin.x+dx))+'px';
+  stats.style.top=Math.max(0,Math.min(maxY,origin.y+dy))+'px';
+});
+function end(){ clearTimeout(timer); stats.classList.remove('pressing','dragging'); dragging=false; start=null; }
+stats.addEventListener('pointerup',end); stats.addEventListener('pointercancel',end);
+</script>
+</body>
+</html>
