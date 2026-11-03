@@ -46,7 +46,7 @@ class HostScreenCardTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val pictured = Host(name = "pictured", address = "10.0.0.1", username = "me", os = "UBUNTU", plugins = "tmux,mosh,desktop")
         val offline = Host(name = "offline", address = "10.0.0.2", username = "me", os = "MACOS")
-        val headless = Host(name = "headless", address = "10.0.0.3", username = "me", os = "DEBIAN", plugins = "tmux")
+        val headless = Host(name = "headless", address = "10.0.0.3", username = "me", os = "DEBIAN", plugins = "tmux", desktop = "no")
         DesktopThumbnails.save(context, pictured.id, gradient())
         val opened = mutableListOf<String>()
         val prefs = context.getSharedPreferences("app-settings", Context.MODE_PRIVATE)

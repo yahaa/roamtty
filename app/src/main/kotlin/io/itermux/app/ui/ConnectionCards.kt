@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import io.itermux.app.desktop.DesktopThumbnails
 import io.itermux.desktop.DesktopButton
+import io.itermux.desktop.DesktopProbe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -98,7 +99,7 @@ import io.itermux.ssh.HostPlugin
             when {
                 shownPicture != null -> HostScreenPicture(shownPicture, offline, strip)
                 hasDesktop -> HostScreenBackdrop(host.os, offline, strip)
-                else -> HostScreenNoDesktop(strip)
+                else -> HostScreenNoDesktop(strip, DesktopProbe.decode(host.desktop))
             }
         }
         // Top left: whether it answers, then what its desktop is doing.
@@ -229,7 +230,7 @@ private val grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSatur
 }
 
 /** A host without a desktop: says so plainly, the strip a shade apart. */
-@Composable private fun HostScreenNoDesktop(strip: Dp) {
+@Composable private fun HostScreenNoDesktop(strip: Dp, probe: DesktopProbe?) {
     val colors = MaterialTheme.colorScheme
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(colors.onSurface.copy(alpha = 0.05f), Color.Transparent),
         radius = 900f))) {
@@ -237,9 +238,14 @@ private val grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSatur
             verticalArrangement = Arrangement.Center) {
             Icon(painterResource(R.drawable.ic_desktop_off), contentDescription = null, Modifier.size(40.dp),
                 tint = colors.onSurfaceVariant.copy(alpha = 0.55f))
-            Text(tr("没有图形桌面"), Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodyMedium,
+            Text(tr(when (probe) {
+                null -> "桌面尚未检测"
+                DesktopProbe.NO -> "没有图形桌面"
+                DesktopProbe.UNSUPPORTED -> "暂不支持这台主机的桌面"
+                else -> "桌面暂不可用"
+            }), Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodyMedium,
                 color = colors.onSurfaceVariant)
-            Text(tr("这台主机只能用终端"), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant.copy(alpha = 0.7f))
+            if (probe == null || probe == DesktopProbe.NO) Text(tr(if (probe == null) "连接主机后自动检测桌面" else "这台主机只能用终端"), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant.copy(alpha = 0.7f))
         }
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(strip).background(colors.onSurface.copy(alpha = 0.035f)))
         Box(Modifier.align(Alignment.BottomCenter).padding(bottom = strip).fillMaxWidth().height(1.dp)

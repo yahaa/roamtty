@@ -64,6 +64,7 @@ internal class HostEditorDraft : ViewModel() {
                 // A blank name falls back to the address, so a host filled in for a new session needs no name.
                 val hostName = name.value.trim().ifEmpty { address.value.trim() }
                 require(hostName.isNotEmpty() && hostName.length <= 80) { tr("名称需为 1–80 个字符") }
+                requireValidHostAddress(address.value.trim())
                 val target = Target(address.value.trim(), port.value.toIntOrNull() ?: 0, username.value.trim(),
                     AuthMethod.valueOf(auth.value), SessionMode.valueOf(mode.value))
                 require(auth.value != "KEY" || imported.value != null || original?.encryptedKey != null) { tr("请先导入私钥") }

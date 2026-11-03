@@ -14,17 +14,25 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
 @Composable internal fun CredentialsDialog(request: ConnectRequest, dismiss: () -> Unit, connect: (String, String) -> Unit) {
-    var secret by remember { mutableStateOf("") }
+    var secret by remember(request) { mutableStateOf("") }
+    var visible by remember(request) { mutableStateOf(false) }
     val key = request.host.auth == "KEY"
     AlertDialog(onDismissRequest = dismiss, title = { Text(trf("连接 %s", request.host.name)) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(if (key) tr("私钥口令仅用于本次连接；未加密私钥可留空。") else tr("密码仅用于本次连接，默认不保存。"))
-            OutlinedTextField(secret, { secret = it }, label = { Text(if (key) tr("私钥口令（可留空）") else tr("SSH 密码")) }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+            OutlinedTextField(secret, { secret = it }, label = { Text(if (key) tr("私钥口令（可留空）") else tr("SSH 密码")) }, visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(), singleLine = true,
+                modifier = Modifier.testTag("connection-secret"), trailingIcon = {
+                    TextButton(onClick = { visible = !visible }, Modifier.testTag("connection-secret-visibility")) {
+                        Text(tr(if (visible) "隐藏密码" else "显示密码"))
+                    }
+                })
         }
     }, confirmButton = { TextButton(onClick = { if (key) connect("", secret) else connect(secret, ""); secret = "" }) { Text(tr("连接")) } }, dismissButton = { TextButton(onClick = dismiss) { Text(tr("取消")) } })
 }
