@@ -15,12 +15,48 @@ data class ConnectionState(val phase: Phase, val message: String = "", val oldFi
 
 data class Target(val address: String, val port: Int, val username: String, val auth: AuthMethod, val mode: SessionMode) {
     init {
-        require(address.isNotBlank() && address.length <= 253 && address.none { it.isWhitespace() || it.isISOControl() || it in "/\\@" }) { "请输入主机地址，不含协议、路径或空格" }
+        require(validHostAddress(address)) { "请输入主机地址，不含协议、路径或空格" }
         require(port in 1..65535) { "端口必须为 1–65535" }
         require(username.isNotBlank() && username.length <= 128 && username.none { it.isISOControl() || it.isWhitespace() }) { "请输入有效用户名" }
     }
     val hostname: String get() = address.removeSurrounding("[", "]")
     val endpoint: String get() = "[${hostname.lowercase(Locale.ROOT).removeSuffix(".")}]:$port"
+}
+
+/** Syntax only: saving a host never needs DNS, a network or an existing server. */
+private fun validHostAddress(address: String): Boolean {
+    if (address.isBlank() || address.length > 253 || address.any { it.isWhitespace() || it.isISOControl() }) return false
+    if (':' in address) {
+        val literal = if (address.startsWith("[") && address.endsWith("]")) address.substring(1, address.length - 1) else address
+        val scoped = literal.split('%')
+        if (scoped.size > 2 || scoped.size == 2 && !scoped[1].matches(Regex("[A-Za-z0-9_.-]+"))) return false
+        val ip = scoped[0]
+        if (ip.count { it == ':' } < 2 || ":::" in ip || ip.indexOf("::") != ip.lastIndexOf("::")) return false
+        if ((ip.startsWith(':') && !ip.startsWith("::")) || (ip.endsWith(':') && !ip.endsWith("::"))) return false
+        val groups = ip.split(':').filter { it.isNotEmpty() }
+        var units = 0
+        groups.forEachIndexed { index, group ->
+            if ('.' in group) {
+                if (index != groups.lastIndex || !ip.endsWith(group) || !validIpv4(group)) return false
+                units += 2
+            } else {
+                if (group.length !in 1..4 || group.any { it !in "0123456789abcdefABCDEF" }) return false
+                units++
+            }
+        }
+        return if ("::" in ip) units < 8 else units == 8
+    }
+    if (address.all { it.isDigit() || it == '.' } && '.' in address) return validIpv4(address)
+    val ascii = try { java.net.IDN.toASCII(address.removeSuffix("."), java.net.IDN.USE_STD3_ASCII_RULES) }
+        catch (_: IllegalArgumentException) { return false }
+    return ascii.isNotEmpty() && ascii.length <= 253 && ascii.split('.').all { label ->
+        label.length in 1..63 && label.first().isLetterOrDigit() && label.last().isLetterOrDigit() &&
+            label.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' }
+    }
+}
+
+private fun validIpv4(address: String): Boolean = address.split('.').let { parts ->
+    parts.size == 4 && parts.all { it.isNotEmpty() && it.all { ch -> ch in '0'..'9' } && it.toIntOrNull() in 0..255 }
 }
 
 /** Owned by a connection, which clears it once the secrets are no longer needed. */

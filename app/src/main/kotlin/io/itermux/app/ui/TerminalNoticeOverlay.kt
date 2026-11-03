@@ -6,7 +6,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.testTag
@@ -49,8 +49,12 @@ internal fun TerminalConnectionNotice(
     onReconnect: (() -> Unit)?,
     onShell: () -> Unit,
     onReverify: () -> Unit,
+    /** Leaves this page; it must not terminate the remote session. */
+    onClose: () -> Unit = {},
 ) {
+    var detailsExpanded by remember(state) { mutableStateOf(false) }
     TerminalNoticeCard(phaseLabel(state.phase), "terminal-connection-notice", actions = {
+        TextButton(onClick = onClose, modifier = Modifier.testTag("connection-notice-close")) { Text(tr("关闭")) }
         if (state.phase == Phase.HOST_KEY_CHANGED) {
             Button(onClick = onReverify) { Text(tr("重新核验…")) }
         } else {
@@ -59,9 +63,12 @@ internal fun TerminalConnectionNotice(
         }
     }) {
         if (state.message.isNotBlank()) Text(tr(state.message), style = MaterialTheme.typography.bodyMedium)
-        state.detail?.let {
-            SelectionContainer {
-                Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+        state.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+            TextButton(onClick = { detailsExpanded = !detailsExpanded }) {
+                Text(tr(if (detailsExpanded) "收起详情" else "查看详情"))
+            }
+            if (detailsExpanded) SelectionContainer {
+                Text(detail, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp))
             }
         }

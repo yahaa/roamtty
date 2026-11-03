@@ -5,22 +5,25 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import java.util.Locale
 
 enum class AppLanguage(val label: String) {
     ZH_CN("简体中文"), ENGLISH("English");
 
     companion object {
-        fun from(value: String?) = entries.firstOrNull { it.name == value } ?: ZH_CN
+        fun from(value: String?, locale: Locale = Locale.getDefault()) =
+            entries.firstOrNull { it.name == value } ?: if (locale.language == "zh") ZH_CN else ENGLISH
     }
 }
 
 /** A single observable language choice also covers text outside Compose, such as notifications. */
 object AppLocale {
-    var language by mutableStateOf(AppLanguage.ZH_CN)
+    var language by mutableStateOf(AppLanguage.from(null))
         private set
 
     fun initialize(context: Context) {
-        language = AppLanguage.from(context.appSettings().getString("language", null))
+        language = AppLanguage.from(context.appSettings().getString("language", null),
+            context.resources.configuration.locales[0] ?: Locale.getDefault())
     }
 
     fun set(context: Context, value: AppLanguage) {
@@ -35,6 +38,12 @@ fun trf(pattern: String, vararg args: Any): String = tr(pattern).format(*args)
 
 private object EnglishText {
     val values: Map<String, String> = mapOf(
+        "桌面尚未检测" to "Desktop not checked yet",
+        "连接主机后自动检测桌面" to "Connect to check the desktop automatically",
+        "桌面暂不可用" to "Desktop unavailable",
+        "暂不支持这台主机的桌面" to "This desktop is not supported yet",
+        "显示密码" to "Show password",
+        "隐藏密码" to "Hide password",
         "请在 Mac 上允许“屏幕录制”：系统设置 › 隐私与安全性 › 屏幕与系统音频录制，打开 Roamtty Desktop" to "Allow Screen Recording on the Mac: System Settings › Privacy & Security › Screen & System Audio Recording, turn on Roamtty Desktop",
         "请在 Mac 上允许“辅助功能”：系统设置 › 隐私与安全性 › 辅助功能，打开 Roamtty Desktop" to "Allow Accessibility on the Mac: System Settings › Privacy & Security › Accessibility, turn on Roamtty Desktop",
         "丢包" to "Loss",

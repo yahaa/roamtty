@@ -728,6 +728,7 @@ fun ItermuxScreen(
                         TerminalPane(active, Modifier.weight(1f),
                             sessions = sessions, lightTheme = lightTheme, onSelectSession = { selected = it },
                             onHostDetail = ::showSessionHost,
+                            onLeave = ::leaveTerminal,
                             onReconnect = reconnect.takeUnless { autoReconnect && !autoTried },
                             onRestart = { restartSession(active) },
                             onShell = { service?.close(active.id); service?.forget(active.id); connect(active.host, SessionMode.SHELL, active.title.value) },
