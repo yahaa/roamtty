@@ -96,6 +96,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var menu by remember { mutableStateOf(false) }
     var sessionMenu by remember { mutableStateOf(false) }
     var fileAction by remember { mutableStateOf<FileAction?>(null) }
+    // The view and its client outlive a switch of session; taps go to the one shown now.
+    val shownSession by rememberUpdatedState(session)
     var commonCommandsOpen by rememberSaveable { mutableStateOf(false) }
     val sticky = remember { StickyModifiers() }
     var dockPinned by rememberSaveable { mutableStateOf(settings.dockPinned) }
@@ -457,7 +459,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onSwipeHoldLeft = { lineEdge("\u0001") }, onSwipeHoldRight = { lineEdge("\u0005") },
                             // Enter usually runs or submits the line: put the keyboard away soon so the output shows.
                             onSoftKeyboardEnter = { hideKeyboardSoon() },
-                            onOpenPath = { candidates, notFound -> openPath(candidates, notFound) }))
+                            onOpenPath = { candidates, notFound -> openPath(candidates, notFound) },
+                            onOpenLoopback = { url -> shownSession.let { openPortPreview(ctx, url, it.host.name, it::openSocket) } }))
                         // Typing again keeps the keyboard open; the Enter that follows restarts the wait.
                         setUserInputListener { keyboardHide?.cancel(); enterKeyTyping = true; enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS

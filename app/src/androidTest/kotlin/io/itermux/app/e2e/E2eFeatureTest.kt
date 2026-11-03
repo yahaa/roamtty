@@ -1156,4 +1156,75 @@ class E2eFeatureTest {
     private companion object {
         val FAILURES = setOf(Phase.AUTH_FAILED, Phase.HOST_KEY_CHANGED, Phase.FAILED, Phase.TMUX_MISSING)
     }
+
+    /** Taps the last terminal row holding [text] (ASCII), a few cells into it, as a finger would. */
+    private fun tapTerminalText(text: String) {
+        val view = requireNotNull(E2e.terminalView(compose))
+        compose.runOnUiThread {
+            view.scrollToBottom()
+            val emulator = view.mEmulator
+            val row = (0 until emulator.mRows).last {
+                text in emulator.screen.getSelectedText(0, it, emulator.mColumns - 1, it)
+            }
+            val column = emulator.screen.getSelectedText(0, row, emulator.mColumns - 1, row).lastIndexOf(text)
+            val x = (column + 2.5f) * view.mRenderer.fontWidth
+            val y = (row + 0.8f) * view.mRenderer.fontLineSpacing
+            val time = android.os.SystemClock.uptimeMillis()
+            for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
+                val event = android.view.MotionEvent.obtain(time, time + if (action == android.view.MotionEvent.ACTION_UP) 60 else 0, action, x, y, 0)
+                event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                view.dispatchTouchEvent(event)
+                event.recycle()
+            }
+        }
+    }
+
+    /**
+     * 端口预览: a tapped localhost link opens the server's page in the app through an SSH tunnel; a port nothing listens
+     * on says so and offers a retry; the host page lists the port with its process and opens the same page.
+     */
+    @Test fun f28_localhostLinkOpensThePortPreview() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("端口预览"))
+        val session = openTerminal(host)
+        shellReady(session)
+        // A dev server stand-in on the fixture: prints http://localhost:28765/ and serves a page titled "E2E Demo Page".
+        E2e.run(compose, "webdemo &")
+        E2e.waitOutput(compose, session, "Serving HTTP")
+        dismissKeyboard()
+        tapTerminalText("http://localhost:28765/")
+        E2e.waitTag(compose, "port-preview")
+        try { compose.waitUntil(20_000) { compose.text("port-preview-title") == "E2E Demo Page" } }
+        catch (e: Throwable) { E2e.capture(compose, "f28-no-title"); throw e }
+        assertTrue(compose.text("port-preview-address"), "localhost:28765" in compose.text("port-preview-address"))
+        // The page's first frame comes a moment after its title.
+        Thread.sleep(2_000)
+        E2e.capture(compose, "f28-port-preview")
+        click("port-preview-back")
+        E2e.waitGone(compose, hasTestTag("port-preview"))
+
+        E2e.run(compose, "echo http://localhost:9/")
+        E2e.waitOutput(compose, session, "\nhttp://localhost:9/")
+        dismissKeyboard()
+        tapTerminalText("http://localhost:9/")
+        E2e.waitTag(compose, "port-preview-retry", 15_000)
+        assertTrue(compose.text("port-preview-problem"), ":9 没有在监听" in compose.text("port-preview-problem"))
+        E2e.capture(compose, "f28-not-listening")
+        Espresso.pressBack()
+        E2e.waitGone(compose, hasTestTag("port-preview"))
+
+        backToHome()
+        hostsTab()
+        compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${host.id}"))
+        click("host-card-${host.id}")
+        E2e.waitTag(compose, "host-port-28765", 20_000)
+        compose.onNodeWithTag("host-port-28765", useUnmergedTree = true).performScrollTo()
+        assertTrue(compose.text("host-port-28765"), "webdemo" in compose.text("host-port-28765"))
+        E2e.capture(compose, "f28-host-ports")
+        click("host-port-28765")
+        compose.waitUntil(20_000) { compose.text("port-preview-title") == "E2E Demo Page" }
+        click("port-preview-back")
+        E2e.waitGone(compose, hasTestTag("port-preview"))
+        click("host-detail-back")
+        E2e.waitTag(compose, "home-pager")
+    }
 }

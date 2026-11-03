@@ -482,6 +482,30 @@ class JschSession(
             } catch (e: CancellationException) { exec.disconnect(); throw e }
             catch (_: Exception) { exec.disconnect(); null }
         }
+        override suspend fun openSocket(host: String, port: Int): RemoteSocket = openDirect(ssh, host, port)
+    }
+
+    /** A direct-tcpip channel to [host]:[port] as seen from the server; [java.net.ConnectException] when it was refused. */
+    private suspend fun openDirect(ssh: Session, host: String, port: Int): RemoteSocket = withContext(Dispatchers.IO) {
+        val channel = try { ssh.openChannel("direct-tcpip") as ChannelDirectTCPIP }
+            catch (e: Exception) { throw SshUnavailableException(e) }
+        try {
+            channel.setHost(host)
+            channel.setPort(port)
+            val input = channel.inputStream
+            val output = channel.outputStream
+            channel.connect(connectTimeoutMs)
+            object : RemoteSocket {
+                override val input: InputStream = input
+                override val output: OutputStream = output
+                override fun close() { channel.disconnect() }
+            }
+        } catch (e: CancellationException) { channel.disconnect(); throw e }
+        catch (e: Exception) {
+            channel.disconnect()
+            if (!ssh.isConnected) throw SshUnavailableException(e)
+            throw java.net.ConnectException("$host:$port").apply { initCause(e) }
+        }
     }
 
     /**
@@ -715,6 +739,13 @@ class JschSession(
     suspend fun deleteFile(path: String) = withFiles { files.deleteFile(path) }
     suspend fun makeDirectory(path: String) = withFiles { files.makeDirectory(path) }
     suspend fun isDirectory(path: String) = withFiles { files.isDirectory(path) }
+
+    /**
+     * A connection the server makes to [host]:[port] for the phone, over the terminal's SSH login (restored first for
+     * mosh). Throws [java.net.ConnectException] when it was refused, [SshUnavailableException] when the login is not up.
+     */
+    suspend fun openSocket(host: String, port: Int): RemoteSocket =
+        openDirect(auxiliarySession() ?: throw SshUnavailableException(), host, port)
 
     /** File operations first restore the SSH side of a mosh session if it dropped. */
     private suspend fun <T> withFiles(block: suspend () -> T): T { auxiliarySession(); return block() }

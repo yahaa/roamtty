@@ -226,6 +226,22 @@ interface RemoteHost {
     suspend fun upload(remotePath: String, source: java.io.InputStream): Unit = throw UnsupportedOperationException()
     /** A long-running command whose stdin/stdout carry a binary protocol; null when it could not start. */
     suspend fun openStream(command: String): RemoteStream? = null
+    /**
+     * A TCP connection the server makes to [host]:[port] on the phone's behalf (SSH direct-tcpip). Throws
+     * [java.net.ConnectException] when the server could not connect, as when nothing listens there, and
+     * [SshUnavailableException] when the login itself is gone.
+     */
+    suspend fun openSocket(host: String, port: Int): RemoteSocket = throw UnsupportedOperationException()
+}
+
+/**
+ * One connection the server opened for the phone: [input] reads what the far end sends, [output] writes to it.
+ * Every call, [close] included, writes to the SSH connection: never on Android's main thread, where StrictMode
+ * fails the write after JSch has already advanced its cipher, which breaks the whole login.
+ */
+interface RemoteSocket : java.io.Closeable {
+    val input: java.io.InputStream
+    val output: java.io.OutputStream
 }
 
 /** One exec channel kept open: [input] reads the command's stdout, [output] writes its stdin. */
