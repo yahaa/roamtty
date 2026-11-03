@@ -272,6 +272,8 @@ class TerminalConnection(
             ?.path?.takeIf(::isValidRemoteDirectory)
     }
     suspend fun currentWorkingDirectory(): String? = ssh.currentWorkingDirectory() ?: reportedDirectory
+    /** A connection the server makes to [host]:[port] for the phone, over this session's SSH login (see [JschSession.openSocket]). */
+    suspend fun openSocket(host: String, port: Int): RemoteSocket = ssh.openSocket(host, port)
 
     fun openTerminalDownloads() = transfers.openDownloads { currentWorkingDirectory().orEmpty() }
     /** Rename a remote path; distinct from [rename] which only changes the local session title. */
