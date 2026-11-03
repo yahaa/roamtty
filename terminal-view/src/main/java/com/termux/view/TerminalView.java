@@ -1433,7 +1433,7 @@ public final class TerminalView extends View {
     private boolean openPath(TerminalLink link, MotionEvent event) {
         final TerminalSession session = mTermSession;
         final MotionEvent tap = MotionEvent.obtain(event);
-        boolean handled = mClient.onOpenPath(link.text, link.line, () -> {
+        boolean handled = mClient.onOpenPath(link, () -> {
             if (mTermSession == session && mEmulator != null) {
                 requestFocus();
                 mCursorTap.tapTo(tap);

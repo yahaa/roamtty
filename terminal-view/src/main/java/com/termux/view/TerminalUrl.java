@@ -79,7 +79,7 @@ final class TerminalUrl {
         TerminalLink link() { return url == null ? null : new TerminalLink(url, 0, true, spans); }
     }
 
-    private static TerminalRow rowAt(TerminalEmulator emulator, int row) {
+    static TerminalRow rowAt(TerminalEmulator emulator, int row) {
         return emulator.getScreen().allocateFullLineIfNecessary(emulator.getScreen().externalToInternalRow(row));
     }
 
@@ -118,7 +118,7 @@ final class TerminalUrl {
     }
 
     /** A row's last whitespace-free token and whether it reaches the final column. */
-    private static String rowToken(TerminalEmulator emulator, int y, boolean fromIndent, int[] range) {
+    static String rowToken(TerminalEmulator emulator, int y, boolean fromIndent, int[] range) {
         TerminalRow line = rowAt(emulator, y);
         String text = new String(line.mText, 0, line.getSpaceUsed());
         int start = 0;
@@ -130,7 +130,7 @@ final class TerminalUrl {
         return text.substring(start, end);
     }
 
-    private static int cellWidth(String text) {
+    static int cellWidth(String text) {
         int cells = 0;
         for (int i = 0; i < text.length();) {
             int point = text.codePointAt(i);
@@ -140,13 +140,13 @@ final class TerminalUrl {
         return cells;
     }
 
-    private static int contentLength(TerminalRow line) {
+    static int contentLength(TerminalRow line) {
         int end = line.getSpaceUsed();
         while (end > 0 && line.mText[end - 1] == ' ') end--;
         return end;
     }
 
-    private static int freeCells(TerminalEmulator emulator, int y) {
+    static int freeCells(TerminalEmulator emulator, int y) {
         TerminalRow line = rowAt(emulator, y);
         int cells = 0;
         for (int i = 0, used = contentLength(line); i < used;) {
@@ -167,7 +167,7 @@ final class TerminalUrl {
     }
 
     /** TUI borders and rules sit below a link; they are chrome, never part of it. */
-    private static boolean hasBoxDrawing(String text) {
+    static boolean hasBoxDrawing(String text) {
         for (int i = 0; i < text.length(); i++) if (text.charAt(i) >= '\u2500' && text.charAt(i) <= '\u259f') return true;
         return false;
     }
@@ -293,7 +293,7 @@ final class TerminalUrl {
             "https://".regionMatches(true, 0, text, 0, text.length());
     }
 
-    private static boolean hasWebScheme(String text) {
+    static boolean hasWebScheme(String text) {
         return text.regionMatches(true, 0, "http://", 0, 7) || text.regionMatches(true, 0, "https://", 0, 8);
     }
 

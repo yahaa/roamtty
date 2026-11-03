@@ -40,6 +40,7 @@ class TerminalGesturesTest {
     private var swipeRights = 0
     private val browserIntents = mutableListOf<Intent>()
     private val openedPaths = mutableListOf<Pair<String, Int>>()
+    private var lastCandidates = emptyList<Pair<String, Int>>()
     /** Whether a tapped path names a file on the (absent) remote; false runs the ordinary tap. */
     private var pathsExist = false
     private var browserMonitor: Instrumentation.ActivityMonitor? = null
@@ -102,8 +103,9 @@ class TerminalGesturesTest {
                             onSwipeLeft = { swipeLefts++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT) },
                             onSwipeRight = { swipeRights++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT) },
                             onSwipeHoldLeft = { it.sendInputText("\u0001") }, onSwipeHoldRight = { it.sendInputText("\u0005") },
-                            onOpenPath = { path, line, notFound ->
-                                openedPaths += path to line
+                            onOpenPath = { candidates, notFound ->
+                                openedPaths += candidates.first()
+                                lastCandidates = candidates
                                 if (!pathsExist) notFound.run()
                                 true
                             }))
@@ -151,6 +153,23 @@ class TerminalGesturesTest {
         compose.runOnIdle {
             assertEquals(listOf("src/Post.tsx" to 42, "src/Post.tsx" to 42), openedPaths)
             assertTrue(browserIntents.isEmpty())
+            assertEquals("", input.toString())
+        }
+    }
+
+    @Test fun pathAnAgentBrokeAcrossRowsIsOfferedWholeThenAsThePiece() {
+        terminalContent()
+        pathsExist = true
+        val cols = emulator.mColumns
+        val path = "app/src/main/kotlin/io/itermux/app/ui/" + "Long".repeat(cols / 4) + "Client.kt"
+        // Like Claude Code: "● " then the path up to the last column, a newline, two spaces, the rest.
+        val head = path.take(cols - 2)
+        compose.runOnIdle { feed("\u25cf $head\r\n  ${path.drop(head.length)}:51:5 and\r\n$ ") }
+        val point = androidx.compose.ui.geometry.Offset(3.5f * terminal.mRenderer.fontWidth, rowY(1))
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle {
+            assertEquals(listOf(path to 51, path.drop(head.length) to 51), lastCandidates)
             assertEquals("", input.toString())
         }
     }

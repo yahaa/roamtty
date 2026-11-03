@@ -15,12 +15,26 @@ public final class TerminalLink {
     public final boolean isUrl;
     /** Triples of external row, first column and end column (exclusive), top to bottom. */
     final int[] spans;
+    /**
+     * For a path joined across a TUI's hard line break, the tapped row's piece alone: the join is
+     * a guess from the layout, so a client tries this when the joined path names no file.
+     */
+    public final TerminalLink fallback;
 
     TerminalLink(String text, int line, boolean isUrl, int[] spans) {
+        this(text, line, isUrl, spans, null);
+    }
+
+    private TerminalLink(String text, int line, boolean isUrl, int[] spans, TerminalLink fallback) {
         this.text = text;
         this.line = line;
         this.isUrl = isUrl;
         this.spans = spans;
+        this.fallback = fallback;
+    }
+
+    TerminalLink withFallback(TerminalLink fallback) {
+        return new TerminalLink(text, line, isUrl, spans, fallback);
     }
 
     boolean coversRow(int row) {
@@ -44,18 +58,36 @@ public final class TerminalLink {
 
         /** Fragments of a logical line's [start, end) character range. */
         void addLine(TerminalTextLine line, int start, int end) {
+            addLine(line, start, end, fragments.size());
+        }
+
+        /** Like {@link #addLine(TerminalTextLine, int, int)}, before everything collected so far. */
+        void prependLine(TerminalTextLine line, int start, int end) {
+            addLine(line, start, end, 0);
+        }
+
+        private void addLine(TerminalTextLine line, int start, int end, int index) {
             for (int y = line.firstRow, rowStart = 0; y <= line.lastRow; y++) {
                 int used = row(y).getSpaceUsed();
-                add(y, Math.max(start, rowStart) - rowStart, Math.min(end, rowStart + used) - rowStart);
+                int from = Math.max(start, rowStart) - rowStart, to = Math.min(end, rowStart + used) - rowStart;
+                if (to > from) fragments.add(index++, new int[]{y, from, to});
                 rowStart += used;
             }
         }
 
-        int[] build(int chars) {
+        int[] build(int chars) { return build(0, chars); }
+
+        /** The cells of the collected text's [skip, skip + chars) characters. */
+        int[] build(int skip, int chars) {
             int[] spans = new int[fragments.size() * 3];
             int count = 0;
-            for (int[] fragment : fragments) {
+            for (int[] whole : fragments) {
                 if (chars <= 0) break;
+                int[] fragment = whole.clone();
+                int skipped = Math.min(skip, fragment[2] - fragment[1]);
+                fragment[1] += skipped;
+                skip -= skipped;
+                if (fragment[1] >= fragment[2]) continue;
                 int end = Math.min(fragment[2], fragment[1] + chars);
                 chars -= end - fragment[1];
                 TerminalRow line = row(fragment[0]);

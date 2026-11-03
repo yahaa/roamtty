@@ -74,6 +74,38 @@ public class TerminalPathTest {
         assertFalse(link.coversRow(3));
     }
 
+    @Test public void pathATuiBrokeAcrossRowsIsJoinedWithThePieceAsFallback() {
+        // Like a coding agent's output: a newline and indentation inside a long path, no soft wrap.
+        // The first row fills all 30 columns, the second stops one short at the TUI's margin.
+        TerminalEmulator t = terminal(30, 6, "  app/src/main/kotlin/io/iterm\r\n  ux/app/ui/MobileTerminalCli\r\n  ent.kt:51:5 done\r\nnext");
+        assertFalse(t.getScreen().getLineWrap(0));
+        assertFalse(t.getScreen().getLineWrap(1));
+        for (int row = 0; row < 3; row++) {
+            TerminalLink link = TerminalPath.find(t, 4, row);
+            assertEquals("app/src/main/kotlin/io/itermux/app/ui/MobileTerminalClient.kt", link.text);
+            assertEquals(51, link.line);
+            assertArrayEquals(new int[]{0, 2, 30, 1, 2, 29, 2, 2, 13}, link.spans);
+            assertNotNull(link.fallback);
+        }
+        assertEquals("app/src/main/kotlin/io/iterm", TerminalPath.find(t, 4, 0).fallback.text);
+        assertEquals("ux/app/ui/MobileTerminalCli", TerminalPath.find(t, 4, 1).fallback.text);
+        assertNull(TerminalPath.find(t, 15, 2));
+    }
+
+    @Test public void wordWrappedPathIsNotGluedToTheWordBeforeIt() {
+        TerminalEmulator t = terminal(40, 4, "  Edited the files and then\r\n  docs/design/dev-bridge-145-v2.html\r\n");
+        TerminalLink link = TerminalPath.find(t, 5, 1);
+        assertEquals("docs/design/dev-bridge-145-v2.html", link.text);
+        assertNull(link.fallback);
+        assertArrayEquals(new int[]{1, 2, 36}, link.spans);
+    }
+
+    @Test public void separateShortLinesAreNotJoined() {
+        TerminalEmulator t = terminal(40, 4, "src/a.ts\r\nsrc/b.ts\r\n");
+        assertEquals("src/b.ts", TerminalPath.find(t, 2, 1).text);
+        assertNull(TerminalPath.find(t, 2, 1).fallback);
+    }
+
     @Test public void wideTextBeforeAPathShiftsItsCells() {
         TerminalEmulator t = terminal(40, 4, "修改了 src/a.ts 文件");
         TerminalLink link = TerminalPath.find(t, 9, 0);

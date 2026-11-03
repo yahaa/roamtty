@@ -306,11 +306,14 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     }
     // A tapped path opens in the file preview, at its line, when it names a file.
     var tappedFile by remember(session.id) { mutableStateOf<Pair<String, Int>?>(null) }
-    val openPath by rememberUpdatedState { path: String, line: Int, notFound: Runnable ->
+    val openPath by rememberUpdatedState { candidates: List<Pair<String, Int>>, notFound: Runnable ->
         if (session.state.value.phase != Phase.CONNECTED) false else {
             inputScope.launch {
-                val file = withTimeoutOrNull(PATH_LOOKUP_MILLIS) { session.terminalFile(path) }
-                if (file == null) notFound.run() else { hideKeyboard(); tappedFile = file to line }
+                // A path a TUI broke across rows comes joined first, then as the tapped piece alone.
+                val file = withTimeoutOrNull(PATH_LOOKUP_MILLIS) {
+                    candidates.firstNotNullOfOrNull { (path, line) -> session.terminalFile(path)?.let { it to line } }
+                }
+                if (file == null) notFound.run() else { hideKeyboard(); tappedFile = file }
             }
             true
         }
@@ -452,7 +455,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onSwipeHoldLeft = { lineEdge("\u0001") }, onSwipeHoldRight = { lineEdge("\u0005") },
                             // Enter usually runs or submits the line: put the keyboard away soon so the output shows.
                             onSoftKeyboardEnter = { hideKeyboardSoon() },
-                            onOpenPath = { path, line, notFound -> openPath(path, line, notFound) }))
+                            onOpenPath = { candidates, notFound -> openPath(candidates, notFound) }))
                         // Typing again keeps the keyboard open; the Enter that follows restarts the wait.
                         setUserInputListener { keyboardHide?.cancel(); enterKeyTyping = true; enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
