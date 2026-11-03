@@ -58,6 +58,7 @@ import io.itermux.app.TerminalFonts
 import io.itermux.app.session.*
 import io.itermux.app.R
 import io.itermux.ssh.Phase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -308,7 +309,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var tappedFile by remember(session.id) { mutableStateOf<Pair<String, Int>?>(null) }
     val openPath by rememberUpdatedState { candidates: List<Pair<String, Int>>, notFound: Runnable ->
         if (session.state.value.phase != Phase.CONNECTED) false else {
-            inputScope.launch {
+            // The fallback replays a tap on the view: it must run on the main thread.
+            inputScope.launch(Dispatchers.Main.immediate) {
                 // A path a TUI broke across rows comes joined first, then as the tapped piece alone.
                 val file = withTimeoutOrNull(PATH_LOOKUP_MILLIS) {
                     candidates.firstNotNullOfOrNull { (path, line) -> session.terminalFile(path)?.let { it to line } }
@@ -617,17 +619,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
     }
     pending?.let { request -> PromptDialog(request) }
+    // Outlives the preview: Download closes it, and these actions then carry the download through.
+    val downloads = rememberDownloadActions(session)
     tappedFile?.let { (path, line) ->
-        val downloads = rememberDownloadActions(session)
         RemoteFilePreview(session, path, state.phase == Phase.CONNECTED,
             canDownload = state.phase == Phase.CONNECTED && !transferStatus.running && !downloads.busy,
             onDownload = {
                 tappedFile = null
                 downloads.start(listOf(DownloadItem(path)), false)
             }, onDismiss = { tappedFile = null }, line = line)
-        DownloadFilesUi(session, downloads)
     }
-    FileTransferUi(session, fileAction, onInsertPath = { path ->
+    FileTransferUi(session, fileAction, downloads = downloads, onInsertPath = { path ->
         updateDraft(insertDraftText(draft, CodexImageAttach.pathForPaste(path), MAX_PASTE_SIZE)); editor = true; hideKeyboard()
     }) { fileAction = null }
     if (commonCommandsOpen) CommonCommandsSheet(session, onSelect = { command ->

@@ -44,7 +44,8 @@ import kotlinx.coroutines.CancellationException
 internal enum class FileAction { UPLOAD, DOWNLOAD, SELECT_IMAGE }
 
 @Composable
-internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, onInsertPath: ((String) -> Unit)? = null, onConsumed: () -> Unit) {
+internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, onInsertPath: ((String) -> Unit)? = null,
+    downloads: DownloadActions = rememberDownloadActions(session), onConsumed: () -> Unit) {
     val context = LocalContext.current
     val transfer = session.transfers
     val status by transfer.status.collectAsStateWithLifecycle()
@@ -81,7 +82,7 @@ internal fun FileTransferUi(session: TerminalConnection, action: FileAction?, on
     }
 
     transfer.uploadUri?.let { uri -> UploadFileSheet(session, uri) }
-    DownloadFilesUi(session)
+    DownloadFilesUi(session, downloads)
     // Paths the prompt refused go into the editor as soon as the batch ends, so no image is lost.
     val imagesFinished = status.imageTotal > 0 && !status.running && status.result != null
     LaunchedEffect(imagesFinished, status.editorPaths) {

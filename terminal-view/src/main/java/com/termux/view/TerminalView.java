@@ -1432,17 +1432,19 @@ public final class TerminalView extends View {
     /** Hands a tapped path to the client; if it names no file, the tap does what any other tap does. */
     private boolean openPath(TerminalLink link, MotionEvent event) {
         final TerminalSession session = mTermSession;
-        final MotionEvent tap = MotionEvent.obtain(event);
-        boolean handled = mClient.onOpenPath(link, () -> {
-            if (mTermSession == session && mEmulator != null) {
-                requestFocus();
-                mCursorTap.tapTo(tap);
-                mClient.onSingleTapUp(tap);
-            }
+        // Only the tap's position outlives this call; the fallback rebuilds the event it replays.
+        final long downTime = event.getDownTime(), eventTime = event.getEventTime();
+        final float x = event.getX(), y = event.getY();
+        final int source = event.getSource();
+        return mClient.onOpenPath(link, () -> {
+            if (mTermSession != session || mEmulator == null) return;
+            MotionEvent tap = MotionEvent.obtain(downTime, eventTime, MotionEvent.ACTION_UP, x, y, 0);
+            tap.setSource(source);
+            requestFocus();
+            mCursorTap.tapTo(tap);
+            mClient.onSingleTapUp(tap);
             tap.recycle();
         });
-        if (!handled) tap.recycle();
-        return handled;
     }
 
     public void setCursorDraggingEnabled(boolean enabled) { mCursorDrag.setEnabled(enabled); mCursorTap.setEnabled(enabled); }

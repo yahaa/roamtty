@@ -43,6 +43,7 @@ class TerminalGesturesTest {
     private var lastCandidates = emptyList<Pair<String, Int>>()
     /** Whether a tapped path names a file on the (absent) remote; false runs the ordinary tap. */
     private var pathsExist = false
+    private val missingPaths = mutableSetOf<String>()
     private var browserMonitor: Instrumentation.ActivityMonitor? = null
 
     private fun monitorBrowser() {
@@ -106,7 +107,7 @@ class TerminalGesturesTest {
                             onOpenPath = { candidates, notFound ->
                                 openedPaths += candidates.first()
                                 lastCandidates = candidates
-                                if (!pathsExist) notFound.run()
+                                if (!pathsExist || candidates.first().first in missingPaths) it.postDelayed(notFound, 200)
                                 true
                             }))
                         it.isFocusableInTouchMode = true
@@ -171,6 +172,21 @@ class TerminalGesturesTest {
         compose.runOnIdle {
             assertEquals(listOf(path to 51, path.drop(head.length) to 51), lastCandidates)
             assertEquals("", input.toString())
+        }
+    }
+
+    @Test fun aPathToNothingLeavesTheNextPathTapWorking() {
+        terminalContent()
+        pathsExist = true
+        missingPaths += "gone/Gone.kt"
+        compose.runOnIdle { feed("src/Main.kt:6:    for (i in 0 until 3)\r\n$ printf x\r\ngone/Gone.kt:3\r\n$ ") }
+        for (row in listOf(0, 2, 0)) {
+            val point = androidx.compose.ui.geometry.Offset(2.5f * terminal.mRenderer.fontWidth, rowY(row))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 600)
+        }
+        compose.runOnIdle {
+            assertEquals(listOf("src/Main.kt" to 6, "gone/Gone.kt" to 3, "src/Main.kt" to 6), openedPaths)
         }
     }
 

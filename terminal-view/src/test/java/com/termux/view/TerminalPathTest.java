@@ -35,6 +35,25 @@ public class TerminalPathTest {
         assertNull(TerminalPath.find(t, 20, 0));
     }
 
+    @Test public void grepSourceTextAfterTheLocationIsNotPartOfThePath() {
+        TerminalEmulator t = terminal(80, 4, "src/a.ts:42:const value = 1\r\nREADME.md:Usage notes\r\nlib/b.kt:7:3:fun x()");
+        TerminalLink grep = TerminalPath.find(t, 3, 0);
+        assertEquals("src/a.ts", grep.text);
+        assertEquals(42, grep.line);
+        assertArrayEquals(new int[]{0, 0, 11}, grep.spans);
+        assertEquals(grep.text, TerminalPath.find(t, 10, 0).text);
+        assertNull("the source text is not the path", TerminalPath.find(t, 13, 0));
+        TerminalLink plain = TerminalPath.find(t, 2, 1);
+        assertEquals("README.md", plain.text);
+        assertEquals(0, plain.line);
+        assertArrayEquals(new int[]{1, 0, 9}, plain.spans);
+        assertNull(TerminalPath.find(t, 11, 1));
+        TerminalLink column = TerminalPath.find(t, 2, 2);
+        assertEquals("lib/b.kt", column.text);
+        assertEquals(7, column.line);
+        assertArrayEquals(new int[]{2, 0, 12}, column.spans);
+    }
+
     @Test public void stackTracesAndQuotesKeepOnlyThePath() {
         TerminalEmulator t = terminal(80, 4, "    at run (/home/v/app/index.js:10:5)\r\n  File \"/srv/a.py\", line 3");
         TerminalLink trace = TerminalPath.find(t, 20, 0);

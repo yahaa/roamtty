@@ -9,8 +9,8 @@ import java.util.regex.Pattern;
  * text that looks like a path qualifies; whether the file exists is for the client to check.
  */
 final class TerminalPath {
-    /** A path token and its optional position, as compilers, linters, grep and agents print it. */
-    private static final Pattern TOKEN = Pattern.compile("(.+?)(?::(\\d{1,9}))?(?::\\d{1,9})?:?");
+    /** A path's position after its first colon, as compilers, linters, grep and agents print it. */
+    private static final Pattern LOCATION = Pattern.compile(":(\\d{1,9})(?::\\d{1,9})?(?=:|$)");
     /** A bare file name needs an extension with a letter, so "1.2.3" or "v2.0" do not qualify. */
     private static final Pattern FILE_NAME = Pattern.compile("[^/]*[\\p{L}\\d_\\-]\\.[A-Za-z\\d]*[A-Za-z][A-Za-z\\d]*");
     private static final int MAX_PATH_LENGTH = 4096;
@@ -83,14 +83,24 @@ final class TerminalPath {
         while (end > start && ".,;'".indexOf(run.charAt(end - 1)) >= 0) end--;
         while (start < end && run.charAt(start) == '\'') start++;
         if (tapped < start || tapped >= end || end - start > MAX_PATH_LENGTH) return null;
-        String token = run.substring(start, end);
-        if (token.contains("://")) return null;
-        Matcher matcher = TOKEN.matcher(token);
-        if (!matcher.matches()) return null;
-        String path = matcher.group(1);
+        if (run.substring(start, end).contains("://")) return null;
+        // The path ends at its first colon. "grep -n" glues the matched source text on after the
+        // location, as in "src/a.ts:42:const x", so whatever follows "path:line[:column]" is not it.
+        int colon = run.indexOf(':', start);
+        int lineNumber = 0;
+        if (colon >= 0 && colon < end) {
+            Matcher location = LOCATION.matcher(run).region(colon, end);
+            if (location.lookingAt()) lineNumber = Integer.parseInt(location.group(1));
+            int pathEnd = colon;
+            end = lineNumber > 0 ? location.end() : colon;
+            if (tapped >= end) return null;
+            String path = run.substring(start, pathEnd);
+            if (!looksLikePath(path)) return null;
+            return new TerminalLink(path, lineNumber, false, spans.build(start, end - start));
+        }
+        String path = run.substring(start, end);
         if (!looksLikePath(path)) return null;
-        int lineNumber = matcher.group(2) == null ? 0 : Integer.parseInt(matcher.group(2));
-        return new TerminalLink(path, lineNumber, false, spans.build(start, end - start));
+        return new TerminalLink(path, 0, false, spans.build(start, end - start));
     }
 
     /**

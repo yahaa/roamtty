@@ -1135,6 +1135,22 @@ class E2eFeatureTest {
         Thread.sleep(3_000)
         assertFalse("a path to nothing opens no preview", E2e.exists(compose, hasTestTag("file-preview")))
         E2e.capture(compose, "f27-missing-path")
+        // Download from the preview closes it; the download must still go ahead: the folder picker
+        // opens, or with a saved folder the transfer starts.
+        val picker = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().addMonitor(
+            android.content.IntentFilter(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE),
+            android.app.Instrumentation.ActivityResult(android.app.Activity.RESULT_CANCELED, null), true)
+        try {
+            tapTerminalRow("src/Main.kt:")
+            E2e.waitTag(compose, "file-preview-marked-line", 15_000)
+            click("file-preview-download")
+            E2e.waitGone(compose, hasTestTag("file-preview"))
+            compose.waitUntil(10_000) {
+                picker.hits > 0 || session.transfers.status.value.let { it.running || it.result != null }
+            }
+        } finally {
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().removeMonitor(picker)
+        }
     }
 
     private companion object {
