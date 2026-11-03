@@ -14,6 +14,9 @@ final class TerminalUrl {
     private static final Pattern WEB_URL = Pattern.compile(
         "https?://[^\\s\\p{Z}\\p{Cc}<>\"`，。！？；：、（）【】《》“”‘’]+", Pattern.CASE_INSENSITIVE);
 
+    /** The characters a web URL may contain, as {@link #WEB_URL} reads them. */
+    private static final Pattern URL_CHARS = Pattern.compile("[^\\s\\p{Z}\\p{Cc}<>\"`，。！？；：、（）【】《》“”‘’]*");
+
     static String at(TerminalEmulator emulator, int column, int row) {
         TerminalLink link = find(emulator, column, row);
         return link == null ? null : link.text;
@@ -220,8 +223,19 @@ final class TerminalUrl {
             int offset = topLine.findStartOfColumn(column);
             if (offset >= topStart && offset < contentLength(topLine)) tapped = offset - topStart;
         }
-        for (int y = top; y + 1 < emulator.mRows && y - top < MAX_LINK_ROWS && continues(emulator, y); y++) {
+        // A link broken inside itself fills each row up to the TUI's edge. A continuation row that
+        // stops short of where the first row ended is the link's end, whatever long word follows it.
+        int topFree = freeCells(emulator, top);
+        for (int y = top; y + 1 < emulator.mRows && y - top < MAX_LINK_ROWS && continues(emulator, y) &&
+            (y == top || freeCells(emulator, y) <= topFree + 1); y++) {
             String next = rowToken(emulator, y + 1, !emulator.getScreen().getLineWrap(y), range);
+            // Text glued after the link on its last row, such as "（abc）", is not part of it.
+            Matcher allowed = URL_CHARS.matcher(next);
+            boolean cut = allowed.lookingAt() && allowed.end() < next.length();
+            if (cut) {
+                next = next.substring(0, allowed.end());
+                range[1] = range[0] + next.length();
+            }
             if (!emulator.getScreen().getLineWrap(y)) hardWrapped = true;
             if (y + 1 == row) {
                 int offset = rowAt(emulator, row).findStartOfColumn(column);
@@ -230,7 +244,7 @@ final class TerminalUrl {
             url.append(next);
             spans.add(y + 1, range[0], range[1]);
             if (url.length() > MAX_LINK_LENGTH) return tapped >= 0 ? new Match(null, null) : null;
-            if (range[1] < contentLength(rowAt(emulator, y + 1))) break;
+            if (cut || range[1] < contentLength(rowAt(emulator, y + 1))) break;
         }
         // Plain terminal soft wraps are read by the ordinary matcher.
         if (!hardWrapped || tapped < 0) return null;
