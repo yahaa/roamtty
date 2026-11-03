@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -57,9 +58,11 @@ import io.itermux.app.TerminalFonts
 import io.itermux.app.session.*
 import io.itermux.app.R
 import io.itermux.ssh.Phase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -74,6 +77,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     val outputRevision = session.revision.collectAsStateWithLifecycle()
     // The renderer's fill colour, re-read on each output but read only while drawing, so the workspace (and the
     // screen around it) is redrawn when the colour changes (OSC 11, reverse video, theme), not on every output frame.
+    val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     val background = remember(session, outputRevision, lightTheme) {
         derivedStateOf { checkNotNull(outputRevision.value); terminalBackground(session) }
     }
@@ -92,6 +96,8 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
     var menu by remember { mutableStateOf(false) }
     var sessionMenu by remember { mutableStateOf(false) }
     var fileAction by remember { mutableStateOf<FileAction?>(null) }
+    // The view and its client outlive a switch of session; taps go to the one shown now.
+    val shownSession by rememberUpdatedState(session)
     var commonCommandsOpen by rememberSaveable { mutableStateOf(false) }
     val sticky = remember { StickyModifiers() }
     var dockPinned by rememberSaveable { mutableStateOf(settings.dockPinned) }
@@ -301,6 +307,21 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         // Stage clipboard content in the editor; reading clipboard requires a user gesture.
         clipboardText()?.let { updateDraft(insertDraftText(draft, it, MAX_PASTE_SIZE)); editor = true; hideKeyboard() }
     }
+    // A tapped path opens in the file preview, at its line, when it names a file.
+    var tappedFile by remember(session.id) { mutableStateOf<Pair<String, Int>?>(null) }
+    val openPath by rememberUpdatedState { candidates: List<Pair<String, Int>>, notFound: Runnable ->
+        if (session.state.value.phase != Phase.CONNECTED) false else {
+            // The fallback replays a tap on the view: it must run on the main thread.
+            inputScope.launch(Dispatchers.Main.immediate) {
+                // A path a TUI broke across rows comes joined first, then as the tapped piece alone.
+                val file = withTimeoutOrNull(PATH_LOOKUP_MILLIS) {
+                    candidates.firstNotNullOfOrNull { (path, line) -> session.terminalFile(path)?.let { it to line } }
+                }
+                if (file == null) notFound.run() else { hideKeyboard(); tappedFile = file }
+            }
+            true
+        }
+    }
     // AndroidView can outlive a recomposition/reconnection. Always paste into the current session.
     val pasteClipboard by rememberUpdatedState {
         if (session.state.value.phase == Phase.CONNECTED) clipboardText()?.let { text ->
@@ -437,7 +458,9 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             onSwipeLeft = { terminalKey(KeyEvent.KEYCODE_DPAD_LEFT) }, onSwipeRight = { terminalKey(KeyEvent.KEYCODE_DPAD_RIGHT) },
                             onSwipeHoldLeft = { lineEdge("\u0001") }, onSwipeHoldRight = { lineEdge("\u0005") },
                             // Enter usually runs or submits the line: put the keyboard away soon so the output shows.
-                            onSoftKeyboardEnter = { hideKeyboardSoon() }))
+                            onSoftKeyboardEnter = { hideKeyboardSoon() },
+                            onOpenPath = { candidates, notFound -> openPath(candidates, notFound) },
+                            onOpenLoopback = { url -> shownSession.let { openPortPreview(ctx, url, it.host.name, it::openSocket) } }))
                         // Typing again keeps the keyboard open; the Enter that follows restarts the wait.
                         setUserInputListener { keyboardHide?.cancel(); enterKeyTyping = true; enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
@@ -447,6 +470,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     // Compose may reuse the view: always rebind the session and its screen callback.
                     view.attachSession(session)
                     view.setCursorDraggingEnabled(state.phase == Phase.CONNECTED)
+                    view.setPressedLinkColor(linkColor)
                     session.onScreenChanged = { view.onScreenUpdated() }
                     if (session.getEmulator().mColors.setLightTheme(lightTheme)) view.onScreenUpdated()
                     view.setTextSize((fontSize * view.resources.displayMetrics.density * view.resources.configuration.fontScale).toInt())
@@ -598,7 +622,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
         }
     }
     pending?.let { request -> PromptDialog(request) }
-    FileTransferUi(session, fileAction, onInsertPath = { path ->
+    // Outlives the preview: Download closes it, and these actions then carry the download through.
+    val downloads = rememberDownloadActions(session)
+    tappedFile?.let { (path, line) ->
+        RemoteFilePreview(session, path, state.phase == Phase.CONNECTED,
+            canDownload = state.phase == Phase.CONNECTED && !transferStatus.running && !downloads.busy,
+            onDownload = {
+                tappedFile = null
+                downloads.start(listOf(DownloadItem(path)), false)
+            }, onDismiss = { tappedFile = null }, line = line)
+    }
+    FileTransferUi(session, fileAction, downloads = downloads, onInsertPath = { path ->
         updateDraft(insertDraftText(draft, CodexImageAttach.pathForPaste(path), MAX_PASTE_SIZE)); editor = true; hideKeyboard()
     }) { fileAction = null }
     if (commonCommandsOpen) CommonCommandsSheet(session, onSelect = { command ->
@@ -630,6 +664,8 @@ internal object TerminalToolbox {
 }
 
 internal const val KeyboardHideAfterEnterMillis = 15_000L
+/** A tapped path that takes longer than this to look up is treated as no file. */
+private const val PATH_LOOKUP_MILLIS = 8_000L
 
 /** The colour the terminal renderer fills its canvas with, so the status bar area matches it. */
 private fun terminalBackground(session: TerminalConnection): Color {

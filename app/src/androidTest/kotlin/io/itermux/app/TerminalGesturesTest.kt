@@ -39,6 +39,11 @@ class TerminalGesturesTest {
     private var swipeLefts = 0
     private var swipeRights = 0
     private val browserIntents = mutableListOf<Intent>()
+    private val openedPaths = mutableListOf<Pair<String, Int>>()
+    private var lastCandidates = emptyList<Pair<String, Int>>()
+    /** Whether a tapped path names a file on the (absent) remote; false runs the ordinary tap. */
+    private var pathsExist = false
+    private val missingPaths = mutableSetOf<String>()
     private var browserMonitor: Instrumentation.ActivityMonitor? = null
 
     private fun monitorBrowser() {
@@ -98,7 +103,13 @@ class TerminalGesturesTest {
                             onDoubleTap = { doubleTaps++ }, onTripleTap = { tripleTaps++ },
                             onSwipeLeft = { swipeLefts++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT) },
                             onSwipeRight = { swipeRights++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT) },
-                            onSwipeHoldLeft = { it.sendInputText("\u0001") }, onSwipeHoldRight = { it.sendInputText("\u0005") }))
+                            onSwipeHoldLeft = { it.sendInputText("\u0001") }, onSwipeHoldRight = { it.sendInputText("\u0005") },
+                            onOpenPath = { candidates, notFound ->
+                                openedPaths += candidates.first()
+                                lastCandidates = candidates
+                                if (!pathsExist || candidates.first().first in missingPaths) it.postDelayed(notFound, 200)
+                                true
+                            }))
                         it.isFocusableInTouchMode = true
                         it.attachSession(session)
                         it.setCursorDraggingEnabled(true)
@@ -125,6 +136,105 @@ class TerminalGesturesTest {
             assertNotNull("The URL is directed to an available browser", browserIntents.single().`package`)
             assertEquals("Opening a link must not send terminal input", "", input.toString())
         }
+    }
+
+    @Test fun tappedPathIsOfferedWithItsLineAndSendsNothing() {
+        terminalContent()
+        monitorBrowser()
+        pathsExist = true
+        compose.runOnIdle { feed("src/Post.tsx:42:7 - error TS2322\r\n$ ") }
+        for (column in listOf(2, 14)) {
+            val point = androidx.compose.ui.geometry.Offset((column + 0.5f) * terminal.mRenderer.fontWidth, rowY(0))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        val prose = androidx.compose.ui.geometry.Offset(21.5f * terminal.mRenderer.fontWidth, rowY(0))
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(prose) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle {
+            assertEquals(listOf("src/Post.tsx" to 42, "src/Post.tsx" to 42), openedPaths)
+            assertTrue(browserIntents.isEmpty())
+            assertEquals("", input.toString())
+        }
+    }
+
+    @Test fun pathAnAgentBrokeAcrossRowsIsOfferedWholeThenAsThePiece() {
+        terminalContent()
+        pathsExist = true
+        val cols = emulator.mColumns
+        val path = "app/src/main/kotlin/io/itermux/app/ui/" + "Long".repeat(cols / 4) + "Client.kt"
+        // Like Claude Code: "● " then the path up to the last column, a newline, two spaces, the rest.
+        val head = path.take(cols - 2)
+        compose.runOnIdle { feed("\u25cf $head\r\n  ${path.drop(head.length)}:51:5 and\r\n$ ") }
+        val point = androidx.compose.ui.geometry.Offset(3.5f * terminal.mRenderer.fontWidth, rowY(1))
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle {
+            assertEquals(listOf(path to 51, path.drop(head.length) to 51), lastCandidates)
+            assertEquals("", input.toString())
+        }
+    }
+
+    @Test fun aPathToNothingLeavesTheNextPathTapWorking() {
+        terminalContent()
+        pathsExist = true
+        missingPaths += "gone/Gone.kt"
+        compose.runOnIdle { feed("src/Main.kt:6:    for (i in 0 until 3)\r\n$ printf x\r\ngone/Gone.kt:3\r\n$ ") }
+        for (row in listOf(0, 2, 0)) {
+            val point = androidx.compose.ui.geometry.Offset(2.5f * terminal.mRenderer.fontWidth, rowY(row))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 600)
+        }
+        compose.runOnIdle {
+            assertEquals(listOf("src/Main.kt" to 6, "gone/Gone.kt" to 3, "src/Main.kt" to 6), openedPaths)
+        }
+    }
+
+    @Test fun pathBeingTypedAtTheCursorIsNotOffered() {
+        terminalContent()
+        compose.runOnIdle { feed("$ vim src/a.ts") }
+        val point = androidx.compose.ui.geometry.Offset(9.5f * terminal.mRenderer.fontWidth, rowY(0))
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertTrue(openedPaths.isEmpty()) }
+    }
+
+    @Test fun pressedPathTurnsTheLinkColorUntilTheFingerScrolls() {
+        terminalContent()
+        val magenta = 0xFFFF00FF.toInt()
+        compose.runOnIdle {
+            terminal.setPressedLinkColor(magenta)
+            feed("see src/Post.tsx:42 now\r\nnext\r\n$ ")
+        }
+        fun marked(): Pair<Int, Int> {
+            var inside = 0
+            var outside = 0
+            compose.runOnIdle {
+                val bitmap = Bitmap.createBitmap(terminal.width, terminal.height, Bitmap.Config.ARGB_8888)
+                terminal.draw(Canvas(bitmap))
+                val cell = terminal.mRenderer.fontWidth
+                val line = terminal.mRenderer.fontLineSpacing
+                for (y in 0 until line * 3) for (x in 0 until (cell * 24).toInt()) {
+                    if (bitmap.getPixel(x, y) != magenta) continue
+                    // The underline sits in the row's descent, a little below its cell band.
+                    if (y < line * 3 / 2 && x >= (cell * 4).toInt() && x < (cell * 19).toInt() + 1) inside++ else outside++
+                }
+                bitmap.recycle()
+            }
+            return inside to outside
+        }
+        val x = 6.5f * terminal.mRenderer.fontWidth
+        touch(MotionEvent.ACTION_DOWN, x, rowY(0))
+        SystemClock.sleep(ViewConfiguration.getTapTimeout().toLong() + 150)
+        val (inside, outside) = marked()
+        assertTrue("the pressed path is drawn in the link color ($inside)", inside > 0)
+        assertEquals("only the path is marked", 0, outside)
+        // A drag is a scroll, not a press: the mark goes.
+        touch(MotionEvent.ACTION_MOVE, x, rowY(0) + 6 * terminal.mRenderer.fontLineSpacing)
+        touch(MotionEvent.ACTION_UP, x, rowY(0) + 6 * terminal.mRenderer.fontLineSpacing)
+        assertEquals(0 to 0, marked())
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertTrue(openedPaths.isEmpty()) }
     }
 
     @Test fun eitherRowOfATuiWrappedPrLinkOpensTheCompleteAddress() {

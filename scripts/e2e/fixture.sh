@@ -96,7 +96,9 @@ KbdInteractiveAuthentication yes
 UsePAM yes
 PermitRootLogin no
 AllowUsers $USER_NAME
-AllowTcpForwarding no
+# Local forwarding only: the port preview tunnels to the fixture's demo web server (see webdemo below).
+AllowTcpForwarding local
+PermitOpen localhost:* 127.0.0.1:* [::1]:*
 X11Forwarding no
 PermitTunnel no
 PrintMotd no
@@ -119,6 +121,14 @@ EOF
       | sudo tee "$FIXTURE/bin/$agent" >/dev/null
     sudo chmod 755 "$FIXTURE/bin/$agent"
   done
+  # A dev server stand-in for the port preview, started with &: its address may land after the shell prompt and
+  # nearly fill that row, which reads like a TUI hard wrap; the blank line after it keeps the next word off the link.
+  sudo rm -f /tmp/roamtty-e2e/bin/webdemo
+  printf '%s\n' '#!/bin/sh' 'd="$HOME/webdemo"; mkdir -p "$d"' \
+    "printf '<title>E2E Demo Page</title><h1>WEBDEMO_OK</h1>' > \"\$d/index.html\"" \
+    'cd "$d" && printf "http://localhost:28765/\n\n" && exec python3 -m http.server 28765 --bind 127.0.0.1' \
+    | sudo tee "$FIXTURE/bin/webdemo" >/dev/null
+  sudo chmod 755 "$FIXTURE/bin/webdemo"
   sudo /usr/sbin/sshd -t -f "$FIXTURE/sshd_config"
   seed_home
   start_desktop

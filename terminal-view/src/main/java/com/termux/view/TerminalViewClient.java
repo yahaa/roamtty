@@ -31,6 +31,17 @@ public interface TerminalViewClient {
     /** Open the URL captured when a confirmed single tap began; true consumes the tap. */
     default boolean onOpenUrl(String url) { return false; }
 
+    /** Whether taps on file paths are offered to {@link #onOpenPath}, and pressed paths marked. */
+    default boolean opensPaths() { return false; }
+
+    /**
+     * A confirmed single tap on text that looks like a file path: {@link TerminalLink#text} with
+     * its 1-based {@link TerminalLink#line} or 0, then each {@link TerminalLink#fallback} in turn.
+     * True takes the tap; if none names a file, call notFound on the main thread and the tap does
+     * what a tap elsewhere does.
+     */
+    default boolean onOpenPath(TerminalLink path, Runnable notFound) { return false; }
+
     /** Explicit double-tap action on a writable terminal, fired only once no third tap follows. Read-only history never calls this. */
     default void onDoubleTap(MotionEvent e) {}
 

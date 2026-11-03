@@ -31,6 +31,24 @@ public class TerminalUrlTest {
         assertNull(TerminalUrl.at(t, 90, 0));
     }
 
+    @Test public void agentWrappedUrlEndsAtItsShortLastRowWhateverLongLineFollows() {
+        // Claude Code: the PR link fills its row, "5" goes below, then a long line starts.
+        TerminalEmulator t = terminal(46, 8,
+            "  PR: \033[4;33mhttps://github.com/yahaa/roamtty/pull/27\033[0m\r\n  \033[4;33m5\033[0m\r\n" +
+            "  安装包：Roamtty-tap-path-20261103-release-de\r\n  bugsigned.apk\r\n");
+        assertEquals("https://github.com/yahaa/roamtty/pull/275", TerminalUrl.at(t, 20, 0));
+        assertEquals("https://github.com/yahaa/roamtty/pull/275", TerminalUrl.at(t, 2, 1));
+        assertArrayEquals(new int[]{0, 6, 46, 1, 2, 3}, TerminalUrl.find(t, 2, 1).spans);
+        assertNull(TerminalUrl.at(t, 10, 2));
+    }
+
+    @Test public void agentWrappedUrlStopsAtFullWidthTextGluedToItsTail() {
+        TerminalEmulator t = terminal(46, 8, "  新版本已可安装：http://100.64.0.2:18780/#and\r\n  roid（77c9886）\r\n");
+        assertEquals("http://100.64.0.2:18780/#android", TerminalUrl.at(t, 30, 0));
+        assertEquals("http://100.64.0.2:18780/#android", TerminalUrl.at(t, 3, 1));
+        assertNull(TerminalUrl.at(t, 8, 1));
+    }
+
     @Test public void softWrappedUrlIsWholeFromEveryRow() {
         TerminalEmulator t = terminal(12, 6, "go https://example.test/long/path?q=hello%20world#end");
         for (int row = 0; row < 4; row++) {

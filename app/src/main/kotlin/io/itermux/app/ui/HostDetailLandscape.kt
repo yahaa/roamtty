@@ -109,6 +109,8 @@ internal fun HostDetailLandscape(
             Section(HostDetailTab.OVERVIEW) { Overview(host, reachability, monitor, metrics, onLogin) }
             Section(HostDetailTab.PROCESSES) { Processes(monitor, metrics) }
             Section(HostDetailTab.INFO) { Information(host, metrics) }
+            // Last on the page: the ports list can run long.
+            monitor?.let { HostPortsSection(it) }
         }
     }
 }

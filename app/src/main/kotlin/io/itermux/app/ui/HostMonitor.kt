@@ -139,6 +139,21 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     /** Subfolders of [directory] (`~`, `~/x` or absolute), or null when it cannot be read or the login is not up. */
     suspend fun listFolders(directory: String): RemoteFolders? = remote?.let { RemoteFolders.load(it, directory) }
 
+    /**
+     * The TCP ports the host listens on, with the processes behind them; null when the login is not up or the host
+     * cannot tell (Windows, or neither `ss` nor `lsof`).
+     */
+    suspend fun listPorts(): List<ListeningPort>? {
+        if (host.os == HostSystem.WINDOWS.name) return null
+        val remote = remote ?: return null
+        val lines = mutableListOf<String>()
+        return if (remote.run(ListeningPort.SCRIPT, 10_000) { lines += it } == 0) ListeningPort.parse(lines) else null
+    }
+
+    /** A connection the host makes to [host]:[port] for the phone, over this page's login. */
+    suspend fun openSocket(host: String, port: Int): RemoteSocket =
+        (remote ?: throw SshUnavailableException()).openSocket(host, port)
+
     fun close() {
         pending.value?.answer?.complete(null)
         session?.disconnect()

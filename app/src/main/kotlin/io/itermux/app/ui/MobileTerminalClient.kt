@@ -8,9 +8,11 @@ import androidx.core.view.SoftwareKeyboardControllerCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.termux.terminal.TerminalSession
+import com.termux.view.TerminalLink
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
 import io.itermux.app.trf
+import io.itermux.ssh.LoopbackUrl
 
 internal class MobileTerminalClient(
     private val view: TerminalView,
@@ -25,7 +27,11 @@ internal class MobileTerminalClient(
     private val onSwipeRight: () -> Unit = {},
     private val onSwipeHoldLeft: () -> Unit = {},
     private val onSwipeHoldRight: () -> Unit = {},
-    private val onSoftKeyboardEnter: () -> Unit = {}
+    private val onSoftKeyboardEnter: () -> Unit = {},
+    /** Opens the first of a tapped path's candidates (path to line) that names a file, else runs notFound; null leaves paths as plain text. */
+    private val onOpenPath: ((candidates: List<Pair<String, Int>>, notFound: Runnable) -> Boolean)? = null,
+    /** A tapped page on the server's own loopback (`http://localhost:5173/`), shown in the app through a tunnel. */
+    private val onOpenLoopback: ((LoopbackUrl) -> Unit)? = null
 ) : TerminalViewClient {
     override fun onScale(scale: Float): Float { if (scale < 0.9f || scale > 1.1f) onScale(scale); return 1f }
     /** Only a tap on the cursor's line opens the keyboard, so reading taps elsewhere keep the screen clear. */
@@ -36,6 +42,8 @@ internal class MobileTerminalClient(
     }
 
     override fun onOpenUrl(url: String): Boolean {
+        val loopback = onOpenLoopback?.let { open -> LoopbackUrl.parse(url)?.also(open) }
+        if (loopback != null) return true
         try {
             openTerminalUrl(view.context, url)
         } catch (_: ActivityNotFoundException) {
@@ -45,6 +53,9 @@ internal class MobileTerminalClient(
         }
         return true
     }
+    override fun opensPaths() = onOpenPath != null
+    override fun onOpenPath(path: TerminalLink, notFound: Runnable) =
+        onOpenPath?.invoke(generateSequence(path) { it.fallback }.map { it.text to it.line }.toList(), notFound) ?: false
     /** The terminal draws under the status bar, which swallows taps: the first view y a finger can reach. */
     private fun touchableTop(): Float {
         val insets = ViewCompat.getRootWindowInsets(view) ?: return 0f
