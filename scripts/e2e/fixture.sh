@@ -121,11 +121,12 @@ EOF
       | sudo tee "$FIXTURE/bin/$agent" >/dev/null
     sudo chmod 755 "$FIXTURE/bin/$agent"
   done
-  # A dev server stand-in for the port preview: it prints its address on a short line of its own, as a tap target.
+  # A dev server stand-in for the port preview, started with &: its address may land after the shell prompt and
+  # nearly fill that row, which reads like a TUI hard wrap; the blank line after it keeps the next word off the link.
   sudo rm -f /tmp/roamtty-e2e/bin/webdemo
   printf '%s\n' '#!/bin/sh' 'd="$HOME/webdemo"; mkdir -p "$d"' \
     "printf '<title>E2E Demo Page</title><h1>WEBDEMO_OK</h1>' > \"\$d/index.html\"" \
-    'cd "$d" && echo "http://localhost:28765/" && exec python3 -m http.server 28765 --bind 127.0.0.1' \
+    'cd "$d" && printf "http://localhost:28765/\n\n" && exec python3 -m http.server 28765 --bind 127.0.0.1' \
     | sudo tee "$FIXTURE/bin/webdemo" >/dev/null
   sudo chmod 755 "$FIXTURE/bin/webdemo"
   sudo /usr/sbin/sshd -t -f "$FIXTURE/sshd_config"
