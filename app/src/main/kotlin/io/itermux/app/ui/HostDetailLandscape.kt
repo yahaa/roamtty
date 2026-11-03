@@ -106,14 +106,11 @@ internal fun HostDetailLandscape(
             @Composable fun Section(tab: HostDetailTab, content: @Composable () -> Unit) =
                 Box(Modifier.fillMaxWidth().onGloballyPositioned { tops[tab] = it.positionInParent().y.toInt() }
                     .testTag("host-section-${tab.name.lowercase()}")) { content() }
-            Section(HostDetailTab.OVERVIEW) {
-                Column(verticalArrangement = Arrangement.spacedBy(Spacing.Section)) {
-                    Overview(host, reachability, monitor, metrics, onLogin)
-                    monitor?.let { HostPortsSection(it) }
-                }
-            }
+            Section(HostDetailTab.OVERVIEW) { Overview(host, reachability, monitor, metrics, onLogin) }
             Section(HostDetailTab.PROCESSES) { Processes(monitor, metrics) }
             Section(HostDetailTab.INFO) { Information(host, metrics) }
+            // Last on the page: the ports list can run long.
+            monitor?.let { HostPortsSection(it) }
         }
     }
 }
