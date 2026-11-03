@@ -123,8 +123,9 @@ internal fun rememberTerminalFontFamily(): FontFamily {
 @Composable
 internal fun CodeViewer(document: CodeDocument, wrap: Boolean, fontSize: Float, listState: LazyListState,
     horizontalScroll: ScrollState, matches: List<CodeMatch>, currentMatch: Int, modifier: Modifier = Modifier,
-    insets: WindowInsets = WindowInsets(0)) {
+    insets: WindowInsets = WindowInsets(0), markedLine: Int = 0) {
     val theme = rememberCodeTheme()
+    val marked = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
     val fontFamily = rememberTerminalFontFamily()
     val textStyle = TextStyle(fontFamily = fontFamily, fontSize = fontSize.sp, lineHeight = (fontSize * 1.5f).sp,
         color = MaterialTheme.colorScheme.onSurface)
@@ -143,7 +144,9 @@ internal fun CodeViewer(document: CodeDocument, wrap: Boolean, fontSize: Float, 
                 val text = remember(line, theme, rowMatches, current) {
                     line.annotated(theme, rowMatches, current?.takeIf { it.row == row })
                 }
-                Row(Modifier.fillMaxWidth()) {
+                // A wrapped line's continuation rows carry number 0; only the line's first row is marked.
+                val mark = if (markedLine > 0 && line.number == markedLine) Modifier.background(marked).testTag("file-preview-marked-line") else Modifier
+                Row(Modifier.fillMaxWidth().then(mark)) {
                     Text(if (line.number > 0) line.number.toString() else "", style = textStyle,
                         color = theme.gutter, textAlign = TextAlign.End, maxLines = 1,
                         modifier = Modifier.padding(start = 8.dp).width(gutterWidth))

@@ -139,3 +139,15 @@ internal val shellWorkingDirectoryCommand = """
     done
     exit 1
 """.trimIndent()
+
+/**
+ * Where a path printed in the terminal points: absolute as it is, "~/" from the SFTP home, and
+ * anything else from the shell's directory. Null when a relative path has no directory to start from.
+ */
+fun resolveTerminalPath(directory: String?, path: String): String? = when {
+    path.startsWith('/') -> path
+    path.startsWith("~/") -> path.removePrefix("~/").trimStart('/').ifEmpty { null }
+    path.startsWith('~') -> null // Another user's home: "~bob/x" needs a lookup SFTP cannot do.
+    directory == null || !isValidRemoteDirectory(directory) -> null
+    else -> joinRemotePath(directory, path.removePrefix("./"))
+}

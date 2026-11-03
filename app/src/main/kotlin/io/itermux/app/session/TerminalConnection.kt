@@ -279,6 +279,12 @@ class TerminalConnection(
     suspend fun deleteRemoteFile(path: String) = ssh.deleteFile(path)
     suspend fun makeRemoteDirectory(path: String) = ssh.makeDirectory(path)
     suspend fun isRemoteDirectory(path: String) = ssh.isDirectory(path)
+    /** The file a path printed in this terminal names, or null when it names no regular file. */
+    suspend fun terminalFile(path: String): String? = try {
+        // Absolute and home paths need no round trip for the shell's directory.
+        val resolved = resolveTerminalPath(null, path) ?: resolveTerminalPath(currentWorkingDirectory(), path)
+        resolved?.takeUnless { ssh.isDirectory(it) }
+    } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
 
     fun refreshCommonCommands() {
         commonCommandsJob?.cancel()

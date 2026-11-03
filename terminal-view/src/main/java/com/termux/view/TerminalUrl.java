@@ -15,12 +15,17 @@ final class TerminalUrl {
         "https?://[^\\s\\p{Z}\\p{Cc}<>\"`，。！？；：、（）【】《》“”‘’]+", Pattern.CASE_INSENSITIVE);
 
     static String at(TerminalEmulator emulator, int column, int row) {
+        TerminalLink link = find(emulator, column, row);
+        return link == null ? null : link.text;
+    }
+
+    static TerminalLink find(TerminalEmulator emulator, int column, int row) {
         if (column < 0 || column >= emulator.mColumns ||
             row < -emulator.getScreen().getActiveTranscriptRows() || row >= emulator.mRows) return null;
         Match renderedLink = parenthesizedLinkAt(emulator, column, row);
-        if (renderedLink != null) return renderedLink.url;
+        if (renderedLink != null) return renderedLink.link();
         Match hardWrapped = hardWrappedUrlAt(emulator, column, row);
-        if (hardWrapped != null) return hardWrapped.url;
+        if (hardWrapped != null) return hardWrapped.link();
         TerminalTextLine line = TerminalTextLine.at(emulator, row);
         int offset = line.offsetAt(line.cellAt(column, row));
         Matcher matcher = WEB_URL.matcher(line.text);
@@ -34,7 +39,11 @@ final class TerminalUrl {
             if (candidateEnd == line.text.length() && emulator.getScreen().getLineWrap(line.lastRow)) return null;
             int end = trimEnd(line.text, start, candidateEnd);
             if (offset >= end || endsAtAmbiguousWrap(line, candidateEnd)) return null;
-            return validatedUrl(line.text.substring(start, end));
+            String url = validatedUrl(line.text.substring(start, end));
+            if (url == null) return null;
+            TerminalLink.Spans spans = new TerminalLink.Spans(emulator);
+            spans.addLine(line, start, end);
+            return new TerminalLink(url, 0, true, spans.build(url.length()));
         }
         return null;
     }
@@ -65,7 +74,9 @@ final class TerminalUrl {
     /** A matched but incomplete rendered link must not fall back to opening its first fragment. */
     private static final class Match {
         final String url;
-        Match(String url) { this.url = url; }
+        final int[] spans;
+        Match(String url, int[] spans) { this.url = url; this.spans = spans; }
+        TerminalLink link() { return url == null ? null : new TerminalLink(url, 0, true, spans); }
     }
 
     private static TerminalRow rowAt(TerminalEmulator emulator, int row) {
@@ -203,6 +214,8 @@ final class TerminalUrl {
         // Index of the tapped character in the joined URL, or -1.
         int tapped = -1;
         boolean hardWrapped = false;
+        TerminalLink.Spans spans = new TerminalLink.Spans(emulator);
+        spans.add(top, topStart, contentLength(topLine));
         if (top == row) {
             int offset = topLine.findStartOfColumn(column);
             if (offset >= topStart && offset < contentLength(topLine)) tapped = offset - topStart;
@@ -215,7 +228,8 @@ final class TerminalUrl {
                 if (offset >= range[0] && offset < range[1]) tapped = url.length() + offset - range[0];
             }
             url.append(next);
-            if (url.length() > MAX_LINK_LENGTH) return tapped >= 0 ? new Match(null) : null;
+            spans.add(y + 1, range[0], range[1]);
+            if (url.length() > MAX_LINK_LENGTH) return tapped >= 0 ? new Match(null, null) : null;
             if (range[1] < contentLength(rowAt(emulator, y + 1))) break;
         }
         // Plain terminal soft wraps are read by the ordinary matcher.
@@ -224,12 +238,13 @@ final class TerminalUrl {
         int end = trimEnd(result, 0, result.length());
         if (tapped >= end) return null; // Trailing punctuation such as a closing parenthesis.
         String valid = validatedUrl(result.substring(0, end));
-        return valid == null ? null : new Match(valid);
+        return valid == null ? null : new Match(valid, spans.build(valid.length()));
     }
 
     private static Match readParenthesizedLink(TerminalEmulator emulator, int startColumn, int startRow,
                                                int tappedColumn, int tappedRow) {
         StringBuilder url = new StringBuilder();
+        TerminalLink.Spans spans = new TerminalLink.Spans(emulator);
         boolean tapped = false;
         String completeUrl = null;
         link: for (int y = startRow; y < emulator.mRows && y - startRow < MAX_LINK_ROWS; y++) {
@@ -262,6 +277,7 @@ final class TerminalUrl {
                 }
                 if (!linkStyle) break link;
                 url.appendCodePoint(point);
+                spans.add(y, offset, offset + Character.charCount(point));
                 if (url.length() <= 8 && !webPrefix(url.toString())) return null;
                 if (y == tappedRow && tappedColumn >= cell && tappedColumn < cell + width) tapped = true;
                 if (url.length() > MAX_LINK_LENGTH) break link;
@@ -269,7 +285,7 @@ final class TerminalUrl {
                 offset += Character.charCount(point);
             }
         }
-        return tapped ? new Match(completeUrl) : null;
+        return tapped ? new Match(completeUrl, completeUrl == null ? null : spans.build(completeUrl.length())) : null;
     }
 
     private static boolean webPrefix(String text) {

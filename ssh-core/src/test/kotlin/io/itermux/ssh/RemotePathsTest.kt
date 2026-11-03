@@ -5,6 +5,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RemotePathsTest {
+    @Test fun terminalPathsResolveFromTheShellDirectory() {
+        assertEquals("/home/v/blog/src/Post.tsx", resolveTerminalPath("/home/v/blog", "src/Post.tsx"))
+        assertEquals("/home/v/blog/a.ts", resolveTerminalPath("/home/v/blog/", "./a.ts"))
+        assertEquals("/a.ts", resolveTerminalPath("/", "a.ts"))
+        assertEquals("/etc/hosts.conf", resolveTerminalPath(null, "/etc/hosts.conf"))
+        assertEquals("notes/a.md", resolveTerminalPath(null, "~/notes/a.md"))
+        assertNull(resolveTerminalPath(null, "src/a.ts"))
+        assertNull(resolveTerminalPath("relative", "src/a.ts"))
+        assertNull(resolveTerminalPath("/home/v", "~bob/a.ts"))
+    }
+
     @Test fun fuzzyNamesMatchSubstringsAndOrderedAbbreviationsIgnoringCase() {
         assertEquals(0, remoteNameMatchRank("APP.APK", "app.apk"))
         assertEquals(1, remoteNameMatchRank("release-debug.apk", "rel"))

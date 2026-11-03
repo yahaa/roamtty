@@ -50,7 +50,7 @@ private class FilePreview(val text: String? = null, val document: CodeDocument? 
 
 @Composable
 internal fun RemoteFilePreview(session: TerminalConnection, path: String, connected: Boolean, canDownload: Boolean,
-    onDownload: () -> Unit, onDismiss: () -> Unit) {
+    onDownload: () -> Unit, onDismiss: () -> Unit, line: Int = 0) {
     val name = path.substringAfterLast('/')
     val options = rememberRemoteFileOptions()
     val context = LocalContext.current
@@ -62,7 +62,8 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
     var matches by remember(path) { mutableStateOf(emptyList<CodeMatch>()) }
     var currentMatch by remember(path) { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
-    var rendered by remember(path) { mutableStateOf(true) }
+    // A line to show is a line of the source, so Markdown opens as source there.
+    var rendered by remember(path) { mutableStateOf(line <= 0) }
     val listState = rememberLazyListState()
     val horizontal = rememberScrollState()
     LaunchedEffect(session.id, path, connected, revision) {
@@ -98,6 +99,10 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
         }
     }
     val document = preview?.document
+    LaunchedEffect(document, line) {
+        val row = document?.lines?.indexOfFirst { it.number == line }?.takeIf { line > 0 && it >= 0 } ?: return@LaunchedEffect
+        listState.scrollToItem((row - 3).coerceAtLeast(0))
+    }
     val showRendered = rendered && preview?.markdown != null
     val loadImage: suspend (String) -> ImageBitmap? = { source ->
         try {
@@ -229,7 +234,7 @@ internal fun RemoteFilePreview(session: TerminalConnection, path: String, connec
                         else if (showRendered && value.markdown != null) MarkdownView(value.markdown, loadImage, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen),
                             insets = insets)
                         else CodeViewer(value.document, options.codeWrap, options.codeFontSize, listState, horizontal,
-                            matches, currentMatch, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen), insets)
+                            matches, currentMatch, Modifier.weight(1f).fillMaxWidth().then(toggleFullscreen), insets, markedLine = line)
                     }
                     else -> PreviewMessage(tr("此文件格式暂不支持预览，或图片超过 8 MiB。请下载后查看。"),
                         Modifier.weight(1f).testTag("file-preview-unsupported")) {

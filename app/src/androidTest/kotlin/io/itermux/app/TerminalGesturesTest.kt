@@ -39,6 +39,9 @@ class TerminalGesturesTest {
     private var swipeLefts = 0
     private var swipeRights = 0
     private val browserIntents = mutableListOf<Intent>()
+    private val openedPaths = mutableListOf<Pair<String, Int>>()
+    /** Whether a tapped path names a file on the (absent) remote; false runs the ordinary tap. */
+    private var pathsExist = false
     private var browserMonitor: Instrumentation.ActivityMonitor? = null
 
     private fun monitorBrowser() {
@@ -98,7 +101,12 @@ class TerminalGesturesTest {
                             onDoubleTap = { doubleTaps++ }, onTripleTap = { tripleTaps++ },
                             onSwipeLeft = { swipeLefts++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT) },
                             onSwipeRight = { swipeRights++; it.sendInputControlKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT) },
-                            onSwipeHoldLeft = { it.sendInputText("\u0001") }, onSwipeHoldRight = { it.sendInputText("\u0005") }))
+                            onSwipeHoldLeft = { it.sendInputText("\u0001") }, onSwipeHoldRight = { it.sendInputText("\u0005") },
+                            onOpenPath = { path, line, notFound ->
+                                openedPaths += path to line
+                                if (!pathsExist) notFound.run()
+                                true
+                            }))
                         it.isFocusableInTouchMode = true
                         it.attachSession(session)
                         it.setCursorDraggingEnabled(true)
@@ -125,6 +133,73 @@ class TerminalGesturesTest {
             assertNotNull("The URL is directed to an available browser", browserIntents.single().`package`)
             assertEquals("Opening a link must not send terminal input", "", input.toString())
         }
+    }
+
+    @Test fun tappedPathIsOfferedWithItsLineAndSendsNothing() {
+        terminalContent()
+        monitorBrowser()
+        pathsExist = true
+        compose.runOnIdle { feed("src/Post.tsx:42:7 - error TS2322\r\n$ ") }
+        for (column in listOf(2, 14)) {
+            val point = androidx.compose.ui.geometry.Offset((column + 0.5f) * terminal.mRenderer.fontWidth, rowY(0))
+            compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+            SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        }
+        val prose = androidx.compose.ui.geometry.Offset(21.5f * terminal.mRenderer.fontWidth, rowY(0))
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(prose) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle {
+            assertEquals(listOf("src/Post.tsx" to 42, "src/Post.tsx" to 42), openedPaths)
+            assertTrue(browserIntents.isEmpty())
+            assertEquals("", input.toString())
+        }
+    }
+
+    @Test fun pathBeingTypedAtTheCursorIsNotOffered() {
+        terminalContent()
+        compose.runOnIdle { feed("$ vim src/a.ts") }
+        val point = androidx.compose.ui.geometry.Offset(9.5f * terminal.mRenderer.fontWidth, rowY(0))
+        compose.onNodeWithTag("gesture-terminal").performTouchInput { click(point) }
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertTrue(openedPaths.isEmpty()) }
+    }
+
+    @Test fun pressedPathTurnsTheLinkColorUntilTheFingerScrolls() {
+        terminalContent()
+        val magenta = 0xFFFF00FF.toInt()
+        compose.runOnIdle {
+            terminal.setPressedLinkColor(magenta)
+            feed("see src/Post.tsx:42 now\r\nnext\r\n$ ")
+        }
+        fun marked(): Pair<Int, Int> {
+            var inside = 0
+            var outside = 0
+            compose.runOnIdle {
+                val bitmap = Bitmap.createBitmap(terminal.width, terminal.height, Bitmap.Config.ARGB_8888)
+                terminal.draw(Canvas(bitmap))
+                val cell = terminal.mRenderer.fontWidth
+                val line = terminal.mRenderer.fontLineSpacing
+                for (y in 0 until line * 3) for (x in 0 until (cell * 24).toInt()) {
+                    if (bitmap.getPixel(x, y) != magenta) continue
+                    // The underline sits in the row's descent, a little below its cell band.
+                    if (y < line * 3 / 2 && x >= (cell * 4).toInt() && x < (cell * 19).toInt() + 1) inside++ else outside++
+                }
+                bitmap.recycle()
+            }
+            return inside to outside
+        }
+        val x = 6.5f * terminal.mRenderer.fontWidth
+        touch(MotionEvent.ACTION_DOWN, x, rowY(0))
+        SystemClock.sleep(ViewConfiguration.getTapTimeout().toLong() + 150)
+        val (inside, outside) = marked()
+        assertTrue("the pressed path is drawn in the link color ($inside)", inside > 0)
+        assertEquals("only the path is marked", 0, outside)
+        // A drag is a scroll, not a press: the mark goes.
+        touch(MotionEvent.ACTION_MOVE, x, rowY(0) + 6 * terminal.mRenderer.fontLineSpacing)
+        touch(MotionEvent.ACTION_UP, x, rowY(0) + 6 * terminal.mRenderer.fontLineSpacing)
+        assertEquals(0 to 0, marked())
+        SystemClock.sleep(ViewConfiguration.getDoubleTapTimeout().toLong() + 100)
+        compose.runOnIdle { assertTrue(openedPaths.isEmpty()) }
     }
 
     @Test fun eitherRowOfATuiWrappedPrLinkOpensTheCompleteAddress() {

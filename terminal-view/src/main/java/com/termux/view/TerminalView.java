@@ -112,7 +112,8 @@ public final class TerminalView extends View {
             /** Input gestures must start and finish in the same live, writable view. */
             boolean writableAtDown;
             TerminalSession sessionAtDown;
-            String urlAtDown;
+            /** The link or path under the finger at touch down; a tap opens it. */
+            TerminalLink linkAtDown;
             /** Where the finger last moved past the touch slop, and where it is now, while a swipe may become a hold. */
             float holdX, holdY, lastX, lastY;
             /** The swipe-and-hold already fired: lifting sends nothing more. */
@@ -134,6 +135,11 @@ public final class TerminalView extends View {
             @Override
             public boolean onUp(MotionEvent event) {
                 mScrollRemainder = 0.0f;
+                // A quick tap lifts before the press shows: show it now, until the tap is confirmed.
+                if (mPressedLink != null) {
+                    showPressedLink();
+                    postDelayed(mClearPressedLink, ViewConfiguration.getDoubleTapTimeout() + PRESSED_LINK_MILLIS);
+                }
                 cancelSwipeHold();
                 if (swipeHeld) {
                     swipeHeld = false;
@@ -160,9 +166,14 @@ public final class TerminalView extends View {
                     stopTextSelectionMode();
                     return true;
                 }
-                if (urlAtDown != null) {
+                TerminalLink link = linkAtDown;
+                if (link != null) {
+                    removeCallbacks(mClearPressedLink);
+                    postDelayed(mClearPressedLink, PRESSED_LINK_MILLIS);
                     if (sessionAtDown != mTermSession) return true;
-                    if (mClient.onOpenUrl(urlAtDown)) return true;
+                    if (link.isUrl) {
+                        if (mClient.onOpenUrl(link.text)) return true;
+                    } else if (openPath(link, event)) return true;
                 }
                 requestFocus();
                 mCursorTap.tapTo(event);
@@ -181,6 +192,7 @@ public final class TerminalView extends View {
                     sendMouseEventCode(e, TerminalEmulator.MOUSE_LEFT_BUTTON_MOVED, true);
                 } else {
                     scrolledWithFinger = true;
+                    clearPressedLink();
                     // A sideways drag is a swipe in progress: do not scroll (or send arrow keys) for its small vertical drift.
                     if (isSideways(e)) {
                         trackSwipeHold(e);
@@ -198,6 +210,7 @@ public final class TerminalView extends View {
             @Override
             public boolean onScale(float focusX, float focusY, float scale) {
                 scaledInGesture = true;
+                clearPressedLink();
                 if (mEmulator == null || isSelectingText()) return true;
                 mScaleFactor *= scale;
                 mScaleFactor = mClient.onScale(mScaleFactor);
@@ -206,6 +219,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onFling(final MotionEvent e2, float velocityX, float velocityY) {
+                clearPressedLink();
                 if (mEmulator == null) return true;
                 // A sideways fling is a swipe, judged by distance when the finger lifts (onUp).
                 if (isSideways(e2) || swipeHeld) return true;
@@ -258,7 +272,8 @@ public final class TerminalView extends View {
                 downY = y;
                 sessionAtDown = mTermSession;
                 // Capture before the single-tap delay: incoming output may move or replace this row.
-                urlAtDown = getUrlAt(x, y);
+                linkAtDown = getLinkAt(x, y);
+                pressLink(linkAtDown);
                 writableAtDown = isWritableLiveViewport();
                 scaledInGesture = false;
                 swipeHeld = false;
@@ -312,6 +327,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onDoubleTap(MotionEvent event) {
+                clearPressedLink();
                 if (mEmulator == null || mTermSession == null || mGestureRecognizer.isInProgress()) return false;
                 if (isSelectingText()) stopTextSelectionMode();
                 requestFocus();
@@ -321,6 +337,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onTripleTap(MotionEvent event) {
+                clearPressedLink();
                 if (mEmulator == null || mTermSession == null || mGestureRecognizer.isInProgress()) return false;
                 if (isSelectingText()) stopTextSelectionMode();
                 requestFocus();
@@ -330,6 +347,7 @@ public final class TerminalView extends View {
 
             @Override
             public void onLongPress(MotionEvent event) {
+                clearPressedLink();
                 if (mGestureRecognizer.isInProgress()) return;
                 if (mClient.onLongPress(event)) return;
                 if (!isSelectingText() && mCursorDrag.start(event)) {
@@ -1359,12 +1377,72 @@ public final class TerminalView extends View {
         return (int) Math.floor((y - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing) + mTopRow;
     }
 
-    /** The complete HTTP(S) URL under a touch, including soft wraps and scrolled history. */
-    private String getUrlAt(float x, float y) {
+    /**
+     * The complete HTTP(S) URL under a touch, including soft wraps and scrolled history, else a
+     * file path. Paths on the live cursor's line are the command being typed: a tap there moves
+     * the cursor as before.
+     */
+    private TerminalLink getLinkAt(float x, float y) {
         if (mEmulator == null || mRenderer == null || x < 0 || y < 0 || x >= getWidth() || y >= getHeight()) return null;
         int row = textRowAt(y);
         if (row < mTopRow || row >= mTopRow + mEmulator.mRows) return null;
-        return TerminalUrl.at(mEmulator, (int) Math.floor(x / mRenderer.mFontWidth), row);
+        int column = (int) Math.floor(x / mRenderer.mFontWidth);
+        TerminalLink url = TerminalUrl.find(mEmulator, column, row);
+        if (url != null || !mClient.opensPaths()) return url;
+        TerminalLink path = TerminalPath.find(mEmulator, column, row);
+        if (path != null && mEmulator.isCursorEnabled() && path.coversRow(mEmulator.getCursorRow())) return null;
+        return path;
+    }
+
+    /** How long a confirmed tap keeps its link marked, so the press reads as a response. */
+    private static final int PRESSED_LINK_MILLIS = 150;
+    /** The link the finger is on, marked once the touch has stayed long enough to be a press. */
+    private TerminalLink mPressedLink;
+    private int mPressedLinkColor = 0xFF8AB4F8;
+    private final Runnable mShowPressedLink = this::showPressedLink;
+    private final Runnable mClearPressedLink = this::clearPressedLink;
+
+    /** The color a pressed link or path turns, underlined. */
+    public void setPressedLinkColor(int color) { mPressedLinkColor = color; }
+
+    private void pressLink(TerminalLink link) {
+        clearPressedLink();
+        if (link == null) return;
+        mPressedLink = link;
+        // Like a list item's pressed state: a scroll that starts on a link does not flash it.
+        postDelayed(mShowPressedLink, ViewConfiguration.getTapTimeout());
+    }
+
+    private void showPressedLink() {
+        removeCallbacks(mShowPressedLink);
+        if (mPressedLink == null || mRenderer == null) return;
+        mRenderer.setPressedLink(mPressedLink.spans, mPressedLinkColor);
+        invalidate();
+    }
+
+    private void clearPressedLink() {
+        removeCallbacks(mShowPressedLink);
+        removeCallbacks(mClearPressedLink);
+        if (mPressedLink == null) return;
+        mPressedLink = null;
+        if (mRenderer != null) mRenderer.setPressedLink(null, 0);
+        invalidate();
+    }
+
+    /** Hands a tapped path to the client; if it names no file, the tap does what any other tap does. */
+    private boolean openPath(TerminalLink link, MotionEvent event) {
+        final TerminalSession session = mTermSession;
+        final MotionEvent tap = MotionEvent.obtain(event);
+        boolean handled = mClient.onOpenPath(link.text, link.line, () -> {
+            if (mTermSession == session && mEmulator != null) {
+                requestFocus();
+                mCursorTap.tapTo(tap);
+                mClient.onSingleTapUp(tap);
+            }
+            tap.recycle();
+        });
+        if (!handled) tap.recycle();
+        return handled;
     }
 
     public void setCursorDraggingEnabled(boolean enabled) { mCursorDrag.setEnabled(enabled); mCursorTap.setEnabled(enabled); }

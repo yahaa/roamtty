@@ -1087,6 +1087,56 @@ class E2eFeatureTest {
         assertTrue("tmux session $name still runs", gone)
     }
 
+    /** Taps the first cell of the screen row that starts with [prefix], as a finger would. */
+    private fun tapTerminalRow(prefix: String): String {
+        val view = requireNotNull(E2e.terminalView(compose))
+        var tapped = ""
+        compose.runOnUiThread {
+            view.scrollToBottom()
+            val emulator = view.mEmulator
+            val row = (0 until emulator.mRows).first {
+                emulator.screen.getSelectedText(0, it, emulator.mColumns - 1, it).startsWith(prefix)
+            }
+            tapped = emulator.screen.getSelectedText(0, row, emulator.mColumns - 1, row)
+            val x = 2.5f * view.mRenderer.fontWidth
+            val y = (row + 0.8f) * view.mRenderer.fontLineSpacing
+            val time = android.os.SystemClock.uptimeMillis()
+            for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
+                val event = android.view.MotionEvent.obtain(time, time + if (action == android.view.MotionEvent.ACTION_UP) 60 else 0, action, x, y, 0)
+                event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                view.dispatchTouchEvent(event)
+                event.recycle()
+            }
+        }
+        return tapped
+    }
+
+    /** A path:line printed in the terminal opens the file preview at that line; a path to nothing opens nothing. */
+    @Test fun f27_tappedPathOpensTheFileAtItsLine() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("点路径"))
+        val session = openTerminal(host)
+        shellReady(session)
+        // Short commands: long typed lines lose keys on the emulator.
+        E2e.run(compose, "cd e2e; clear")
+        E2e.run(compose, "grep -Hn println src/Main.kt")
+        E2e.waitOutput(compose, session, "src/Main.kt:")
+        E2e.run(compose, "printf 'gone/%s\\n' Gone.kt:3")
+        E2e.waitOutput(compose, session, "gone/Gone.kt:3")
+        dismissKeyboard()
+        val printed = tapTerminalRow("src/Main.kt:")
+        val line = printed.removePrefix("src/Main.kt:").substringBefore(':').toInt()
+        E2e.waitTag(compose, "file-preview-marked-line", 15_000)
+        assertEquals("Main.kt", compose.text("file-preview-title"))
+        compose.onNodeWithTag("file-preview-marked-line", useUnmergedTree = true).onChildren().assertAny(hasText(line.toString()))
+        E2e.capture(compose, "f27-path-preview")
+        click("file-preview-close")
+        E2e.waitGone(compose, hasTestTag("file-preview"))
+        tapTerminalRow("gone/Gone.kt")
+        Thread.sleep(3_000)
+        assertFalse("a path to nothing opens no preview", E2e.exists(compose, hasTestTag("file-preview")))
+        E2e.capture(compose, "f27-missing-path")
+    }
+
     private companion object {
         val FAILURES = setOf(Phase.AUTH_FAILED, Phase.HOST_KEY_CHANGED, Phase.FAILED, Phase.TMUX_MISSING)
     }
