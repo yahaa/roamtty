@@ -4,6 +4,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -39,6 +43,13 @@ class TerminalNoticeOverlayTest {
             if (expectGolden) assertEquals(viewport.top + viewport.height * 0.382f, card.center.y, 1f)
             compose.onNodeWithText(tr(if (phase == Phase.DISCONNECTED) "已断开" else if (phase == Phase.AUTH_FAILED) "认证失败" else "连接失败"))
                 .assertIsDisplayed()
+            if (!expectGolden) {
+                val context = InstrumentationRegistry.getInstrumentation().targetContext
+                File(context.getExternalFilesDir(null), "notice-short-regression.png").outputStream().use {
+                    compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            compose.onNodeWithText(tr("关闭")).assertIsDisplayed()
             compose.onNodeWithText(tr("重新连接")).assertIsDisplayed().performClick()
         }
         assertPlacement(true)
@@ -62,6 +73,23 @@ class TerminalNoticeOverlayTest {
         assertTrue(verified)
         compose.onNodeWithTag("terminal-connection-notice").performTouchInput { swipeUp() }
         compose.onNodeWithText("SHA256:new", substring = true).assertExists()
+    }
+
+    @Test fun shortMissingMultiplexerNoticeKeepsEveryActionReachable() {
+        var closes = 0
+        var reconnects = 0
+        var shells = 0
+        compose.setContent { MaterialTheme { Box(Modifier.width(360.dp).height(144.dp)) {
+            TerminalNoticeOverlay {
+                TerminalConnectionNotice(ConnectionState(Phase.TMUX_MISSING), { reconnects++ }, { shells++ }, {}, { closes++ })
+            }
+        } } }
+        compose.onNodeWithText(tr("关闭")).assertIsDisplayed().performClick()
+        compose.onNodeWithText(tr("改用普通 SSH")).performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText(tr("重新连接")).performScrollTo().assertIsDisplayed().performClick()
+        assertEquals(1, closes)
+        assertEquals(1, shells)
+        assertEquals(1, reconnects)
     }
 
     @Test fun missingTmuxKeepsShellFallbackAndInputWarningCanBeDismissed() {

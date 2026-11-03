@@ -44,5 +44,6 @@ class ExternalFeedbackNavigationTest {
             withContext(Dispatchers.Main) { service.close(session.id) }
             app.database.hosts().delete(host.id)
         }
+        Unit
     }
 }

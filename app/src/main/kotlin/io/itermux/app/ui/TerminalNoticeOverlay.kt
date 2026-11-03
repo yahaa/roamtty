@@ -102,18 +102,18 @@ private fun TerminalNoticeCard(
         shape = MaterialTheme.shapes.large, color = colors.surface,
         border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.55f)), shadowElevation = 6.dp) {
         BoxWithConstraints {
-            // Landscape IMEs can leave less than 160dp. Put actions beside the text there,
-            // so a footer cannot consume the entire text viewport or clip the heading.
+            // Insets can leave less than 64dp. Keep recovery actions side by side next to
+            // scrollable text; a footer or vertical stack can hide them completely.
             if (maxHeight < 240.dp) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                         Text(title, style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(4.dp))
                         content()
                     }
-                    Column(Modifier.widthIn(max = 160.dp).verticalScroll(rememberScrollState()),
-                        horizontalAlignment = Alignment.End, content = { actions() })
+                    FlowRow(Modifier.widthIn(max = 200.dp).verticalScroll(rememberScrollState()).testTag("terminal-notice-actions"), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
+                        content = { actions() })
                 }
             } else Column(Modifier.padding(20.dp)) {
                 // Long errors/fingerprints scroll while actions remain above the keyboard.

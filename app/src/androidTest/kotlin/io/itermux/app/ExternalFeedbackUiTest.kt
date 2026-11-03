@@ -3,13 +3,18 @@ package io.itermux.app
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
-import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import io.itermux.app.data.Host
 import io.itermux.app.ui.ConnectRequest
 import io.itermux.app.ui.CredentialsDialog
 import io.itermux.app.ui.HostCard
+import io.itermux.app.ui.HostEditor
+import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import io.itermux.app.ui.TerminalConnectionNotice
 import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.Phase
@@ -22,6 +27,20 @@ import org.junit.Test
 class ExternalFeedbackUiTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun addingAMalformedHostShowsValidationWithoutSaving() = runBlocking<Unit> {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as ItermuxApp
+        val previousHosts = app.database.hosts().observe().first()
+        var saved = false
+        compose.setContent { MaterialTheme { HostEditor(app, null, {}, { saved = true }) } }
+        compose.onNodeWithTag("host-name").performTextInput("Malformed feedback regression")
+        compose.onNodeWithTag("host-address").performTextInput("server..example")
+        compose.onNodeWithTag("host-username").performTextInput("dev")
+        compose.onNodeWithTag("save-host").performClick()
+        compose.onNodeWithText(tr("请输入主机地址，不含协议、路径或空格")).performScrollTo().assertIsDisplayed()
+        assertEquals(false, saved)
+        assertEquals(previousHosts, app.database.hosts().observe().first())
+    }
+
     @Test fun unprobedHostIsNotLabelledAsHavingNoDesktop() {
         val unknown = Host(name = "Unchecked", address = "unprobed.invalid", username = "dev")
         val headless = Host(name = "Headless", address = "headless.invalid", username = "dev", desktop = "no")
@@ -31,9 +50,9 @@ class ExternalFeedbackUiTest {
             HostCard(headless, { opened++ }, {}, {}, {})
         } } }
         compose.onNodeWithTag("host-screen-${unknown.id}")
-            .assert(hasAnyDescendant(hasText(tr("桌面尚未检测")))).performClick()
+            .assert(hasText(tr("桌面尚未检测"))).performClick()
         compose.onNodeWithTag("host-screen-${headless.id}")
-            .assert(hasAnyDescendant(hasText(tr("没有图形桌面"))))
+            .assert(hasText(tr("没有图形桌面")))
         assertEquals(1, opened)
     }
 
@@ -42,19 +61,25 @@ class ExternalFeedbackUiTest {
         val submitted = mutableListOf<Pair<String, String>>()
         compose.setContent { MaterialTheme { CredentialsDialog(request, {}, { password, phrase -> submitted += password to phrase }) } }
         val input = hasSetTextAction()
+        fun renderedText(): String {
+            val results = mutableListOf<TextLayoutResult>()
+            compose.onNode(input).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
+            return results.single().layoutInput.text.text
+        }
         compose.onNode(input).performTextInput("test-only")
-        compose.onNode(input).assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
+        assertEquals("•".repeat(9), renderedText())
         compose.onNodeWithText(tr("显示密码")).performClick()
-        compose.onNode(input).assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.Password))
+        assertEquals("test-only", renderedText())
         compose.onNodeWithText(tr("隐藏密码")).performClick()
-        compose.onNode(input).assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
+        assertEquals("•".repeat(9), renderedText())
         compose.onNodeWithText(tr("连接"), useUnmergedTree = true).performClick()
         assertEquals(listOf("test-only" to ""), submitted)
         compose.onNode(input).performTextInput("must-not-carry-over")
         compose.onNodeWithText(tr("显示密码")).performClick()
         compose.runOnIdle { request = ConnectRequest(Host(name = "Second", address = "second.invalid", username = "dev"), SessionMode.SHELL) }
-        compose.onNode(input).assertTextEquals("")
-        compose.onNode(input).assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
+        assertEquals("", renderedText())
+        compose.onNode(input).performTextInput("new-secret")
+        assertEquals("•".repeat(10), renderedText())
     }
 
     @Test fun rawFailureDetailsAreCollapsedAndResetForANewFailure() {

@@ -5,7 +5,14 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class TargetAddressTest {
-    private fun target(address: String) = Target(address, 22, "dev", AuthMethod.PASSWORD, SessionMode.TMUX)
+    private fun target(address: String): Target {
+        requireValidHostAddress(address)
+        return Target(address, 22, "dev", AuthMethod.PASSWORD, SessionMode.TMUX)
+    }
+
+    @Test fun legacyMalformedSavedHostsCanLoadForRepair() {
+        assertEquals("server..example", Target("server..example", 22, "dev", AuthMethod.PASSWORD, SessionMode.TMUX).hostname)
+    }
 
     @Test fun rejectsMalformedHostnamesAndAddressesBeforeConnecting() {
         listOf("server..example", "server..", ".server", "-server.example", "server-.example", "server!", "host:22",

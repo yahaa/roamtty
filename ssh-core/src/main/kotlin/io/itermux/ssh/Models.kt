@@ -15,12 +15,17 @@ data class ConnectionState(val phase: Phase, val message: String = "", val oldFi
 
 data class Target(val address: String, val port: Int, val username: String, val auth: AuthMethod, val mode: SessionMode) {
     init {
-        require(validHostAddress(address)) { "请输入主机地址，不含协议、路径或空格" }
+        require(address.isNotBlank() && address.length <= 253 && address.none { it.isWhitespace() || it.isISOControl() || it in "/\\@" }) { "请输入主机地址，不含协议、路径或空格" }
         require(port in 1..65535) { "端口必须为 1–65535" }
         require(username.isNotBlank() && username.length <= 128 && username.none { it.isISOControl() || it.isWhitespace() }) { "请输入有效用户名" }
     }
     val hostname: String get() = address.removeSurrounding("[", "]")
     val endpoint: String get() = "[${hostname.lowercase(Locale.ROOT).removeSuffix(".")}]:$port"
+}
+
+/** Validate newly entered addresses before saving; legacy saved hosts remain loadable through [Target]. */
+fun requireValidHostAddress(address: String) {
+    require(validHostAddress(address)) { "请输入主机地址，不含协议、路径或空格" }
 }
 
 /** Syntax only: saving a host never needs DNS, a network or an existing server. */
