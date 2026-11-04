@@ -462,7 +462,7 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                             // Enter usually runs or submits the line: put the keyboard away soon so the output shows.
                             onSoftKeyboardEnter = { hideKeyboardSoon() },
                             onOpenPath = { candidates, notFound -> openPath(candidates, notFound) },
-                            onOpenLoopback = { url -> shownSession.let { openPortPreview(ctx, url, it.host.name, it::openSocket) } }))
+                            onOpenLoopback = { url -> shownSession.let { openPortPreview(ctx, url, it.host, it::openSocket) } }))
                         // Typing again keeps the keyboard open; the Enter that follows restarts the wait.
                         setUserInputListener { keyboardHide?.cancel(); enterKeyTyping = true; enterKeyTouches++ }
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS

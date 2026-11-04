@@ -37,7 +37,7 @@ internal fun HostPortsSection(monitor: HostMonitor, modifier: Modifier = Modifie
         if (list.isEmpty()) GroupedRow(tr("没有在监听的端口"))
         list.forEachIndexed { index, port ->
             if (index > 0) GroupedDivider()
-            PortRow(port) { openPortPreview(context, port.url, monitor.host.name, monitor::openSocket) }
+            PortRow(port) { openPortPreview(context, port.url, monitor.host, monitor::openSocket) }
         }
     }
 }

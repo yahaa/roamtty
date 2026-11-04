@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
@@ -38,7 +39,7 @@ private enum class PortStatus { CHECKING, READY, NOT_LISTENING, OFFLINE }
  * page. Only back, the address and refresh: back steps through the page's history, then closes it.
  */
 @Composable
-internal fun PortPreviewPage(url: LoopbackUrl, hostName: String, open: suspend (host: String, port: Int) -> RemoteSocket,
+internal fun PortPreviewPage(url: LoopbackUrl, hostId: String, hostName: String, open: suspend (host: String, port: Int) -> RemoteSocket,
     onDismiss: () -> Unit) {
     val tunnel = remember(url) { PortTunnel(url.target, url.port, open) }
     // Closing ends JSch channels, which may wait on the network.
@@ -53,6 +54,10 @@ internal fun PortPreviewPage(url: LoopbackUrl, hostName: String, open: suspend (
     var address by remember(tunnel) { mutableStateOf(url.display) }
     var canGoBack by remember(tunnel) { mutableStateOf(false) }
     var loaded by remember(tunnel) { mutableStateOf(false) }
+    val context = LocalContext.current
+    /** Another host's pages are out of the store the WebView will use ([PreviewStorage]). */
+    var storageReady by remember(hostId) { mutableStateOf(false) }
+    LaunchedEffect(hostId) { withContext(Dispatchers.Main.immediate) { PreviewStorage.prepare(context, hostId) }; storageReady = true }
 
     suspend fun check(): PortStatus = try { if (tunnel.listening()) PortStatus.READY else PortStatus.NOT_LISTENING }
         catch (e: CancellationException) { throw e }
@@ -94,9 +99,10 @@ internal fun PortPreviewPage(url: LoopbackUrl, hostName: String, open: suspend (
                 }
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     // Made only once the port answers: an empty WebView paints black over the whole window.
-                    if (status == PortStatus.READY || loaded) AndroidView(factory = { context ->
+                    if (storageReady && (status == PortStatus.READY || loaded)) AndroidView(factory = { context ->
                         @SuppressLint("SetJavaScriptEnabled") // Dev servers are apps; their pages need scripts to show anything.
                         val view = WebView(context).apply {
+                            PreviewStorage.attach(this, hostId)
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             webViewClient = object : WebViewClient() {
@@ -124,7 +130,7 @@ internal fun PortPreviewPage(url: LoopbackUrl, hostName: String, open: suspend (
                         loaded = true
                         view.loadUrl(url.through(tunnel.localPort))
                         view
-                    }, onRelease = { it.destroy() }, modifier = Modifier.fillMaxSize().testTag("port-preview-web"))
+                    }, onRelease = { PreviewStorage.release(context, it); it.destroy() }, modifier = Modifier.fillMaxSize().testTag("port-preview-web"))
                     if (status != PortStatus.READY) Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         PortProblem(status, hostName, url.port) { attempt++ }
                     }
