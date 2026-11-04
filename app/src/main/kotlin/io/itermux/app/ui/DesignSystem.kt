@@ -1,6 +1,8 @@
 package io.itermux.app.ui
 
+import io.itermux.app.session.AgentStatus
 import io.itermux.app.tr
+import io.itermux.app.trf
 import android.content.res.Configuration
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
@@ -267,16 +269,30 @@ internal fun EmptyState(
     }
 }
 
-/** Connection state as a coloured dot plus text, so colour is never the only signal; [hostOffline] names the reason. */
+/**
+ * Connection state as a coloured dot plus text, so colour is never the only signal. While the host is offline
+ * ([hostOffline]) a grey hollow dot and "离线", then what the agent was last seen doing ([last]).
+ */
 @Composable
-internal fun StatusLabel(phase: Phase, modifier: Modifier = Modifier, hostOffline: Boolean = false) {
-    val color = if (hostOffline) StatusColors.danger else StatusColors.of(phase)
+internal fun StatusLabel(phase: Phase, modifier: Modifier = Modifier, hostOffline: Boolean = false, last: AgentStatus? = null) {
+    val colors = MaterialTheme.colorScheme
+    val color = if (hostOffline) colors.onSurfaceVariant else StatusColors.of(phase)
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(color))
+        Box(Modifier.size(8.dp).clip(CircleShape)
+            .then(if (hostOffline) Modifier.border(1.5.dp, color, CircleShape) else Modifier.background(color)))
         Spacer(Modifier.width(6.dp))
-        Text(if (hostOffline) tr("主机离线") else phaseLabel(phase), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false,
-            color = if (phase == Phase.CONNECTED) color else MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if (hostOffline) offlineLabel(last) else phaseLabel(phase), style = MaterialTheme.typography.labelMedium, maxLines = 1,
+            softWrap = false, color = if (phase == Phase.CONNECTED && !hostOffline) color else colors.onSurfaceVariant)
     }
+}
+
+/** "离线", or "离线 · 上次已完成" with what the agent last reported. */
+@Composable
+private fun offlineLabel(last: AgentStatus?): String = when (last?.state) {
+    null -> tr("离线")
+    AgentStatus.State.WAITING -> trf("离线 · 上次%s", tr("待确认"))
+    AgentStatus.State.WORKING -> trf("离线 · 上次%s", tr("运行中"))
+    AgentStatus.State.IDLE -> trf("离线 · 上次%s", tr(if (last.workedSeconds != null) "已完成" else "空闲"))
 }
 
 /** Small neutral pill for secondary attributes such as session mode or authentication. */

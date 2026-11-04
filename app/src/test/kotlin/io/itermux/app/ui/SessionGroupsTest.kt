@@ -30,9 +30,10 @@ class SessionGroupsTest {
         assertEquals(last to false, listedAgentStatus(ConnectionState(Phase.CONNECTING), false, null, last, hostOffline = false))
         assertEquals(last to false, listedAgentStatus(ConnectionState(Phase.DISCONNECTED, RESTORED_MESSAGE), false, null, last,
             hostOffline = false))
-        // Not while its host is offline, nor once it failed.
-        assertEquals(null to false, listedAgentStatus(ConnectionState(Phase.DISCONNECTED, RESTORED_MESSAGE), false, null, last,
+        // While its host is offline too, so the card keeps its group and what it showed; not once it failed.
+        assertEquals(last to false, listedAgentStatus(ConnectionState(Phase.DISCONNECTED, RESTORED_MESSAGE), false, null, last,
             hostOffline = true))
+        assertEquals(last to false, listedAgentStatus(ConnectionState(Phase.DISCONNECTED), false, null, last, hostOffline = true))
         assertEquals(null to false, listedAgentStatus(ConnectionState(Phase.FAILED), false, null, last, hostOffline = false))
     }
 

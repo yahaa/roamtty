@@ -91,7 +91,7 @@ class HomeSessionsOfflineHostTest {
             // The host goes away: the connection drops and nothing answers on its port.
             relay.close()
             withTimeout(20_000) { session.state.first { it.phase == Phase.DISCONNECTED } }
-            val offline = hasAnyDescendant(hasText(tr("主机离线")))
+            val offline = hasAnyDescendant(hasText(tr("离线")))
             compose.waitUntil(15_000) {
                 compose.onAllNodesWithTag("home-session-status-${session.id}", useUnmergedTree = true)
                     .fetchSemanticsNodes().any { offline.matches(it) }

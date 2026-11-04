@@ -316,11 +316,14 @@ internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active
  * A session's tile, the one it was created from: the agent's mark while one runs or was launched, else the plain
  * terminal's. [state] puts the agent's status dot in its corner.
  */
-@Composable internal fun SessionIcon(session: TerminalConnection, size: Dp = 44.dp, state: AgentStatus.State? = null) {
+@Composable internal fun SessionIcon(session: TerminalConnection, size: Dp = 44.dp, state: AgentStatus.State? = null,
+    modifier: Modifier = Modifier) {
     val agent by session.agentStatus.collectAsStateWithLifecycle()
+    val last by session.lastAgentStatus.collectAsStateWithLifecycle()
     val launched by session.launchedAgent.collectAsStateWithLifecycle()
-    val kind = CodingAgent.fromCommand(agent?.agent) ?: launched
-    if (kind != null) AgentIcon(kind, size, state) else TerminalTile(size)
+    // The agent last seen too, so a card whose host is out of reach keeps its mark.
+    val kind = CodingAgent.fromCommand((agent ?: last)?.agent) ?: launched
+    Box(modifier) { if (kind != null) AgentIcon(kind, size, state) else TerminalTile(size) }
 }
 
 /**
