@@ -667,7 +667,11 @@ internal object TerminalToolbox {
 
 internal const val KeyboardHideAfterEnterMillis = 15_000L
 /** A tapped path that takes longer than this to look up is treated as no file. */
-private const val PATH_LOOKUP_MILLIS = 8_000L
+/**
+ * A tap on a path that names no file only does what a plain tap does once this is up, so a slow host would leave the
+ * tap without an answer that long; a first lookup that opens SFTP takes about a second. iOS waits as long.
+ */
+private const val PATH_LOOKUP_MILLIS = 3_000L
 
 /** The colour the terminal renderer fills its canvas with, so the status bar area matches it. */
 private fun terminalBackground(session: TerminalConnection): Color {

@@ -22,6 +22,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import io.itermux.app.R
 import io.itermux.app.tr
 import io.itermux.app.trf
+import io.itermux.ssh.ForwardingProhibitedException
 import io.itermux.ssh.LoopbackUrl
 import io.itermux.ssh.PortTunnel
 import io.itermux.ssh.RemoteSocket
@@ -30,7 +31,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private enum class PortStatus { CHECKING, READY, NOT_LISTENING, OFFLINE }
+private enum class PortStatus { CHECKING, READY, NOT_LISTENING, OFFLINE, PROHIBITED }
 
 /**
  * The content of [PortPreviewActivity]: a page a server serves on its own loopback (a dev server's `http://localhost:5173/`), shown on the phone through a
@@ -48,6 +49,8 @@ internal fun PortPreviewPage(url: LoopbackUrl, hostName: String, open: suspend (
     var attempt by remember(tunnel) { mutableIntStateOf(0) }
     /** Bumped when the page failed to load: check whether the server went away, without loading again. */
     var failures by remember(tunnel) { mutableIntStateOf(0) }
+    /** [PortTunnel.dropped] when the page last loaded again: a failure past it was the login's. */
+    var droppedSeen by remember(tunnel) { mutableIntStateOf(0) }
     var webView by remember(tunnel) { mutableStateOf<WebView?>(null) }
     var title by remember(tunnel) { mutableStateOf("") }
     var address by remember(tunnel) { mutableStateOf(url.display) }
@@ -57,6 +60,7 @@ internal fun PortPreviewPage(url: LoopbackUrl, hostName: String, open: suspend (
     suspend fun check(): PortStatus = try { if (tunnel.listening()) PortStatus.READY else PortStatus.NOT_LISTENING }
         catch (e: CancellationException) { throw e }
         catch (_: SshUnavailableException) { PortStatus.OFFLINE }
+        catch (_: ForwardingProhibitedException) { PortStatus.PROHIBITED }
 
     // WebView and the page's state belong to the main thread, whatever dispatcher runs effects.
     LaunchedEffect(tunnel, attempt) {
@@ -64,12 +68,18 @@ internal fun PortPreviewPage(url: LoopbackUrl, hostName: String, open: suspend (
             status = PortStatus.CHECKING
             status = check()
             // The first load happens as the page's WebView is made, once there is something to show.
-            if (status == PortStatus.READY && attempt > 0) webView?.reload()
+            if (status == PortStatus.READY && attempt > 0) { droppedSeen = tunnel.dropped; webView?.reload() }
         }
     }
     LaunchedEffect(failures) {
         if (failures == 0) return@LaunchedEffect
-        withContext(Dispatchers.Main.immediate) { check().let { if (it != PortStatus.READY) status = it } }
+        withContext(Dispatchers.Main.immediate) {
+            val found = check()
+            // A page that failed on a login that is back by now loads again; one that failed with the login up is the
+            // page's own failure, which it shows, and reloading it would only repeat it.
+            if (found != PortStatus.READY) status = found
+            else if (tunnel.dropped > droppedSeen) { droppedSeen = tunnel.dropped; webView?.reload() }
+        }
     }
 
     val back = {
@@ -110,7 +120,7 @@ internal fun PortPreviewPage(url: LoopbackUrl, hostName: String, open: suspend (
                                 }
                                 private fun show(page: String?) {
                                     if (page == null || page == "about:blank") return
-                                    address = LoopbackUrl.fromTunnel(page, tunnel.localPort, url.port)?.display ?: page
+                                    address = LoopbackUrl.fromTunnel(page, tunnel.localPort, url.port, url.host)?.display ?: page
                                 }
                             }
                             webChromeClient = object : WebChromeClient() {
@@ -138,10 +148,18 @@ private fun PortProblem(status: PortStatus, hostName: String, port: Int, onRetry
     Column(Modifier.fillMaxSize().padding(Spacing.Page), verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally) {
         if (status == PortStatus.CHECKING) { CircularProgressIndicator(Modifier.testTag("port-preview-checking")); return@Column }
-        Text(if (status == PortStatus.NOT_LISTENING) trf("%s 上 :%d 没有在监听", hostName, port) else tr("SSH 连接未就绪"),
+        Text(when (status) {
+                PortStatus.NOT_LISTENING -> trf("%s 上 :%d 没有在监听", hostName, port)
+                PortStatus.PROHIBITED -> trf("%s 不允许端口转发", hostName)
+                else -> tr("SSH 连接未就绪")
+            },
             style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center, modifier = Modifier.testTag("port-preview-problem"))
         Spacer(Modifier.height(Spacing.Tight))
-        Text(tr(if (status == PortStatus.NOT_LISTENING) "启动服务后点重试。" else "连接恢复后点重试。"),
+        Text(tr(when (status) {
+                PortStatus.NOT_LISTENING -> "启动服务后点重试。"
+                PortStatus.PROHIBITED -> "服务器的 sshd 关闭了 TCP 转发（AllowTcpForwarding），开启后点重试。"
+                else -> "连接恢复后点重试。"
+            }),
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Spacer(Modifier.height(Spacing.Section))
         Button(onClick = onRetry, modifier = Modifier.testTag("port-preview-retry")) { Text(tr("重试")) }
