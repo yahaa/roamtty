@@ -52,11 +52,13 @@ private fun validHostAddress(address: String): Boolean {
         return if ("::" in ip) units < 8 else units == 8
     }
     if (address.all { it.isDigit() || it == '.' } && '.' in address) return validIpv4(address)
-    val ascii = try { java.net.IDN.toASCII(address.removeSuffix("."), java.net.IDN.USE_STD3_ASCII_RULES) }
+    // Not STD3's rules: they refuse underscores, which RFC 1123 leaves out of hostnames yet internal DNS, container
+    // and VM names use (`build_box`). The labels are checked below instead, as on iOS.
+    val ascii = try { java.net.IDN.toASCII(address.removeSuffix(".")) }
         catch (_: IllegalArgumentException) { return false }
     return ascii.isNotEmpty() && ascii.length <= 253 && ascii.split('.').all { label ->
         label.length in 1..63 && label.first().isLetterOrDigit() && label.last().isLetterOrDigit() &&
-            label.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' }
+            label.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' }
     }
 }
 

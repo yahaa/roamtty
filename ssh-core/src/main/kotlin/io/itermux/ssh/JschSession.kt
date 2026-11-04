@@ -485,7 +485,10 @@ class JschSession(
         override suspend fun openSocket(host: String, port: Int): RemoteSocket = openDirect(ssh, host, port)
     }
 
-    /** A direct-tcpip channel to [host]:[port] as seen from the server; [java.net.ConnectException] when it was refused. */
+    /**
+     * A direct-tcpip channel to [host]:[port] as seen from the server; [java.net.ConnectException] when it was refused,
+     * [ForwardingProhibitedException] when the server forwards nothing there.
+     */
     private suspend fun openDirect(ssh: Session, host: String, port: Int): RemoteSocket = withContext(Dispatchers.IO) {
         val channel = try { ssh.openChannel("direct-tcpip") as ChannelDirectTCPIP }
             catch (e: Exception) { throw SshUnavailableException(e) }
@@ -504,6 +507,8 @@ class JschSession(
         catch (e: Exception) {
             channel.disconnect()
             if (!ssh.isConnected) throw SshUnavailableException(e)
+            // JSch keeps a refused open's reason code as the channel's exit status.
+            if (channel.exitStatus == SSH_OPEN_ADMINISTRATIVELY_PROHIBITED) throw ForwardingProhibitedException("$host:$port", e)
             throw java.net.ConnectException("$host:$port").apply { initCause(e) }
         }
     }
@@ -822,6 +827,9 @@ class JschSession(
     companion object {
         /** Cap for a single onLine emission; longer runs are truncated with an ellipsis. */
         private const val MAX_LINE_BYTES = 64 * 1024
+
+        /** RFC 4254's reason for a channel the server refuses to open on principle, not for want of a listener. */
+        private const val SSH_OPEN_ADMINISTRATIVELY_PROHIBITED = 1
 
         /** mosh-server exits after this long without hearing the client. */
         internal fun moshServerTimeoutSeconds(mode: SessionMode): Long =

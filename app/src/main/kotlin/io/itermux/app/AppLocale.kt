@@ -236,6 +236,8 @@ private object EnglishText {
         "%s 上 :%d 没有在监听" to "Nothing is listening on :%2${'$'}d on %1${'$'}s",
         "启动服务后点重试。" to "Start the server, then tap Try again.",
         "连接恢复后点重试。" to "Tap Try again once the connection is back.",
+        "%s 不允许端口转发" to "%s does not allow port forwarding",
+        "服务器的 sshd 关闭了 TCP 转发（AllowTcpForwarding），开启后点重试。" to "The server's sshd turns TCP forwarding off (AllowTcpForwarding). Turn it on, then tap Try again.",
         "没有在监听的端口" to "No listening ports",
         "其他用户的进程（root / Docker）" to "Another user's process (root / Docker)",
         "已选 %d 个 · %s" to "%d selected · %s",

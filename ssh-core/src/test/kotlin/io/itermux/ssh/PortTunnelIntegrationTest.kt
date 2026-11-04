@@ -43,6 +43,12 @@ class PortTunnelIntegrationTest {
             assertTrue("login still up", ssh.state.value.phase == Phase.CONNECTED)
             val closed = ServerSocket(0).use { it.localPort }
             PortTunnel("localhost", closed, ssh::openSocket, preferredLocalPort = 0).use { assertFalse(withTimeout(10_000) { it.listening() }) }
+            // The fixture forwards only to loopback names (PermitOpen): another target is refused on principle, which
+            // is told apart from a port nothing listens on.
+            PortTunnel("127.0.0.2", 22, ssh::openSocket, preferredLocalPort = 0).use { tunnel ->
+                assertThrows(ForwardingProhibitedException::class.java) { runBlocking { withTimeout(10_000) { tunnel.listening() } } }
+            }
+            assertTrue("login still up after a prohibited channel", ssh.state.value.phase == Phase.CONNECTED)
         } finally { ssh.disconnect(); web.close(); server.interrupt(); withTimeout(5000) { job.join() } }
     }
 }

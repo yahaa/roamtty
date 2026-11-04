@@ -1,6 +1,10 @@
 package io.itermux.ssh
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.InputStream
@@ -80,6 +84,23 @@ class PortTunnelTest {
         assertThrows(ConnectException::class.java) { Socket("127.0.0.1", tunnel.localPort).close() }
     }
 
+    /** A page's connection the tunnel could not carry for want of the login is counted; a refused port is not. */
+    @Test fun countsConnectionsDroppedForWantOfTheLogin(): Unit = runBlocking {
+        val loginUp = java.util.concurrent.atomic.AtomicBoolean(false)
+        PortTunnel("localhost", 5173, { h, p -> if (loginUp.get()) throw java.net.ConnectException("$h:$p") else throw SshUnavailableException() },
+            preferredLocalPort = 0).use { tunnel ->
+            suspend fun ask() = withContext(Dispatchers.IO) {
+                Socket("127.0.0.1", tunnel.localPort).use { it.getOutputStream().write("GET / HTTP/1.0\r\n\r\n".toByteArray()); it.getInputStream().read() }
+            }
+            assertEquals(-1, ask())
+            withTimeout(5_000) { while (tunnel.dropped < 1) delay(10) }
+            loginUp.set(true)
+            assertEquals(-1, ask())
+            delay(200)
+            assertEquals(1, tunnel.dropped)
+        }
+    }
+
     @Test fun parsesLoopbackPagesOnly() {
         assertEquals(LoopbackUrl("localhost", 5173, "/"), LoopbackUrl.parse("http://localhost:5173/"))
         assertEquals(LoopbackUrl("localhost", 5173, "/"), LoopbackUrl.parse("http://LOCALHOST:5173"))
@@ -101,5 +122,18 @@ class PortTunnelTest {
         assertEquals("localhost:5173", LoopbackUrl("localhost", 5173, "/").display)
         assertEquals(LoopbackUrl("localhost", 5173, "/about"), LoopbackUrl.fromTunnel("http://localhost:41000/about", 41000, 5173))
         assertNull(LoopbackUrl.fromTunnel("https://example.com/", 41000, 5173))
+    }
+
+    /** The tunnel listens on 127.0.0.1 alone: other loopback addresses are asked for there, and shown as the server's. */
+    @Test fun otherLoopbackAddressesGoThroughTheTunnelsOwn() {
+        val url = LoopbackUrl.parse("http://127.0.0.2:3000/app")!!
+        assertEquals("127.0.0.2", url.target)
+        assertEquals("http://127.0.0.1:41000/app", url.through(41000))
+        assertEquals(LoopbackUrl("127.0.0.2", 3000, "/app/x"), LoopbackUrl.fromTunnel("http://127.0.0.1:41000/app/x", 41000, 3000, url.host))
+        assertEquals(LoopbackUrl("localhost", 3000, "/"), LoopbackUrl.fromTunnel("http://localhost:41000/", 41000, 3000, url.host))
+        assertEquals(LoopbackUrl("[::1]", 3000, "/"), LoopbackUrl.fromTunnel("http://localhost:41000/", 41000, 3000, "[::1]"))
+        val resolver = ListeningPort(53, "127.0.0.53", null, "", "")
+        assertEquals("http://127.0.0.1:41000/", resolver.url.through(41000))
+        assertEquals("127.0.0.53", resolver.url.target)
     }
 }
