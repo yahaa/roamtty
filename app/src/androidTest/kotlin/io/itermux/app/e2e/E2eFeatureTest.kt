@@ -1025,31 +1025,28 @@ class E2eFeatureTest {
         E2e.waitTag(compose, "terminal")
         assertEquals(count, service.sessions.value.size)
         E2e.run(compose, "tmux kill-session -t $name")
-        // The host page's 继续 opens the same sheet over the page's own login, in either orientation.
+        // The host page has no 继续; the session is continued from 新建会话 only.
         backToHome()
         hostsTab()
         compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${host.id}"))
         click("host-card-${host.id}")
         E2e.waitTag(compose, "host-detail")
+        E2e.waitTag(compose, "host-detail-files")
+        compose.onNodeWithTag("host-detail-continue").assertDoesNotExist()
         E2e.capture(compose, "f22-host-detail")
-        click("host-detail-continue")
-        E2e.waitTag(compose, "launch-tmux-${first.remoteSessionName}", timeoutMs = 20_000)
-        compose.onNodeWithTag("continue-attach").assert(hasText("打开会话"))
-        E2e.capture(compose, "f22-host-continue")
+        // In landscape the continue sheet keeps the picked session on a card above the button.
+        backToHome()
         compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+        click("add-session")
+        click("new-session-pick-continue")
         E2e.waitTag(compose, "continue-bar")
         E2e.waitTag(compose, "launch-tmux-selected", timeoutMs = 20_000)
         compose.onNodeWithTag("continue-attach").assert(hasText("打开会话"))
-        E2e.capture(compose, "f22-host-continue-landscape")
-        // Turning back with the sheet up keeps the host page under it.
+        E2e.capture(compose, "f22-continue-landscape")
+        // Turning back with the sheet up keeps it up.
         compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
         E2e.waitTag(compose, "continue-attach")
-        E2e.waitTag(compose, "host-detail")
-        compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
-        E2e.waitTag(compose, "continue-bar")
         click("continue-close")
-        E2e.waitTag(compose, "host-detail-continue")
-        E2e.capture(compose, "f22-host-detail-landscape")
     }
 
     /** 强制删除 removes a disconnected tmux card at once and also ends its tmux session on the server. */

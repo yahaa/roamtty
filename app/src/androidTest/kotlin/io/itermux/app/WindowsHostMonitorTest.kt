@@ -32,7 +32,7 @@ class WindowsHostMonitorTest {
             username = username, mode = "SHELL", os = "WINDOWS",
             encryptedPassword = app.vault.encrypt(password.toByteArray(), "$id:password"))
         compose.setContent { MaterialTheme(colorScheme = DarkColors) { Surface(Modifier.fillMaxSize()) {
-            HostDetailPage(host, HostReachability.Online(2), onBack = {}, onLaunch = { _, _ -> }, openTmux = emptySet(), onAttach = {},
+            HostDetailPage(host, HostReachability.Online(2), onBack = {}, onLaunch = { _, _ -> },
                 onBrowseFiles = {}, onEdit = {}, onManagePlugins = {}, onDelete = {})
         } } }
     }
