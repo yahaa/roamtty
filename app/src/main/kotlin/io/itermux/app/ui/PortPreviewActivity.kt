@@ -9,18 +9,23 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import io.itermux.app.appSettings
+import io.itermux.app.data.Host
 import io.itermux.ssh.LoopbackUrl
 import io.itermux.ssh.RemoteSocket
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /** What a [PortPreviewActivity] shows: a page on a server and the login that reaches it. */
-internal class PortPreviewRequest(val url: LoopbackUrl, val hostName: String, val open: suspend (host: String, port: Int) -> RemoteSocket)
+internal class PortPreviewRequest(val url: LoopbackUrl, val hostId: String, val hostName: String,
+    val open: suspend (host: String, port: Int) -> RemoteSocket)
 
-/** Shows [url] on [hostName] in the app, through a tunnel over [open] (a session's or the host page's SSH login). */
-internal fun openPortPreview(context: Context, url: LoopbackUrl, hostName: String, open: suspend (host: String, port: Int) -> RemoteSocket) {
+/**
+ * Shows [url] on [host] in the app, through a tunnel over [open] (a session's or the host page's SSH login). The page
+ * keeps its cookies and storage in [host]'s own store ([PreviewStorage]).
+ */
+internal fun openPortPreview(context: Context, url: LoopbackUrl, host: Host, open: suspend (host: String, port: Int) -> RemoteSocket) {
     val id = UUID.randomUUID().toString()
-    PortPreviewActivity.requests[id] = PortPreviewRequest(url, hostName, open)
+    PortPreviewActivity.requests[id] = PortPreviewRequest(url, host.id, host.name, open)
     context.startActivity(Intent(context, PortPreviewActivity::class.java).putExtra(PortPreviewActivity.EXTRA_REQUEST, id))
 }
 
@@ -42,7 +47,7 @@ class PortPreviewActivity : ComponentActivity() {
             val light = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM &&
                 resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
             MaterialTheme(colorScheme = if (light) LightColors else DarkColors, shapes = AppShapes, typography = AppTypography) {
-                PortPreviewPage(request.url, request.hostName, request.open, onDismiss = ::finish)
+                PortPreviewPage(request.url, request.hostId, request.hostName, request.open, onDismiss = ::finish)
             }
         }
     }

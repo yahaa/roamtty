@@ -788,6 +788,7 @@ fun ItermuxScreen(
                     service?.desktops?.close(host.id)
                     app.database.hosts().delete(host.id)
                     DesktopThumbnails.remove(app, host.id)
+                    PreviewStorage.forget(app, host.id)
                     deleteHost = null
                 }
             }
