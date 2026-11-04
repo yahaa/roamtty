@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
@@ -89,6 +90,9 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     val connected = state.phase == Phase.CONNECTED
     // While it reconnects, what the agent reported last; nothing it offers can be done until it answers again.
     val (status, live) = listedAgentStatus(state, polled, agent, last, hostOffline)
+    // An offline host's card keeps what it last showed, its marks faded, so it reads as a record rather than live.
+    val offline = hostOffline && !state.active
+    val fade = Modifier.alpha(if (offline) OFFLINE_ALPHA else 1f)
     val colors = MaterialTheme.colorScheme
     val username = session.host.username
     // The agent's folder while it reports, else the pane's, so a session without hooks or agent says it too; on a line
@@ -133,11 +137,11 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
         val titleLine: @Composable () -> Unit = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (kind != null) {
-                    AgentBadge(kind)
+                    AgentBadge(kind, fade)
                     Spacer(Modifier.width(6.dp))
                 }
                 MarqueeTitle(name, Modifier.weight(1f).testTag("$tagPrefix-title-${session.id}"))
-                HostChip(session.host.name, session.host.id, hostOffline && !state.active, "$tagPrefix-host-${session.id}",
+                HostChip(session.host.name, session.host.id, offline, "$tagPrefix-host-${session.id}",
                     Modifier.padding(start = Spacing.Tight))
             }
             // Behind a folder mark; cut in the middle, so both where it starts and the folder's own name stay. Without
@@ -158,15 +162,14 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
         }
         if (compact) Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SessionIcon(session, 40.dp, status?.state)
+                SessionIcon(session, 40.dp, status?.state, modifier = fade)
                 Column(Modifier.weight(1f).padding(start = Spacing.Row)) { titleLine() }
             }
             // How it is connected and what carries it, across the row's whole width; the desktop at the end, where every
             // row has its buttons.
             Row(Modifier.padding(top = Spacing.Tight).heightIn(min = STATUS_ROW_HEIGHT),
                 verticalAlignment = Alignment.CenterVertically) {
-                StatusLabel(state.phase, Modifier.weight(1f).testTag("$tagPrefix-status-${session.id}"),
-                    hostOffline = hostOffline && !state.active)
+                StatusLabel(state.phase, Modifier.weight(1f).testTag("$tagPrefix-status-${session.id}"), hostOffline = offline)
                 Row(Modifier.padding(start = Spacing.Tight), horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Row(Modifier.testTag("$tagPrefix-tags-${session.id}"),
@@ -180,7 +183,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
         } else Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
             // The tile stands beside the name, its folder and the prompt; everything after takes the row's whole width.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SessionIcon(session, 40.dp, status?.state)
+                SessionIcon(session, 40.dp, status?.state, modifier = fade)
                 Column(Modifier.weight(1f).padding(start = Spacing.Row)) {
                     titleLine()
                     if (prompt.isNotEmpty()) Text(buildAnnotatedString {
@@ -209,7 +212,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             Row(Modifier.padding(top = Spacing.Tight).heightIn(min = STATUS_ROW_HEIGHT), verticalAlignment = Alignment.CenterVertically) {
                 when {
                     status == null || !live -> StatusLabel(state.phase, Modifier.testTag("$tagPrefix-status-${session.id}"),
-                        hostOffline = hostOffline && !state.active)
+                        hostOffline = offline, last = status)
                     waiting -> AgentStateLabel(status.state, tr("等待确认"), Modifier.testTag("$tagPrefix-status-${session.id}"))
                     !idle -> WorkingSpinner(kind?.brand() ?: colors.primary, if (activity.isEmpty()) tr("思考中…") else tr("运行中"),
                         Modifier.testTag("$tagPrefix-working-${session.id}"))
@@ -277,9 +280,9 @@ private fun pathLeaf(path: String): String =
 
 /** The agent's name on a small wash of its colour, before the session's name. */
 @Composable
-private fun AgentBadge(agent: CodingAgent) {
+private fun AgentBadge(agent: CodingAgent, modifier: Modifier = Modifier) {
     val brand = agent.brand()
-    Text(agent.shortLabel, Modifier.clip(RoundedCornerShape(5.dp)).background(brand.copy(alpha = 0.14f))
+    Text(agent.shortLabel, modifier.clip(RoundedCornerShape(5.dp)).background(brand.copy(alpha = 0.14f))
         .padding(horizontal = 6.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = brand,
         fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
 }
@@ -413,3 +416,5 @@ internal fun MarqueeTitle(text: String, modifier: Modifier = Modifier) {
 
 /** How tall a card's status line stands, with or without the icon buttons (36dp to touch) at its end. */
 private val STATUS_ROW_HEIGHT = 36.dp
+/** How strongly an offline host's card shows its agent's marks. */
+private const val OFFLINE_ALPHA = 0.55f

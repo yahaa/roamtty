@@ -50,12 +50,13 @@ internal fun sessionGroup(connected: Boolean, status: AgentStatus?): SessionGrou
 /**
  * What the list shows of a session's agent, and whether it is live: what it reports now, or, while the session comes
  * back and before its host has answered, what it reported last ([last]), so opening the app does not move every card
- * to "其它" and back. A session that failed to connect, or whose host is offline, shows none.
+ * to "其它" and back; and, while its host is offline, so the card keeps its group and says what it was doing. A session
+ * that failed to connect shows none.
  */
 internal fun listedAgentStatus(state: ConnectionState, polled: Boolean, live: AgentStatus?, last: AgentStatus?,
     hostOffline: Boolean): Pair<AgentStatus?, Boolean> = when {
     state.phase == Phase.CONNECTED && polled -> live to true
-    (state.active || reconnectsOnOpen(state)) && !hostOffline -> last to false
+    state.active || reconnectsOnOpen(state) || hostOffline -> last to false
     else -> null to false
 }
 
