@@ -26,22 +26,20 @@ import io.itermux.app.data.needsTypedPassword
 /**
  * The tmux sessions already running on [host]: tapping one picks it (the most recently used to start with), the button
  * opens it ([onAttach]); [openTmux] are those that already have a card. In landscape the picked one also shows beside
- * the list. Lists them over [monitor] when the host page already has a login, else over a short-lived login of the
- * sheet's own, asking for a typed password only when tapped. With none running it offers a fresh terminal
- * ([onNewTerminal]); without tmux, the host's plugins ([onInstall]).
+ * the list. Lists them over a short-lived login of the sheet's own, asking for a typed password only when tapped. With
+ * none running it offers a fresh terminal ([onNewTerminal]); without tmux, the host's plugins ([onInstall]).
  */
 @Composable
 internal fun ContinueSessionSheet(host: Host, openTmux: Set<String>, onDismiss: () -> Unit, onNewTerminal: () -> Unit,
-    onInstall: () -> Unit, monitor: HostMonitor? = null, onAttach: (name: String) -> Unit) {
+    onInstall: () -> Unit, onAttach: (name: String) -> Unit) {
     val app = LocalContext.current.applicationContext as ItermuxApp
     val scope = rememberCoroutineScope()
-    var login by remember(host.loginKey) { mutableStateOf(if (monitor == null && !host.needsTypedPassword) PluginTarget(host) else null) }
+    var login by remember(host.loginKey) { mutableStateOf(if (!host.needsTypedPassword) PluginTarget(host) else null) }
     var askPassword by remember { mutableStateOf(false) }
-    val own = if (monitor == null) login?.let { target ->
+    val browser = login?.let { target ->
         remember(target) { HostMonitor(app, target, scope, sampleMetrics = false).also { it.start() } }
-    } else null
-    own?.let { DisposableEffect(it) { onDispose { it.close() } } }
-    val browser = monitor ?: own
+    }
+    browser?.let { DisposableEffect(it) { onDispose { it.close() } } }
     val ready = browser?.ready?.collectAsStateWithLifecycle()?.value == true
     val connection = browser?.connection?.collectAsStateWithLifecycle()?.value
 
@@ -141,5 +139,5 @@ internal fun ContinueSessionSheet(host: Host, openTmux: Set<String>, onDismiss: 
         askPassword = false
         login = PluginTarget(host, password, passphrase)
     }
-    own?.pending?.collectAsStateWithLifecycle()?.value?.let { PromptDialog(it) }
+    browser?.pending?.collectAsStateWithLifecycle()?.value?.let { PromptDialog(it) }
 }

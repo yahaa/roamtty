@@ -657,8 +657,6 @@ fun ItermuxScreen(
                             hostReachability.statusOf(detailHost).let { if (detailConnected && it !is HostReachability.Online) HostReachability.Online(null) else it },
                             onBack = { page = AppPage.HOME },
                             onLaunch = { directory, agent -> launchOn(detailHost, directory, agent) },
-                            openTmux = sessions.openTmuxNames(detailHost),
-                            onAttach = { attachOn(detailHost, it) },
                             onBrowseFiles = { browseFiles(detailHost) },
                             onEdit = { editHostId = detailHost.id; editorOpen = true },
                             onManagePlugins = { managePlugins(detailHost) },

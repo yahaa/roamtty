@@ -112,25 +112,14 @@ class LaunchFilesLandscapeTest {
             screenshot("launch-landscape-agent")
             compose.onNodeWithTag("launch-close").performClick()
 
-            // Terminal: folders only; the host's tmux sessions are behind 继续 instead.
+            // Terminal: folders only; the host's tmux sessions are behind 新建会话 › 继续会话 instead.
             compose.onNodeWithTag("host-detail-terminal").performClick()
             awaitTag("launch-folders", 30_000)
             compose.onNodeWithTag("launch-source").assertDoesNotExist()
             screenshot("launch-landscape-terminal")
             compose.onNodeWithTag("launch-close").performClick()
 
-            // 继续, when the host has tmux: the picked session on a card above the button, which says the same as in portrait.
-            if (compose.onAllNodesWithTag("host-detail-continue").fetchSemanticsNodes().isNotEmpty()) {
-                compose.onNodeWithTag("host-detail-continue").performClick()
-                awaitTag("continue-sheet", 15_000)
-                runCatching { awaitTag("launch-tmux-selected", 15_000) }.onSuccess {
-                    compose.onNodeWithTag("continue-attach").assert(hasText("打开会话"))
-                    assertTrue(bounds("launch-tmux-selected").bottom <= bounds("continue-attach").top)
-                    assertTrue(bounds("continue-attach").left >= bounds("continue-sheet").right)
-                    screenshot("continue-landscape")
-                }
-                compose.onNodeWithTag("continue-close").performClick()
-            }
+            compose.onNodeWithTag("host-detail-continue").assertDoesNotExist()
 
         } finally {
             compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
