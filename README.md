@@ -76,6 +76,6 @@ key-echo 类：CursorEnterKeyTest、DownloadDestinationTest、DownloadFilesTest�
 - [架构与设计约束](docs/ARCHITECTURE.md)
 - [Google Play 上架清单](docs/GOOGLE_PLAY_RELEASE.md)
 - [隐私政策](docs/PRIVACY.md)（公开地址 https://roamtty.com/privacy/）
-- [官网 roamtty.com 与商店网址](docs/WEBSITE.md)
+- [官网 roamtty.com 与商店网址](https://github.com/yahaa/roamtty-website)（独立私有仓库；`docs/PRIVACY.md` 合并到 main 后，在那边重新发布官网才会更新线上隐私政策）
 - [Logo 设计预览](docs/previews/logo-redesign.html)
 - [第三方许可](THIRD_PARTY_NOTICES.md)

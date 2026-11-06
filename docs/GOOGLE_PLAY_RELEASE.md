@@ -15,7 +15,7 @@
 | 前台服务 | `specialUse` + `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` | 需在 Play Console 提交声明并通过审核 |
 | 其他权限 | INTERNET、网络状态、WAKE_LOCK、POST_NOTIFICATIONS | 无需额外声明 |
 | 数据收集 | 无账号、无广告、无遥测、无第三方 SDK | 数据安全表单可如实填写“不收集” |
-| 隐私政策 | `docs/PRIVACY.md`（中英文），应用「帮助 → 隐私政策」可查看，公开网址 https://roamtty.com/privacy/ | 满足；官网见 `docs/WEBSITE.md` |
+| 隐私政策 | `docs/PRIVACY.md`（中英文），应用「帮助 → 隐私政策」可查看，公开网址 https://roamtty.com/privacy/ | 满足；官网见 [roamtty-website](https://github.com/yahaa/roamtty-website) |
 | 明文流量 / 备份 | `usesCleartextTraffic=false`、`allowBackup=false` | 满足 |
 | 商店素材 | 无 | **缺失** |
 
@@ -47,7 +47,7 @@
 
 1. **隐私政策网址**（必填，即使不收集任何数据）：
    - 新增 `docs/PRIVACY.md`（中英文），内容覆盖：不收集、不上传任何个人数据；主机信息与凭据只保存在本机并用 Keystore 加密；连接只发往用户指定的服务器；无广告、无分析、无崩溃上报；系统备份已关闭；卸载应用即删除全部数据；联系邮箱。
-   - 已由 `scripts/site.py` 发布到 https://roamtty.com/privacy/（见 `docs/WEBSITE.md`），在 Play Console「应用内容 → 隐私权政策」中填写该网址。
+   - 已由 [roamtty-website](https://github.com/yahaa/roamtty-website) 发布到 https://roamtty.com/privacy/，在 Play Console「应用内容 → 隐私权政策」中填写该网址。
 2. **数据安全表单**（「应用内容 → 数据安全」）：
    - 是否收集或分享用户数据：**否**（数据仅在设备本地处理、未发送到开发者或第三方，不算“收集”）。
    - 传输加密：SSH / mosh 均加密，可勾选“传输中加密”（仅在声明收集时需要，按表单流程填写）。

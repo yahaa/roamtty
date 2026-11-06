@@ -5,7 +5,7 @@ Remotion project for the Google Play foreground-service review video and the web
 | Composition | Use | Output |
 | --- | --- | --- |
 | `PlayReview` | Play Console foreground service (`specialUse`) declaration video | `roamtty-play-review.mp4` |
-| `SiteEn`, `SiteZh` | roamtty.com home page | `site/assets/video/site-demo-{en,zh}.mp4` |
+| `SiteEn`, `SiteZh` | roamtty.com home page | `site/assets/video/site-demo-{en,zh}.mp4` in the private `yahaa/roamtty-website` repository |
 
 All three use the same real screen recording. Only the captions and outro change.
 
