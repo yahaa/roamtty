@@ -30,6 +30,9 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import java.util.UUID
 
+/** The translation key of the notification title: English needs its own singular. */
+internal fun sessionCountKey(count: Int): String = if (count == 1) "1 个会话" else "%d 个会话"
+
 class SessionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutableSessions = MutableStateFlow<List<TerminalConnection>>(emptyList())
@@ -404,7 +407,7 @@ class SessionService : Service() {
             else -> trf("%d 个桌面已连接 · %s", live.size, live.joinToString("、") { it.host.name })
         }
         return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf("%d 个会话", active))
+            .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf(sessionCountKey(active), active))
             .setContentText(text)
             .setOngoing(true).setSilent(true).setContentIntent(launch)
             // Kept apart from the agent notifications; see showAlert.

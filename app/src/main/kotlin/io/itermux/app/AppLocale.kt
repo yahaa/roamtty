@@ -36,7 +36,7 @@ fun tr(chinese: String): String = if (AppLocale.language == AppLanguage.ENGLISH)
 
 fun trf(pattern: String, vararg args: Any): String = tr(pattern).format(*args)
 
-private object EnglishText {
+internal object EnglishText {
     val values: Map<String, String> = mapOf(
         "桌面尚未检测" to "Desktop not checked yet",
         "连接主机后自动检测桌面" to "Connect to check the desktop automatically",
@@ -51,7 +51,7 @@ private object EnglishText {
         "连接保持" to "Stays connected",
         "上传和下载" to "Upload and download",
         "显示网络状态" to "Show network stats",
-        "画面左上角显示延迟、帧率和码率" to "Latency, frame rate and bit rate in the top left corner",
+        "画面上显示延迟、帧率和码率，长按可拖动" to "Latency, frame rate and bit rate; hold to drag",
         "断开连接" to "Disconnect",
         "断开连接时锁屏，返回不算" to "Lock when you disconnect, not when you go back",
         "移动数据" to "Mobile data",
@@ -591,6 +591,7 @@ private object EnglishText {
         "提交" to "Submit",
         "让 SSH 在后台保持连接。关掉这个类别只是不显示通知，连接不受影响。" to
             "Keeps SSH connected in the background. Turning this category off only hides the notification; connections stay.",
+        "1 个会话" to "1 session",
         "%d 个会话" to "%d sessions",
         "隐藏后台连接通知" to "Hide the background connection notification",
         "允许完全后台行为" to "Allow full background activity",
