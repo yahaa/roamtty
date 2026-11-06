@@ -43,6 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
@@ -224,13 +226,8 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                     style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant.copy(alpha = 0.8f),
                     maxLines = 1, softWrap = false)
                 // Then, held to the right, what keeps and carries it and what the agent needs from the user.
-                Row(Modifier.weight(1f).padding(start = Spacing.Tight), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.testTag("$tagPrefix-tags-${session.id}"), horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        sessionTransportTags(session.mode, multiplexer, session.host.multiplexer, transport.takeIf { connected })
-                            .forEach { MetaTag(it, Modifier.testTag("$tagPrefix-tag-$it-${session.id}")) }
-                    }
+                SessionRowTrailing(sessionTransportTags(session.mode, multiplexer, session.host.multiplexer, transport.takeIf { connected }),
+                    tagPrefix, session.id, Modifier.weight(1f).padding(start = Spacing.Tight)) {
                     if (waiting && live) {
                         RowAction(tr("查看"), "$tagPrefix-view-${session.id}", plain = true, onClick = onClick)
                         RowAction(tr("允许"), "$tagPrefix-approve-${session.id}", fill = StatusColors.warning) {
@@ -316,6 +313,34 @@ private fun AgentStateLabel(state: AgentStatus.State, label: String, modifier: M
 }
 
 /** A small pill button on a row's status line: filled with [fill], text only when [plain], else on a neutral wash. */
+/** The right of a row: its actions always fit, and the tags before them give way one at a time when they would not. */
+@Composable
+internal fun SessionRowTrailing(tags: List<String>, tagPrefix: String, sessionId: String, modifier: Modifier = Modifier,
+    actions: @Composable RowScope.() -> Unit) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+        // A tag is whole or gone: squeezed, it would read "tm…".
+        Layout(content = { tags.forEach { MetaTag(it, Modifier.testTag("$tagPrefix-tag-$it-$sessionId")) } },
+            modifier = Modifier.weight(1f, fill = false).testTag("$tagPrefix-tags-$sessionId")) { measurables, constraints ->
+            val gap = 6.dp.roundToPx()
+            val placeables = measurables.map { it.measure(Constraints()) }
+            var width = 0
+            val shown = placeables.takeWhile { tag ->
+                val next = width + (if (width > 0) gap else 0) + tag.width
+                (next <= constraints.maxWidth).also { fits -> if (fits) width = next }
+            }
+            val height = shown.maxOfOrNull { it.height } ?: 0
+            layout(width, height) {
+                var x = 0
+                shown.forEach { tag ->
+                    tag.placeRelative(x, (height - tag.height) / 2)
+                    x += tag.width + gap
+                }
+            }
+        }
+        actions()
+    }
+}
+
 @Composable
 private fun RowAction(label: String, tag: String, icon: Int? = null, fill: Color? = null, plain: Boolean = false,
     iconOnly: Boolean = false, onClick: () -> Unit) {

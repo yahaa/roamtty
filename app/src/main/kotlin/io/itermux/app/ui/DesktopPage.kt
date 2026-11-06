@@ -100,7 +100,7 @@ private val Ink = Color(0xFFF2F2F7)
 private val InkDim = Color(0xFF9A9AA1)
 private val Accent = Color(0xFFFF9F0A)
 
-private enum class DesktopPanel { NONE, OPERATIONS, KEYBOARD }
+internal enum class DesktopPanel { NONE, OPERATIONS, KEYBOARD }
 
 /**
  * A host's desktop (plan §5): the picture fills the page, a rail on the right (bottom in portrait)
@@ -197,7 +197,7 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
 }
 
 @Composable
-private fun DesktopRail(landscape: Boolean, panel: DesktopPanel, onPanel: (DesktopPanel) -> Unit, onShowDesktop: () -> Unit,
+internal fun DesktopRail(landscape: Boolean, panel: DesktopPanel, onPanel: (DesktopPanel) -> Unit, onShowDesktop: () -> Unit,
     onAllWindows: () -> Unit) {
     val items: List<Triple<String, Int, () -> Unit>> = listOf(
         Triple(tr("操作"), R.drawable.ic_operations) { onPanel(DesktopPanel.OPERATIONS) },
@@ -213,7 +213,8 @@ private fun DesktopRail(landscape: Boolean, panel: DesktopPanel, onPanel: (Deskt
             .widthIn(min = 56.dp).testTag(tags[i]), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(painterResource(icon), contentDescription = null, Modifier.size(if (landscape) 24.dp else 22.dp), tint = if (selected[i]) Accent else Ink)
             Spacer(Modifier.height(3.dp))
-            Text(label, fontSize = if (landscape) 12.sp else 11.sp, color = if (selected[i]) Accent else InkDim, maxLines = 1)
+            Text(label, fontSize = if (landscape) 12.sp else 11.sp, color = if (selected[i]) Accent else InkDim, maxLines = 2,
+                textAlign = TextAlign.Center) // The landscape rail is narrower than a two-word English label.
         }
     }
     // A cutout on the rail's side widens the rail to the screen edge instead of squeezing its buttons.
