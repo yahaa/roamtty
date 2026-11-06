@@ -1035,7 +1035,8 @@ class E2eFeatureTest {
         compose.onNodeWithTag("host-detail-continue").assertDoesNotExist()
         E2e.capture(compose, "f22-host-detail")
         // In landscape the continue sheet keeps the picked session on a card above the button.
-        backToHome()
+        // 新建会话 lives on the sessions tab; back from the host page lands on the hosts tab.
+        sessionsTab()
         compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
         click("add-session")
         click("new-session-pick-continue")
@@ -1046,7 +1047,9 @@ class E2eFeatureTest {
         // Turning back with the sheet up keeps it up.
         compose.activityRule.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
         E2e.waitTag(compose, "continue-attach")
-        click("continue-close")
+        // Portrait has no continue-close: that button belongs to the landscape bar.
+        Espresso.pressBackUnconditionally()
+        compose.waitUntil(5_000) { !E2e.exists(compose, hasTestTag("continue-sheet")) }
     }
 
     /** 强制删除 removes a disconnected tmux card at once and also ends its tmux session on the server. */

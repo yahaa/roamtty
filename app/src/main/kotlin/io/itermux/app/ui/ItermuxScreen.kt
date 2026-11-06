@@ -221,7 +221,8 @@ fun ItermuxScreen(
     var deleteHost by remember { mutableStateOf<Host?>(null) }
     /** A launch on a host: from its menu (the agent chosen on the launch sheet) or from 新建会话 (the agent picked first). */
     var launchRequest by remember { mutableStateOf<LaunchRequest?>(null) }
-    var continueOn by remember { mutableStateOf<Host?>(null) }
+    /** The host of the 继续会话 sheet; saved, as turning the phone recreates the activity. */
+    var continueOnId by rememberSaveable { mutableStateOf<String?>(null) }
     /** The home page's "new session" sheet, which picks the host before the launch sheet. */
     var newSessionOpen by rememberSaveable { mutableStateOf(false) }
     /** Set while the host editor fills in a new host for a new session: the agent it starts, or "" for a terminal. */
@@ -759,15 +760,15 @@ fun ItermuxScreen(
         }
         if (newSessionOpen) NewSessionSheet(hosts, onDismiss = { newSessionOpen = false },
             onNewHost = { newSessionOpen = false; newHostFor = it?.name.orEmpty() },
-            onContinue = { newSessionOpen = false; continueOn = it }) { host, agent ->
+            onContinue = { newSessionOpen = false; continueOnId = it.id }) { host, agent ->
             newSessionOpen = false
             launchRequest = LaunchRequest(host, agent != null, agent, newSession = true)
         }
-        continueOn?.let { host ->
-            ContinueSessionSheet(host, sessions.openTmuxNames(host), onDismiss = { continueOn = null },
-                onNewTerminal = { continueOn = null; launchOn(host, StartDirectory.HOME, null) },
-                onInstall = { continueOn = null; managePlugins(host) }) {
-                continueOn = null
+        continueOnId?.let { id -> hosts.firstOrNull { it.id == id } }?.let { host ->
+            ContinueSessionSheet(host, sessions.openTmuxNames(host), onDismiss = { continueOnId = null },
+                onNewTerminal = { continueOnId = null; launchOn(host, StartDirectory.HOME, null) },
+                onInstall = { continueOnId = null; managePlugins(host) }) {
+                continueOnId = null
                 attachOn(host, it)
             }
         }
