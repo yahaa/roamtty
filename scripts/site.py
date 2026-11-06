@@ -33,7 +33,7 @@ DOMAIN = "roamtty.com"
 EMAIL = "support@roamtty.com"
 # Store listings; leave empty until the app is live there and the button reads "coming soon".
 PLAY_URL = ""
-APP_STORE_URL = ""
+APP_STORE_URL = "https://apps.apple.com/app/id6826986771"  # No region in the path: Apple sends visitors to their own storefront.
 
 LANGS = {
     "zh": {"prefix": "/", "html": "zh-CN", "locale": "zh_CN", "other": "en", "switch": "English", "soon": "即将上架",
@@ -196,7 +196,7 @@ def fragment(name: str, lang: str, folder: str = "pages") -> tuple[dict, str]:
     while match := re.match(r"\s*<!--\s*(\w+):\s*(.*?)\s*-->\n", text):
         meta[match.group(1)] = match.group(2)
         text = text[match.end():]
-    for key, value in {"{{stores}}": store_buttons(lang), "{{email}}": EMAIL}.items():
+    for key, value in {"{{stores}}": store_buttons(lang), "{{email}}": EMAIL, "{{app_store}}": APP_STORE_URL}.items():
         text = text.replace(key, value)
     return meta, text
 
