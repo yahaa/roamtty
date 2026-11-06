@@ -1,5 +1,6 @@
 import {Composition} from 'remotion';
 import {RoamttyDemo, demoDuration} from './RoamttyDemo';
+import {SiteDemo, siteDuration} from './SiteDemo';
 
 // 1920x1080 at 30 fps: the format Google Play and YouTube expect for a landscape demo.
 export const RemotionRoot: React.FC = () => {
@@ -16,21 +17,21 @@ export const RemotionRoot: React.FC = () => {
       />
       <Composition
         id="SiteEn"
-        component={RoamttyDemo}
-        durationInFrames={demoDuration(30)}
+        component={SiteDemo}
+        durationInFrames={siteDuration('en', 30)}
         fps={30}
         width={1920}
         height={1080}
-        defaultProps={{variant: 'site' as const, lang: 'en' as const}}
+        defaultProps={{lang: 'en' as const}}
       />
       <Composition
         id="SiteZh"
-        component={RoamttyDemo}
-        durationInFrames={demoDuration(30)}
+        component={SiteDemo}
+        durationInFrames={siteDuration('zh', 30)}
         fps={30}
         width={1920}
         height={1080}
-        defaultProps={{variant: 'site' as const, lang: 'zh' as const}}
+        defaultProps={{lang: 'zh' as const}}
       />
     </>
   );
