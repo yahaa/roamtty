@@ -1,4 +1,4 @@
-export type Variant = 'review' | 'site';
+export type Variant = 'review';
 export type Lang = 'en' | 'zh';
 
 type Copy = {
@@ -30,10 +30,6 @@ const stepsZh = [
   {label: '全部断开', title: '一键全部断开', body: '所有会话关闭，前台服务停止，通知随之消失。'},
 ];
 
-const withStep3 = (steps: typeof stepsEn, body: string) => steps.map((s, i) => (i === 2 ? {...s, body} : s));
-const siteStepsEn = withStep3(stepsEn, 'Your session stays connected in the background, with an ongoing notification to jump back in.');
-const siteStepsZh = withStep3(stepsZh, '会话在后台保持连接，常驻通知一点即可回来。');
-
 export const COPY: Record<Variant, Record<Lang, Copy>> = {
   review: {
     en: {
@@ -61,36 +57,6 @@ export const COPY: Record<Variant, Record<Lang, Copy>> = {
       outroBullets: ['打开或重连会话时启动', '常驻通知：返回会话，或全部断开', '最后一个会话关闭即停止，不会开机自启'],
       outroFooter: 'roamtty.com  ·  前台服务类型：specialUse',
       footnote: '真实录屏 · Android 16 · Roamtty 0.1.0 (101) · 部分等待已加速',
-      stepWord: '步骤',
-      speed: (r) => `${r}× 加速`,
-    },
-  },
-  site: {
-    en: {
-      eyebrow: 'ROAMTTY',
-      title: 'Your AI agents, in your pocket',
-      subtitle: 'Run Claude Code, Codex or Grok on your own server, right from your phone',
-      steps: siteStepsEn,
-      outroTitle: 'Your AI agents, in your pocket',
-      outroBullets: [
-        'Claude Code, Codex and Grok over SSH',
-        'tmux keeps long tasks running on the server',
-        'No accounts, ads or telemetry',
-      ],
-      outroFooter: 'roamtty.com',
-      footnote: 'Real screen recording · Some waits sped up',
-      stepWord: 'STEP',
-      speed: (r) => `${r}× speed`,
-    },
-    zh: {
-      eyebrow: 'ROAMTTY',
-      title: '把 AI Agent 装进口袋',
-      subtitle: '在手机上运行你服务器上的 Claude Code、Codex 和 Grok',
-      steps: siteStepsZh,
-      outroTitle: '把 AI Agent 装进口袋',
-      outroBullets: ['通过 SSH 使用 Claude Code、Codex、Grok', 'tmux 让长任务在服务器上持续运行', '无账号、无广告、无遥测'],
-      outroFooter: 'roamtty.com',
-      footnote: '真实录屏 · 部分等待已加速',
       stepWord: '步骤',
       speed: (r) => `${r}× 加速`,
     },
