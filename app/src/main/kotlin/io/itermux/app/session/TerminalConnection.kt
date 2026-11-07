@@ -346,8 +346,13 @@ class TerminalConnection(
         ssh.state.first { !it.active || it.phase == Phase.CONNECTED }
         try {
             val (name, content, executable) = AgentHooks.hostFile(agent)
-            ssh.writeHostFile(AgentHooks.SCRIPT_PATH.substringAfterLast('/'), AgentHooks.script) &&
+            val written = ssh.writeHostFile(AgentHooks.SCRIPT_PATH.substringAfterLast('/'), AgentHooks.script) &&
                 ssh.writeHostFile(name, content, executable)
+            if (written && agent == CodingAgent.CLAUDE && mode == SessionMode.TMUX) {
+                val (sessionName, sessionContent) = AgentHooks.hostFile(agent, remoteSessionName)
+                if (sessionName != name) ssh.writeHostFile(sessionName, sessionContent)
+                ssh.runHostCommand(AgentHooks.pruneSettings)
+            }
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { /* The agent still starts, without reporting. */ }
     }

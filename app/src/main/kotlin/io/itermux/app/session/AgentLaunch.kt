@@ -46,16 +46,22 @@ data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: 
      * [agentCommand] as typed: with the hooks [AgentHooks.hostFile] puts on the host, which Claude Code reads from its
      * settings and the other agents get from their launcher.
      */
-    private val typedCommand: String get() = when {
+    private fun typedCommand(session: String?): String = when {
         !reportsStatus -> agentCommand
-        agent == CodingAgent.CLAUDE -> "$agentCommand --settings ${AgentHooks.SETTINGS_PATH}"
+        agent == CodingAgent.CLAUDE -> "$agentCommand --settings ${AgentHooks.settingsPath(session)}"
         else -> AgentHooks.command(agent) + agentCommand.removePrefix(agent.command)
     }
 
-    /** Windows folders open PowerShell; keep npm's .ps1 execution policy from blocking its native .cmd shim. */
-    val commandLine: String get() {
+    val commandLine: String get() = commandLine(null)
+
+    /**
+     * What starts the agent, in tmux session [session], which Claude Code's hooks then report to from outside tmux too.
+     * Windows folders open PowerShell; keep npm's .ps1 execution policy from blocking its native .cmd shim.
+     */
+    fun commandLine(session: String?): String {
         val dir = StartDirectory.normalize(directory)
-        if (!WindowsShell.isPath(dir)) return StartDirectory.command(dir)?.let { "$it && $typedCommand" } ?: typedCommand
+        val typed = typedCommand(session)
+        if (!WindowsShell.isPath(dir)) return StartDirectory.command(dir)?.let { "$it && $typed" } ?: typed
         val cmd = "${agent.command}.cmd"
         // cmd.exe silently falls back to another cwd for UNC paths. Never run an agent there.
         val uncGuard = "if ((Get-Location).ProviderPath.StartsWith('\\\\')) { throw 'Please map this network folder to a drive letter before starting the agent.' }"

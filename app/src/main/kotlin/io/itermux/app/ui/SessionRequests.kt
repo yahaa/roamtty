@@ -14,7 +14,7 @@ import io.itermux.ssh.SessionMode
 /** A new session on [host] in [directory]; with [agent], that agent is started there and names the session. */
 internal fun launchRequest(host: Host, directory: String, agent: AgentLaunch?) =
     if (agent != null) ConnectRequest(host, host.newSessionMode, agent.title, startupCommand = agent.commandLine,
-        agentHooks = agent.reportsStatus, agent = agent.agent)
+        agentHooks = agent.reportsStatus, agent = agent.agent, launch = agent)
     else ConnectRequest(host, host.newSessionMode, startupCommand = StartDirectory.command(directory))
 
 /** A fresh login on this card's host: a disconnected tmux session is ended on the server; see [SessionService.close]. */
@@ -38,7 +38,9 @@ internal suspend fun SessionService.openFor(request: ConnectRequest, credentials
     }
     if (request.title.isNotBlank()) session.rename(request.title)
     request.agent?.let { session.launchedAgent.value = it }
-    request.startupCommand?.let { session.runWhenConnected(it, request.agent.takeIf { request.agentHooks }) }
+    // Only now is the tmux session known that the agent's hooks report to.
+    val startup = request.launch?.commandLine(session.remoteSessionName.takeIf { session.mode == SessionMode.TMUX }) ?: request.startupCommand
+    startup?.let { session.runWhenConnected(it, request.agent.takeIf { request.agentHooks }) }
     return session
 }
 
