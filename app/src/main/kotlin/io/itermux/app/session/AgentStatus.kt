@@ -154,9 +154,13 @@ object AgentHooks {
             .use { it.readBytes().toString(Charsets.UTF_8) }
     }
 
-    /** The hook file [agent] needs on the host, as a name in `~/.roamtty` and its contents; true when it must run. */
-    fun hostFile(agent: CodingAgent): Triple<String, String, Boolean> = when (agent) {
-        CodingAgent.CLAUDE -> Triple(SETTINGS_PATH.substringAfterLast('/'), claudeSettings, false)
+    /**
+     * The hook file [agent] needs on the host, as a name in `~/.roamtty` and its contents; true when it must run.
+     * With [session], Claude Code's file names the tmux session it reports to.
+     */
+    fun hostFile(agent: CodingAgent, session: String? = null): Triple<String, String, Boolean> = when (agent) {
+        CodingAgent.CLAUDE -> reportingSession(session)?.let { Triple("$SETTINGS_PREFIX$it.json", claudeSettings(it), false) }
+            ?: Triple(SETTINGS_PATH.substringAfterLast('/'), claudeSettings, false)
         CodingAgent.CODEX -> Triple("codex", codexLauncher, true)
         CodingAgent.GROK -> Triple("grok", grokLauncher, true)
     }
@@ -167,13 +171,39 @@ object AgentHooks {
         else -> "~/.roamtty/${hostFile(agent).first}"
     }
 
-    private fun hookCommand(agent: CodingAgent, action: String) = "sh $SCRIPT_PATH ${agent.command} $action"
+    /** Where Claude Code started for tmux session [session] reads its hooks. */
+    fun settingsPath(session: String?): String =
+        reportingSession(session)?.let { "~/.roamtty/$SETTINGS_PREFIX$it.json" } ?: SETTINGS_PATH
+
+    private const val SETTINGS_PREFIX = "claude-hooks-"
+
+    /** [session] when it can go into a hook command and a file name as it is; anything else reports as before. */
+    private fun reportingSession(session: String?): String? =
+        session?.takeIf { it.length in 1..64 && it.all { c -> c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '-' || c == '_' } }
+
+    /**
+     * Removes the settings of tmux sessions that ended long ago. A file stays while its session lives, and for a month
+     * after: a background job outlives its pane, and restarting one fails without its settings.
+     */
+    val pruneSettings: String = "/bin/sh -c " + shellQuote(
+        "PATH=\"\$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin\"; export PATH; " +
+            "find \"\$HOME/.roamtty\" -maxdepth 1 -name '$SETTINGS_PREFIX*.json' -mtime +30 2>/dev/null | while IFS= read -r file; do " +
+            "name=\${file##*/$SETTINGS_PREFIX}; tmux has-session -t \"=\${name%.json}\" 2>/dev/null || rm -f \"\$file\"; done; exit 0")
+
+    private fun hookCommand(agent: CodingAgent, action: String, session: String? = null) =
+        "sh $SCRIPT_PATH ${agent.command} $action" + (session?.let { " $it" } ?: "")
 
     /** Contents of [SETTINGS_PATH], for Claude Code's `--settings`: merged with the user's own settings and hooks. */
-    val claudeSettings: String by lazy {
+    val claudeSettings: String by lazy { claudeSettings(null) }
+
+    /**
+     * As [claudeSettings], for an agent started in tmux session [session]. Background jobs inherit `--settings`, which
+     * is all that tells them the session they belong to: they run outside tmux.
+     */
+    fun claudeSettings(session: String?): String {
         fun hook(event: String, action: String) =
-            "\"$event\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.CLAUDE, action)}\"}]}]"
-        "{\"hooks\":{" + listOf("SessionStart" to "start", "UserPromptSubmit" to "prompt", "PreToolUse" to "tool",
+            "\"$event\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.CLAUDE, action, session)}\"}]}]"
+        return "{\"hooks\":{" + listOf("SessionStart" to "start", "UserPromptSubmit" to "prompt", "PreToolUse" to "tool",
             "PostToolUse" to "post", "Notification" to "notify", "Stop" to "stop", "SessionEnd" to "end")
             .joinToString(",") { (event, action) -> hook(event, action) } + "}}"
     }

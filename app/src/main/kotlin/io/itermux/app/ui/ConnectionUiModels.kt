@@ -29,6 +29,8 @@ internal data class ConnectRequest(
     val agentHooks: Boolean = false,
     /** The agent the startup command starts. */
     val agent: CodingAgent? = null,
+    /** How the startup command starts [agent], to name the tmux session it reports to once that is known. */
+    val launch: io.itermux.app.session.AgentLaunch? = null,
     /** Credentials end this closed entry's remote tmux session instead of opening a terminal. */
     val terminateSessionId: String? = null,
     /** Attach this tmux session already on the server instead of creating one. */

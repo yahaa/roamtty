@@ -703,6 +703,10 @@ class JschSession(
         } != null
     }
 
+    /** Runs [command] on the host beside the terminal; false when it could not be asked. */
+    suspend fun runHostCommand(command: String): Boolean =
+        auxiliarySession(interactive = false)?.let { runCommand(it, command) } != null
+
     /** See [Tmux.restartPaneCommand]: the ended foreground command line ("" for a bare shell), or null on failure. */
     suspend fun restartTmuxPane(): String? = runCommand(
         if (multiplexer.value == HostPlugin.PSMUX) Psmux.restartPaneCommand(tmuxName) else Tmux.restartPaneCommand(tmuxName))?.trim()
