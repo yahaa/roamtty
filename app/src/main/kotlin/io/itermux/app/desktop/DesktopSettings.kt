@@ -62,6 +62,17 @@ internal class DesktopSettings(context: Context) {
     fun lockOnClose(hostId: String): Boolean = prefs.getBoolean("desktop.$hostId.lock", false)
     fun setLockOnClose(hostId: String, lock: Boolean) = prefs.edit { putBoolean("desktop.$hostId.lock", lock) }
 
+    /**
+     * Where the small window over the terminal or the desktop rests and how wide it is (a fraction of the screen's
+     * short side), per host and per page ([key]); null until it was moved or pinched.
+     */
+    fun pipAnchor(key: String): String? = prefs.getString("pip.$key.anchor", null)
+    fun pipFraction(key: String): Float? = prefs.getFloat("pip.$key.fraction", -1f).takeIf { it > 0f }
+    fun setPip(key: String, anchor: String, fraction: Float) = prefs.edit {
+        putString("pip.$key.anchor", anchor)
+        putFloat("pip.$key.fraction", fraction)
+    }
+
     companion object {
         val KEEP_ALIVE = listOf(5, 10, 30)
         val FPS = listOf(30, 60, 90, 120)

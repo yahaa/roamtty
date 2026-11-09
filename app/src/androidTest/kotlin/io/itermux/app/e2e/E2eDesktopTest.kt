@@ -321,6 +321,77 @@ class E2eDesktopTest {
     }
 
     /**
+     * The small windows (terminal ⇄ desktop): the desktop shown small over its terminal from the dock's long press, a
+     * tap that gives it the screen, and back. Each side works as usual once it has the screen: the same desktop
+     * connection all along (no new login), a fresh picture at once, typing reaches the host; the terminal types and
+     * runs, and its size never changes for the small window. Back undoes one change of places, then leaves.
+     */
+    @Test fun d10_smallWindowsChangePlacesAndKeepWorking() {
+        val host = runBlocking { E2e.save(E2e.host("desktop-pip")) }
+        hostId = host.id
+        val session = runBlocking {
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+        }
+        runBlocking { E2e.connected(session) }
+        compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
+        E2e.waitTag(compose, "home-session-${session.id}", 15_000)
+        click("home-session-${session.id}")
+        E2e.waitTag(compose, "terminal")
+        fun size(): Pair<Int, Int> { var s = 0 to 0; E2e.instrumentation.runOnMainSync { s = session.getEmulator().let { it.mColumns to it.mRows } }; return s }
+        val terminalSize = size()
+
+        // The dock's desktop button, held: the desktop logs in and shows in the small window, the terminal stays.
+        click("restore-dock")
+        E2e.waitTag(compose, "terminal-desktop")
+        compose.onNodeWithTag("terminal-desktop").performTouchInput { longClick() }
+        E2e.waitTag(compose, "pip-desktop", 15_000)
+        waitPhase(45_000, "first frame in the small window") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
+        assertTrue("${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)
+        compose.waitUntil(10_000) { decodedFrames() > 0 }
+        val connection = desktop()
+        assertEquals("the small window never resizes the terminal", terminalSize, size())
+        E2e.capture(compose, "pip-01-desktop-small")
+
+        // A tap: the desktop takes the screen at once on the same connection, the terminal small over it.
+        val framesBefore = decodedFrames()
+        compose.onNodeWithTag("pip-desktop").performTouchInput { click() }
+        E2e.waitTag(compose, "desktop-page")
+        E2e.waitTag(compose, "pip-terminal")
+        assertSame("the same desktop connection", connection, desktop())
+        assertTrue("${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)
+        compose.waitUntil(5_000) { decodedFrames() > framesBefore }
+        E2e.capture(compose, "pip-02-desktop-full")
+        // Typing on the desktop works as on a desktop opened directly. (The xterm is at the picture's top left; in
+        // portrait the picture sits mid-screen, the terminal's small window in the bar above it.)
+        compose.onNodeWithTag("desktop-touch").performTouchInput { click(Offset(width * 0.1f, height * 0.45f)) }
+        click("desktop-rail-keyboard")
+        E2e.waitTag(compose, "desktop-ime-field")
+        compose.onNodeWithTag("desktop-ime-field").performTextInput("echo E2E_PIP_DESKTOP > ~/pip-typed.txt")
+        compose.onNodeWithTag("desktop-ime-field").performTextInput("\n")
+        compose.waitUntil(10_000) { "E2E_PIP_DESKTOP" in remote("cat ~/pip-typed.txt 2>/dev/null") }
+        Espresso.pressBack()
+        E2e.waitGone(compose, hasTestTag("desktop-keyboard"))
+
+        // A tap on the terminal's small window: the terminal takes the screen and types as usual.
+        compose.onNodeWithTag("pip-terminal").performTouchInput { click() }
+        E2e.waitTag(compose, "terminal")
+        E2e.waitTag(compose, "pip-desktop")
+        E2e.run(compose, "echo E2E_PIP_TERM_\$((6*7))")
+        E2e.waitOutput(compose, session, "E2E_PIP_TERM_42")
+        assertEquals("the terminal's size is its own", terminalSize, size())
+        assertSame(connection, desktop())
+        E2e.capture(compose, "pip-03-terminal-full")
+
+        // Back changes places once (the desktop again), then leaves as usual.
+        Espresso.pressBack()
+        E2e.waitTag(compose, "desktop-page")
+        E2e.waitTag(compose, "pip-terminal")
+        Espresso.pressBack()
+        E2e.waitTag(compose, "home-pager")
+        assertSame("leaving keeps the desktop for its keep-alive", connection, desktop())
+    }
+
+    /**
      * UDP (plan §7.3 P2) with 5% loss each way: video and typing ride UDP, FEC rebuilds frames,
      * a network change recovers within a second, blocked UDP falls back to SSH and comes back.
      * The emulator uses 10.0.2.2; a physical device needs e2eUdpHost set to the fixture's reachable LAN address.
@@ -647,7 +718,8 @@ class E2eDesktopTest {
         idle(1_000)
         val tapped = pointer()!!
         assertTrue("a tap on the figures reaches the desktop: pointer $tapped", tapped.first < 600 && tapped.second < 400)
-        assertEquals("a tap does not move the figures", home, stats())
+        // Where they are, not their size: the box is as wide as its figures, which change as the bit rate does.
+        assertEquals("a tap does not move the figures", home.topLeft, stats().topLeft)
 
         // A still long press picks them up and drags them; the desktop sees none of it.
         compose.onNodeWithTag("desktop-stats", useUnmergedTree = true).performTouchInput {

@@ -13,12 +13,15 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
@@ -64,13 +67,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHostDetail: () -> Unit, onReconnect: (() -> Unit)?, onRestart: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit,
+internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHostDetail: () -> Unit, onReconnect: (() -> Unit)?, onRestart: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit,
     /** Opens the host's desktop; null when it has none to open. */
     onDesktop: (() -> Unit)? = null,
     /** Leaves a connection notice without closing the local or remote session. */
-    onLeave: () -> Unit = onHostDetail) {
+    onLeave: () -> Unit = onHostDetail,
+    /** The host's desktop in a small window over the terminal, and the dock button's long press. */
+    pip: TerminalPip = TerminalPip()) {
     val state by session.state.collectAsStateWithLifecycle()
     val transferStatus by session.transfers.status.collectAsStateWithLifecycle()
     val pending by session.pending.collectAsStateWithLifecycle()
@@ -386,9 +391,17 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                 onSelect = { sessionMenu = false; onSelectSession(it) })
         }, primaryControls = {
             // This host's desktop, beside the session it belongs to.
-            if (onDesktop != null) IconButton(onClick = { sticky.clear(); hideKeyboard(); onDesktop() },
-                modifier = Modifier.testTag("terminal-desktop")) {
-                Icon(painterResource(R.drawable.ic_desktop), contentDescription = tr("打开桌面"))
+            // Tinted like the sessions button while the desktop shows in the small window; a long press puts it there.
+            if (onDesktop != null) Box(Modifier.size(48.dp).clip(CircleShape).combinedClickable(
+                onClick = { sticky.clear(); hideKeyboard(); onDesktop() },
+                onClickLabel = tr("打开桌面"), role = androidx.compose.ui.semantics.Role.Button,
+                onLongClickLabel = pip.onToggle?.let { if (pip.desktop != null) tr("关闭桌面小窗") else tr("小窗查看桌面") },
+                onLongClick = pip.onToggle?.let { toggle -> {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    sticky.clear(); dismissDockMenus(); toggle()
+                } }).testTag("terminal-desktop"), contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_desktop), contentDescription = tr("打开桌面"),
+                    tint = if (pip.desktop != null) MaterialTheme.colorScheme.primary else LocalContentColor.current)
             }
             fileControls()
             IconButton(
@@ -537,6 +550,39 @@ fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List
                     .width(if (terminalDockTwoColumns(landscape, imeVisible, safeDockHeight)) 96.dp else 48.dp),
                 endInset = 0.dp, content = dock)
         }
+        pip.desktop?.let { desktop ->
+            val density = LocalDensity.current
+            val revision = outputRevision.value
+            val video by desktop.videoSize.collectAsStateWithLifecycle()
+            val state = rememberPipState("${session.host.id}.terminal${if (landscape) ".land" else ""}", io.itermux.desktop.PipAnchor.TOP_END, if (landscape) 0.8f else 0.7f)
+            with(density) {
+                val w = maxWidth.toPx()
+                val h = maxHeight.toPx()
+                val edges = WindowInsets.displayCutout.union(WindowInsets.statusBars)
+                val margin = 8.dp.toPx()
+                // Clear of the status bar and cutouts, of a pinned dock, and in landscape of the pet's column.
+                val end = margin + edges.getRight(this, androidx.compose.ui.unit.LayoutDirection.Ltr) +
+                    (if (dockReserved) (if (terminalDockTwoColumns(landscape, imeVisible, safeDockHeight)) 96.dp else 48.dp).toPx() else 0f) +
+                    (if (landscape) 56.dp.toPx() else 0f)
+                val bottom = margin + if (imeVisible) 0 else WindowInsets.navigationBars.getBottom(this)
+                val stage = Rect(margin + edges.getLeft(this, androidx.compose.ui.unit.LayoutDirection.Ltr), margin + edges.getTop(this),
+                    w - end, h - bottom)
+                // The cursor row and a floating dock stay visible: the window moves to another corner while it would cover them.
+                val avoid = buildList {
+                    checkNotNull(revision)
+                    terminal?.let { view ->
+                        val top = view.getCursorRowTop()
+                        if (top >= 0) add(Rect(0f, 6.dp.toPx() + top, w, 6.dp.toPx() + top + view.lineHeight))
+                    }
+                    if (floatingDock && dockBounds != Rect.Zero) add(dockBounds.translate(-workspaceOrigin))
+                }
+                PipWindow(state, stage, if (landscape) w / 2f else w, aspect = if (video.second > 0) video.first / video.second.toFloat() else 1.6f,
+                    avoid = avoid, tag = "pip-desktop", description = tr("桌面小窗，点按切换到桌面"),
+                    onTap = { sticky.clear(); hideKeyboard(); pip.onTap() }, onClose = pip.onClose) {
+                    DesktopMiniContent(desktop)
+                }
+            }
+        }
         val ringCenter = petRing.center
         if (ringCenter != null && dockAvailable && !dockVisible) {
             val topInset = WindowInsets.displayCutout.union(WindowInsets.statusBars).getTop(LocalDensity.current).toFloat()
@@ -679,3 +725,15 @@ private fun terminalBackground(session: TerminalConnection): Color {
     return Color(emulator.mColors.mCurrentColors[if (emulator.isReverseVideo) TextStyle.COLOR_INDEX_FOREGROUND
         else TextStyle.COLOR_INDEX_BACKGROUND])
 }
+
+/**
+ * The terminal page's small window: the host's [desktop] (null for none), what a tap on it does ([onTap]: the
+ * desktop takes the screen, this terminal shrinks onto it), what closes it, and [onToggle], the long press on the
+ * dock's desktop button that opens or closes it (null when the host has no desktop to show).
+ */
+internal data class TerminalPip(
+    val desktop: io.itermux.app.desktop.DesktopConnection? = null,
+    val onTap: () -> Unit = {},
+    val onClose: () -> Unit = {},
+    val onToggle: (() -> Unit)? = null,
+)
