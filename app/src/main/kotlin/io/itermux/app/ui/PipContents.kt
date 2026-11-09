@@ -1,8 +1,5 @@
 package io.itermux.app.ui
 
-import android.graphics.SurfaceTexture
-import android.view.Surface
-import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,9 +17,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.desktop.DesktopConnection
+import io.itermux.app.desktop.DesktopSettings
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import io.itermux.app.tr
 import io.itermux.desktop.DesktopPhase
 import androidx.compose.foundation.layout.Arrangement
@@ -38,43 +38,27 @@ private val MiniAccent = Color(0xFFFF9F0A)
 private const val PIP_OWNER = "pip"
 
 /**
- * A host's desktop in the small window: the same connection and decoder as the desktop page, drawn on a TextureView
- * (which clips to the window's corners and moves with it). While only this shows the picture, the host sends it at a
- * lower rate. Before the first picture (or after a failure) a line says where the desktop is.
+ * A host's desktop in the small window: the desktop page's own picture and gestures ([DesktopScreen]), on the same
+ * connection and decoder. Not [focused], the window takes the touches (to be placed) and the host sends the picture
+ * at a lower rate; [focused], the picture takes every touch, at full rate, and a hardware keyboard types on the
+ * host unless the [keyboard] panel holds the input. Before the first picture (or after a failure) a line says where
+ * the desktop is.
  */
 @Composable
-internal fun DesktopMiniContent(connection: DesktopConnection) {
+internal fun DesktopMiniContent(connection: DesktopConnection, focused: Boolean = false, keyboard: Boolean = false) {
+    val context = LocalContext.current
     val video by connection.videoSize.collectAsStateWithLifecycle()
     val phase by connection.phase.collectAsStateWithLifecycle()
     // A question the login asks (a new host key, a second factor) is answered here as on the desktop page.
     val pending by connection.pending.collectAsStateWithLifecycle()
     pending?.let { PromptDialog(it) }
-    DisposableEffect(connection) {
-        connection.shown(PIP_OWNER, small = true)
-        onDispose { connection.hidden(PIP_OWNER) }
-    }
+    LaunchedEffect(connection, focused) { connection.shown(PIP_OWNER, small = !focused) }
+    DisposableEffect(connection) { onDispose { connection.hidden(PIP_OWNER) } }
+    // As the desktop page has it for this host (屏幕触控 or 鼠标指针), read again on each focus.
+    val mode = remember(connection, focused) { DesktopSettings(context).pointerMode(connection.host.id) }
+    val stats = remember { StatsBox(0f to 0f) }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(factory = { ctx ->
-            TextureView(ctx).apply {
-                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                    var surface: Surface? = null
-                    override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
-                        val (w, h) = connection.videoSize.value
-                        if (w > 0) texture.setDefaultBufferSize(w, h)
-                        surface = Surface(texture).also(connection.decoder::attach)
-                    }
-                    override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
-                    override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
-                        // Parks the decoder before the surface goes, so the next page's surface takes it over.
-                        surface?.let { connection.decoder.detach(it); it.release() }
-                        surface = null
-                        return true
-                    }
-                    override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}
-                }
-            }
-        }, update = { view -> if (video.first > 0) view.surfaceTexture?.setDefaultBufferSize(video.first, video.second) },
-            modifier = Modifier.fillMaxSize())
+        if (video.first > 0) DesktopScreen(connection, mode, keys = focused && !keyboard, stats, onStatsMoved = {}, small = true)
         val status = when (phase) {
             is DesktopPhase.Failed -> tr("桌面已断开")
             is DesktopPhase.NeedsAction -> tr("需要在电脑上操作")

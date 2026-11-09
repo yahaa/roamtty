@@ -12,6 +12,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.test.platform.app.InstrumentationRegistry
 import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.ui.PipState
@@ -29,6 +33,9 @@ class PipWindowTest {
     private lateinit var state: PipState
     private var taps = 0
     private var closes = 0
+    private var fulls = 0
+    private var contentTaps = 0
+    private var focused by androidx.compose.runtime.mutableStateOf(false)
 
     @Before fun setUp() {
         state = PipState(key, DesktopSettings(context), 0.5f)
@@ -42,7 +49,10 @@ class PipWindowTest {
 
     @androidx.compose.runtime.Composable
     private fun BoxScope.Window(room: Rect, reference: Float) =
-        PipWindow(state, room, reference, 1.6f, tag = "pip", description = "pip", onTap = { taps++ }, onClose = { closes++ }) {}
+        PipWindow(state, room, reference, 1.6f, tag = "pip", description = "pip", onTap = { taps++ }, onClose = { closes++ },
+            focused = focused, label = "host", onKeyboard = {}, onFull = { fulls++ }) {
+            Box(Modifier.matchParentSize().pointerInput(Unit) { detectTapGestures { contentTaps++ } })
+        }
 
     private fun bounds() = compose.onNodeWithTag("pip").fetchSemanticsNode().boundsInRoot
     /** The area the window moves in. */
@@ -123,5 +133,34 @@ class PipWindowTest {
         compose.runOnIdle { assertTrue("grew: ${state.fraction}", state.fraction > 0.5f); assertEquals(0, taps) }
         assertTrue(bounds().width > before)
         assertEquals(state.fraction, DesktopSettings(context).pipFraction(key)!!, 0.001f)
+    }
+
+    @Test fun unfocusedTheWindowTakesTheTouches() {
+        compose.onNodeWithTag("pip").performTouchInput { click() }
+        compose.runOnIdle { assertEquals(1, taps); assertEquals(0, contentTaps) }
+        compose.onNodeWithTag("pip-bar").assertDoesNotExist()
+    }
+
+    @Test fun focusedThePictureTakesEveryTouch() {
+        compose.runOnIdle { focused = true }
+        val before = bounds()
+        compose.onNodeWithTag("pip").performTouchInput { click() }
+        // A drag on the picture is the picture's too: the window stays where it is.
+        compose.onNodeWithTag("pip").performTouchInput { swipe(center, center + Offset(-80f, 300f), 300) }
+        compose.runOnIdle { assertEquals(1, contentTaps); assertEquals(0, taps) }
+        assertEquals(before, bounds())
+    }
+
+    @Test fun focusedTheBarMovesItAndOpensFullScreen() {
+        compose.runOnIdle { focused = true }
+        compose.onNodeWithTag("pip-bar").assertExists()
+        val before = bounds()
+        compose.onNodeWithTag("pip-move").performTouchInput { swipe(center, center + Offset(-80f, 300f), 400) }
+        compose.waitForIdle()
+        val after = bounds()
+        assertEquals(before.left - 80f, after.left, 40f)
+        assertEquals(before.top + 300f, after.top, 40f)
+        compose.onNodeWithTag("pip-full").performClick()
+        compose.runOnIdle { assertEquals(1, fulls); assertEquals(0, taps); assertEquals(0, contentTaps) }
     }
 }

@@ -49,7 +49,7 @@ internal object EnglishText {
         "丢包" to "Loss",
         "端到端" to "End to end",
         "连接保持" to "Stays connected",
-        "桌面小窗，点按切换到桌面" to "Desktop window, tap to switch to the desktop",
+        "桌面小窗，点按后在小窗里操作桌面" to "Desktop window, tap to use the desktop in it",
         "关闭桌面小窗" to "Close the desktop window",
         "小窗查看桌面" to "Show the desktop in a small window",
         "打开全屏桌面" to "Open the desktop full screen",

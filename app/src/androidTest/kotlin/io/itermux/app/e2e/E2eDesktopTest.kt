@@ -375,9 +375,27 @@ class E2eDesktopTest {
         }
         E2e.capture(compose, "pip-01b-after-rotation")
 
-        // A tap: the desktop page as it always is, at once, on the same connection.
-        val framesBefore = decodedFrames()
+        // A tap focuses the window: its bar, the desktop's keyboard, and typing that reaches the host.
         compose.onNodeWithTag("pip-desktop").performTouchInput { click() }
+        E2e.waitTag(compose, "pip-desktop-bar")
+        E2e.waitTag(compose, "desktop-ime-field")
+        compose.onNodeWithTag("desktop-page").assertDoesNotExist()
+        compose.onNodeWithTag("desktop-ime-field").performTextInput("echo E2E_PIP_SMALL > ~/pip-small.txt")
+        compose.onNodeWithTag("desktop-ime-field").performTextInput("\n")
+        compose.waitUntil(10_000) { "E2E_PIP_SMALL" in remote("cat ~/pip-small.txt 2>/dev/null") }
+        // The window's gestures are the desktop page's: a tap clicks where it lands, in the host's pixels.
+        Espresso.pressBack()
+        E2e.waitGone(compose, hasTestTag("desktop-keyboard"))
+        E2e.waitTag(compose, "pip-desktop-bar")
+        compose.onNodeWithTag("pip-desktop-touch").performTouchInput { click(Offset(width * 0.8f, height * 0.75f)) }
+        idle(1_000)
+        val (px, py) = pointer()!!
+        assertTrue("a tap in the small window clicks there: pointer $px,$py", px in 980..1080 && py in 560..640)
+        E2e.capture(compose, "pip-01c-focused")
+
+        // Its full-screen button: the desktop page as it always is, at once, on the same connection.
+        val framesBefore = decodedFrames()
+        click("pip-desktop-full")
         E2e.waitTag(compose, "desktop-page")
         compose.onNodeWithTag("pip-desktop").assertDoesNotExist()
         assertSame("the same desktop connection", connection, desktop())

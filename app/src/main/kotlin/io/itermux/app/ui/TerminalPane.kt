@@ -356,6 +356,15 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
     // A keyboard closed some other way drops a pending hide, so reopening it is not undone.
     LaunchedEffect(imeVisible) { if (!imeVisible) { sticky.ctrl = false; keyboardHide?.cancel() } }
     BackHandler(editor || imeVisible) { editor = false; hideKeyboard() }
+    // The desktop's small window, focused: its touches and typing go to the desktop. A touch on the terminal, or Back
+    // (once the keyboard is down), gives the terminal its input back.
+    var pipFocused by remember { mutableStateOf(false) }
+    var pipKeyboard by remember { mutableStateOf(false) }
+    LaunchedEffect(pip.desktop) { if (pip.desktop == null) { pipFocused = false; pipKeyboard = false } }
+    fun focusPip() { keyboardHide?.cancel(); sticky.clear(); dismissDockMenus(); pipFocused = true; pipKeyboard = true }
+    fun unfocusPip() { pipFocused = false; pipKeyboard = false; terminal?.requestFocus() }
+    val pipFocusedNow by rememberUpdatedState(pipFocused)
+    BackHandler(pipFocused && !imeVisible) { unfocusPip() }
     val fileControls: @Composable () -> Unit = {
         TerminalFileActions(enabled = state.phase == Phase.CONNECTED && !transferStatus.running) { action ->
             hideKeyboard()
@@ -455,6 +464,15 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
                 var viewportHeight by remember { mutableIntStateOf(0) }
                 Box(Modifier.weight(1f).fillMaxWidth().testTag("terminal-viewport").onSizeChanged { viewportHeight = it.height }) {
                 AndroidView(modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 6.dp, top = 6.dp).clipToBounds()
+                    .pointerInput(Unit) {
+                        // A touch on the terminal takes the input back from the desktop's small window.
+                        awaitPointerEventScope {
+                            while (true) {
+                                val e = awaitPointerEvent(PointerEventPass.Initial)
+                                if (pipFocusedNow && e.changes.any { it.pressed && !it.previousPressed }) unfocusPip()
+                            }
+                        }
+                    }
                     .testTag("terminal"), factory = { ctx ->
                     // Session, theme, font and history are bound in update, which also runs after creation.
                     TerminalView(ctx, null).apply {
@@ -567,10 +585,17 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
                 val room = Rect(margin + edges.getLeft(this, androidx.compose.ui.unit.LayoutDirection.Ltr), margin + edges.getTop(this),
                     w - end, h - bottom)
                 PipWindow(state, room, w, if (video.second > 0) video.first / video.second.toFloat() else 1.6f,
-                    tag = "pip-desktop", description = tr("桌面小窗，点按切换到桌面"),
-                    onTap = { sticky.clear(); hideKeyboard(); pip.onTap() }, onClose = pip.onClose) {
-                    DesktopMiniContent(desktop)
+                    tag = "pip-desktop", description = tr("桌面小窗，点按后在小窗里操作桌面"),
+                    onTap = { if (!pipFocused) focusPip() }, onClose = { unfocusPip(); pip.onClose() },
+                    focused = pipFocused, label = desktop.host.name, keyboardOpen = pipKeyboard,
+                    onKeyboard = { pipKeyboard = !pipKeyboard }, onFull = { unfocusPip(); hideKeyboard(); pip.onTap() }) {
+                    DesktopMiniContent(desktop, focused = pipFocused, keyboard = pipKeyboard)
                 }
+            }
+            // Typing on the desktop, as its page's 键盘: the input method and the shortcut bar, over the terminal.
+            if (pipFocused && pipKeyboard) {
+                val hello by desktop.hello.collectAsStateWithLifecycle()
+                KeyboardPanel(desktop, hello?.os ?: desktop.host.os.lowercase(), landscape = false) { pipKeyboard = false }
             }
         }
         val ringCenter = petRing.center

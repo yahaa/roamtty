@@ -6,6 +6,15 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.Text
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import io.itermux.app.tr
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -79,14 +88,22 @@ internal fun rememberPipState(key: String, defaultFraction: Float): PipState {
 private fun Rect.pip() = PipRect(left, top, right, bottom)
 
 /**
- * The small window: a host's desktop over its terminal. It only shows: a tap is [onTap] (the desktop takes the
- * screen); a drag puts it anywhere in [room] (dropped on the close target that appears at the bottom, it is
- * [onClose]); the handle in its corner, or a pinch, makes it bigger or smaller. [room] is in this box's pixels;
- * [screenWidth] is what [PipState.fraction] is a fraction of, [pictureAspect] the picture's width / height.
+ * The small window: a host's desktop over its terminal.
+ *
+ * Not [focused], the window is a thing to place: a drag puts it anywhere in [room] (dropped on the close target that
+ * appears at the bottom, it is [onClose]), a pinch or the handle in its corner resizes it, and a tap is [onTap]
+ * (which focuses it). [focused], every touch on the picture is the desktop's, exactly as on the desktop page; the
+ * window is then moved by the bar above it, which also holds the keyboard ([onKeyboard], lit while [keyboardOpen])
+ * and full screen ([onFull]). [onBounds] gets the window and its bar in this box's pixels.
+ *
+ * [room] is in this box's pixels; [screenWidth] is what [PipState.fraction] is a fraction of, [pictureAspect] the
+ * picture's width / height.
  */
 @Composable
 internal fun BoxScope.PipWindow(state: PipState, room: Rect, screenWidth: Float, pictureAspect: Float, tag: String, description: String,
-    onTap: () -> Unit, onClose: () -> Unit, content: @Composable BoxScope.() -> Unit) {
+    onTap: () -> Unit, onClose: () -> Unit, focused: Boolean = false, label: String = "", keyboardOpen: Boolean = false,
+    onKeyboard: (() -> Unit)? = null, onFull: (() -> Unit)? = null, onBounds: (Rect) -> Unit = {},
+    content: @Composable BoxScope.() -> Unit) {
     // Gestures read these as they run (a turn of the phone or a new display changes them).
     val reference by rememberUpdatedState(screenWidth)
     val aspect by rememberUpdatedState(pictureAspect)
@@ -123,6 +140,54 @@ internal fun BoxScope.PipWindow(state: PipState, room: Rect, screenWidth: Float,
         state.fraction = (width / reference).coerceIn(PipLayout.MIN_FRACTION, PipLayout.MAX_FRACTION)
         state.save()
     }
+    /** A drag that moves the window (or closes it on ✕); with [pinch], two fingers resize it, and a still tap is a tap. */
+    val placeGesture: suspend PointerInputScope.(Boolean) -> Unit = { pinch ->
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            val (w, h, placed, r, _, _, target) = now
+            var moved = false
+            var pinching = false
+            var travel = Offset.Zero
+            var pos = Offset(placed.left, placed.top)
+            var width = w
+            do {
+                val event = awaitPointerEvent()
+                val fingers = event.changes.count { it.pressed }
+                if (pinch && fingers >= 2) {
+                    pinching = true
+                    dragPos = null; hot = false
+                    width = (width * event.calculateZoom()).coerceIn(reference * PipLayout.MIN_FRACTION, reference * PipLayout.MAX_FRACTION)
+                    state.fraction = width / reference
+                } else if (!pinching && fingers == 1) {
+                    val pan = event.calculatePan()
+                    travel += pan
+                    if (!moved && travel.getDistance() > slop) moved = true
+                    if (moved) {
+                        pos += pan
+                        dragPos = pos
+                        val over = PipLayout.overClose(pos.x + w / 2, pos.y + h / 2, target.x, target.y, closeRadius * 2.4f)
+                        if (over && !hot) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        hot = over
+                    }
+                }
+                event.changes.forEach { if (it.positionChanged()) it.consume() }
+            } while (event.changes.any { it.pressed })
+            when {
+                pinching -> {
+                    val (pw, ph) = PipLayout.size(r, reference, state.fraction, aspect)
+                    // Grows and shrinks about its centre, kept inside.
+                    keep(placed.centerX - pw / 2, placed.centerY - ph / 2, pw, ph, r)
+                }
+                moved -> {
+                    if (hot) currentClose() else { keep(pos.x, pos.y, w, h, r); handleSide = null }
+                    hot = false
+                    dragPos = null
+                }
+                pinch -> currentTap()
+            }
+        }
+    }
+    val accent = MaterialTheme.colorScheme.primary
     Box(Modifier
         .offset { IntOffset(topLeft.x.roundToInt(), topLeft.y.roundToInt()) }
         .size(with(density) { w.toDp() }, with(density) { h.toDp() })
@@ -133,57 +198,42 @@ internal fun BoxScope.PipWindow(state: PipState, room: Rect, screenWidth: Float,
             alpha = appear.value
         }
         .shadow(4.dp, shape).clip(shape)
-        .border(0.5.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f), shape)
         .background(Color.Black)
         .testTag(tag)
-        .semantics { contentDescription = description; onClick { currentTap(); true } }
-        .pointerInput(Unit) {
-            awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false)
-                val (w, h, placed, r, _, _, target) = now
-                var moved = false
-                var pinching = false
-                var travel = Offset.Zero
-                var pos = Offset(placed.left, placed.top)
-                var width = w
-                do {
-                    val event = awaitPointerEvent()
-                    val fingers = event.changes.count { it.pressed }
-                    if (fingers >= 2) {
-                        pinching = true
-                        dragPos = null; hot = false
-                        width = (width * event.calculateZoom()).coerceIn(reference * PipLayout.MIN_FRACTION, reference * PipLayout.MAX_FRACTION)
-                        state.fraction = width / reference
-                    } else if (!pinching && fingers == 1) {
-                        val pan = event.calculatePan()
-                        travel += pan
-                        if (!moved && travel.getDistance() > slop) moved = true
-                        if (moved) {
-                            pos += pan
-                            dragPos = pos
-                            val over = PipLayout.overClose(pos.x + w / 2, pos.y + h / 2, target.x, target.y, closeRadius * 2.4f)
-                            if (over && !hot) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            hot = over
-                        }
-                    }
-                    event.changes.forEach { if (it.positionChanged()) it.consume() }
-                } while (event.changes.any { it.pressed })
-                when {
-                    pinching -> {
-                        val (pw, ph) = PipLayout.size(r, reference, state.fraction, aspect)
-                        // Grows and shrinks about its centre, kept inside.
-                        keep(placed.centerX - pw / 2, placed.centerY - ph / 2, pw, ph, r)
-                    }
-                    moved -> {
-                        if (hot) currentClose() else { keep(pos.x, pos.y, w, h, r); handleSide = null }
-                        hot = false
-                        dragPos = null
-                    }
-                    else -> currentTap()
-                }
+        .semantics { contentDescription = description; onClick { currentTap(); true } }) {
+        content()
+        // Focused, the picture takes every touch; otherwise this layer takes them to place the window.
+        if (!focused) Box(Modifier.matchParentSize().pointerInput(Unit) { placeGesture(true) }.testTag("$tag-place"))
+        Box(Modifier.matchParentSize().border(if (focused) 2.dp else 0.5.dp,
+            if (focused) accent else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f), shape))
+    }
+    // Focused: the bar above the window (below it when there is no room above) moves it and holds its two buttons.
+    val barHeight = 36.dp
+    val barPx = with(density) { barHeight.toPx() }
+    val gap = with(density) { 4.dp.toPx() }
+    val barTop = if (topLeft.y - barPx - gap >= room.top) topLeft.y - barPx - gap else topLeft.y + h + gap
+    if (focused) Row(Modifier
+        .offset { IntOffset(topLeft.x.roundToInt(), barTop.roundToInt()) }
+        .size(with(density) { w.toDp() }, barHeight)
+        .shadow(4.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
+        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f))
+        .testTag("$tag-bar"), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f).fillMaxHeight().pointerInput(Unit) { placeGesture(false) }.testTag("$tag-move")
+            .padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Six dots: a handle to drag.
+            Canvas(Modifier.size(10.dp, 16.dp)) {
+                val c = Color.White.copy(alpha = 0.6f)
+                for (col in 0..1) for (row in 0..2) drawCircle(c, 1.4.dp.toPx(), Offset(size.width * (0.25f + 0.5f * col), size.height * (0.2f + 0.3f * row)))
             }
-        }, content = content)
-    // The resize handle, in the bottom corner that faces the middle of the screen.
+            Text(label, Modifier.padding(start = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        onKeyboard?.let { BarButton(R.drawable.ic_keyboard, tr("键盘"), "$tag-keyboard", lit = keyboardOpen, onClick = it) }
+        onFull?.let { BarButton(R.drawable.ic_fullscreen, tr("打开全屏桌面"), "$tag-full", onClick = it) }
+    }
+    if (focused) SideEffect { onBounds(Rect(topLeft.x, minOf(topLeft.y, barTop), topLeft.x + w, maxOf(topLeft.y + h, barTop + barPx))) }
+    else SideEffect { onBounds(Rect(topLeft.x, topLeft.y, topLeft.x + w, topLeft.y + h)) }
+    // The resize handle, in the bottom corner with room to grow.
     val handle = 32.dp
     val handlePx = with(density) { handle.toPx() }
     if (dragPos == null) Box(Modifier
@@ -232,6 +282,15 @@ internal fun BoxScope.PipWindow(state: PipState, room: Rect, screenWidth: Float,
         .testTag("pip-close-target"), contentAlignment = Alignment.Center) {
         Icon(painterResource(R.drawable.ic_close), null, Modifier.size(20.dp),
             tint = if (hot) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/** A button on the focused window's bar, in the primary colour while [lit]. */
+@Composable
+private fun BarButton(icon: Int, label: String, tag: String, lit: Boolean = false, onClick: () -> Unit) {
+    Box(Modifier.size(40.dp, 36.dp).clickable(onClickLabel = label, onClick = onClick).testTag(tag), contentAlignment = Alignment.Center) {
+        Icon(painterResource(icon), label, Modifier.size(20.dp),
+            tint = if (lit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
     }
 }
 
