@@ -109,7 +109,7 @@ internal enum class DesktopPanel { NONE, OPERATIONS, KEYBOARD }
  */
 @Composable
 internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onDisconnect: () -> Unit, onFiles: () -> Unit,
-    modifier: Modifier = Modifier, pip: DesktopPip = DesktopPip()) {
+    modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val settings = remember { DesktopSettings(context) }
     val landscape = isLandscape()
@@ -129,8 +129,8 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
     BackHandler(panel == DesktopPanel.NONE) { onLeave() }
     // The page shows the picture; leaving pauses the host unless the small window over the terminal takes it.
     DisposableEffect(connection) {
-        connection.shown(PAGE_OWNER, small = false)
-        onDispose { connection.hidden(PAGE_OWNER) }
+        connection.shown("page", small = false)
+        onDispose { connection.hidden("page") }
     }
     val hello by connection.hello.collectAsStateWithLifecycle()
     val os = hello?.os ?: connection.host.os.lowercase()
@@ -156,16 +156,13 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
                 onShowDesktop = { action(DesktopProtocol.ACTION_SHOW_DESKTOP) }, onAllWindows = { action(DesktopProtocol.ACTION_ALL_WINDOWS) })
         }
         val screen: @Composable (Modifier) -> Unit = { m ->
-            var area by remember { mutableStateOf(IntSize.Zero) }
-            var picture by remember { mutableStateOf<Rect?>(null) }
-            Box(m.background(Color.Black).onSizeChanged { area = it }) {
+            Box(m.background(Color.Black)) {
                 if (hasPicture) DesktopScreen(connection, mode, keys = panel == DesktopPanel.NONE, statsBox,
-                    onStatsMoved = { settings.statsPosition = it }, onPicture = { picture = it })
+                    onStatsMoved = { settings.statsPosition = it })
                 if (virtualMouse && hasPicture) VirtualMouse(connection)
                 DesktopStatusOverlay(connection, phase, hasPicture, showStats, statsBox, statsHint,
                     onCloseStats = { showStats = false; settings.showStats = false; statsHint = true },
                     onRetry = { connection.start() }, onClose = onDisconnect)
-                pip.terminal?.let { session -> TerminalPip(session, connection.host.id, landscape, area, picture.takeIf { hasPicture }, pip) }
             }
         }
         if (landscape) Row(Modifier.fillMaxSize()) {
@@ -192,8 +189,7 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
                 onLeave = { panel = DesktopPanel.NONE; onLeave() },
                 onDisconnect = { panel = DesktopPanel.NONE; onDisconnect() },
                 onFiles = { panel = DesktopPanel.NONE; onFiles() },
-                onDismiss = { panel = DesktopPanel.NONE },
-                pip = pip, onPipAction = { panel = DesktopPanel.NONE; it() })
+                onDismiss = { panel = DesktopPanel.NONE })
             DesktopPanel.KEYBOARD -> KeyboardPanel(connection, os, landscape) { panel = DesktopPanel.NONE }
             DesktopPanel.NONE -> {}
         }
@@ -244,7 +240,7 @@ private fun portraitRailBottom(): Dp {
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys: Boolean, stats: StatsBox,
-    onStatsMoved: (Pair<Float, Float>) -> Unit, onPicture: (Rect) -> Unit = {}) {
+    onStatsMoved: (Pair<Float, Float>) -> Unit) {
     val density = LocalDensity.current.density
     val hello by connection.hello.collectAsStateWithLifecycle()
     val displayIndex by connection.display.collectAsStateWithLifecycle()
@@ -424,8 +420,6 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
             true
         }) {
         val v = viewport
-        // Where the picture is (zoomed or not): the small window prefers the black bars beside it.
-        LaunchedEffect(v) { onPicture(Rect(v.left, v.top, v.left + v.contentWidth, v.top + v.contentHeight)) }
         // A fixed buffer of the video's size: zooming only moves and scales the surface, never reallocates it.
         AndroidView(factory = { ctx ->
             SurfaceView(ctx).also { surfaceView = it }.apply {
@@ -757,8 +751,7 @@ private fun NetworkStats(connection: DesktopConnection, phase: DesktopPhase, sho
 @Composable
 private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: Boolean, mode: PointerMode, virtualMouse: Boolean,
     showStats: Boolean, onMode: (PointerMode) -> Unit, onVirtualMouse: (Boolean) -> Unit, onShowStats: (Boolean) -> Unit,
-    statsMoved: Boolean, onResetStats: () -> Unit, onLeave: () -> Unit, onDisconnect: () -> Unit, onFiles: () -> Unit, onDismiss: () -> Unit,
-    pip: DesktopPip = DesktopPip(), onPipAction: (() -> Unit) -> Unit = { it() }) {
+    statsMoved: Boolean, onResetStats: () -> Unit, onLeave: () -> Unit, onDisconnect: () -> Unit, onFiles: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val viewOnly by connection.viewOnly.collectAsStateWithLifecycle()
@@ -798,18 +791,8 @@ private fun BoxScope.OperationsPanel(connection: DesktopConnection, landscape: B
             .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PanelButton(tr("返回"), R.drawable.ic_exit, "desktop-op-exit", Modifier.weight(1f), tr("连接保持"), onClick = onLeave)
-                PanelButton(tr("文件"), R.drawable.ic_folder, "desktop-op-files", Modifier.weight(1f), tr("上传和下载"), onClick = onFiles)
-            }
-            // The small windows: this desktop over its terminal, or its terminal over this desktop.
-            if (pip.onDesktopPip != null || pip.onTerminalPip != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PanelButton(tr("桌面小窗"), R.drawable.ic_desktop, "desktop-op-pip-desktop", Modifier.weight(1f), tr("回到终端，桌面缩小")) {
-                    pip.onDesktopPip?.let(onPipAction)
-                }
-                PanelButton(tr("终端小窗"), R.drawable.ic_sessions, "desktop-op-pip-terminal", Modifier.weight(1f),
-                    if (pip.terminal != null) tr("已打开 · 点按关闭") else tr("在桌面上看终端"), selected = pip.terminal != null) {
-                    pip.onTerminalPip?.let(onPipAction)
-                }
+                PanelButton(tr("返回"), R.drawable.ic_exit, "desktop-op-exit", Modifier.weight(1f), tr("连接保持"), onLeave)
+                PanelButton(tr("文件"), R.drawable.ic_folder, "desktop-op-files", Modifier.weight(1f), tr("上传和下载"), onFiles)
             }
             Section(tr("剪贴板")) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -891,17 +874,13 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
 }
 
 @Composable
-private fun PanelButton(label: String, icon: Int, tag: String, modifier: Modifier = Modifier, caption: String? = null,
-    selected: Boolean = false, onClick: () -> Unit) {
-    // Selected as a [Choice] is: the accent's outline and tint.
-    val shape = RoundedCornerShape(12.dp)
-    Column(modifier.clip(shape).background(if (selected) Accent.copy(alpha = 0.22f) else Color(0x14FFFFFF))
-        .border(1.dp, if (selected) Accent else Color.Transparent, shape).clickable(onClick = onClick)
+private fun PanelButton(label: String, icon: Int, tag: String, modifier: Modifier = Modifier, caption: String? = null, onClick: () -> Unit) {
+    Column(modifier.clip(RoundedCornerShape(12.dp)).background(Color(0x14FFFFFF)).clickable(onClick = onClick)
         .padding(vertical = 10.dp, horizontal = 6.dp).testTag(tag), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(painterResource(icon), null, Modifier.size(20.dp), tint = if (selected) Accent else Ink)
+        Icon(painterResource(icon), null, Modifier.size(20.dp), tint = Ink)
         Spacer(Modifier.height(4.dp))
-        Text(label, color = if (selected) Accent else Ink, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 2)
-        caption?.let { Text(it, color = if (selected) Accent.copy(alpha = 0.75f) else InkDim, fontSize = 10.sp, textAlign = TextAlign.Center, maxLines = 1) }
+        Text(label, color = Ink, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 2)
+        caption?.let { Text(it, color = InkDim, fontSize = 10.sp, textAlign = TextAlign.Center, maxLines = 1) }
     }
 }
 
@@ -1169,53 +1148,3 @@ internal fun DesktopCardButton(state: DesktopButton, tag: String, onClick: () ->
 private const val CURSOR_MIN_DP = 15f
 private const val CURSOR_MAX_DP = 24f
 private const val RING_DELAY_MS = 200L
-
-private const val PAGE_OWNER = "page"
-
-/**
- * The desktop page's small window: [terminal] shown over the picture (null for none), what a tap on it does
- * ([onTap]: the terminal takes the screen, this desktop shrinks onto it), what closes it, and the operations
- * panel's two cards: [onDesktopPip] (to the terminal, this desktop small) and [onTerminalPip] (the terminal's small
- * window on or off). Null actions hide their cards.
- */
-internal data class DesktopPip(
-    val terminal: io.itermux.app.session.TerminalConnection? = null,
-    val onTap: () -> Unit = {},
-    val onClose: () -> Unit = {},
-    val onDesktopPip: (() -> Unit)? = null,
-    val onTerminalPip: (() -> Unit)? = null,
-)
-
-/**
- * The terminal's small window over the desktop. In portrait it lives in the black bar above (or below) the picture
- * when that bar is tall enough, at the bar's full width, so it covers none of the desktop; otherwise it floats in a
- * corner of the picture.
- */
-@Composable
-private fun BoxScope.TerminalPip(session: io.itermux.app.session.TerminalConnection, hostId: String, landscape: Boolean,
-    area: IntSize, picture: Rect?, pip: DesktopPip) {
-    if (area.width <= 0) return
-    val density = LocalDensity.current
-    val margin = with(density) { 8.dp.toPx() }
-    val minBand = with(density) { 96.dp.toPx() }
-    // Portrait: the bar above the picture, full width. Landscape: the picture's bottom left, clear of the rail.
-    val state = rememberPipState("$hostId.desktop${if (landscape) ".land" else ""}",
-        if (landscape) io.itermux.desktop.PipAnchor.BOTTOM_START else io.itermux.desktop.PipAnchor.TOP_END, if (landscape) 0.9f else 1f)
-    val full = Rect(margin, margin, area.width - margin, area.height - margin)
-    val room = picture?.let { pic ->
-        val top = Rect(margin, margin, area.width - margin, pic.top - margin)
-        val bottom = Rect(margin, pic.bottom + margin, area.width - margin, area.height - margin)
-        when {
-            state.anchor.top && top.height >= minBand -> top
-            !state.anchor.top && bottom.height >= minBand -> bottom
-            top.height >= minBand -> top
-            bottom.height >= minBand -> bottom
-            else -> null
-        }
-    } ?: full
-    val reference = if (landscape) area.width / 2f else area.width.toFloat()
-    PipWindow(state, room, reference, aspect = 1.6f, avoid = emptyList(), tag = "pip-terminal",
-        description = tr("终端小窗，点按切换到终端"), onTap = pip.onTap, onClose = pip.onClose, stretch = true, stage = full) {
-        TerminalMiniContent(session)
-    }
-}

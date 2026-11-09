@@ -321,12 +321,12 @@ class E2eDesktopTest {
     }
 
     /**
-     * The small windows (terminal ⇄ desktop): the desktop shown small over its terminal from the dock's long press, a
-     * tap that gives it the screen, and back. Each side works as usual once it has the screen: the same desktop
-     * connection all along (no new login), a fresh picture at once, typing reaches the host; the terminal types and
-     * runs, and its size never changes for the small window. Back undoes one change of places, then leaves.
+     * The desktop's small window over its terminal: shown from the dock's long press, and a tap that opens the desktop
+     * page as it always is (no small window there), on the same connection (no new login), a fresh picture at once,
+     * typing reaching the host. Back returns to the terminal, the desktop small again; the terminal types and runs,
+     * and its size never changes for the small window. Back from the terminal leaves as usual.
      */
-    @Test fun d10_smallWindowsChangePlacesAndKeepWorking() {
+    @Test fun d10_smallDesktopOverTheTerminal() {
         val host = runBlocking { E2e.save(E2e.host("desktop-pip")) }
         hostId = host.id
         val session = runBlocking {
@@ -352,18 +352,17 @@ class E2eDesktopTest {
         assertEquals("the small window never resizes the terminal", terminalSize, size())
         E2e.capture(compose, "pip-01-desktop-small")
 
-        // A tap: the desktop takes the screen at once on the same connection, the terminal small over it.
+        // A tap: the desktop page as it always is, at once, on the same connection.
         val framesBefore = decodedFrames()
         compose.onNodeWithTag("pip-desktop").performTouchInput { click() }
         E2e.waitTag(compose, "desktop-page")
-        E2e.waitTag(compose, "pip-terminal")
+        compose.onNodeWithTag("pip-desktop").assertDoesNotExist()
         assertSame("the same desktop connection", connection, desktop())
         assertTrue("${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)
         compose.waitUntil(5_000) { decodedFrames() > framesBefore }
         E2e.capture(compose, "pip-02-desktop-full")
-        // Typing on the desktop works as on a desktop opened directly. (The xterm is at the picture's top left; in
-        // portrait the picture sits mid-screen, the terminal's small window in the bar above it.)
-        compose.onNodeWithTag("desktop-touch").performTouchInput { click(Offset(width * 0.1f, height * 0.45f)) }
+        // Typing on the desktop works as on a desktop opened directly.
+        compose.onNodeWithTag("desktop-touch").performTouchInput { click(Offset(width * 0.25f, height * 0.25f)) }
         click("desktop-rail-keyboard")
         E2e.waitTag(compose, "desktop-ime-field")
         compose.onNodeWithTag("desktop-ime-field").performTextInput("echo E2E_PIP_DESKTOP > ~/pip-typed.txt")
@@ -372,23 +371,20 @@ class E2eDesktopTest {
         Espresso.pressBack()
         E2e.waitGone(compose, hasTestTag("desktop-keyboard"))
 
-        // A tap on the terminal's small window: the terminal takes the screen and types as usual.
-        compose.onNodeWithTag("pip-terminal").performTouchInput { click() }
+        // Back: the terminal it came from, the desktop small again, typing as usual.
+        Espresso.pressBack()
         E2e.waitTag(compose, "terminal")
         E2e.waitTag(compose, "pip-desktop")
         E2e.run(compose, "echo E2E_PIP_TERM_\$((6*7))")
         E2e.waitOutput(compose, session, "E2E_PIP_TERM_42")
         assertEquals("the terminal's size is its own", terminalSize, size())
         assertSame(connection, desktop())
-        E2e.capture(compose, "pip-03-terminal-full")
+        E2e.capture(compose, "pip-03-terminal")
 
-        // Back changes places once (the desktop again), then leaves as usual.
-        Espresso.pressBack()
-        E2e.waitTag(compose, "desktop-page")
-        E2e.waitTag(compose, "pip-terminal")
+        // Back from the terminal leaves as usual; the desktop stays for its keep-alive.
         Espresso.pressBack()
         E2e.waitTag(compose, "home-pager")
-        assertSame("leaving keeps the desktop for its keep-alive", connection, desktop())
+        assertSame(connection, desktop())
     }
 
     /**
@@ -751,7 +747,7 @@ class E2eDesktopTest {
         click("desktop-op-close")
         E2e.waitGone(compose, hasTestTag("desktop-operations"))
         E2e.waitTag(compose, "desktop-stats")
-        assertEquals(home, stats())
+        assertEquals("back at the top left", home.topLeft, stats().topLeft)
         assertEquals(0f to 0f, DesktopSettings(E2e.context).statsPosition)
         assertEquals(true, DesktopSettings(E2e.context).showStats)
     }

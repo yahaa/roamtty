@@ -552,32 +552,21 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
         }
         pip.desktop?.let { desktop ->
             val density = LocalDensity.current
-            val revision = outputRevision.value
             val video by desktop.videoSize.collectAsStateWithLifecycle()
-            val state = rememberPipState("${session.host.id}.terminal${if (landscape) ".land" else ""}", io.itermux.desktop.PipAnchor.TOP_END, if (landscape) 0.8f else 0.7f)
+            val state = rememberPipState("${session.host.id}.terminal${if (landscape) ".land" else ""}", if (landscape) 0.4f else 0.7f)
             with(density) {
                 val w = maxWidth.toPx()
                 val h = maxHeight.toPx()
                 val edges = WindowInsets.displayCutout.union(WindowInsets.statusBars)
                 val margin = 8.dp.toPx()
-                // Clear of the status bar and cutouts, of a pinned dock, and in landscape of the pet's column.
+                // Anywhere it is dragged, clear of the status bar, cutouts, a pinned dock and the gesture bar.
                 val end = margin + edges.getRight(this, androidx.compose.ui.unit.LayoutDirection.Ltr) +
-                    (if (dockReserved) (if (terminalDockTwoColumns(landscape, imeVisible, safeDockHeight)) 96.dp else 48.dp).toPx() else 0f) +
-                    (if (landscape) 56.dp.toPx() else 0f)
+                    (if (dockReserved) (if (terminalDockTwoColumns(landscape, imeVisible, safeDockHeight)) 96.dp else 48.dp).toPx() else 0f)
                 val bottom = margin + if (imeVisible) 0 else WindowInsets.navigationBars.getBottom(this)
-                val stage = Rect(margin + edges.getLeft(this, androidx.compose.ui.unit.LayoutDirection.Ltr), margin + edges.getTop(this),
+                val room = Rect(margin + edges.getLeft(this, androidx.compose.ui.unit.LayoutDirection.Ltr), margin + edges.getTop(this),
                     w - end, h - bottom)
-                // The cursor row and a floating dock stay visible: the window moves to another corner while it would cover them.
-                val avoid = buildList {
-                    checkNotNull(revision)
-                    terminal?.let { view ->
-                        val top = view.getCursorRowTop()
-                        if (top >= 0) add(Rect(0f, 6.dp.toPx() + top, w, 6.dp.toPx() + top + view.lineHeight))
-                    }
-                    if (floatingDock && dockBounds != Rect.Zero) add(dockBounds.translate(-workspaceOrigin))
-                }
-                PipWindow(state, stage, if (landscape) w / 2f else w, aspect = if (video.second > 0) video.first / video.second.toFloat() else 1.6f,
-                    avoid = avoid, tag = "pip-desktop", description = tr("桌面小窗，点按切换到桌面"),
+                PipWindow(state, room, w, if (video.second > 0) video.first / video.second.toFloat() else 1.6f,
+                    tag = "pip-desktop", description = tr("桌面小窗，点按切换到桌面"),
                     onTap = { sticky.clear(); hideKeyboard(); pip.onTap() }, onClose = pip.onClose) {
                     DesktopMiniContent(desktop)
                 }
@@ -728,8 +717,8 @@ private fun terminalBackground(session: TerminalConnection): Color {
 
 /**
  * The terminal page's small window: the host's [desktop] (null for none), what a tap on it does ([onTap]: the
- * desktop takes the screen, this terminal shrinks onto it), what closes it, and [onToggle], the long press on the
- * dock's desktop button that opens or closes it (null when the host has no desktop to show).
+ * desktop page takes the screen), what closes it, and [onToggle], the long press on the dock's desktop button that
+ * opens or closes it (null when the host has no desktop to show).
  */
 internal data class TerminalPip(
     val desktop: io.itermux.app.desktop.DesktopConnection? = null,

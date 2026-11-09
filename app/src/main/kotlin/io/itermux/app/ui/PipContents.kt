@@ -7,39 +7,28 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.itermux.app.TerminalFonts
 import io.itermux.app.desktop.DesktopConnection
-import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
 import io.itermux.desktop.DesktopPhase
-import com.termux.terminal.TextStyle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
-import kotlinx.coroutines.delay
-import kotlin.math.roundToInt
 
 private val MiniInk = Color(0xFFF2F2F7)
 private val MiniInkDim = Color(0xFF9A9AA1)
@@ -101,33 +90,3 @@ internal fun DesktopMiniContent(connection: DesktopConnection) {
         }
     }
 }
-
-/**
- * A session in the small window: its host and title in one quiet line, then the rows up to its cursor
- * ([TerminalMiniView]), redrawn at most 15 times a second while output comes.
- */
-@Composable
-internal fun TerminalMiniContent(session: TerminalConnection) {
-    val context = LocalContext.current
-    val title by session.title.collectAsStateWithLifecycle()
-    var view by remember { mutableStateOf<TerminalMiniView?>(null) }
-    LaunchedEffect(session, view) {
-        val v = view ?: return@LaunchedEffect
-        session.revision.collect { v.invalidate(); delay(66) }
-    }
-    val emulator = session.getEmulator()
-    val background = Color(emulator.mColors.mCurrentColors[if (emulator.isReverseVideo) TextStyle.COLOR_INDEX_FOREGROUND
-        else TextStyle.COLOR_INDEX_BACKGROUND])
-    Column(Modifier.fillMaxSize().background(background)) {
-        Text(session.titleForDisplay(title), color = MiniInkDim, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 4.dp))
-        AndroidView(factory = { TerminalMiniView(it).also { v -> view = v } }, update = { v ->
-            v.session = session
-            val metrics = v.resources
-            v.setFont((MINI_FONT_SP * metrics.displayMetrics.density * metrics.configuration.fontScale).roundToInt(),
-                TerminalFonts.resolveTypeface(context))
-        }, modifier = Modifier.fillMaxSize())
-    }
-}
-
-private const val MINI_FONT_SP = 10f
