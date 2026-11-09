@@ -397,9 +397,12 @@ fun ItermuxScreen(
         }
         pipDesktopHostId = host.id
     }
-    // A small window whose desktop went away goes with it.
-    LaunchedEffect(desktops) {
-        if (pipDesktopHostId != null && desktops[pipDesktopHostId] == null && service?.desktops?.get(pipDesktopHostId!!) == null) pipDesktopHostId = null
+    // A small window whose desktop went away goes with it. Asked of the registry once the service is bound: right
+    // after a rotation recreates the activity, the collected map is still empty though the desktop is there.
+    LaunchedEffect(desktops, service) {
+        val registry = service?.desktops ?: return@LaunchedEffect
+        val id = pipDesktopHostId ?: return@LaunchedEffect
+        if (registry[id] == null) pipDesktopHostId = null
     }
     fun desktopSupported(host: Host): Boolean {
         val system = HostSystem.fromStored(host.os)
@@ -765,12 +768,12 @@ fun ItermuxScreen(
                             onDesktop = savedHost(active.host).let { h ->
                                 {
                                     // With the desktop in the small window, the button does what a tap on it does.
-                                    if (pipDesktopHostId == h.id && desktops[h.id] != null) desktopFromSmallWindow(h.id)
+                                    if (pipDesktopHostId == h.id && (desktops[h.id] ?: service?.desktops?.get(h.id)) != null) desktopFromSmallWindow(h.id)
                                     else openDesktop(h)
                                 }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES }
                             },
                             pip = savedHost(active.host).let { h ->
-                                TerminalPip(desktop = pipDesktopHostId?.takeIf { it == h.id }?.let { desktops[it] },
+                                TerminalPip(desktop = pipDesktopHostId?.takeIf { it == h.id }?.let { desktops[it] ?: service?.desktops?.get(it) },
                                     onTap = { desktopFromSmallWindow(h.id) }, onClose = { pipDesktopHostId = null },
                                     onToggle = { toggleDesktopPip(h) }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES })
                             })

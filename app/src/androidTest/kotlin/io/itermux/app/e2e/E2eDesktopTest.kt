@@ -352,6 +352,18 @@ class E2eDesktopTest {
         assertEquals("the small window never resizes the terminal", terminalSize, size())
         E2e.capture(compose, "pip-01-desktop-small")
 
+        // Turning the phone (the activity is recreated) keeps the small window, its desktop and its picture.
+        for (orientation in listOf(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)) {
+            val frames = decodedFrames()
+            compose.activityRule.scenario.onActivity { it.requestedOrientation = orientation }
+            idle(1_500)
+            E2e.waitTag(compose, "terminal")
+            E2e.waitTag(compose, "pip-desktop", 15_000)
+            assertSame("rotation keeps the desktop", connection, desktop())
+            compose.waitUntil(5_000) { decodedFrames() > frames }
+        }
+        E2e.capture(compose, "pip-01b-after-rotation")
+
         // A tap: the desktop page as it always is, at once, on the same connection.
         val framesBefore = decodedFrames()
         compose.onNodeWithTag("pip-desktop").performTouchInput { click() }
