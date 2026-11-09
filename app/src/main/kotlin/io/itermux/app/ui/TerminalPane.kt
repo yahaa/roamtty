@@ -70,7 +70,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 @OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessions: List<TerminalConnection>, lightTheme: Boolean, onSelectSession: (String) -> Unit, onHostDetail: () -> Unit, onReconnect: (() -> Unit)?, onRestart: () -> Unit, onShell: () -> Unit, onReverify: () -> Unit, onClose: () -> Unit,
-    /** Opens the host's desktop; null when it has none to open. */
+    /** Shows the host's desktop small over the terminal, or closes it; null when it has none to open. */
     onDesktop: (() -> Unit)? = null,
     /** Leaves a connection notice without closing the local or remote session. */
     onLeave: () -> Unit = onHostDetail,
@@ -391,14 +391,15 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
                 onSelect = { sessionMenu = false; onSelectSession(it) })
         }, primaryControls = {
             // This host's desktop, beside the session it belongs to.
-            // Tinted like the sessions button while the desktop shows in the small window; a long press puts it there.
+            // A tap shows the desktop small over the terminal (or closes it), tinted like the sessions button while it
+            // shows; a long press opens the desktop page.
             if (onDesktop != null) Box(Modifier.size(48.dp).clip(CircleShape).combinedClickable(
-                onClick = { sticky.clear(); hideKeyboard(); onDesktop() },
-                onClickLabel = tr("打开桌面"), role = androidx.compose.ui.semantics.Role.Button,
-                onLongClickLabel = pip.onToggle?.let { if (pip.desktop != null) tr("关闭桌面小窗") else tr("小窗查看桌面") },
-                onLongClick = pip.onToggle?.let { toggle -> {
+                onClick = { sticky.clear(); dismissDockMenus(); onDesktop() },
+                onClickLabel = if (pip.desktop != null) tr("关闭桌面小窗") else tr("小窗查看桌面"), role = androidx.compose.ui.semantics.Role.Button,
+                onLongClickLabel = pip.onFull?.let { tr("打开全屏桌面") },
+                onLongClick = pip.onFull?.let { full -> {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    sticky.clear(); dismissDockMenus(); toggle()
+                    sticky.clear(); hideKeyboard(); full()
                 } }).testTag("terminal-desktop"), contentAlignment = Alignment.Center) {
                 Icon(painterResource(R.drawable.ic_desktop), contentDescription = tr("打开桌面"),
                     tint = if (pip.desktop != null) MaterialTheme.colorScheme.primary else LocalContentColor.current)
@@ -717,12 +718,12 @@ private fun terminalBackground(session: TerminalConnection): Color {
 
 /**
  * The terminal page's small window: the host's [desktop] (null for none), what a tap on it does ([onTap]: the
- * desktop page takes the screen), what closes it, and [onToggle], the long press on the dock's desktop button that
- * opens or closes it (null when the host has no desktop to show).
+ * desktop page takes the screen), what closes it, and [onFull], the long press on the dock's desktop button that
+ * opens the desktop page (null when the host has no desktop to show).
  */
 internal data class TerminalPip(
     val desktop: io.itermux.app.desktop.DesktopConnection? = null,
     val onTap: () -> Unit = {},
     val onClose: () -> Unit = {},
-    val onToggle: (() -> Unit)? = null,
+    val onFull: (() -> Unit)? = null,
 )

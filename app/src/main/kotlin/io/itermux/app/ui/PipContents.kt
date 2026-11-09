@@ -46,6 +46,9 @@ private const val PIP_OWNER = "pip"
 internal fun DesktopMiniContent(connection: DesktopConnection) {
     val video by connection.videoSize.collectAsStateWithLifecycle()
     val phase by connection.phase.collectAsStateWithLifecycle()
+    // A question the login asks (a new host key, a second factor) is answered here as on the desktop page.
+    val pending by connection.pending.collectAsStateWithLifecycle()
+    pending?.let { PromptDialog(it) }
     DisposableEffect(connection) {
         connection.shown(PIP_OWNER, small = true)
         onDispose { connection.hidden(PIP_OWNER) }

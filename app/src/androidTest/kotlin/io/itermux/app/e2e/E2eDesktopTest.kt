@@ -313,15 +313,27 @@ class E2eDesktopTest {
             compose.mainClock.advanceTimeBy(1_500)
             compose.onNodeWithTag("terminal-dock").assertDoesNotExist()
         } finally { compose.mainClock.autoAdvance = true; TerminalToolbox.dockHideMillis = hide }
+        // A tap opens the desktop small over the terminal; a long press opens its page.
         click("restore-dock")
         click("terminal-desktop")
-        E2e.waitTag(compose, "desktop-page")
+        E2e.waitTag(compose, "pip-desktop", 15_000)
+        compose.onNodeWithTag("desktop-page").assertDoesNotExist()
         waitPhase(45_000, "first frame") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
         assertTrue("${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)
+        click("restore-dock")
+        E2e.waitTag(compose, "terminal-desktop")
+        compose.onNodeWithTag("terminal-desktop").performTouchInput { longClick() }
+        E2e.waitTag(compose, "desktop-page")
+        // A second tap closes the small window again.
+        Espresso.pressBack()
+        E2e.waitTag(compose, "pip-desktop")
+        click("restore-dock")
+        click("terminal-desktop")
+        E2e.waitGone(compose, hasTestTag("pip-desktop"))
     }
 
     /**
-     * The desktop's small window over its terminal: shown from the dock's long press, and a tap that opens the desktop
+     * The desktop's small window over its terminal: shown from the dock's desktop button, and a tap that opens the desktop
      * page as it always is (no small window there), on the same connection (no new login), a fresh picture at once,
      * typing reaching the host. Back returns to the terminal, the desktop small again; the terminal types and runs,
      * and its size never changes for the small window. Back from the terminal leaves as usual.
@@ -340,10 +352,9 @@ class E2eDesktopTest {
         fun size(): Pair<Int, Int> { var s = 0 to 0; E2e.instrumentation.runOnMainSync { s = session.getEmulator().let { it.mColumns to it.mRows } }; return s }
         val terminalSize = size()
 
-        // The dock's desktop button, held: the desktop logs in and shows in the small window, the terminal stays.
+        // The dock's desktop button: the desktop logs in and shows in the small window, the terminal stays.
         click("restore-dock")
-        E2e.waitTag(compose, "terminal-desktop")
-        compose.onNodeWithTag("terminal-desktop").performTouchInput { longClick() }
+        click("terminal-desktop")
         E2e.waitTag(compose, "pip-desktop", 15_000)
         waitPhase(45_000, "first frame in the small window") { it is DesktopPhase.Connected || it is DesktopPhase.Failed }
         assertTrue("${desktop().phase.value}", desktop().phase.value is DesktopPhase.Connected)

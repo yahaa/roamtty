@@ -386,13 +386,13 @@ fun ItermuxScreen(
     fun desktopFromSmallWindow(hostId: String) {
         desktopHostId = hostId; desktopFromTerminal = true; page = AppPage.DESKTOP
     }
-    /** The dock button's long press: the host's desktop in the small window over the terminal, or gone again. */
+    /** The dock's desktop button: the host's desktop in the small window over the terminal, or gone again. */
     fun toggleDesktopPip(host: Host) {
         if (pipDesktopHostId == host.id) { pipDesktopHostId = null; return }
         val existing = service?.desktops?.get(host.id)
         if (existing == null || !existing.active) {
-            // Signing in needs the desktop page when a secret must be typed; otherwise it connects in the small window.
-            if (host.needsTypedSecret(app)) return openDesktop(host)
+            // A secret to type is asked for first; the desktop then opens small all the same.
+            if (host.needsTypedSecret(app)) { connectRequest = ConnectRequest(host, SessionMode.SHELL, desktop = true, desktopSmall = true); return }
             startDesktop(host, show = false)
         }
         pipDesktopHostId = host.id
@@ -766,16 +766,16 @@ fun ItermuxScreen(
                             // Closing ends the terminal page too: back to where it was opened from.
                             onClose = { leaveTerminal(); closeSession(active) },
                             onDesktop = savedHost(active.host).let { h ->
-                                {
-                                    // With the desktop in the small window, the button does what a tap on it does.
-                                    if (pipDesktopHostId == h.id && (desktops[h.id] ?: service?.desktops?.get(h.id)) != null) desktopFromSmallWindow(h.id)
-                                    else openDesktop(h)
-                                }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES }
+                                // A tap opens the desktop small over the terminal (or closes it); a long press opens its page.
+                                { toggleDesktopPip(h) }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES }
                             },
                             pip = savedHost(active.host).let { h ->
                                 TerminalPip(desktop = pipDesktopHostId?.takeIf { it == h.id }?.let { desktops[it] ?: service?.desktops?.get(it) },
                                     onTap = { desktopFromSmallWindow(h.id) }, onClose = { pipDesktopHostId = null },
-                                    onToggle = { toggleDesktopPip(h) }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES })
+                                    onFull = {
+                                        if (pipDesktopHostId == h.id && (desktops[h.id] ?: service?.desktops?.get(h.id)) != null) desktopFromSmallWindow(h.id)
+                                        else openDesktop(h)
+                                    }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES })
                             })
                     }
                 }
@@ -835,7 +835,10 @@ fun ItermuxScreen(
         connectRequest?.let { request -> CredentialsDialog(request, { connectRequest = null }) { password, phrase ->
             connectRequest = null
             if (request.plugins) pluginTarget = PluginTarget(request.host, password, phrase)
-            else if (request.desktop) startDesktop(request.host, password, phrase)
+            else if (request.desktop) {
+                startDesktop(request.host, password, phrase, show = !request.desktopSmall)
+                if (request.desktopSmall) pipDesktopHostId = request.host.id
+            }
             else start(request, password, phrase)
         } }
         terminatePrompt?.let { PromptDialog(it) }

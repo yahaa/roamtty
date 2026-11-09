@@ -23,6 +23,8 @@ internal data class ConnectRequest(
     val plugins: Boolean = false,
     /** Credentials are for the host's remote desktop. */
     val desktop: Boolean = false,
+    /** That desktop opens in the small window over the terminal, not on its own page. */
+    val desktopSmall: Boolean = false,
     /** Typed into the new terminal once it connects, e.g. an AI coding agent started from the file browser. */
     val startupCommand: String? = null,
     /** The startup command starts an agent that reports through [io.itermux.app.session.AgentHooks]. */

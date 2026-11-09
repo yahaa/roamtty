@@ -52,6 +52,7 @@ internal object EnglishText {
         "桌面小窗，点按切换到桌面" to "Desktop window, tap to switch to the desktop",
         "关闭桌面小窗" to "Close the desktop window",
         "小窗查看桌面" to "Show the desktop in a small window",
+        "打开全屏桌面" to "Open the desktop full screen",
         "桌面已断开" to "Desktop disconnected",
         "上传和下载" to "Upload and download",
         "显示网络状态" to "Show network stats",
