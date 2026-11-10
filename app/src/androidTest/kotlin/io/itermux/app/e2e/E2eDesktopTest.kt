@@ -375,18 +375,25 @@ class E2eDesktopTest {
         }
         E2e.capture(compose, "pip-01b-after-rotation")
 
-        // A tap focuses the window: its bar, the desktop's keyboard, and typing that reaches the host.
+        // A tap focuses the window: its bar, and no keyboard until the bar's keyboard button asks for it, which brings the
+        // input method with the shortcut row already over it; typing reaches the host.
         compose.onNodeWithTag("pip-desktop").performTouchInput { click() }
         E2e.waitTag(compose, "pip-desktop-bar")
-        E2e.waitTag(compose, "desktop-ime-field")
+        idle(500)
+        compose.onNodeWithTag("desktop-ime-field").assertDoesNotExist()
         compose.onNodeWithTag("desktop-page").assertDoesNotExist()
+        click("pip-desktop-keyboard")
+        E2e.waitTag(compose, "desktop-ime-field")
+        E2e.waitTag(compose, "desktop-sk-esc")
+        compose.onNodeWithTag("desktop-kb-toggle").assertDoesNotExist()
         compose.onNodeWithTag("desktop-ime-field").performTextInput("echo E2E_PIP_SMALL > ~/pip-small.txt")
         compose.onNodeWithTag("desktop-ime-field").performTextInput("\n")
         compose.waitUntil(10_000) { "E2E_PIP_SMALL" in remote("cat ~/pip-small.txt 2>/dev/null") }
-        // The window's gestures are the desktop page's: a tap clicks where it lands, in the host's pixels.
-        Espresso.pressBack()
+        // The bar's keyboard button puts the keyboard and its shortcut row away again; the window stays focused.
+        click("pip-desktop-keyboard")
         E2e.waitGone(compose, hasTestTag("desktop-keyboard"))
         E2e.waitTag(compose, "pip-desktop-bar")
+        // The window's gestures are the desktop page's: a tap clicks where it lands, in the host's pixels.
         compose.onNodeWithTag("pip-desktop-touch").performTouchInput { click(Offset(width * 0.8f, height * 0.75f)) }
         idle(1_000)
         val (px, py) = pointer()!!
@@ -421,6 +428,12 @@ class E2eDesktopTest {
         assertEquals("the terminal's size is its own", terminalSize, size())
         assertSame(connection, desktop())
         E2e.capture(compose, "pip-03-terminal")
+
+        // The bar's ✕ closes the small window; the desktop stays connected.
+        compose.onNodeWithTag("pip-desktop").performTouchInput { click() }
+        click("pip-desktop-close")
+        E2e.waitGone(compose, hasTestTag("pip-desktop"))
+        assertSame("closing the window keeps the desktop", connection, desktop())
 
         // Back from the terminal leaves as usual; the desktop stays for its keep-alive.
         Espresso.pressBack()

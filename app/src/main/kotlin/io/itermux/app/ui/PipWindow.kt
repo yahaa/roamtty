@@ -94,7 +94,8 @@ private fun Rect.pip() = PipRect(left, top, right, bottom)
  * appears at the bottom, it is [onClose]), a pinch or the handle in its corner resizes it, and a tap is [onTap]
  * (which focuses it). [focused], every touch on the picture is the desktop's, exactly as on the desktop page; the
  * window is then moved by the bar above it, which also holds the keyboard ([onKeyboard], lit while [keyboardOpen])
- * and full screen ([onFull]). [onBounds] gets the window and its bar in this box's pixels.
+ * and full screen ([onFull]), and closes it ([onClose]); it also shows the connection's [status] colour and a [detail]
+ * (the latency). [onBounds] gets the window and its bar in this box's pixels.
  *
  * [room] is in this box's pixels; [screenWidth] is what [PipState.fraction] is a fraction of, [pictureAspect] the
  * picture's width / height.
@@ -103,6 +104,7 @@ private fun Rect.pip() = PipRect(left, top, right, bottom)
 internal fun BoxScope.PipWindow(state: PipState, room: Rect, screenWidth: Float, pictureAspect: Float, tag: String, description: String,
     onTap: () -> Unit, onClose: () -> Unit, focused: Boolean = false, label: String = "", keyboardOpen: Boolean = false,
     onKeyboard: (() -> Unit)? = null, onFull: (() -> Unit)? = null, onBounds: (Rect) -> Unit = {},
+    status: Color? = null, detail: String = "",
     content: @Composable BoxScope.() -> Unit) {
     // Gestures read these as they run (a turn of the phone or a new display changes them).
     val reference by rememberUpdatedState(screenWidth)
@@ -207,29 +209,36 @@ internal fun BoxScope.PipWindow(state: PipState, room: Rect, screenWidth: Float,
         Box(Modifier.matchParentSize().border(if (focused) 2.dp else 0.5.dp,
             if (focused) accent else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f), shape))
     }
-    // Focused: the bar above the window (below it when there is no room above) moves it and holds its two buttons.
-    val barHeight = 36.dp
+    // Focused: the bar above the window (below it when there is no room above), translucent and low, moves it and holds
+    // its buttons.
+    val barHeight = 32.dp
     val barPx = with(density) { barHeight.toPx() }
     val gap = with(density) { 4.dp.toPx() }
     val barTop = if (topLeft.y - barPx - gap >= room.top) topLeft.y - barPx - gap else topLeft.y + h + gap
     if (focused) Row(Modifier
         .offset { IntOffset(topLeft.x.roundToInt(), barTop.roundToInt()) }
         .size(with(density) { w.toDp() }, barHeight)
-        .shadow(4.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
-        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f))
+        .clip(RoundedCornerShape(12.dp))
+        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f))
+        .border(0.5.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f), RoundedCornerShape(12.dp))
         .testTag("$tag-bar"), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f).fillMaxHeight().pointerInput(Unit) { placeGesture(false) }.testTag("$tag-move")
             .padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             // Six dots: a handle to drag.
-            Canvas(Modifier.size(10.dp, 16.dp)) {
-                val c = Color.White.copy(alpha = 0.6f)
-                for (col in 0..1) for (row in 0..2) drawCircle(c, 1.4.dp.toPx(), Offset(size.width * (0.25f + 0.5f * col), size.height * (0.2f + 0.3f * row)))
+            Canvas(Modifier.size(8.dp, 13.dp)) {
+                val c = Color.White.copy(alpha = 0.5f)
+                for (col in 0..1) for (row in 0..2) drawCircle(c, 1.2.dp.toPx(), Offset(size.width * (0.25f + 0.5f * col), size.height * (0.2f + 0.3f * row)))
             }
-            Text(label, Modifier.padding(start = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            status?.let { Box(Modifier.padding(start = 8.dp).size(6.dp).clip(CircleShape).background(it)) }
+            // Narrow windows drop the latency first, then the name; the buttons always stay.
+            if (w >= with(density) { 160.dp.toPx() }) Text(label, Modifier.padding(start = 6.dp), color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (detail.isNotEmpty() && w >= with(density) { 220.dp.toPx() }) Text(detail, Modifier.padding(start = 6.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
         }
         onKeyboard?.let { BarButton(R.drawable.ic_keyboard, tr("键盘"), "$tag-keyboard", lit = keyboardOpen, onClick = it) }
         onFull?.let { BarButton(R.drawable.ic_fullscreen, tr("打开全屏桌面"), "$tag-full", onClick = it) }
+        BarButton(R.drawable.ic_close, tr("关闭桌面小窗"), "$tag-close") { currentClose() }
     }
     if (focused) SideEffect { onBounds(Rect(topLeft.x, minOf(topLeft.y, barTop), topLeft.x + w, maxOf(topLeft.y + h, barTop + barPx))) }
     else SideEffect { onBounds(Rect(topLeft.x, topLeft.y, topLeft.x + w, topLeft.y + h)) }
@@ -288,8 +297,8 @@ internal fun BoxScope.PipWindow(state: PipState, room: Rect, screenWidth: Float,
 /** A button on the focused window's bar, in the primary colour while [lit]. */
 @Composable
 private fun BarButton(icon: Int, label: String, tag: String, lit: Boolean = false, onClick: () -> Unit) {
-    Box(Modifier.size(40.dp, 36.dp).clickable(onClickLabel = label, onClick = onClick).testTag(tag), contentAlignment = Alignment.Center) {
-        Icon(painterResource(icon), label, Modifier.size(20.dp),
+    Box(Modifier.size(36.dp, 32.dp).clickable(onClickLabel = label, onClick = onClick).testTag(tag), contentAlignment = Alignment.Center) {
+        Icon(painterResource(icon), label, Modifier.size(18.dp),
             tint = if (lit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
     }
 }

@@ -949,11 +949,13 @@ private fun charKey(c: Char): Int? = when (c) {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, landscape: Boolean, onDismiss: () -> Unit) {
+internal fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, landscape: Boolean,
+    /** The shortcut bar always shows (the small window over the terminal): its ▾ closes the keyboard instead. */
+    alwaysBar: Boolean = false, onDismiss: () -> Unit) {
     val state = rememberTextFieldState()
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    var bar by rememberSaveable { mutableStateOf(false) }
+    var bar by rememberSaveable { mutableStateOf(alwaysBar) }
     var more by rememberSaveable { mutableStateOf(false) }
     val latch = remember { ModifierLatch() }
     var latchRevision by remember { mutableIntStateOf(0) }
@@ -1018,7 +1020,7 @@ internal fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, l
                     }
                 }
                 BarKey(if (more) "ABC" else "⋯", "desktop-kb-more", if (more) ModifierLatch.State.LOCKED else ModifierLatch.State.OFF) { more = !more }
-                if (!more) BarKey("▾", "desktop-kb-hide-bar", narrow = true) { bar = false }
+                if (!more) BarKey("▾", "desktop-kb-hide-bar", narrow = true) { if (alwaysBar) onDismiss() else bar = false }
             }
         }
         if (more) key(latchRevision) { MoreKeys(os, latch, onKey = ::key, onShift = { latch.tap(HidUsage.LEFT_SHIFT); latchRevision++ },

@@ -361,7 +361,8 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
     var pipFocused by remember { mutableStateOf(false) }
     var pipKeyboard by remember { mutableStateOf(false) }
     LaunchedEffect(pip.desktop) { if (pip.desktop == null) { pipFocused = false; pipKeyboard = false } }
-    fun focusPip() { keyboardHide?.cancel(); sticky.clear(); dismissDockMenus(); pipFocused = true; pipKeyboard = true }
+    // Focusing does not bring up the keyboard: the picture stays clear; the bar's keyboard button opens it.
+    fun focusPip() { keyboardHide?.cancel(); sticky.clear(); dismissDockMenus(); hideKeyboard(); pipFocused = true; pipKeyboard = false }
     fun unfocusPip() { pipFocused = false; pipKeyboard = false; terminal?.requestFocus() }
     val pipFocusedNow by rememberUpdatedState(pipFocused)
     BackHandler(pipFocused && !imeVisible) { unfocusPip() }
@@ -572,6 +573,8 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
         pip.desktop?.let { desktop ->
             val density = LocalDensity.current
             val video by desktop.videoSize.collectAsStateWithLifecycle()
+            val phase by desktop.phase.collectAsStateWithLifecycle()
+            val stats by desktop.stats.collectAsStateWithLifecycle()
             val state = rememberPipState("${session.host.id}.terminal${if (landscape) ".land" else ""}", if (landscape) 0.4f else 0.7f)
             with(density) {
                 val w = maxWidth.toPx()
@@ -588,6 +591,11 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
                     tag = "pip-desktop", description = tr("桌面小窗，点按后在小窗里操作桌面"),
                     onTap = { if (!pipFocused) focusPip() }, onClose = { unfocusPip(); pip.onClose() },
                     focused = pipFocused, label = desktop.host.name, keyboardOpen = pipKeyboard,
+                    status = when (phase) {
+                        is io.itermux.desktop.DesktopPhase.Connected -> StatusColors.success
+                        is io.itermux.desktop.DesktopPhase.Failed -> StatusColors.danger
+                        else -> MaterialTheme.colorScheme.primary
+                    }, detail = stats.rttMs?.takeIf { phase is io.itermux.desktop.DesktopPhase.Connected }?.let { "$it ms" }.orEmpty(),
                     onKeyboard = { pipKeyboard = !pipKeyboard }, onFull = { unfocusPip(); hideKeyboard(); pip.onTap() }) {
                     DesktopMiniContent(desktop, focused = pipFocused, keyboard = pipKeyboard)
                 }
@@ -595,7 +603,7 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
             // Typing on the desktop, as its page's 键盘: the input method and the shortcut bar, over the terminal.
             if (pipFocused && pipKeyboard) {
                 val hello by desktop.hello.collectAsStateWithLifecycle()
-                KeyboardPanel(desktop, hello?.os ?: desktop.host.os.lowercase(), landscape = false) { pipKeyboard = false }
+                KeyboardPanel(desktop, hello?.os ?: desktop.host.os.lowercase(), landscape = false, alwaysBar = true) { pipKeyboard = false }
             }
         }
         val ringCenter = petRing.center

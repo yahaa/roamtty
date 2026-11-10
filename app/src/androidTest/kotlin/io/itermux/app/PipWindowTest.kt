@@ -162,5 +162,7 @@ class PipWindowTest {
         assertEquals(before.top + 300f, after.top, 40f)
         compose.onNodeWithTag("pip-full").performClick()
         compose.runOnIdle { assertEquals(1, fulls); assertEquals(0, taps); assertEquals(0, contentTaps) }
+        compose.onNodeWithTag("pip-close").performClick()
+        compose.runOnIdle { assertEquals(1, closes) }
     }
 }
