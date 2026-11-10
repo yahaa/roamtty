@@ -63,6 +63,14 @@ class PipLayoutTest {
         assertEquals(300f, PipLayout.resized(400f, -100f, -62.5f, onLeft = false, aspect = 1.6f), 0.01f)
     }
 
+    @Test fun theBarGoesAboveElseBelowElseOverTheTopEdge() {
+        assertEquals(560f, PipLayout.barTop(room, PipRect(0f, 600f, 500f, 900f), 32f, 8f), 0.01f)
+        assertEquals(308f, PipLayout.barTop(room, PipRect(0f, 0f, 500f, 300f), 32f, 8f), 0.01f)
+        // As tall as the room: over its top edge, still inside.
+        assertEquals(8f, PipLayout.barTop(room, PipRect(0f, 0f, 500f, 2000f), 32f, 8f), 0.01f)
+        assertEquals(10f, PipLayout.barTop(PipRect(0f, 10f, 1000f, 2000f), PipRect(0f, 10f, 500f, 2000f), 32f, 0f), 0.01f)
+    }
+
     @Test fun closeTargetIsARadius() {
         assertTrue(PipLayout.overClose(500f, 1900f, 510f, 1910f, 50f))
         assertFalse(PipLayout.overClose(500f, 1700f, 510f, 1910f, 50f))

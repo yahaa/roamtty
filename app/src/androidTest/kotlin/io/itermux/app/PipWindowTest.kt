@@ -125,6 +125,27 @@ class PipWindowTest {
         assertEquals(stage().width * 0.3f, bounds().width, 3f)
     }
 
+    /** Between the left edge and the middle, the right grip keeps the left corner: the window never jumps aside. */
+    @Test fun theRightGripKeepsTheLeftCornerAnywhere() {
+        compose.runOnIdle { state.x = 0.25f; state.y = 0.5f }
+        compose.waitForIdle()
+        val before = bounds()
+        assertTrue("handle on the right", compose.onNodeWithTag("pip-resize").fetchSemanticsNode().boundsInRoot.left > before.center.x)
+        compose.onNodeWithTag("pip-resize").performTouchInput {
+            down(center)
+            moveBy(Offset(60f, 37f), 50)
+            // Mid-drag: still where it was, growing to the right.
+            moveBy(Offset(30f, 18f), 50)
+        }
+        val during = bounds()
+        assertEquals(before.left, during.left, 2f)
+        assertTrue("grew: ${before.width} → ${during.width}", during.width > before.width + 20f)
+        compose.onNodeWithTag("pip-resize").performTouchInput { up() }
+        compose.waitForIdle()
+        assertEquals(before.left, bounds().left, 2f)
+        assertEquals(before.top, bounds().top, 2f)
+    }
+
     @Test fun aPinchResizes() {
         val before = bounds().width
         compose.onNodeWithTag("pip").performTouchInput {

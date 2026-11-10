@@ -119,11 +119,13 @@ internal fun BoxScope.PipWindow(state: PipState, room: Rect, screenWidth: Float,
     val placed = PipLayout.place(r, w, h, state.x, state.y)
     var dragPos by remember { mutableStateOf<Offset?>(null) }
     var hot by remember { mutableStateOf(false) }
-    val topLeft = dragPos ?: resizing?.let { (_, fixed) ->
-        Offset(if (fixed.x > placed.left + 1f) fixed.x - w else fixed.x, fixed.y)
-    } ?: Offset(placed.left, placed.top)
     // The handle keeps its side once used, so it is where the finger left it; a move picks the side with room again.
     var handleSide by remember { mutableStateOf<Boolean?>(null) }
+    // Resizing from the left grip keeps the right corner, from the right grip the left one: the side the drag
+    // started on, not one guessed from the placement (which moves as the width grows).
+    val topLeft = dragPos ?: resizing?.let { (_, fixed) ->
+        Offset(if (handleSide == true) fixed.x - w else fixed.x, fixed.y)
+    } ?: Offset(placed.left, placed.top)
     val onLeft = handleSide ?: PipLayout.handleOnLeft(r, PipRect(topLeft.x, topLeft.y, topLeft.x + w, topLeft.y + h))
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, tween(220)) }
@@ -209,12 +211,12 @@ internal fun BoxScope.PipWindow(state: PipState, room: Rect, screenWidth: Float,
         Box(Modifier.matchParentSize().border(if (focused) 2.dp else 0.5.dp,
             if (focused) accent else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f), shape))
     }
-    // Focused: the bar above the window (below it when there is no room above), translucent and low, moves it and holds
-    // its buttons.
+    // Focused: the bar above the window (below it when there is no room above, over its top edge when there is room for
+    // neither), translucent and low, moves it and holds its buttons.
     val barHeight = 32.dp
     val barPx = with(density) { barHeight.toPx() }
     val gap = with(density) { 4.dp.toPx() }
-    val barTop = if (topLeft.y - barPx - gap >= room.top) topLeft.y - barPx - gap else topLeft.y + h + gap
+    val barTop = PipLayout.barTop(r, PipRect(topLeft.x, topLeft.y, topLeft.x + w, topLeft.y + h), barPx, gap)
     if (focused) Row(Modifier
         .offset { IntOffset(topLeft.x.roundToInt(), barTop.roundToInt()) }
         .size(with(density) { w.toDp() }, barHeight)

@@ -46,6 +46,16 @@ object PipLayout {
             (if (freeY > 0f) ((top - room.top) / freeY).coerceIn(0f, 1f) else 0f)
     }
 
+    /**
+     * Where the focused window's [bar]-high bar goes: [gap] above it, else [gap] below it, else (a window as tall as
+     * the room, or the keyboard up) over its top edge, so it always stays inside [room] and its buttons reachable.
+     */
+    fun barTop(room: PipRect, window: PipRect, bar: Float, gap: Float): Float = when {
+        window.top - bar - gap >= room.top -> window.top - bar - gap
+        window.bottom + gap + bar <= room.bottom -> window.bottom + gap
+        else -> (window.top + gap).coerceAtMost(room.bottom - bar).coerceAtLeast(room.top)
+    }
+
     /** Whether the resize handle goes on the window's left: the side with more room to grow into (the right on a tie). */
     fun handleOnLeft(room: PipRect, window: PipRect) = window.left - room.left > room.right - window.right + 1f
 
