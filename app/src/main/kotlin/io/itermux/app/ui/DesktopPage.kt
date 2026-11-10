@@ -127,9 +127,10 @@ internal fun DesktopPage(connection: DesktopConnection, onLeave: () -> Unit, onD
     val hasPicture = video.first > 0
     BackHandler(panel != DesktopPanel.NONE) { panel = DesktopPanel.NONE }
     BackHandler(panel == DesktopPanel.NONE) { onLeave() }
+    // The page shows the picture; leaving pauses the host unless the small window over the terminal takes it.
     DisposableEffect(connection) {
-        connection.resume()
-        onDispose { if (connection.active) connection.pause() }
+        connection.shown("page", small = false)
+        onDispose { connection.hidden("page") }
     }
     val hello by connection.hello.collectAsStateWithLifecycle()
     val os = hello?.os ?: connection.host.os.lowercase()
@@ -235,11 +236,15 @@ private fun portraitRailBottom(): Dp {
     return with(density) { maxOf(tappable.toDp(), nav.toDp() - 12.dp, 4.dp) }
 }
 
-/** The picture, the cursor drawn locally, and every touch turned into input. */
+/**
+ * The picture, the cursor drawn locally, and every touch turned into input. The same on the desktop page and,
+ * [small], in the small window over the terminal: there the picture is on a TextureView (it clips to the window's
+ * corners and moves with it) and no thumbnail is taken for the hosts list.
+ */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys: Boolean, stats: StatsBox,
-    onStatsMoved: (Pair<Float, Float>) -> Unit) {
+internal fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys: Boolean, stats: StatsBox,
+    onStatsMoved: (Pair<Float, Float>) -> Unit, small: Boolean = false) {
     val density = LocalDensity.current.density
     val hello by connection.hello.collectAsStateWithLifecycle()
     val displayIndex by connection.display.collectAsStateWithLifecycle()
@@ -420,21 +425,25 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
         }) {
         val v = viewport
         // A fixed buffer of the video's size: zooming only moves and scales the surface, never reallocates it.
-        AndroidView(factory = { ctx ->
+        val placed = Modifier.layout { measurable, _ ->
+            val w = v.contentWidth.roundToInt().coerceAtLeast(1)
+            val h = v.contentHeight.roundToInt().coerceAtLeast(1)
+            val placeable = measurable.measure(Constraints.fixed(w, h))
+            layout(area.width, area.height) { placeable.place(v.left.roundToInt(), v.top.roundToInt()) }
+        }
+        if (small) AndroidView(factory = { ctx -> pictureTexture(ctx, connection) },
+            update = { view -> if (video.first > 0) view.surfaceTexture?.setDefaultBufferSize(video.first, video.second) },
+            modifier = placed.testTag("pip-desktop-surface"))
+        else AndroidView(factory = { ctx ->
             SurfaceView(ctx).also { surfaceView = it }.apply {
                 holder.addCallback(object : SurfaceHolder.Callback {
                     override fun surfaceCreated(holder: SurfaceHolder) { connection.decoder.attach(holder.surface) }
                     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) { connection.decoder.attach(holder.surface) }
-                    override fun surfaceDestroyed(holder: SurfaceHolder) { connection.decoder.detach() }
+                    override fun surfaceDestroyed(holder: SurfaceHolder) { connection.decoder.detach(holder.surface) }
                 })
             }
         }, update = { view -> if (video.first > 0) view.holder.setFixedSize(video.first, video.second) },
-            modifier = Modifier.layout { measurable, _ ->
-                val w = v.contentWidth.roundToInt().coerceAtLeast(1)
-                val h = v.contentHeight.roundToInt().coerceAtLeast(1)
-                val placeable = measurable.measure(Constraints.fixed(w, h))
-                layout(area.width, area.height) { placeable.place(v.left.roundToInt(), v.top.roundToInt()) }
-            }.testTag("desktop-surface"))
+            modifier = placed.testTag("desktop-surface"))
         // The system's back gesture works on the black bars only: the picture keeps its edges for edge swipes.
         // (The rect, not a layout's bounds: a layout modifier reports the whole view as its size.)
         Box(Modifier.fillMaxSize().systemGestureExclusion {
@@ -469,7 +478,7 @@ private fun DesktopScreen(connection: DesktopConnection, mode: PointerMode, keys
         }
         // Read inside the ring alone, so a touch recomposes only it.
         HoldRing({ drawn.let { gestures.indicator } }, density)
-        Box(Modifier.fillMaxSize().testTag("desktop-touch").onGloballyPositioned { track.origin = it.positionInWindow() }
+        Box(Modifier.fillMaxSize().testTag(if (small) "pip-desktop-touch" else "desktop-touch").onGloballyPositioned { track.origin = it.positionInWindow() }
             .pointerInteropFilter { e -> route(e); true })
     }
 }
@@ -940,11 +949,13 @@ private fun charKey(c: Char): Int? = when (c) {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, landscape: Boolean, onDismiss: () -> Unit) {
+internal fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, landscape: Boolean,
+    /** The shortcut bar always shows (the small window over the terminal): its ▾ closes the keyboard instead. */
+    alwaysBar: Boolean = false, onDismiss: () -> Unit) {
     val state = rememberTextFieldState()
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    var bar by rememberSaveable { mutableStateOf(false) }
+    var bar by rememberSaveable { mutableStateOf(alwaysBar) }
     var more by rememberSaveable { mutableStateOf(false) }
     val latch = remember { ModifierLatch() }
     var latchRevision by remember { mutableIntStateOf(0) }
@@ -1009,7 +1020,7 @@ private fun BoxScope.KeyboardPanel(connection: DesktopConnection, os: String, la
                     }
                 }
                 BarKey(if (more) "ABC" else "⋯", "desktop-kb-more", if (more) ModifierLatch.State.LOCKED else ModifierLatch.State.OFF) { more = !more }
-                if (!more) BarKey("▾", "desktop-kb-hide-bar", narrow = true) { bar = false }
+                if (!more) BarKey("▾", "desktop-kb-hide-bar", narrow = true) { if (alwaysBar) onDismiss() else bar = false }
             }
         }
         if (more) key(latchRevision) { MoreKeys(os, latch, onKey = ::key, onShift = { latch.tap(HidUsage.LEFT_SHIFT); latchRevision++ },
@@ -1147,3 +1158,23 @@ internal fun DesktopCardButton(state: DesktopButton, tag: String, onClick: () ->
 private const val CURSOR_MIN_DP = 15f
 private const val CURSOR_MAX_DP = 24f
 private const val RING_DELAY_MS = 200L
+
+/** The picture on a TextureView, handed to the decoder while it exists (see [DesktopScreen]'s small form). */
+private fun pictureTexture(context: Context, connection: DesktopConnection) = android.view.TextureView(context).apply {
+    surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+        var surface: android.view.Surface? = null
+        override fun onSurfaceTextureAvailable(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {
+            val (w, h) = connection.videoSize.value
+            if (w > 0) texture.setDefaultBufferSize(w, h)
+            surface = android.view.Surface(texture).also(connection.decoder::attach)
+        }
+        override fun onSurfaceTextureSizeChanged(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
+        override fun onSurfaceTextureDestroyed(texture: android.graphics.SurfaceTexture): Boolean {
+            // Parks the decoder before the surface goes, so the next one (the page's) takes it over.
+            surface?.let { connection.decoder.detach(it); it.release() }
+            surface = null
+            return true
+        }
+        override fun onSurfaceTextureUpdated(texture: android.graphics.SurfaceTexture) {}
+    }
+}

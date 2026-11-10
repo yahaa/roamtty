@@ -62,6 +62,19 @@ internal class DesktopSettings(context: Context) {
     fun lockOnClose(hostId: String): Boolean = prefs.getBoolean("desktop.$hostId.lock", false)
     fun setLockOnClose(hostId: String, lock: Boolean) = prefs.edit { putBoolean("desktop.$hostId.lock", lock) }
 
+    /**
+     * Where the small window over the terminal sits (fractions of the room it moves in: 0, 0 top left) and how wide it
+     * is (a fraction of the screen), per host and orientation ([key]); null until it was moved or resized.
+     */
+    fun pipPosition(key: String): Pair<Float, Float>? =
+        if (prefs.contains("pip.$key.x")) prefs.getFloat("pip.$key.x", 1f) to prefs.getFloat("pip.$key.y", 0f) else null
+    fun pipFraction(key: String): Float? = prefs.getFloat("pip.$key.fraction", -1f).takeIf { it > 0f }
+    fun setPip(key: String, position: Pair<Float, Float>, fraction: Float) = prefs.edit {
+        putFloat("pip.$key.x", position.first)
+        putFloat("pip.$key.y", position.second)
+        putFloat("pip.$key.fraction", fraction)
+    }
+
     companion object {
         val KEEP_ALIVE = listOf(5, 10, 30)
         val FPS = listOf(30, 60, 90, 120)

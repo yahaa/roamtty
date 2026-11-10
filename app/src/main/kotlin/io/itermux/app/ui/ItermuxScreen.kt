@@ -131,6 +131,10 @@ fun ItermuxScreen(
     val lightTheme = theme == AppTheme.LIGHT || (theme == AppTheme.SYSTEM && configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES)
     /** The host whose desktop is shown on [AppPage.DESKTOP]. */
     var desktopHostId by rememberSaveable { mutableStateOf<String?>(null) }
+    /** The host whose desktop shows in the small window over the terminal (while one of its sessions is shown). */
+    var pipDesktopHostId by rememberSaveable { mutableStateOf<String?>(null) }
+    /** Set when the desktop page was opened from the terminal's small window: leaving it goes back to that terminal. */
+    var desktopFromTerminal by rememberSaveable { mutableStateOf(false) }
     val desktopTargets = remember(context) { runCatching { DesktopSettings.manifest(context).targets.keys }.getOrDefault(emptySet()) }
     val desktopFlow = remember(service) { service?.desktops?.connections ?: MutableStateFlow(emptyMap()) }
     val desktops by desktopFlow.collectAsStateWithLifecycle()
@@ -183,6 +187,7 @@ fun ItermuxScreen(
         homePager.requestScrollToPage(0)
     }
     BackHandler(page == AppPage.TERMINAL) { leaveTerminal() }
+    LaunchedEffect(page) { if (page != AppPage.DESKTOP) desktopFromTerminal = false }
     LaunchedEffect(service, sessions, selected, page) {
         val bound = service ?: return@LaunchedEffect
         bound.awaitRestoration()
@@ -355,12 +360,13 @@ fun ItermuxScreen(
     }
 
     /** The phone's screen in pixels and its density, which cap the desktop's encode size. */
-    fun startDesktop(host: Host, password: String = "", passphrase: String = "") {
+    fun startDesktop(host: Host, password: String = "", passphrase: String = "", show: Boolean = true) {
         val bound = readyService() ?: return
         val metrics = context.resources.displayMetrics
         val (w, h) = if (Build.VERSION.SDK_INT >= 30) context.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds.let { it.width() to it.height() }
             else metrics.widthPixels to metrics.heightPixels
         bound.openDesktop(host, password, passphrase, w, h, metrics.densityDpi)
+        if (!show) return
         desktopHostId = host.id
         page = AppPage.DESKTOP
     }
@@ -375,6 +381,28 @@ fun ItermuxScreen(
         }
         if (host.needsTypedSecret(app)) connectRequest = ConnectRequest(host, SessionMode.SHELL, desktop = true)
         else startDesktop(host)
+    }
+    /** The desktop page takes the screen from the terminal's small window; leaving it comes back to the terminal. */
+    fun desktopFromSmallWindow(hostId: String) {
+        desktopHostId = hostId; desktopFromTerminal = true; page = AppPage.DESKTOP
+    }
+    /** The dock's desktop button: the host's desktop in the small window over the terminal, or gone again. */
+    fun toggleDesktopPip(host: Host) {
+        if (pipDesktopHostId == host.id) { pipDesktopHostId = null; return }
+        val existing = service?.desktops?.get(host.id)
+        if (existing == null || !existing.active) {
+            // A secret to type is asked for first; the desktop then opens small all the same.
+            if (host.needsTypedSecret(app)) { connectRequest = ConnectRequest(host, SessionMode.SHELL, desktop = true, desktopSmall = true); return }
+            startDesktop(host, show = false)
+        }
+        pipDesktopHostId = host.id
+    }
+    // A small window whose desktop went away goes with it. Asked of the registry once the service is bound: right
+    // after a rotation recreates the activity, the collected map is still empty though the desktop is there.
+    LaunchedEffect(desktops, service) {
+        val registry = service?.desktops ?: return@LaunchedEffect
+        val id = pipDesktopHostId ?: return@LaunchedEffect
+        if (registry[id] == null) pipDesktopHostId = null
     }
     fun desktopSupported(host: Host): Boolean {
         val system = HostSystem.fromStored(host.os)
@@ -692,7 +720,10 @@ fun ItermuxScreen(
                         // The buttons capture the host, not the connection: Compose keeps the last tapped node (and its
                         // lambda) until the next touch, which would hold a closed desktop's buffers till then.
                         val desktopHost = connection.host
-                        DesktopPage(connection, onLeave = { page = AppPage.HOME },
+                        DesktopPage(connection, onLeave = {
+                            // Opened from the terminal's small window: back to that terminal, the desktop small again.
+                            if (desktopFromTerminal && sessions.any { it.id == selected }) page = AppPage.TERMINAL else page = AppPage.HOME
+                        },
                             onDisconnect = { service?.desktops?.close(desktopHost.id); page = AppPage.HOME },
                             onFiles = { browseFiles(savedHost(desktopHost)) },
                             modifier = Modifier.weight(1f))
@@ -735,7 +766,16 @@ fun ItermuxScreen(
                             // Closing ends the terminal page too: back to where it was opened from.
                             onClose = { leaveTerminal(); closeSession(active) },
                             onDesktop = savedHost(active.host).let { h ->
-                                { openDesktop(h) }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES }
+                                // A tap opens the desktop small over the terminal (or closes it); a long press opens its page.
+                                { toggleDesktopPip(h) }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES }
+                            },
+                            pip = savedHost(active.host).let { h ->
+                                TerminalPip(desktop = pipDesktopHostId?.takeIf { it == h.id }?.let { desktops[it] ?: service?.desktops?.get(it) },
+                                    onTap = { desktopFromSmallWindow(h.id) }, onClose = { pipDesktopHostId = null },
+                                    onFull = {
+                                        if (pipDesktopHostId == h.id && (desktops[h.id] ?: service?.desktops?.get(h.id)) != null) desktopFromSmallWindow(h.id)
+                                        else openDesktop(h)
+                                    }.takeIf { desktopSupported(h) && DesktopProbe.decode(h.desktop) == DesktopProbe.YES })
                             })
                     }
                 }
@@ -795,7 +835,10 @@ fun ItermuxScreen(
         connectRequest?.let { request -> CredentialsDialog(request, { connectRequest = null }) { password, phrase ->
             connectRequest = null
             if (request.plugins) pluginTarget = PluginTarget(request.host, password, phrase)
-            else if (request.desktop) startDesktop(request.host, password, phrase)
+            else if (request.desktop) {
+                startDesktop(request.host, password, phrase, show = !request.desktopSmall)
+                if (request.desktopSmall) pipDesktopHostId = request.host.id
+            }
             else start(request, password, phrase)
         } }
         terminatePrompt?.let { PromptDialog(it) }

@@ -35,6 +35,10 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
     private var closed = false
     private val feedPosted = AtomicBoolean()
     private val feedTask = Runnable { feedPosted.set(false); feed() }
+    private var parkingTexture: android.graphics.SurfaceTexture? = null
+    private var parkingSurface: Surface? = null
+    /** Decoding onto [parkingSurface]: outputs are released without rendering. */
+    @Volatile private var parked = false
     @Volatile var decoderName: String = ""
         private set
     @Volatile var decodedFrames = 0L
@@ -43,10 +47,14 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
     fun attach(surface: Surface) {
         synchronized(pending) {
             if (closed) return
-            if (requestedSurface !== surface) pending.deactivate()
             requestedSurface = surface
             handler.post {
                 if (this.surface === surface && codec != null) return@post
+                // A running decoder moves to the new surface as it is, without a new codec: that is what moves the picture
+                // between the desktop page and the small window. The new surface starts empty and a still desktop sends no
+                // new frame, so one keyframe is asked for to fill it.
+                if (moveTo(surface)) { onNeedKeyframe(); return@post }
+                synchronized(pending) { if (requestedSurface === surface) pending.deactivate() }
                 release()
                 val attached = synchronized(pending) {
                     if (closed || requestedSurface !== surface) false else {
@@ -60,14 +68,59 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
         }
     }
 
-    fun detach() {
+    /**
+     * [surface] is going away (a null one: whatever is shown). The decoder keeps decoding, unseen, onto a parked
+     * surface for [PARK_MS], so a surface that comes right after (the other page's) takes over its state; past
+     * that it is released. Waits a moment for the switch: the old surface must not be drawn to once destroyed.
+     */
+    fun detach(surface: Surface? = null) {
+        val done = java.util.concurrent.CountDownLatch(1)
         synchronized(pending) {
             if (closed) return
+            if (surface != null && requestedSurface !== surface) return
             requestedSurface = null
-            pending.deactivate()
-            handler.post { release(); surface = null }
+            handler.post {
+                try {
+                    if (requestedSurface != null) return@post
+                    if (codec == null || !moveTo(parking())) { stop(); return@post }
+                    parked = true
+                    handler.removeCallbacks(parkOver)
+                    handler.postDelayed(parkOver, PARK_MS)
+                } finally { done.countDown() }
+            }
+        }
+        if (android.os.Looper.myLooper() != thread.looper) runCatching { done.await(250, java.util.concurrent.TimeUnit.MILLISECONDS) }
+    }
+
+    /** Points the running codec at [target]; false (and nothing changed) when there is none or it refuses. */
+    private fun moveTo(target: Surface): Boolean {
+        val c = codec ?: return false
+        if (surface === target) return true
+        return try {
+            c.setOutputSurface(target)
+            surface = target
+            if (target !== parkingSurface) { parked = false; handler.removeCallbacks(parkOver) }
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "setOutputSurface failed", e)
+            false
         }
     }
+
+    /** Nothing shows the picture any more: drop queued frames and the codec. */
+    private fun stop() {
+        synchronized(pending) { if (requestedSurface == null) pending.deactivate() }
+        handler.removeCallbacks(parkOver)
+        parked = false
+        release()
+        surface = null
+    }
+
+    private val parkOver = Runnable { if (synchronized(pending) { requestedSurface == null }) stop() }
+
+    /** A surface nobody draws: decoded frames are released unrendered while parked. */
+    private fun parking(): Surface = parkingSurface ?: Surface(android.graphics.SurfaceTexture(false).also { parkingTexture = it })
+        .also { parkingSurface = it }
 
     fun submit(video: ServerMessage.Video) {
         // The Handler carries one wakeup, never one closure retaining every encoded video packet.
@@ -162,7 +215,7 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
 
         override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
             if (codec !== this@VideoDecoder.codec) return
-            try { codec.releaseOutputBuffer(index, true) } catch (_: Exception) { return }
+            try { codec.releaseOutputBuffer(index, !parked) } catch (_: Exception) { return }
             if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) return
             decodedFrames++
             onDecoded(info.presentationTimeUs, System.nanoTime() / 1000)
@@ -196,13 +249,20 @@ internal class VideoDecoder(private val onDecoded: (frame: Long, decodedUs: Long
             closed = true
             requestedSurface = null
             pending.deactivate()
-            handler.post { release(); surface = null }
+            handler.post {
+                handler.removeCallbacks(parkOver)
+                release(); surface = null
+                parkingSurface?.release(); parkingTexture?.release()
+                parkingSurface = null; parkingTexture = null
+            }
         }
         thread.quitSafely()
     }
 
     companion object {
         private const val TAG = "RoamttyDesktop"
+        /** How long a decoder with no surface keeps going for one that comes next. */
+        const val PARK_MS = 1_500L
 
         /** The Annex-B NAL units of an access unit, each with its start code, and its type. */
         fun nalUnits(data: ByteArray, offset: Int): List<Pair<ByteArray, Int>> {

@@ -405,8 +405,9 @@ internal class DesktopConnection(
         lastVideoFrame = -1L
         brokenUntilKey = false
         startUdp(hello)
-        val config = mutableMapOf<String, Any>("display" to display.value, "fps" to fps.value, "quality" to quality.value,
+        val config = mutableMapOf<String, Any>("display" to display.value, "fps" to streamFps(), "quality" to quality.value,
             "lock_on_close" to lockOnClose.value)
+        if (miniOnly) config["max_bitrate"] = MINI_MAX_BITRATE
         audioAvailable.value = "opus" in hello.audio
         if (audioAvailable.value == true && audio.value) config["audio"] = true
         sendSsh(DesktopProtocol.config(config))
@@ -661,7 +662,7 @@ internal class DesktopConnection(
     }
 
     fun setQuality(value: String) { quality.value = value; settings.setQuality(host.id, value); send(DesktopProtocol.config(mapOf("quality" to value))) }
-    fun setFps(value: Int) { fps.value = value; settings.setFps(host.id, value); send(DesktopProtocol.config(mapOf("fps" to value))) }
+    fun setFps(value: Int) { fps.value = value; settings.setFps(host.id, value); send(DesktopProtocol.config(mapOf("fps" to streamFps()))) }
     fun setDisplay(index: Int) { display.value = index; send(DesktopProtocol.config(mapOf("display" to index))) }
     fun setAudio(on: Boolean) {
         audio.value = on
@@ -674,6 +675,48 @@ internal class DesktopConnection(
         }
     }
     fun setLockOnClose(on: Boolean) { lockOnClose.value = on; settings.setLockOnClose(host.id, on); send(DesktopProtocol.config(mapOf("lock_on_close" to on))) }
+
+    /** Who shows the picture now (the desktop page, the small window over the terminal), each with whether it is small. */
+    private val shownBy = mutableMapOf<String, Boolean>()
+    private var hideJob: Job? = null
+    /** Only small windows show the picture: the host sends fewer, smaller frames ([MINI_FPS], [MINI_MAX_BITRATE]). */
+    private var miniOnly = false
+
+    /** The frame rate asked of the host: the user's, capped while only a small window shows the picture. */
+    private fun streamFps() = if (miniOnly) minOf(fps.value, MINI_FPS) else fps.value
+
+    /**
+     * [owner] shows the picture, [small] or full. The desktop page and the small window hand the picture to each
+     * other in one frame, so the link pauses only when nothing has shown it for [HIDE_GRACE_MS] ([hidden]): a switch
+     * between them never pauses the host or asks it for a new keyframe.
+     */
+    fun shown(owner: String, small: Boolean) {
+        hideJob?.cancel()
+        hideJob = null
+        val wasShown = shownBy.isNotEmpty()
+        shownBy[owner] = small
+        if (!wasShown) resume()
+        updateMini()
+    }
+
+    /** [owner] no longer shows the picture; see [shown]. */
+    fun hidden(owner: String) {
+        if (shownBy.remove(owner) == null) return
+        if (shownBy.isNotEmpty()) { updateMini(); return }
+        hideJob?.cancel()
+        hideJob = scope.launch {
+            delay(HIDE_GRACE_MS)
+            hideJob = null
+            if (shownBy.isEmpty() && active) pause()
+        }
+    }
+
+    private fun updateMini() {
+        val small = shownBy.isNotEmpty() && shownBy.values.all { it }
+        if (small == miniOnly) return
+        miniOnly = small
+        send(DesktopProtocol.config(mapOf("fps" to streamFps(), "max_bitrate" to if (small) MINI_MAX_BITRATE else UNCAPPED_BITRATE)))
+    }
 
     /** The page went away: no pictures, the link kept for the keep-alive time. */
     fun pause() {
@@ -738,6 +781,13 @@ internal class DesktopConnection(
 
     companion object {
         private const val TAG = "RoamttyDesktop"
+        /** How long the picture may go unshown before the host pauses: longer than a switch between pages takes. */
+        const val HIDE_GRACE_MS = 600L
+        /** The small window's frame rate and bitrate cap (bits per second): plenty for a picture a third of the screen. */
+        const val MINI_FPS = 15
+        const val MINI_MAX_BITRATE = 1_500_000
+        /** Lifts the cap: the host takes the lower of this and its own quality cap. */
+        const val UNCAPPED_BITRATE = 1_000_000_000
         const val RECOVER_LIMIT_MS = 30_000L
         const val POOR_MS = 300L
         private const val HANDSHAKE_MS = 30_000L
