@@ -29,8 +29,9 @@ internal fun ShareTargetSheet(choices: List<TerminalConnection>, onDismiss: () -
             items(choices.size, key = { choices[it].id }) { index ->
                 val session = choices[index]
                 val title by session.title.collectAsStateWithLifecycle()
+                val name by session.name.collectAsStateWithLifecycle()
                 val state by session.state.collectAsStateWithLifecycle()
-                GroupedRow(session.titleForDisplay(title),
+                GroupedRow(session.titleForDisplay(title, name),
                     Modifier.padding(horizontal = Spacing.Tight).clip(MaterialTheme.shapes.small)
                         .testTag("share-session-${session.id}"),
                     subtitle = "${session.host.username}@${session.host.address}:${session.host.port}",

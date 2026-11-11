@@ -44,6 +44,15 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionOnScreen
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.toSize
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -69,7 +78,8 @@ import kotlinx.coroutines.launch
  * needs (allow a request, or a follow-up typed right here). Every line is there, empty if need be, and the reply
  * takes one, so all agents' cards share one height. [compact] rows, for sessions without an agent's report,
  * are built the same way with only the name, the folder and a status line of the connection. Long press for its menu.
- * An agent's session is named by its folder, the agent's badge before it; others by [sessionListTitle].
+ * A card the user named shows that name; otherwise an agent's session is named by its folder, the agent's badge
+ * before it, and others by [sessionListTitle].
  */
 @Composable
 internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier,
@@ -81,6 +91,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     desktop: (@Composable () -> Unit)? = null) {
     val state by session.state.collectAsStateWithLifecycle()
     val title by session.title.collectAsStateWithLifecycle()
+    val customName by session.name.collectAsStateWithLifecycle()
     val agent by session.agentStatus.collectAsStateWithLifecycle()
     val polled by session.agentPolled.collectAsStateWithLifecycle()
     val last by session.lastAgentStatus.collectAsStateWithLifecycle()
@@ -100,10 +111,12 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     // The agent's folder while it reports, else the pane's, so a session without hooks or agent says it too; on a line
     // of its own under the name, the home as `~`.
     val path = sessionListPath(status, username).ifEmpty { sessionListPath(directory, username) }
-    val name = when {
+    val automatic = when {
         status != null -> path.takeIf { it.isNotEmpty() }?.let(::pathLeaf) ?: kind?.label.orEmpty()
         else -> sessionListTitle(title, null, kind, username).let { shown -> kind?.let { shown.removePrefix("${it.shortLabel} · ") } ?: shown }
     }.ifBlank { trf("会话 %d", session.sessionNumber) }
+    // What the user named it, else the name above.
+    val name = customName.ifBlank { automatic }
     val prompt = status?.task.orEmpty()
     val activity = agentActivity(status)
     val reply = status?.reply?.let(::replyPreview).orEmpty()
@@ -113,6 +126,10 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
 
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
+    var renaming by rememberSaveable(session.id) { mutableStateOf(false) }
+    // Where the card is and where it was last touched, on the screen, for the long-press menu to open there.
+    var card by remember { mutableStateOf(Rect.Zero) }
+    var press by remember { mutableStateOf(Offset.Zero) }
     var forgetting by remember { mutableStateOf(false) }
     var replying by rememberSaveable(session.id) { mutableStateOf(false) }
     var draft by rememberSaveable(session.id) { mutableStateOf("") }
@@ -130,7 +147,12 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     }
 
     val accent = StatusColors.warning
-    Column(modifier.fillMaxWidth().clip(shape).background(colors.groupedContainer)
+    Column(modifier.fillMaxWidth()
+        .onGloballyPositioned { card = Rect(it.positionOnScreen(), it.size.toSize()) }
+        .pointerInput(Unit) {
+            awaitEachGesture { press = card.topLeft + awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial).position }
+        }
+        .clip(shape).background(colors.groupedContainer)
         .drawBehind { if (waiting) drawRect(accent, size = Size(3.dp.toPx(), size.height)) }
         .combinedClickable(onClickLabel = tr("打开终端"), role = Role.Button, onLongClickLabel = tr("会话选项"),
             onLongClick = { menu = true }, onClick = onClick)
@@ -245,19 +267,36 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 Text(it, Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelMedium, color = colors.error, maxLines = 2)
             }
         }
-        // Long press: close it, ending everything it runs, without asking; a tmux session that was already on the
-        // server is only detached.
-        DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(text = { Text(tr(if (session.external) "断开" else "关闭"), color = colors.error) },
-                onClick = { menu = false; onClose() },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null, tint = colors.error) },
-                modifier = Modifier.testTag("$tagPrefix-close-${session.id}"))
-            // Closing a disconnected tmux session logs in to end it, which an offline host never allows; force delete
-            // removes the card first and ends the session if the host answers.
-            if (session.closeForgets(state.active)) DropdownMenuItem(text = { Text(tr("强制删除"), color = colors.error) },
-                onClick = { menu = false; forgetting = true },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null, tint = colors.error) },
-                modifier = Modifier.testTag("$tagPrefix-forget-${session.id}"))
+        // Long press: name it, or close it, ending everything it runs, without asking; a tmux session that was already on
+        // the server is only detached. Closing a disconnected tmux session logs in to end it, which an offline host never
+        // allows; force delete removes the card first and ends the session if the host answers.
+        if (menu) SessionMenu(card, press, listOf(
+            listOf(SessionMenuAction(tr("重命名"), R.drawable.ic_edit, "$tagPrefix-rename-${session.id}") { renaming = true }),
+            listOfNotNull(
+                SessionMenuAction(tr(if (session.external) "断开" else "关闭"), R.drawable.ic_close_circle,
+                    "$tagPrefix-close-${session.id}", tr(when {
+                        session.external -> "服务器上的会话保留"
+                        session.closeForgets(state.active) -> "登录主机后结束会话"
+                        else -> "结束会话里运行的程序"
+                    }), destructive = true, onClick = onClose),
+                if (session.closeForgets(state.active)) SessionMenuAction(tr("强制删除"), R.drawable.ic_delete,
+                    "$tagPrefix-forget-${session.id}", tr("先移除卡片，主机恢复后结束"), destructive = true) { forgetting = true }
+                else null)
+        ), onDismiss = { menu = false })
+        if (renaming) RenameSessionDialog(customName, automatic,
+            if (status != null) NameSuggestion(tr("提问"), prompt)
+            else path.takeIf { it.isNotEmpty() }?.let { NameSuggestion(tr("目录"), pathLeaf(it)) },
+            "$tagPrefix-rename-${session.id}", onSave = session::setName, onDismiss = { renaming = false }) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (kind != null) {
+                    AgentBadge(kind)
+                    Spacer(Modifier.width(6.dp))
+                }
+                HostChip(session.host.name, session.host.id, offline, "$tagPrefix-rename-host-${session.id}")
+            }
+            if (path.isNotEmpty()) Text(path, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelMedium,
+                fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant.copy(alpha = 0.75f), maxLines = 1,
+                overflow = TextOverflow.MiddleEllipsis)
         }
         if (forgetting) AlertDialog(onDismissRequest = { forgetting = false },
             title = { Text(tr("强制删除会话？")) },

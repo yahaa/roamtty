@@ -29,8 +29,9 @@ import io.itermux.ssh.SessionMode
 internal fun SessionSwitcher(session: TerminalConnection, title: String, phase: Phase, sessions: List<TerminalConnection>,
     expanded: Boolean, modifier: Modifier, onExpand: () -> Unit, onDismiss: () -> Unit, onHostDetail: () -> Unit,
     onClose: () -> Unit, onRestart: () -> Unit, onSelect: (String) -> Unit) {
+    val name by session.name.collectAsStateWithLifecycle()
     Box(modifier) {
-        TextButton(onClick = onExpand, modifier = Modifier.fillMaxWidth().semantics { contentDescription = trf("切换会话：%s", session.titleForDisplay(title)) }.testTag("session-switcher"), contentPadding = PaddingValues(horizontal = 8.dp)) {
+        TextButton(onClick = onExpand, modifier = Modifier.fillMaxWidth().semantics { contentDescription = trf("切换会话：%s", session.titleForDisplay(title, name)) }.testTag("session-switcher"), contentPadding = PaddingValues(horizontal = 8.dp)) {
             // The dot on the sessions icon doubles as the connection indicator.
             Box {
                 Icon(painterResource(R.drawable.ic_sessions), contentDescription = null, modifier = Modifier.size(22.dp))
@@ -53,7 +54,8 @@ internal fun SessionSwitcher(session: TerminalConnection, title: String, phase: 
             sessions.forEach { other ->
                 val otherState by other.state.collectAsStateWithLifecycle()
                 val otherTitle by other.title.collectAsStateWithLifecycle()
-                DropdownMenuItem(text = { Text("${if (other.id == session.id) "✓ " else ""}${other.titleForDisplay(otherTitle)} · ${phaseLabel(otherState.phase)}",
+                val otherName by other.name.collectAsStateWithLifecycle()
+                DropdownMenuItem(text = { Text("${if (other.id == session.id) "✓ " else ""}${other.titleForDisplay(otherTitle, otherName)} · ${phaseLabel(otherState.phase)}",
                     maxLines = 1, overflow = TextOverflow.Ellipsis) }, onClick = { onSelect(other.id) })
             }
         }

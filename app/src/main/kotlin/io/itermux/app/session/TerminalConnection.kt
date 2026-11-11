@@ -35,6 +35,9 @@ internal const val RESTORED_MESSAGE = "连接已中断。会话记录已恢复�
 
 private const val INPUT_NOT_SENT = "未发送：连接未就绪或输入队列已满。"
 
+/** [value] as a card's name: on one line, without the spaces around it, at most as long as a title. */
+internal fun sessionName(value: String): String = clipSessionTitle(value.replace(Regex("\\s*[\\r\\n]+\\s*"), " ").trim())
+
 internal fun clipSessionTitle(value: String): String = value.take(80).let {
     if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it
 }
@@ -48,6 +51,8 @@ class TerminalConnection(
     private val scope: CoroutineScope,
     val id: String = UUID.randomUUID().toString(),
     initialTitle: String = "",
+    /** The name the user gave the card; blank lets the list name it. */
+    initialName: String = "",
     val sessionNumber: Int = 1,
     /** Unique remote tmux session for this local entry; legacy restorations use [Tmux.LEGACY_SESSION]. */
     val remoteSessionName: String = if (mode == SessionMode.TMUX) Tmux.newSessionName() else Tmux.LEGACY_SESSION,
@@ -71,9 +76,18 @@ class TerminalConnection(
     private val mutableTitle = MutableStateFlow(initialTitle)
     val title = mutableTitle.asStateFlow()
     val defaultTitle: String get() = trf("%s · 会话 %d", host.name, sessionNumber)
-    val displayTitle: String get() = titleForDisplay(title.value)
-    fun titleForDisplay(title: String): String = if (title.isBlank()) defaultTitle else "${host.name} · $title"
+    private val mutableName = MutableStateFlow(initialName)
+    /** What the user named the card, on this device only; blank for the name the list derives. [title] stays as launched. */
+    val name = mutableName.asStateFlow()
+    val displayTitle: String get() = titleForDisplay(title.value, name.value)
+    fun titleForDisplay(title: String, name: String): String = when {
+        name.isNotBlank() -> "${host.name} · $name"
+        title.isBlank() -> defaultTitle
+        else -> "${host.name} · $title"
+    }
     fun rename(title: String) { mutableTitle.value = clipSessionTitle(title.trim()); onRename() }
+    /** Names the card [name], one line; blank goes back to the name the list derives. */
+    fun setName(name: String) { mutableName.value = sessionName(name); onRename() }
     var draft: String = "" // Memory only; terminal text and prompt drafts are never saved to disk.
     var onScreenChanged: (() -> Unit)? = null
     var copyToClipboard: ((String) -> Unit)? = null
