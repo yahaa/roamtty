@@ -27,6 +27,13 @@ internal fun Host.needsTypedSecret(vault: SecretVault): Boolean {
 }
 
 /**
+ * Whether a login can be made with nobody there to answer: a saved password, or a key without a passphrase. A key
+ * that needs its passphrase would fail the login outright, and keyboard-interactive hosts ask their own questions.
+ */
+internal fun Host.logsInUnattended(vault: SecretVault): Boolean =
+    auth != AuthMethod.INTERACTIVE.name && !needsTypedSecret(vault)
+
+/**
  * The credentials of one login to [host]: its saved password or key, else the [password] typed for it, and a typed key
  * [passphrase]. Saved secrets are decrypted with the Keystore, so call this off the main thread.
  */
