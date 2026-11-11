@@ -60,9 +60,35 @@ tmux 模式先运行只读的 `command -v tmux` 检查，再在带 PTY 的 exec 
 - 主机端后端（插件 `Backend` trait）：Linux X11（MIT-SHM / XFIXES / XTEST）与 wlroots Wayland（wlr-screencopy、wlr-virtual-pointer、zwp-virtual-keyboard 上传完整展开的 keymap、wlr-data-control），按会话自动选择；macOS（ScreenCaptureKit、VideoToolbox、CGEvent、NSPasteboard）与 Windows（DXGI Desktop Duplication、OpenH264、SendInput、Win32 剪贴板）在用户桌面会话里的常驻 agent 中运行（macOS 为 LaunchAgent 的公证 `.app`，Windows 为登录计划任务），SSH 启动的 `serve` 只经 0600 socket / 仅属主可访问的命名管道和令牌把字节转给 agent。macOS 的 `needs` 以 ScreenCaptureKit 的实际结果为准，App 每 1.5 秒重试直到用户授权。Windows 主机走 PowerShell 探测（`Win32_ComputerSystem.UserName`）与安装（`curl.exe` + `Get-FileHash`），`serve` 经 `cmd /c` 启动。
 - GNOME / KDE 的 Wayland（xdg-desktop-portal ScreenCast + RemoteDesktop）尚未实现。
 
+## 模块与分层
+
+| 模块 | 类型 | 内容 |
+| --- | --- | --- |
+| `app` | Android | Compose 界面、前台服务、Room/Keystore、桌面解码 |
+| `ssh-core` | 纯 JVM | SSH/mosh 传输、SFTP、端口转发、主机探测与插件安装脚本 |
+| `desktop-core` | 纯 JVM | 远程桌面协议、UDP 链路、手势到输入的映射 |
+| `code-core` | 纯 JVM | 文件预览用的语法高亮与 Markdown 解析 |
+| `terminal-emulator` / `terminal-view` | Android | 固定版本的 Termux 终端（见“上游适配”） |
+
+纯 JVM 模块不依赖 Android，可在 JVM 上直接跑单元测试；`app` 只能通过它们的公开 API 使用它们。
+
+`app` 内的包自下而上依赖，下层不引用上层：
+
+```
+io.itermux.app          tr/trf 翻译、appSettings、字体；ItermuxApp（组合根）与 MainActivity
+  data                  Room 主机表、SecretVault、凭据与最近使用
+  login                 PendingPrompt、pageLogin：页面自用的 SSH 登录
+  session / desktop     终端会话与远程桌面的连接；SessionService 持有两者
+  ui                    Compose 页面，只有它依赖其余各包
+```
+
+- `session` 不引用 `ui`；`data` 不引用 `ItermuxApp`（凭据函数只接收 `SecretVault`）；`desktop` 只通过 `login` 登录，不引用 `session`。`SessionService` 是唯一同时持有会话与桌面的地方。
+- 界面按连接状态里的文案区分结局（是否自动重连、是否重试），这些文案只在 `ssh-core` 的 `ConnectionMessages` 定义一次。
+- `JschSession` 负责连接循环、认证与终端通道；终端之外的短生命周期通道（命令执行、长驻流、direct-tcpip）在 `SshChannels`，文件操作在 `SftpOperations`。
+
 ## 界面结构
 
-`ItermuxScreen` 只负责页面导航（`AppPage` 枚举，可随配置变更保存）、顶层状态和对话框的显示时机。构造连接请求的纯函数集中在 `SessionRequests.kt`（新建、启动 agent、重连、终止及查找已有卡片），`SessionService.openFor` 负责打开或重连会话并排队启动命令，均可在 JVM 上单测。会话列表的自动重连由 `ReconnectFromSessionList` 独立管理；首页两个标签页、分享目标选择和主机删除/重新核验确认框各自成文件，只通过参数与回调通信。应用级设置统一经 `Context.appSettings()` 读取同一 `app-settings` 文件，主题读写由 `appTheme()` / `saveAppTheme()` 封装。
+`ItermuxScreen` 只收集主机、会话和桌面的状态并挂接副作用，然后显示当前页。所在页面与打开的弹窗记在 `ScreenState`（按 id 记录的部分随配置变更保存）；页面发起的操作（开关会话、重连、桌面、文件、插件、分享图片）在 `ScreenActions`，它在被调用时读取界面收集到的最新状态；顶栏与各页面在 `ScreenPages.kt`，弹窗在 `ScreenDialogs.kt`，横屏顶栏的滑动在 `HomeBarSlide.kt`。远程桌面页按画面、状态卡、网络统计、操作面板、键盘面板分文件（`Desktop*.kt`）。构造连接请求的纯函数集中在 `SessionRequests.kt`（新建、启动 agent、重连、终止及查找已有卡片），`SessionService.openFor` 负责打开或重连会话并排队启动命令，均可在 JVM 上单测。会话列表的自动重连由 `ReconnectFromSessionList` 独立管理；首页两个标签页、分享目标选择和主机删除/重新核验确认框各自成文件，只通过参数与回调通信。应用级设置统一经 `Context.appSettings()` 读取同一 `app-settings` 文件，主题读写由 `appTheme()` / `saveAppTheme()` 封装。
 
 ## 上游适配
 
