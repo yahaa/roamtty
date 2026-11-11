@@ -16,7 +16,9 @@ import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
 import io.itermux.ssh.Phase
 import io.itermux.ssh.SessionMode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** The sheets and dialogs [state] has open, over whichever page shows. */
 @Composable
@@ -37,7 +39,8 @@ internal fun ScreenDialogs(app: ItermuxApp, service: SessionService?, state: Scr
                 actions.closeDesktop(host.id)
                 app.database.hosts().delete(host.id)
                 DesktopThumbnails.remove(app, host.id)
-                PreviewStorage.forget(app, host.id)
+                // WebView's profile store insists on the main thread; Room may hand the coroutine back on another.
+                withContext(Dispatchers.Main.immediate) { PreviewStorage.forget(app, host.id) }
                 state.deleteHost = null
             }
         }

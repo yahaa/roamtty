@@ -21,7 +21,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +40,6 @@ import io.itermux.desktop.DesktopProbe
 import io.itermux.ssh.Phase
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
 
 /** What the home page lists and how its two tabs scroll, shared by its bar and its tabs. */
 internal class HomeLists(
@@ -64,14 +62,12 @@ internal class HomeLists(
  */
 @Composable
 internal fun ScreenToolbar(state: ScreenState, lists: HomeLists, landscape: Boolean, barSlide: HomeBarSlide,
-    onToggleSearch: () -> Unit, onOpenDrawer: () -> Unit) {
-    val scope = rememberCoroutineScope()
+    onSelectTab: (Int) -> Unit, onToggleSearch: () -> Unit, onOpenDrawer: () -> Unit) {
     val home = state.page == AppPage.HOME
     val tab = lists.pager.currentPage
     val titles = listOf(tr("会话"), tr("主机"))
-    val selectTab = { index: Int -> scope.launch { lists.pager.animateScrollToPage(index) }; Unit }
     val searchDescription = tr(if (tab == 0) "搜索会话" else "搜索主机")
-    if (landscape && home) HomeCompactBar(titles, listOf(lists.sessions.size, lists.hosts.size), tab, onSelect = selectTab,
+    if (landscape && home) HomeCompactBar(titles, listOf(lists.sessions.size, lists.hosts.size), tab, onSelect = onSelectTab,
         leading = { ToolbarIcon(R.drawable.ic_sidebar, tr("打开导航"), Modifier.testTag("brand-logo"), onClick = onOpenDrawer) },
         middle = {
             if (tab == 0 && lists.groups.size > 1)
@@ -100,7 +96,7 @@ internal fun ScreenToolbar(state: ScreenState, lists: HomeLists, landscape: Bool
         },
         actions = {
             if (home) {
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { HomeTabs(titles, tab, onSelect = selectTab) }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { HomeTabs(titles, tab, onSelect = onSelectTab) }
                 AppSearchToggle(state.searchExpanded, onToggle = onToggleSearch, searchDescription = searchDescription,
                     modifier = Modifier.testTag("search-toggle"))
             } else {

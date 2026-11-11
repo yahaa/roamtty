@@ -312,7 +312,9 @@ fun ItermuxScreen(
                 Column(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).windowInsetsPadding(imeInsets)) {
                     val toolbarVisible = (!imeVisible || state.searchExpanded) && !terminalVisible && page != AppPage.FILES &&
                         page != AppPage.HOST && !desktopVisible
-                    if (toolbarVisible) ScreenToolbar(state, lists, landscape, barSlide, ::toggleSearch, openDrawer)
+                    if (toolbarVisible) ScreenToolbar(state, lists, landscape, barSlide,
+                        // The screen's scope: the bar may leave (the keyboard opening) while the pager still moves.
+                        onSelectTab = { scope.launch { homePager.animateScrollToPage(it) } }, ::toggleSearch, openDrawer)
                     when (page) {
                         AppPage.HOME -> HomePage(state, actions, lists, sessions, desktops, compactHome, barSlide, searchFocus)
                         AppPage.HOST -> {
