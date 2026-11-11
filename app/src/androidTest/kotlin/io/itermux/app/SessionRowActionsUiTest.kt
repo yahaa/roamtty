@@ -9,6 +9,15 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import io.itermux.app.session.SessionJournal
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -32,7 +41,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** A session row shows its agent and host, and its long-press menu closes the session without asking. */
+/** A session row shows its agent and host, and its long-press menu renames it or closes it without asking. */
 @RunWith(AndroidJUnit4::class)
 class SessionRowActionsUiTest {
     @get:Rule val compose = createComposeRule()
@@ -59,7 +68,7 @@ class SessionRowActionsUiTest {
             compose.onNodeWithTag("home-session-location-${session.id}", useUnmergedTree = true).assertDoesNotExist()
 
             compose.onNodeWithTag("home-session-${session.id}").performTouchInput { longClick() }
-            compose.onNodeWithTag("home-session-rename-${session.id}").assertDoesNotExist()
+            compose.onNodeWithTag("home-session-rename-${session.id}").assertExists()
             compose.onNodeWithTag("home-session-close-${session.id}").performClick()
             assertEquals(listOf(session), closed)
         } finally {
@@ -111,6 +120,65 @@ class SessionRowActionsUiTest {
             compose.onNodeWithTag("home-session-forget-${session.id}").assertDoesNotExist()
         } finally {
             withContext(Dispatchers.Main) { service.close(session.id) }
+        }
+        Unit
+    }
+
+    /**
+     * Renaming from the long-press menu: the dialog opens on the automatic name, a typed name replaces the title and is
+     * kept in the journal, and the automatic suggestion brings the derived name back.
+     */
+    @Test fun renamesFromTheMenu() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val host = Host(name = "详情主机", address = "127.0.0.1", port = 1, username = "test")
+        val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials("test-only".toByteArray())) }
+        withContext(Dispatchers.Main) { session.rename("Grok · roamtty"); session.launchedAgent.value = CodingAgent.GROK }
+        val id = session.id
+        fun shot(name: String) {
+            compose.waitForIdle()
+            Thread.sleep(400)
+            val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            java.io.File(context.getExternalFilesDir(null), "$name.png").outputStream()
+                .use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        try {
+            compose.setContent {
+                MaterialTheme(colorScheme = DarkColors) {
+                    androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize()) {
+                        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.padding(16.dp)) {
+                            SessionRow(session, onClick = {}, onClose = {})
+                        }
+                    }
+                }
+            }
+            compose.onNodeWithTag("home-session-$id").performTouchInput { longClick(center) }
+            compose.onNodeWithTag("home-session-close-$id").assertExists()
+            shot("session-menu")
+            compose.onNodeWithTag("home-session-rename-$id").performClick()
+            compose.onNodeWithTag("home-session-rename-$id-input").assertTextEquals("roamtty")
+            compose.onNodeWithTag("home-session-rename-$id-save").assertIsNotEnabled()
+            compose.onNodeWithTag("home-session-rename-$id-input").performTextReplacement("release\n打包 ")
+            shot("session-rename-dialog")
+            compose.onNodeWithTag("home-session-rename-$id-save").performClick()
+            compose.onNodeWithTag("home-session-rename-$id-dialog").assertDoesNotExist()
+            compose.onNodeWithTag("home-session-title-$id", useUnmergedTree = true).assertTextEquals("release 打包")
+            assertEquals("release 打包", session.name.value)
+            assertEquals("Grok · roamtty", session.title.value)
+            assertEquals("release 打包", SessionJournal(context).read().first { it.id == id }.name)
+
+            compose.onNodeWithTag("home-session-$id").performTouchInput { longClick(center) }
+            compose.onNodeWithTag("home-session-rename-$id").performClick()
+            compose.onNodeWithTag("home-session-rename-$id-input").assertTextEquals("release 打包")
+            compose.onNodeWithTag("home-session-rename-$id-auto").performClick()
+            compose.onNodeWithTag("home-session-rename-$id-input")
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
+            shot("session-rename-cleared")
+            compose.onNodeWithTag("home-session-rename-$id-save").performClick()
+            compose.onNodeWithTag("home-session-title-$id", useUnmergedTree = true).assertTextEquals("roamtty")
+            assertEquals("", session.name.value)
+        } finally {
+            withContext(Dispatchers.Main) { service.close(id) }
         }
         Unit
     }

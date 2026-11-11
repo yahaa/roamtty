@@ -21,7 +21,9 @@ internal class SessionJournal(context: Context) {
         /** A tmux session that was already on the server, which the app attached to and never ends. */
         val external: Boolean = false,
         /** What its agent reported last, for the session list to show until the host answers again. */
-        val agentStatus: AgentStatus? = null
+        val agentStatus: AgentStatus? = null,
+        /** The name the user gave the card; blank for the derived one. */
+        val name: String = ""
     )
 
     fun read(): List<Entry> = runCatching {
@@ -38,7 +40,8 @@ internal class SessionJournal(context: Context) {
                     Tmux.sanitizeSessionName(remote),
                     item.optInt("sessionNumber", 0).coerceAtLeast(0),
                     item.optBoolean("external", false),
-                    item.optJSONObject("agentStatus")?.let(::decodeAgentStatus)
+                    item.optJSONObject("agentStatus")?.let(::decodeAgentStatus),
+                    sessionName(item.optString("name"))
                 )
             }.getOrNull()
         }.distinctBy { it.id }.let { entries ->
@@ -61,6 +64,7 @@ internal class SessionJournal(context: Context) {
                     .put("sessionNumber", session.sessionNumber)
                     .put("external", session.external)
                     .put("agentStatus", session.lastAgentStatus.value?.let(::encodeAgentStatus))
+                    .put("name", session.name.value)
             )
         }
         // apply updates memory immediately and Android flushes pending writes at lifecycle boundaries.

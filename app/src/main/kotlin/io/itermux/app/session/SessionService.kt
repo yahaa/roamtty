@@ -80,7 +80,7 @@ class SessionService : Service() {
                     used.add(number)
                     newConnection(host, entry.mode, credentials = null, id = entry.id, title = entry.title,
                         sessionNumber = number, remoteSessionName = entry.remoteSessionName, external = entry.external,
-                        lastAgentStatus = entry.agentStatus)
+                        lastAgentStatus = entry.agentStatus, name = entry.name)
                 }
             }
             saveSessions()
@@ -112,8 +112,8 @@ class SessionService : Service() {
      */
     private fun newConnection(host: Host, mode: SessionMode, credentials: Credentials?, id: String, title: String,
         sessionNumber: Int, remoteSessionName: String, external: Boolean, lastAgentStatus: AgentStatus?,
-        preferMosh: Boolean = false) = TerminalConnection(
-        host, mode, credentials, app.pins, scope, id, title,
+        preferMosh: Boolean = false, name: String = "") = TerminalConnection(
+        host, mode, credentials, app.pins, scope, id, title, name,
         sessionNumber = sessionNumber,
         remoteSessionName = remoteSessionName,
         external = external,
@@ -264,7 +264,7 @@ class SessionService : Service() {
         val current = app.database.hosts().find(existing.host.id) ?: existing.host
         val replacement = newConnection(existing.host, existing.mode, credentials, existing.id, existing.title.value,
             existing.sessionNumber, existing.remoteSessionName, existing.external, existing.lastAgentStatus.value,
-            preferMosh = current.prefersMosh)
+            preferMosh = current.prefersMosh, name = existing.name.value)
         mutableSessions.value = mutableSessions.value.map { if (it.id == id) replacement else it }
         track(replacement)
         return replacement

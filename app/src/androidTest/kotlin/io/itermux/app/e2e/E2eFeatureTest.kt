@@ -821,8 +821,28 @@ class E2eFeatureTest {
             tag("home-session-follow-up-${it.id}").assertExists()
         }
         E2e.capture(compose, "f24-session-list")
+        // Long press: the card stays lit, the rest dims, and the menu names it or closes it, saying what closing does.
+        compose.onNodeWithTag("home-session-${waiting.id}").performTouchInput { longClick(center) }
+        tag("home-session-close-${waiting.id}").assertExists()
+        E2e.capture(compose, "f24b-session-menu")
+        compose.onNodeWithTag("home-session-rename-${waiting.id}").performClick()
+        compose.onNodeWithTag("home-session-rename-${waiting.id}-input").performTextReplacement("release 打包")
+        // Its prompt is offered as a name beside the folder's.
+        tag("home-session-rename-${waiting.id}-suggestion").assertExists()
+        E2e.capture(compose, "f24c-rename-dialog")
+        compose.onNodeWithTag("home-session-rename-${waiting.id}-save").performClick()
+        tag("home-session-title-${waiting.id}").assertTextEquals("release 打包")
+        E2e.capture(compose, "f24d-renamed")
         compose.onNodeWithTag("home-sessions-list").performScrollToNode(hasTestTag("home-session-${plain.id}"))
         tag("home-session-tag-tmux-${plain.id}").assertExists()
+        // The last card, low on the screen: its menu opens above it when there is no room below.
+        compose.onNodeWithTag("home-session-${plain.id}").performTouchInput { longClick(center) }
+        E2e.capture(compose, "f24e-session-menu-low")
+        compose.onNodeWithTag("home-session-rename-${plain.id}").performClick()
+        E2e.capture(compose, "f24f-rename-plain")
+        compose.onNodeWithTag("home-session-rename-${plain.id}-input").performTextReplacement("日志 tail")
+        compose.onNodeWithTag("home-session-rename-${plain.id}-save").performClick()
+        tag("home-session-title-${plain.id}").assertTextEquals("日志 tail")
     }
 
     /**
