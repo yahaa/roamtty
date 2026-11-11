@@ -298,20 +298,6 @@ internal fun latencyLabel(ms: Long): String = if (ms < 1) "<1 ms" else "$ms ms"
  */
 internal fun TerminalConnection.closeForgets(active: Boolean): Boolean = !active && mode == SessionMode.TMUX && !external
 
-/** The card used by the host and session lists: one shape, one surface, whole-card tap target. */
-@Composable internal fun ListCard(onClick: () -> Unit, onClickLabel: String, modifier: Modifier = Modifier,
-    bottomPadding: Dp = Spacing.Page, shape: Shape = MaterialTheme.shapes.medium, divider: Boolean = false,
-    content: @Composable ColumnScope.() -> Unit) {
-    // The tag and click live on the same node so the card reads as one merged, labelled button.
-    Surface(Modifier.fillMaxWidth(), shape = shape, color = MaterialTheme.colorScheme.groupedContainer) {
-        Column(modifier.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)) {
-            if (divider) Box(Modifier.padding(start = 14.dp).fillMaxWidth().height(1.dp)
-                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)))
-            Column(Modifier.padding(start = Spacing.Page, top = 14.dp, end = 4.dp, bottom = bottomPadding), content = content)
-        }
-    }
-}
-
 /**
  * A session's tile, the one it was created from: the agent's mark while one runs or was launched, else the plain
  * terminal's. [state] puts the agent's status dot in its corner.

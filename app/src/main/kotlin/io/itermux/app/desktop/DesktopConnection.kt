@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.util.Log
 import io.itermux.app.ItermuxApp
 import io.itermux.app.data.Host
-import io.itermux.app.session.PendingPrompt
+import io.itermux.app.login.PendingPrompt
 import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.desktop.*
@@ -23,7 +23,7 @@ import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import io.itermux.app.data.credentialsFor
-import io.itermux.app.session.pageLogin
+import io.itermux.app.login.pageLogin
 
 /** The cursor the plugin reports, in native pixels of the selected display; [shape] null until its image came. */
 internal data class RemoteCursor(val x: Int, val y: Int, val visible: Boolean, val shape: CursorImage?)
@@ -204,10 +204,10 @@ internal class DesktopConnection(
     }
 
     private suspend fun attempt(): Outcome {
-        val credentials = try { app.credentialsFor(host, password, passphrase) } catch (e: Exception) {
+        val credentials = try { app.vault.credentialsFor(host, password, passphrase) } catch (e: Exception) {
             return Outcome.Failed(tr("无法读取凭据，请重新导入密钥或保存密码。"))
         }
-        val login = app.pageLogin(host, credentials, pending)
+        val login = pageLogin(host, credentials, app.pins, pending)
         ssh = login
         var outcome: Outcome? = null
         try {

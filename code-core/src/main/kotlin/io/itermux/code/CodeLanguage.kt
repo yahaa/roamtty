@@ -1,4 +1,4 @@
-package io.itermux.app.code
+package io.itermux.code
 
 import java.util.Locale
 import java.util.regex.Pattern

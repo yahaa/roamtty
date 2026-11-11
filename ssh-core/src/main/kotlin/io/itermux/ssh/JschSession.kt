@@ -68,6 +68,7 @@ class JschSession(
     private val stopped = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
     private val queues = SessionQueues()
+    private val channels = SshChannels(connectTimeoutMs, stopped::get)
     @Volatile private var queueGeneration = 0L
     private val mutableInputEpoch = MutableStateFlow<Long?>(null)
     /** Non-null only while this exact terminal writer accepts input. */
@@ -115,7 +116,7 @@ class JschSession(
                 when (outcome) {
                     AttemptOutcome.STOPPED, AttemptOutcome.FATAL -> break
                     AttemptOutcome.REMOTE_EXIT -> {
-                        update(Phase.DISCONNECTED, "连接已关闭")
+                        update(Phase.DISCONNECTED, ConnectionMessages.CLOSED)
                         break
                     }
                     AttemptOutcome.UNREACHABLE -> {
@@ -124,7 +125,7 @@ class JschSession(
                         // the host list probe then shows the host online while this entry stays failed.
                         val wait = firstConnectRetryDelayMs(++firstConnectRetry)
                         if (wait == null) {
-                            update(Phase.FAILED, "网络不可达或连接被中断，请检查网络和 VPN 后重连。", unreachableFailure?.let(::failureDetail))
+                            update(Phase.FAILED, ConnectionMessages.UNREACHABLE, unreachableFailure?.let(::failureDetail))
                             break
                         }
                         update(Phase.CONNECTING, "网络暂不可用，正在重试…")
@@ -136,7 +137,7 @@ class JschSession(
                         if (reachedConnected) attempt = 0
                         // Prefer keepalive to prevent idle drops; only auto-reattach tmux after transient death.
                         if (target.mode != SessionMode.TMUX || ++attempt > 10) {
-                            update(Phase.DISCONNECTED, "SSH 已断开。未发送的输入已丢弃。")
+                            update(Phase.DISCONNECTED, ConnectionMessages.DROPPED)
                             break
                         }
                         update(Phase.CONNECTING, "连接中断，正在自动重连…")
@@ -276,18 +277,17 @@ class JschSession(
                 if (target.mode != SessionMode.TMUX) { credentials.clear(); jsch.removeAllIdentity() }
                 mutableMoshFallback.value = "mosh 无法连接（可能未放行 UDP 60000–61000），已改用 SSH。"
             }
+            val size = dimensions
             val terminal: com.jcraft.jsch.Channel = if (target.mode == SessionMode.TMUX) {
                 (ssh.openChannel("exec") as ChannelExec).apply {
                     setCommand(if (mux == HostPlugin.PSMUX) Psmux.attachCommand(tmuxName) else Tmux.attachCommand(tmuxName, attachExisting))
                     setPty(true)
-                    val d = dimensions
-                    setPtyType("xterm-256color", d[0], d[1], d[2], d[3])
+                    setPtyType(PTY_TYPE, size[0], size[1], size[2], size[3])
                 }
             } else {
                 (ssh.openChannel("shell") as ChannelShell).apply {
                     setPty(true)
-                    val d = dimensions
-                    setPtyType("xterm-256color", d[0], d[1], d[2], d[3])
+                    setPtyType(PTY_TYPE, size[0], size[1], size[2], size[3])
                 }
             }
             channel = terminal
@@ -371,7 +371,7 @@ class JschSession(
                 failure is HostKeyChanged -> ConnectionState(Phase.HOST_KEY_CHANGED, "主机指纹发生变化，连接已阻止。请通过可信渠道核验。", failure.old.fingerprint, failure.received.fingerprint)
                 failure is HostKeyRejected -> ConnectionState(Phase.DISCONNECTED, "未信任此主机")
                 e.message?.contains("Auth", ignoreCase = true) == true -> ConnectionState(Phase.AUTH_FAILED, "认证失败，请检查用户名、凭据或服务器认证配置。")
-                e is SocketTimeoutException || e.message?.contains("timeout", true) == true -> ConnectionState(Phase.FAILED, "连接超时，请检查网络、VPN 和主机端口。", detail = detail)
+                e is SocketTimeoutException || e.message?.contains("timeout", true) == true -> ConnectionState(Phase.FAILED, ConnectionMessages.TIMEOUT, detail = detail)
                 else -> ConnectionState(Phase.FAILED, "连接失败，请检查网络、地址、密钥格式及服务器算法支持。", detail = detail)
             }
             return AttemptOutcome.FATAL
@@ -433,7 +433,7 @@ class JschSession(
     private suspend fun startMoshServer(ssh: Session): Mosh.Connect? {
         // mosh-server only applies -l when the login environment is not UTF-8 already.
         for (locale in listOf("en_US.UTF-8", "C.UTF-8")) {
-            val output = execute(ssh, HostPluginProbe.command, moshStartScript(locale), 15_000)?.second ?: return null
+            val output = channels.execute(ssh, HostPluginProbe.command, moshStartScript(locale), 15_000)?.second ?: return null
             Mosh.parseConnect(output)?.let { return it }
             if (!output.contains("UTF-8")) return null
         }
@@ -455,106 +455,16 @@ class JschSession(
     private fun remoteHost(ssh: Session) = object : RemoteHost {
         override suspend fun probePlugins(): Set<HostPlugin>? = probePlugins(ssh)
         override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int? =
-            execute(ssh, HostPluginProbe.command, script, timeoutMs, onLine = onLine)?.first
+            channels.execute(ssh, HostPluginProbe.command, script, timeoutMs, onLine = onLine)?.first
         override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int? =
-            execute(ssh, command, null, timeoutMs, onLine = onLine)?.first
+            channels.execute(ssh, command, null, timeoutMs, onLine = onLine)?.first
         override suspend fun probeDesktop(): HostDesktop? {
             probePlugins(ssh)
             return mutableDetectedDesktop.value
         }
         override suspend fun upload(remotePath: String, source: InputStream) = files.upload(remotePath, source)
-        override suspend fun openStream(command: String): RemoteStream? = withContext(Dispatchers.IO) {
-            val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
-            try {
-                exec.setCommand(command)
-                val output = exec.inputStream
-                val input = exec.outputStream
-                val errors = exec.errStream
-                exec.connect(connectTimeoutMs)
-                object : RemoteStream {
-                    override val input: InputStream = output
-                    override val output: OutputStream = input
-                    override val errors: InputStream = errors
-                    override val closed: Boolean get() = exec.isClosed
-                    override val exitStatus: Int? get() = exec.exitStatus.takeIf { exec.isClosed && it >= 0 }
-                    override fun close() { exec.disconnect() }
-                }
-            } catch (e: CancellationException) { exec.disconnect(); throw e }
-            catch (_: Exception) { exec.disconnect(); null }
-        }
-        override suspend fun openSocket(host: String, port: Int): RemoteSocket = openDirect(ssh, host, port)
-    }
-
-    /**
-     * A direct-tcpip channel to [host]:[port] as seen from the server; [java.net.ConnectException] when it was refused,
-     * [ForwardingProhibitedException] when the server forwards nothing there.
-     */
-    private suspend fun openDirect(ssh: Session, host: String, port: Int): RemoteSocket = withContext(Dispatchers.IO) {
-        val channel = try { ssh.openChannel("direct-tcpip") as ChannelDirectTCPIP }
-            catch (e: Exception) { throw SshUnavailableException(e) }
-        try {
-            channel.setHost(host)
-            channel.setPort(port)
-            val input = channel.inputStream
-            val output = channel.outputStream
-            channel.connect(connectTimeoutMs)
-            object : RemoteSocket {
-                override val input: InputStream = input
-                override val output: OutputStream = output
-                override fun close() { channel.disconnect() }
-            }
-        } catch (e: CancellationException) { channel.disconnect(); throw e }
-        catch (e: Exception) {
-            channel.disconnect()
-            if (!ssh.isConnected) throw SshUnavailableException(e)
-            // JSch keeps a refused open's reason code as the channel's exit status.
-            if (channel.exitStatus == SSH_OPEN_ADMINISTRATIVELY_PROHIBITED) throw ForwardingProhibitedException("$host:$port", e)
-            throw java.net.ConnectException("$host:$port").apply { initCause(e) }
-        }
-    }
-
-    /**
-     * Runs a command to completion and returns (exit status, output). Output past [maxBytes] is
-     * dropped from the result but still streamed line by line to [onLine].
-     */
-    private suspend fun execute(ssh: Session, command: String, input: String?, timeoutMs: Long,
-        maxBytes: Int = 64 * 1024, onLine: ((String) -> Unit)? = null): Pair<Int, String>? = withContext(Dispatchers.IO) {
-        val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
-        try {
-            exec.setCommand(command)
-            exec.setInputStream(input?.byteInputStream(Charsets.UTF_8))
-            val output = exec.inputStream
-            exec.connect(connectTimeoutMs)
-            val kept = java.io.ByteArrayOutputStream()
-            val line = java.io.ByteArrayOutputStream()
-            var lineOverflow = false
-            fun emit() {
-                if (lineOverflow) line.write("…".toByteArray(Charsets.UTF_8))
-                onLine?.invoke(line.toString(Charsets.UTF_8.name()).trimEnd('\r')); line.reset(); lineOverflow = false
-            }
-            val complete = withTimeoutOrNull(timeoutMs) {
-                val buffer = ByteArray(4096)
-                while (!exec.isClosed || output.available() > 0) {
-                    while (output.available() > 0) {
-                        val count = output.read(buffer)
-                        if (count < 0) break
-                        if (kept.size() + count <= maxBytes) kept.write(buffer, 0, count)
-                        for (i in 0 until count) {
-                            if (buffer[i] == '\n'.code.toByte()) emit()
-                            else if (line.size() < MAX_LINE_BYTES) line.write(buffer[i].toInt())
-                            else lineOverflow = true
-                        }
-                    }
-                    if (stopped.get()) return@withTimeoutOrNull false
-                    if (!exec.isClosed) delay(30)
-                }
-                true
-            } ?: false
-            if (line.size() > 0 || lineOverflow) emit()
-            if (complete) exec.exitStatus to kept.toString(Charsets.UTF_8.name()) else null
-        } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { null }
-        finally { exec.disconnect() }
+        override suspend fun openStream(command: String): RemoteStream? = channels.openStream(ssh, command)
+        override suspend fun openSocket(host: String, port: Int): RemoteSocket = channels.openDirect(ssh, host, port)
     }
 
     /**
@@ -754,7 +664,7 @@ class JschSession(
      * mosh). Throws [java.net.ConnectException] when it was refused, [SshUnavailableException] when the login is not up.
      */
     suspend fun openSocket(host: String, port: Int): RemoteSocket =
-        openDirect(auxiliarySession() ?: throw SshUnavailableException(), host, port)
+        channels.openDirect(auxiliarySession() ?: throw SshUnavailableException(), host, port)
 
     /** File operations first restore the SSH side of a mosh session if it dropped. */
     private suspend fun <T> withFiles(block: suspend () -> T): T { auxiliarySession(); return block() }
@@ -762,32 +672,8 @@ class JschSession(
     private suspend fun runCommand(command: String): String? =
         auxiliarySession()?.let { runCommand(it, command) }
 
-    private suspend fun runCommand(ssh: Session, command: String, input: String? = null): String? = withContext(Dispatchers.IO) {
-        val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
-        try {
-            exec.setCommand(command)
-            exec.setInputStream(input?.byteInputStream(Charsets.UTF_8))
-            val output = exec.inputStream
-            exec.connect(5000)
-            val bytes = java.io.ByteArrayOutputStream()
-            val complete = withTimeoutOrNull(5000) {
-                val buffer = ByteArray(256)
-                while (!exec.isClosed || output.available() > 0) {
-                    while (output.available() > 0) {
-                        val count = output.read(buffer)
-                        if (count < 0) break
-                        if (bytes.size() + count > 8192) return@withTimeoutOrNull false
-                        bytes.write(buffer, 0, count)
-                    }
-                    if (!exec.isClosed) delay(20)
-                }
-                true
-            } ?: false
-            if (complete && exec.exitStatus == 0) bytes.toString(Charsets.UTF_8.name()) else null
-        } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { null }
-        finally { exec.disconnect() }
-    }
+    private suspend fun runCommand(ssh: Session, command: String, input: String? = null): String? =
+        channels.capture(ssh, command, input)
 
     private val probing = AtomicBoolean(false)
 
@@ -820,7 +706,7 @@ class JschSession(
         stopped.set(true)
         setInputAccepting(false)
         credentials.clear()
-        mutableState.value = ConnectionState(Phase.DISCONNECTED, "连接已关闭")
+        mutableState.value = ConnectionState(Phase.DISCONNECTED, ConnectionMessages.CLOSED)
         interactionJob.cancel()
         // JSch's close can block behind an in-flight packet. Never call it on the UI thread.
         Thread({ closeTransport() }, "ssh-close").apply { isDaemon = true }.start()
@@ -829,11 +715,7 @@ class JschSession(
     private fun closeTransport() { channel?.disconnect(); session?.disconnect() }
 
     companion object {
-        /** Cap for a single onLine emission; longer runs are truncated with an ellipsis. */
-        private const val MAX_LINE_BYTES = 64 * 1024
-
-        /** RFC 4254's reason for a channel the server refuses to open on principle, not for want of a listener. */
-        private const val SSH_OPEN_ADMINISTRATIVELY_PROHIBITED = 1
+        private const val PTY_TYPE = "xterm-256color"
 
         /** mosh-server exits after this long without hearing the client. */
         internal fun moshServerTimeoutSeconds(mode: SessionMode): Long =

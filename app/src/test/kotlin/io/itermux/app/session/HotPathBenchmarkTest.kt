@@ -12,6 +12,8 @@ class HotPathBenchmarkTest {
         val type = Class.forName("com.sun.management.ThreadMXBean")
         type.getMethod("setThreadAllocatedMemoryEnabled", Boolean::class.javaPrimitiveType).invoke(bean, true)
         val allocatedBytes = type.getMethod("getThreadAllocatedBytes", Long::class.javaPrimitiveType)
+        // threadId() replaces it from JDK 19 on; the build runs on 17.
+        @Suppress("DEPRECATION")
         val thread = Thread.currentThread().id
         fun allocated() = allocatedBytes.invoke(bean, thread) as Long
         repeat(3) { operation() }

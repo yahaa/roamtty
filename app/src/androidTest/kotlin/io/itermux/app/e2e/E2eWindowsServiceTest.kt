@@ -15,9 +15,9 @@ import io.itermux.app.data.credentialsFor
 import io.itermux.app.desktop.DesktopConnection
 import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.e2e.E2e.app
-import io.itermux.app.session.PendingPrompt
+import io.itermux.app.login.PendingPrompt
 import io.itermux.app.session.SessionService
-import io.itermux.app.session.pageLogin
+import io.itermux.app.login.pageLogin
 import io.itermux.desktop.DesktopPhase
 import io.itermux.desktop.DesktopProtocol
 import io.itermux.desktop.HidUsage
@@ -104,7 +104,7 @@ class E2eWindowsServiceTest {
     /** PowerShell on the PC over a login of its own. */
     private fun remote(script: String): String = runBlocking {
         val host = app.database.hosts().find(hostId)!!
-        val ssh = app.pageLogin(host, app.credentialsFor(host, "", ""), MutableStateFlow<PendingPrompt?>(null))
+        val ssh = pageLogin(host, app.vault.credentialsFor(host, "", ""), app.pins, MutableStateFlow<PendingPrompt?>(null))
         val out = StringBuilder()
         withTimeout(40_000) { ssh.administer { it.runCommand(io.itermux.ssh.PowerShell.command(script), 30_000) { line -> out.appendLine(line) } } }
         ssh.disconnect()

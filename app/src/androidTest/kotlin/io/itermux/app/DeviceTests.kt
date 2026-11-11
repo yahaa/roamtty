@@ -417,7 +417,10 @@ class TerminalUiTest {
             delay(1200)
             assertEquals(Phase.CONNECTED, session.state.value.phase)
             val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-            assertTrue(manager.getRunningServices(20).any { it.service.className == SessionService::class.java.name && it.foreground })
+            // Deprecated for other apps' services only: it still lists the caller's own, which is all this asks.
+            @Suppress("DEPRECATION")
+            val running = manager.getRunningServices(20)
+            assertTrue(running.any { it.service.className == SessionService::class.java.name && it.foreground })
             // Bring the stopped task forward through the shell, like a launcher tap.
             // Some OEMs block ActivityScenario's background app launch on resume.
             foreground()

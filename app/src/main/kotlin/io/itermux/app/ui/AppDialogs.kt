@@ -5,7 +5,7 @@ import io.itermux.app.trf
 import io.itermux.app.AppLocale
 import io.itermux.app.AppLanguage
 import io.itermux.app.BuildConfig
-import io.itermux.app.code.MarkdownParser
+import io.itermux.code.MarkdownParser
 
 import android.content.Context
 import androidx.compose.foundation.layout.*

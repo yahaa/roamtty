@@ -86,13 +86,20 @@ val TmuxSessionInfo.idleShell: Boolean get() = agent == null && (command.isEmpty
  * emphasis, code ticks, heading marks, a leading list mark, links as their text), on one line.
  */
 fun replyPreview(reply: String): String = reply
-    .replace(Regex("""\[([^\]]+)]\([^)]*\)"""), "$1")
-    .replace(Regex("""\*\*|`+"""), "")
-    .replace(Regex("""(^|\s)#{1,6}\s+"""), "$1")
+    .replace(MARKDOWN_LINK, "$1")
+    .replace(MARKDOWN_EMPHASIS, "")
+    .replace(MARKDOWN_HEADING, "$1")
     // The hook joins the lines, so only the first line's list or quote mark is known for one; a dash further on may be text.
-    .replace(Regex("""^\s*([-*+>]|\d+\.)\s+"""), "")
-    .replace(Regex("""\s+"""), " ")
+    .replace(MARKDOWN_LEADING_MARK, "")
+    .replace(WHITESPACE_RUN, " ")
     .trim()
+
+// Compiled once: the session list reads every row's preview on each recomposition.
+private val MARKDOWN_LINK = Regex("""\[([^\]]+)]\([^)]*\)""")
+private val MARKDOWN_EMPHASIS = Regex("""\*\*|`+""")
+private val MARKDOWN_HEADING = Regex("""(^|\s)#{1,6}\s+""")
+private val MARKDOWN_LEADING_MARK = Regex("""^\s*([-*+>]|\d+\.)\s+""")
+internal val WHITESPACE_RUN = Regex("""\s+""")
 
 /** The tools agents run shell commands with. */
 private val shellTools = setOf("Bash", "PowerShell", "run_terminal_command", "shell", "exec_command", "local_shell")

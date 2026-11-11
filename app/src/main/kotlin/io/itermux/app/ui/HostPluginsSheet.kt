@@ -16,8 +16,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,23 +24,24 @@ import io.itermux.app.ItermuxApp
 import io.itermux.app.R
 import io.itermux.app.data.Host
 import io.itermux.app.data.installedPlugins
-import io.itermux.app.session.PendingPrompt
+import io.itermux.app.login.PendingPrompt
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import io.itermux.app.data.credentialsFor
-import io.itermux.app.session.pageLogin
+import io.itermux.app.login.pageLogin
 
 /** Host and the one-time secrets typed for it; the sheet's SSH login lives while the sheet is open. */
 internal data class PluginTarget(val host: Host, val password: String = "", val passphrase: String = "")
+
+/** The most installer output kept to tell how an install ended; the log shown is shorter still. */
+private const val MAX_INSTALL_OUTPUT = 256 * 1024
 
 /**
  * One authenticated SSH login used to probe and install plugins. Install requests run one at a
  * time; the probe result is saved to the host so the list and new sessions pick it up.
  */
-private const val MAX_INSTALL_OUTPUT = 256 * 1024
-
 internal class HostPluginsController(private val app: ItermuxApp, private val target: PluginTarget, private val scope: CoroutineScope) {
     val host get() = target.host
     val pending = MutableStateFlow<PendingPrompt?>(null)
@@ -74,9 +73,9 @@ internal class HostPluginsController(private val app: ItermuxApp, private val ta
         job = scope.launch {
             var credentials: Credentials? = null
             try {
-                credentials = withContext(Dispatchers.IO) { app.credentialsFor(host, target.password, target.passphrase) }
+                credentials = withContext(Dispatchers.IO) { app.vault.credentialsFor(host, target.password, target.passphrase) }
                 loginPassword = credentials.password?.toString(Charsets.UTF_8)?.takeIf { it.isNotEmpty() }
-                val ssh = app.pageLogin(host, credentials, pending)
+                val ssh = pageLogin(host, credentials, app.pins, pending)
                 session = ssh
                 val state = launch { ssh.state.collect { connection.value = it } }
                 ssh.administer { remote ->
@@ -117,11 +116,15 @@ internal class HostPluginsController(private val app: ItermuxApp, private val ta
             }
             HostPluginInstaller.displayLine(line)?.let { shown -> log.value = (log.value + shown).takeLast(300) }
         }
-        val status = if (plugin.windows) remote.runCommand(Psmux.installCommand, 15 * 60_000L, onLine)
-            else remote.run(HostPluginInstaller.script(plugin, sudo ?: loginPassword), 15 * 60_000L, onLine)
-        result.value = plugin to HostPluginInstaller.classify(status, output.toString())
-        remote.probePlugins()?.let { save(it) }
-        installing.value = null
+        try {
+            val status = if (plugin.windows) remote.runCommand(Psmux.installCommand, 15 * 60_000L, onLine)
+                else remote.run(HostPluginInstaller.script(plugin, sudo ?: loginPassword), 15 * 60_000L, onLine)
+            result.value = plugin to HostPluginInstaller.classify(status, output.toString())
+            remote.probePlugins()?.let { save(it) }
+        } finally {
+            // Also when the login is torn down mid-install: the sheet must not go on saying "installing".
+            installing.value = null
+        }
     }
 
     fun install(plugin: HostPlugin, sudoPassword: String? = null) {

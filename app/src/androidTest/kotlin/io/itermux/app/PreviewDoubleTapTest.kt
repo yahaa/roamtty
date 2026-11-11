@@ -9,8 +9,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import io.itermux.app.code.Languages
-import io.itermux.app.code.SyntaxHighlighter
+import io.itermux.code.Languages
+import io.itermux.code.SyntaxHighlighter
 import io.itermux.app.ui.*
 import org.junit.Assert.assertEquals
 import org.junit.Rule

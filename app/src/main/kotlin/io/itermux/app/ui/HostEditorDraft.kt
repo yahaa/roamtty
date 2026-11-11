@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.itermux.app.ItermuxApp
 import io.itermux.app.data.Host
-import io.itermux.app.session.PendingPrompt
+import io.itermux.app.login.PendingPrompt
 import io.itermux.app.tr
 import io.itermux.ssh.*
 import kotlinx.coroutines.*

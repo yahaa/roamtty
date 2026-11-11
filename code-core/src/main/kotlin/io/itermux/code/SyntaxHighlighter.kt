@@ -1,4 +1,4 @@
-package io.itermux.app.code
+package io.itermux.code
 
 import java.util.regex.Matcher
 

@@ -10,7 +10,24 @@ enum class SessionMode { SHELL, TMUX }
 enum class Phase { CONNECTING, VERIFYING, AUTHENTICATING, CONNECTED, DISCONNECTED, AUTH_FAILED, HOST_KEY_CHANGED, FAILED, TMUX_MISSING }
 /** [detail] names the underlying error of a failure ("SocketException: …"); it is never translated. */
 data class ConnectionState(val phase: Phase, val message: String = "", val oldFingerprint: String? = null, val newFingerprint: String? = null, val detail: String? = null) {
-    val active: Boolean get() = phase in setOf(Phase.CONNECTING, Phase.VERIFYING, Phase.AUTHENTICATING, Phase.CONNECTED)
+    val active: Boolean get() = when (phase) {
+        Phase.CONNECTING, Phase.VERIFYING, Phase.AUTHENTICATING, Phase.CONNECTED -> true
+        Phase.DISCONNECTED, Phase.AUTH_FAILED, Phase.HOST_KEY_CHANGED, Phase.FAILED, Phase.TMUX_MISSING -> false
+    }
+}
+
+/**
+ * The [ConnectionState.message]s callers tell one ending from another by (whether to reconnect, whether to retry).
+ * Like every message they are the Chinese source strings, which the app translates for display.
+ */
+object ConnectionMessages {
+    /** The user, or the far end, closed the connection. */
+    const val CLOSED = "连接已关闭"
+    /** The transport died under a session that could not be reattached. */
+    const val DROPPED = "SSH 已断开。未发送的输入已丢弃。"
+    /** A first connection never reached the server. */
+    const val UNREACHABLE = "网络不可达或连接被中断，请检查网络和 VPN 后重连。"
+    const val TIMEOUT = "连接超时，请检查网络、VPN 和主机端口。"
 }
 
 data class Target(val address: String, val port: Int, val username: String, val auth: AuthMethod, val mode: SessionMode) {

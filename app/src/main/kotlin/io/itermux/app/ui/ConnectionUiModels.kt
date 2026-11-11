@@ -1,6 +1,8 @@
 package io.itermux.app.ui
 
 import io.itermux.app.session.CodingAgent
+import io.itermux.app.session.RESTORED_MESSAGE
+import io.itermux.ssh.ConnectionMessages
 import io.itermux.app.tr
 import io.itermux.app.trf
 
@@ -40,15 +42,14 @@ internal data class ConnectRequest(
 )
 
 /** Messages of a connection that dropped or was restored from the journal, not one the user or the server ended. */
-internal const val RESTORED_MESSAGE = "连接已中断。会话记录已恢复，未发送的输入不会重发。"
-internal const val DROPPED_MESSAGE = "SSH 已断开。未发送的输入已丢弃。"
+internal const val DROPPED_MESSAGE = ConnectionMessages.DROPPED
 
 /** Opening such a terminal reconnects it at once instead of offering a reconnect button. */
 internal fun reconnectsOnOpen(state: ConnectionState) =
     state.phase == Phase.DISCONNECTED && state.message in setOf(RESTORED_MESSAGE, DROPPED_MESSAGE)
 
-internal const val UNREACHABLE_MESSAGE = "网络不可达或连接被中断，请检查网络和 VPN 后重连。"
-internal const val TIMEOUT_MESSAGE = "连接超时，请检查网络、VPN 和主机端口。"
+internal const val UNREACHABLE_MESSAGE = ConnectionMessages.UNREACHABLE
+internal const val TIMEOUT_MESSAGE = ConnectionMessages.TIMEOUT
 
 /**
  * The session list also reconnects a session that gave up on an unreachable or silent host, which may be back by

@@ -1,6 +1,7 @@
 package io.itermux.app.ui
 
 import io.itermux.app.session.AgentStatus
+import io.itermux.app.session.RESTORED_MESSAGE
 import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.Phase
 import org.junit.Assert.assertEquals

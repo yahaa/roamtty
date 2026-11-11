@@ -15,7 +15,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.itermux.app.session.PendingPrompt
+import io.itermux.app.login.PendingPrompt
 import io.itermux.ssh.Prompt
 
 @Composable internal fun PromptDialog(request: PendingPrompt) {
