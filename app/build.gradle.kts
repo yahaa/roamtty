@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
@@ -62,7 +63,6 @@ android {
     testBuildType = providers.gradleProperty("itermuxTestBuildType").getOrElse("debug")
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    kotlinOptions { jvmTarget = "17" }
     packaging {
         resources.excludes += setOf(
             "META-INF/versions/**", "META-INF/INDEX.LIST", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA",
@@ -77,6 +77,7 @@ android {
         unitTests.all { it.systemProperty("user.language", "zh"); it.systemProperty("user.country", "CN") }
     }
 }
+kotlin { compilerOptions { jvmTarget = JvmTarget.JVM_17 } }
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 dependencies {
     implementation(project(":ssh-core"))
