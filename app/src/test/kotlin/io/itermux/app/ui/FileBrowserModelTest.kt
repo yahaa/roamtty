@@ -62,7 +62,7 @@ class FileBrowserModelTest {
     }
 
     @Test fun searchFindsEveryCaseInsensitiveHit() {
-        val document = io.itermux.app.code.SyntaxHighlighter.highlight("Alpha alpha\nbeta ALPHA", io.itermux.app.code.Languages.PLAIN)
+        val document = io.itermux.code.SyntaxHighlighter.highlight("Alpha alpha\nbeta ALPHA", io.itermux.code.Languages.PLAIN)
         assertEquals(listOf(CodeMatch(0, 0, 5), CodeMatch(0, 6, 11), CodeMatch(1, 5, 10)), findCodeMatches(document, "alpha"))
         assertTrue(findCodeMatches(document, "").isEmpty())
     }

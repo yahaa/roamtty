@@ -1,4 +1,4 @@
-package io.itermux.app.code
+package io.itermux.code
 
 /** Inline styles over [MdText.text]; [MdSpan.url] is set for links and images. */
 enum class MdStyle { BOLD, ITALIC, STRIKE, CODE, LINK, IMAGE }

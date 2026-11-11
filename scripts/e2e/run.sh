@@ -62,7 +62,7 @@ read -r KEY_TYPE KEY_BLOB _ < /tmp/roamtty-e2e/host_ed25519.pub
 
 if [ "$UNIT" = 1 ]; then
   echo "== Unit tests (JVM)"
-  if ./gradlew -q :app:testDebugUnitTest :ssh-core:test :desktop-core:test :terminal-emulator:testDebugUnitTest :terminal-view:testDebugUnitTest \
+  if ./gradlew -q :app:testDebugUnitTest :ssh-core:test :desktop-core:test :code-core:test :terminal-emulator:testDebugUnitTest :terminal-view:testDebugUnitTest \
       > "$OUT/unit-tests.log" 2>&1; then
     echo "unit tests: passed"; host_metric unit_tests_failed 0 count
   else

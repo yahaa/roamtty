@@ -34,11 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.itermux.app.R
-import io.itermux.app.code.CodeDocument
-import io.itermux.app.code.MarkdownParser
-import io.itermux.app.code.MdBlock
-import io.itermux.app.code.Languages
-import io.itermux.app.code.SyntaxHighlighter
+import io.itermux.code.CodeDocument
+import io.itermux.code.MarkdownParser
+import io.itermux.code.MdBlock
+import io.itermux.code.Languages
+import io.itermux.code.SyntaxHighlighter
 import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.app.session.TerminalConnection

@@ -29,9 +29,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.itermux.app.TerminalFonts
-import io.itermux.app.code.CodeDocument
-import io.itermux.app.code.CodeLine
-import io.itermux.app.code.TokenType
+import io.itermux.code.CodeDocument
+import io.itermux.code.CodeLine
+import io.itermux.code.TokenType
 
 /** Token colors follow VS Code Dark+ and GitHub Light. */
 internal class CodeTheme(val styles: Array<SpanStyle>, val gutter: Color, val match: Color, val currentMatch: Color) {

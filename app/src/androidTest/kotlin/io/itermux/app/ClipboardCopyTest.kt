@@ -10,7 +10,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import io.itermux.app.code.MarkdownParser
+import io.itermux.code.MarkdownParser
 import io.itermux.app.ui.DarkColors
 import io.itermux.app.ui.MarkdownView
 import io.itermux.app.ui.clipboardText

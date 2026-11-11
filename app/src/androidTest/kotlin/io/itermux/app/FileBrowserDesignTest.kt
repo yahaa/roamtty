@@ -15,8 +15,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import io.itermux.app.code.Languages
-import io.itermux.app.code.SyntaxHighlighter
+import io.itermux.code.Languages
+import io.itermux.code.SyntaxHighlighter
 import io.itermux.app.ui.*
 import io.itermux.ssh.RemoteEntry
 import org.junit.Rule
@@ -141,7 +141,7 @@ class FileBrowserDesignTest {
     @Test fun markdownRenderedLight() = markdown(LightColors, "markdown-rendered-light")
 
     private fun markdown(colors: ColorScheme, name: String) {
-        val blocks = io.itermux.app.code.MarkdownParser.parse(readme)
+        val blocks = io.itermux.code.MarkdownParser.parse(readme)
         compose.setContent {
             MaterialTheme(colorScheme = colors) {
                 Surface(Modifier.fillMaxSize().testTag("md")) { MarkdownView(blocks, null, Modifier.fillMaxSize()) }

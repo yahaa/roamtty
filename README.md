@@ -47,7 +47,7 @@ Windows 上可用 `scripts/bootstrap.ps1`、`scripts/install-sdk.ps1` 在项目�
 ## 测试
 
 ```sh
-./gradlew :app:testDebugUnitTest :ssh-core:test :terminal-emulator:testDebugUnitTest :terminal-view:testDebugUnitTest
+./gradlew :app:testDebugUnitTest :ssh-core:test :desktop-core:test :code-core:test :terminal-emulator:testDebugUnitTest :terminal-view:testDebugUnitTest
 ./gradlew :app:connectedDebugAndroidTest   # 需要模拟器或设备
 ```
 

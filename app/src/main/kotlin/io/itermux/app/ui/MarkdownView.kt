@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import io.itermux.app.R
-import io.itermux.app.code.*
+import io.itermux.code.*
 import io.itermux.app.tr
 import io.itermux.app.trf
 import kotlinx.coroutines.Dispatchers
@@ -119,7 +119,8 @@ private fun MarkdownBlock(block: MdBlock, colors: MarkdownColors, loadImage: (su
         }
         is MdBlock.ListItem -> Row(Modifier.padding(start = (block.depth * 20).dp)) {
             Box(Modifier.width(26.dp).padding(top = 2.dp), contentAlignment = Alignment.TopStart) {
-                if (block.checked != null) Checkbox(block.checked, onCheckedChange = null, modifier = Modifier.size(20.dp))
+                val checked = block.checked
+                if (checked != null) Checkbox(checked, onCheckedChange = null, modifier = Modifier.size(20.dp))
                 else Text(if (block.marker == "•") bullets[block.depth % bullets.size] else block.marker, style = body,
                     color = colors.muted)
             }
