@@ -14,9 +14,9 @@ import io.itermux.app.desktop.DesktopConnection
 import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.data.credentialsFor
 import io.itermux.app.e2e.E2e.app
-import io.itermux.app.session.PendingPrompt
+import io.itermux.app.login.PendingPrompt
 import io.itermux.app.session.SessionService
-import io.itermux.app.session.pageLogin
+import io.itermux.app.login.pageLogin
 import io.itermux.desktop.DesktopPhase
 import io.itermux.desktop.HidUsage
 import io.itermux.ssh.SessionMode
@@ -103,7 +103,7 @@ class E2eDesktopTest {
     /** Runs [script] on the fixture over a login of its own; returns its output. */
     private fun remote(script: String): String = runBlocking {
         val host = app.database.hosts().find(hostId)!!
-        val ssh = app.pageLogin(host, app.credentialsFor(host, "", ""), MutableStateFlow<PendingPrompt?>(null))
+        val ssh = pageLogin(host, app.vault.credentialsFor(host, "", ""), app.pins, MutableStateFlow<PendingPrompt?>(null))
         val out = StringBuilder()
         withTimeout(30_000) { ssh.administer { it.run(script, 20_000) { line -> out.appendLine(line) } } }
         ssh.disconnect()
@@ -137,7 +137,7 @@ class E2eDesktopTest {
         hostId = host.id
         // A terminal session first: its connection runs the read-only desktop probe.
         val session = runBlocking {
-            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.vault.credentialsFor(host, "", "") }, preferMosh = false) }
         }
         runBlocking { assertEquals(io.itermux.ssh.Phase.CONNECTED, E2e.connected(session)) }
         compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
@@ -293,7 +293,7 @@ class E2eDesktopTest {
         val host = runBlocking { E2e.save(E2e.host("desktop-dock")) }
         hostId = host.id
         val session = runBlocking {
-            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.vault.credentialsFor(host, "", "") }, preferMosh = false) }
         }
         runBlocking { E2e.connected(session) }
         compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
@@ -342,7 +342,7 @@ class E2eDesktopTest {
         val host = runBlocking { E2e.save(E2e.host("desktop-pip")) }
         hostId = host.id
         val session = runBlocking {
-            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.vault.credentialsFor(host, "", "") }, preferMosh = false) }
         }
         runBlocking { E2e.connected(session) }
         compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
@@ -451,7 +451,7 @@ class E2eDesktopTest {
         val host = runBlocking { E2e.save(E2e.host("desktop-udp")) }
         hostId = host.id
         val session = runBlocking {
-            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.vault.credentialsFor(host, "", "") }, preferMosh = false) }
         }
         runBlocking { E2e.connected(session) }
         compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
@@ -530,7 +530,7 @@ class E2eDesktopTest {
         hostId = host.id
         DesktopSettings(E2e.context).setPointerMode(host.id, io.itermux.desktop.PointerMode.MOUSE)
         val session = runBlocking {
-            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.vault.credentialsFor(host, "", "") }, preferMosh = false) }
         }
         runBlocking { E2e.connected(session) }
         compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
@@ -592,7 +592,7 @@ class E2eDesktopTest {
         assumeTrue("sway is not installed on the fixture host ($started)", "wayland-1" in started)
         try {
             val session = runBlocking {
-                withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+                withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.vault.credentialsFor(host, "", "") }, preferMosh = false) }
             }
             runBlocking { E2e.connected(session) }
             compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
@@ -626,7 +626,7 @@ class E2eDesktopTest {
         remote("DISPLAY=:77 setxkbmap -rules base -model pc104 -layout us -keycodes xfree86")
         try {
             val session = runBlocking {
-                withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+                withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.vault.credentialsFor(host, "", "") }, preferMosh = false) }
             }
             runBlocking { E2e.connected(session) }
             compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
@@ -696,7 +696,7 @@ class E2eDesktopTest {
         val host = runBlocking { E2e.save(E2e.host("desktop-sweep")) }
         hostId = host.id
         val session = runBlocking {
-            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.vault.credentialsFor(host, "", "") }, preferMosh = false) }
         }
         runBlocking { assertEquals(io.itermux.ssh.Phase.CONNECTED, E2e.connected(session)) }
         compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }
@@ -747,7 +747,7 @@ class E2eDesktopTest {
         val host = runBlocking { E2e.save(E2e.host("desktop-stats")) }
         hostId = host.id
         val session = runBlocking {
-            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.credentialsFor(host, "", "") }, preferMosh = false) }
+            withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, withContext(Dispatchers.IO) { app.vault.credentialsFor(host, "", "") }, preferMosh = false) }
         }
         runBlocking { E2e.connected(session) }
         compose.waitUntil(15_000) { runBlocking { app.database.hosts().find(host.id)?.desktop } == "yes" }

@@ -87,7 +87,7 @@ internal fun HostDetailPage(
         onPauseOrDispose { monitor?.visible?.value = false }
     }
 
-    val onLogin = { if (monitor != null && !host.needsTypedSecret(app)) monitor.start() else askPassword = true }
+    val onLogin = { if (monitor != null && !host.needsTypedSecret(app.vault)) monitor.start() else askPassword = true }
     if (isLandscape()) {
         HostDetailLandscape(host, reachability, monitor, onBack, onAgent = { launching = true }, onTerminal = { launching = false },
             onBrowseFiles, onDesktop, { anchor -> HostDetailMenu(onManagePlugins, onEdit, onDelete, anchor) }, onLogin, modifier)

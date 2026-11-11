@@ -54,6 +54,7 @@ import io.itermux.app.data.Host
 import io.itermux.app.data.newSessionMode
 import io.itermux.app.data.multiplexer
 import io.itermux.app.data.recentFirst
+import io.itermux.app.login.PendingPrompt
 import io.itermux.app.session.*
 import io.itermux.app.desktop.DesktopSettings
 import io.itermux.desktop.DesktopButton
@@ -258,7 +259,7 @@ fun ItermuxScreen(
         scope.launch {
             var credentials: Credentials? = null
             try {
-                credentials = withContext(Dispatchers.IO) { app.credentialsFor(request.host, password, passphrase) }
+                credentials = withContext(Dispatchers.IO) { app.vault.credentialsFor(request.host, password, passphrase) }
                 request.terminateSessionId?.let { id ->
                     toast(trf("正在终止远端 %s 会话…", request.host.multiplexer.id))
                     val failure = bound.terminate(id, credentials) { prompt ->
@@ -284,7 +285,7 @@ fun ItermuxScreen(
     /** Asks for an unsaved password, or an encrypted key's passphrase, first. */
     fun begin(request: ConnectRequest) {
         val host = request.host
-        if (host.needsTypedSecret(app)) connectRequest = request
+        if (host.needsTypedSecret(app.vault)) connectRequest = request
         else start(request)
     }
     fun connect(host: Host, mode: SessionMode, title: String = "", reuseSessionId: String? = null, openFilesAfterConnect: Boolean = false) {
@@ -305,14 +306,14 @@ fun ItermuxScreen(
     fun forceDelete(session: TerminalConnection) {
         val bound = service ?: return
         if (session.state.value.active) return
-        if (session.host.needsTypedSecret(app)) {
+        if (session.host.needsTypedSecret(app.vault)) {
             bound.forget(session.id)
             toast(trf("会话卡片已移除，但未能终止远端会话：%s", tr("没有已保存的登录信息")))
             return
         }
         scope.launch {
             val failure = try {
-                val credentials = withContext(Dispatchers.IO) { app.credentialsFor(session.host, "", "") }
+                val credentials = withContext(Dispatchers.IO) { app.vault.credentialsFor(session.host, "", "") }
                 try { bound.forceDelete(session.id, credentials) } finally { credentials.clear() }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
@@ -379,7 +380,7 @@ fun ItermuxScreen(
             page = AppPage.DESKTOP
             return
         }
-        if (host.needsTypedSecret(app)) connectRequest = ConnectRequest(host, SessionMode.SHELL, desktop = true)
+        if (host.needsTypedSecret(app.vault)) connectRequest = ConnectRequest(host, SessionMode.SHELL, desktop = true)
         else startDesktop(host)
     }
     /** The desktop page takes the screen from the terminal's small window; leaving it comes back to the terminal. */
@@ -392,7 +393,7 @@ fun ItermuxScreen(
         val existing = service?.desktops?.get(host.id)
         if (existing == null || !existing.active) {
             // A secret to type is asked for first; the desktop then opens small all the same.
-            if (host.needsTypedSecret(app)) { connectRequest = ConnectRequest(host, SessionMode.SHELL, desktop = true, desktopSmall = true); return }
+            if (host.needsTypedSecret(app.vault)) { connectRequest = ConnectRequest(host, SessionMode.SHELL, desktop = true, desktopSmall = true); return }
             startDesktop(host, show = false)
         }
         pipDesktopHostId = host.id
@@ -429,7 +430,7 @@ fun ItermuxScreen(
     }
 
     fun managePlugins(host: Host) {
-        if (host.needsTypedSecret(app))
+        if (host.needsTypedSecret(app.vault))
             connectRequest = ConnectRequest(host, host.newSessionMode, plugins = true)
         else pluginTarget = PluginTarget(host)
     }

@@ -115,7 +115,7 @@ class JschSession(
                 when (outcome) {
                     AttemptOutcome.STOPPED, AttemptOutcome.FATAL -> break
                     AttemptOutcome.REMOTE_EXIT -> {
-                        update(Phase.DISCONNECTED, "连接已关闭")
+                        update(Phase.DISCONNECTED, ConnectionMessages.CLOSED)
                         break
                     }
                     AttemptOutcome.UNREACHABLE -> {
@@ -124,7 +124,7 @@ class JschSession(
                         // the host list probe then shows the host online while this entry stays failed.
                         val wait = firstConnectRetryDelayMs(++firstConnectRetry)
                         if (wait == null) {
-                            update(Phase.FAILED, "网络不可达或连接被中断，请检查网络和 VPN 后重连。", unreachableFailure?.let(::failureDetail))
+                            update(Phase.FAILED, ConnectionMessages.UNREACHABLE, unreachableFailure?.let(::failureDetail))
                             break
                         }
                         update(Phase.CONNECTING, "网络暂不可用，正在重试…")
@@ -136,7 +136,7 @@ class JschSession(
                         if (reachedConnected) attempt = 0
                         // Prefer keepalive to prevent idle drops; only auto-reattach tmux after transient death.
                         if (target.mode != SessionMode.TMUX || ++attempt > 10) {
-                            update(Phase.DISCONNECTED, "SSH 已断开。未发送的输入已丢弃。")
+                            update(Phase.DISCONNECTED, ConnectionMessages.DROPPED)
                             break
                         }
                         update(Phase.CONNECTING, "连接中断，正在自动重连…")
@@ -371,7 +371,7 @@ class JschSession(
                 failure is HostKeyChanged -> ConnectionState(Phase.HOST_KEY_CHANGED, "主机指纹发生变化，连接已阻止。请通过可信渠道核验。", failure.old.fingerprint, failure.received.fingerprint)
                 failure is HostKeyRejected -> ConnectionState(Phase.DISCONNECTED, "未信任此主机")
                 e.message?.contains("Auth", ignoreCase = true) == true -> ConnectionState(Phase.AUTH_FAILED, "认证失败，请检查用户名、凭据或服务器认证配置。")
-                e is SocketTimeoutException || e.message?.contains("timeout", true) == true -> ConnectionState(Phase.FAILED, "连接超时，请检查网络、VPN 和主机端口。", detail = detail)
+                e is SocketTimeoutException || e.message?.contains("timeout", true) == true -> ConnectionState(Phase.FAILED, ConnectionMessages.TIMEOUT, detail = detail)
                 else -> ConnectionState(Phase.FAILED, "连接失败，请检查网络、地址、密钥格式及服务器算法支持。", detail = detail)
             }
             return AttemptOutcome.FATAL
@@ -820,7 +820,7 @@ class JschSession(
         stopped.set(true)
         setInputAccepting(false)
         credentials.clear()
-        mutableState.value = ConnectionState(Phase.DISCONNECTED, "连接已关闭")
+        mutableState.value = ConnectionState(Phase.DISCONNECTED, ConnectionMessages.CLOSED)
         interactionJob.cancel()
         // JSch's close can block behind an in-flight packet. Never call it on the UI thread.
         Thread({ closeTransport() }, "ssh-close").apply { isDaemon = true }.start()

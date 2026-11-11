@@ -1,6 +1,5 @@
 package io.itermux.app.data
 
-import io.itermux.app.ItermuxApp
 import io.itermux.ssh.AuthMethod
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.privateKeyNeedsPassphrase
@@ -16,12 +15,12 @@ private val keyNeedsPassphrase = ConcurrentHashMap<String, Boolean>()
  * Whether connecting needs something typed first: an unsaved password, or the passphrase of an encrypted key.
  * A key without a passphrase logs in straight away, like a saved password.
  */
-internal fun Host.needsTypedSecret(app: ItermuxApp): Boolean {
+internal fun Host.needsTypedSecret(vault: SecretVault): Boolean {
     if (auth != AuthMethod.KEY.name) return needsTypedPassword
     val envelope = encryptedKey ?: return false
     return keyNeedsPassphrase.getOrPut("$id:${envelope.contentHashCode()}") {
         runCatching {
-            val key = app.vault.decrypt(envelope, "$id:key")
+            val key = vault.decrypt(envelope, "$id:key")
             try { privateKeyNeedsPassphrase(key) } finally { key.fill(0) }
         }.getOrDefault(true)
     }
@@ -31,9 +30,9 @@ internal fun Host.needsTypedSecret(app: ItermuxApp): Boolean {
  * The credentials of one login to [host]: its saved password or key, else the [password] typed for it, and a typed key
  * [passphrase]. Saved secrets are decrypted with the Keystore, so call this off the main thread.
  */
-internal fun ItermuxApp.credentialsFor(host: Host, password: String, passphrase: String) = Credentials(
-    password = if (host.auth == AuthMethod.PASSWORD.name) host.encryptedPassword?.let { vault.decrypt(it, "${host.id}:password") } ?: password.toByteArray() else null,
-    privateKey = host.encryptedKey?.takeIf { host.auth == AuthMethod.KEY.name }?.let { vault.decrypt(it, "${host.id}:key") },
+internal fun SecretVault.credentialsFor(host: Host, password: String, passphrase: String) = Credentials(
+    password = if (host.auth == AuthMethod.PASSWORD.name) host.encryptedPassword?.let { decrypt(it, "${host.id}:password") } ?: password.toByteArray() else null,
+    privateKey = host.encryptedKey?.takeIf { host.auth == AuthMethod.KEY.name }?.let { decrypt(it, "${host.id}:key") },
     passphrase = passphrase.takeIf { it.isNotEmpty() }?.toByteArray())
 
 /**

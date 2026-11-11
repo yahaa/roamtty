@@ -2,18 +2,17 @@ package io.itermux.app.ui
 
 import android.os.SystemClock
 import io.itermux.app.ItermuxApp
-import io.itermux.app.data.Host
 import io.itermux.app.session.HostMetrics
 import io.itermux.app.session.HostMetricsReader
 import io.itermux.app.session.MetricsReading
-import io.itermux.app.session.PendingPrompt
+import io.itermux.app.login.PendingPrompt
 import io.itermux.app.session.RemoteFolders
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import io.itermux.app.data.credentialsFor
-import io.itermux.app.session.pageLogin
+import io.itermux.app.login.pageLogin
 
 /**
  * A private SSH login that samples [HostMetrics] every few seconds while the host page is visible (unless
@@ -72,8 +71,8 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     private suspend fun login(): ConnectionState = coroutineScope {
         var credentials: Credentials? = null
         try {
-            credentials = withContext(Dispatchers.IO) { app.credentialsFor(host, login.password, login.passphrase) }
-            val ssh = app.pageLogin(host, credentials, pending)
+            credentials = withContext(Dispatchers.IO) { app.vault.credentialsFor(host, login.password, login.passphrase) }
+            val ssh = pageLogin(host, credentials, app.pins, pending)
             session = ssh
             // Keep showing the reconnect notice until this login gets past connecting.
             val state = launch { ssh.state.collect { if (it.phase != Phase.CONNECTING || !connection.value.active) connection.value = it } }
@@ -168,7 +167,7 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
  */
 internal fun monitorRetryDelayMs(ended: ConnectionState, retry: Int, interactive: Boolean): Long? {
     if (interactive || retry > MONITOR_RETRIES) return null
-    val retryable = ended.phase == Phase.FAILED || (ended.phase == Phase.DISCONNECTED && ended.message == "连接已关闭")
+    val retryable = ended.phase == Phase.FAILED || (ended.phase == Phase.DISCONNECTED && ended.message == ConnectionMessages.CLOSED)
     return if (retryable) (1_000L shl retry).coerceAtMost(30_000L) else null
 }
 

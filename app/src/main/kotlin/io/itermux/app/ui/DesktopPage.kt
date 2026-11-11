@@ -84,7 +84,6 @@ import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.desktop.*
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

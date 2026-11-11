@@ -5,6 +5,7 @@ import io.itermux.app.trf
 
 import com.termux.terminal.*
 import io.itermux.app.data.Host
+import io.itermux.app.login.PendingPrompt
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
@@ -17,20 +18,20 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import android.os.SystemClock
 import android.util.Log
-import io.itermux.app.ui.RESTORED_MESSAGE
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.URI
 import java.util.UUID
 
-data class PendingPrompt(val prompt: Prompt, val answer: CompletableDeferred<List<String>?> = CompletableDeferred())
-
 /** Logcat tag of the connection lifecycle: connects, drops, network changes and the activity in front. */
 internal const val CONNECTION_LOG_TAG = "RoamttyConn"
 
 /** 128 KiB: the most UTF-8 bytes one paste may send, and the most characters the editor's draft holds. */
 internal const val MAX_PASTE_SIZE = 128 * 1024
+
+/** What a session restored from the journal says until it is reconnected: it has no login to connect with. */
+internal const val RESTORED_MESSAGE = "连接已中断。会话记录已恢复，未发送的输入不会重发。"
 
 private const val INPUT_NOT_SENT = "未发送：连接未就绪或输入队列已满。"
 
