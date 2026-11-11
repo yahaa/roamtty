@@ -182,7 +182,7 @@ class TerminalConnection(
      * part of the paste. False when the agent was not idle or the text could not be sent.
      */
     suspend fun followUpAgent(text: String): Boolean {
-        val line = text.replace(Regex("\\s+"), " ").trim()
+        val line = text.replace(WHITESPACE_RUN, " ").trim()
         if (line.isEmpty() || state.value.phase != Phase.CONNECTED) return false
         if (pollAgentStatus()?.state != AgentStatus.State.IDLE) return false
         if (!ssh.write(pasteInput(line).toByteArray(Charsets.UTF_8))) return false
