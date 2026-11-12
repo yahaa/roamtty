@@ -513,10 +513,19 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
                     checkNotNull(terminalFontKey)
                 })
                 val cursorKeysAllowed = state.phase == Phase.CONNECTED && !editor
+                // Landscape keyboards often have no dismiss key and leave no room to tap outside them:
+                // while one is up, a key left of Esc/Enter puts it away, as on iOS.
+                val hideKeyboardKey: @Composable () -> Unit = {
+                    if (landscape && imeVisible) CursorKey(R.drawable.ic_keyboard_hide, tr("收起键盘"), "cursor-hide-keyboard") {
+                        keyboardHide?.cancel()
+                        hideKeyboard()
+                    }
+                }
                 androidx.compose.animation.AnimatedVisibility(enterKeyAwake && cursorKeysAllowed,
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(400))) {
                     terminal?.let { view ->
                         CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight, avoid = petArrowBounds.takeIf { petArrowsShown }) {
+                            hideKeyboardKey()
                             CursorKey(R.drawable.ic_return, tr("回车"), "cursor-enter") {
                                 enterKeyTyping = false
                                 enterKeyTouches++
@@ -534,6 +543,7 @@ internal fun TerminalPane(session: TerminalConnection, modifier: Modifier, sessi
                     modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(tween(120)), exit = fadeOut(tween(120))) {
                     terminal?.let { view ->
                         CursorRowKeys(view, outputRevision, viewportHeight, CursorKeyHeight, avoid = petArrowBounds.takeIf { petArrowsShown }) {
+                            hideKeyboardKey()
                             CursorKey(null, tr("发送 Esc"), "cursor-escape", label = "Esc") {
                                 sticky.clear()
                                 view.scrollToBottom()

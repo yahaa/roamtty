@@ -349,6 +349,7 @@ internal object EnglishText {
         "粘贴" to "Paste",
         "快捷键" to "Shortcuts",
         "发送 Esc" to "Send Esc",
+        "收起键盘" to "Hide keyboard",
         "发送 Tab" to "Send Tab",
         "Ctrl，作用于下一次键盘字符" to "Ctrl applies to the next keyboard character",
         "发送上方向键" to "Send Up arrow",
