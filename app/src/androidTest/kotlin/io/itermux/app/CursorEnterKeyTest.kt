@@ -1,6 +1,8 @@
 package io.itermux.app
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -203,6 +205,97 @@ class CursorEnterKeyTest {
             type("\n")
             compose.waitUntil(5_000) { !arrowKeysShown() }
         } finally {
+            withContext(Dispatchers.Main) { service.close(session.id) }
+            prompts.cancel()
+        }
+    }
+
+    /** In landscape, an open keyboard gets a key left of Esc/Enter that puts it away; portrait never shows it. */
+    @Test fun landscapeHideKeyboardKeySitsLeftOfEsc() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        (context.applicationContext as ItermuxApp).database.hosts().forgetPin("[127.0.0.1]:22228")
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val host = Host(name = "收起键盘验证", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "SHELL")
+        val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.SHELL, Credentials("test-only".toByteArray())) }
+        val prompts = launch {
+            session.pending.collect { request ->
+                request?.answer?.complete(if (request.prompt is Prompt.VerifyHost) listOf("trust") else listOf("test-only"))
+            }
+        }
+        fun shown(tag: String) = compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+        fun requestOrientation(landscape: Boolean) = compose.activityRule.scenario.onActivity {
+            it.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        // The emulator can drop the app behind another window while rotating: bring it back, then wait for the layout.
+        fun orient(landscape: Boolean) {
+            requestOrientation(landscape)
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
+                "am start -W --activity-single-top -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n ${BuildConfig.APPLICATION_ID}/io.itermux.app.MainActivity",
+            ).use { android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes() }
+            compose.waitUntil(10_000) {
+                val bounds = compose.onRoot().fetchSemanticsNode().boundsInRoot
+                (bounds.width > bounds.height) == landscape && compose.activity.resources.configuration.orientation ==
+                    if (landscape) Configuration.ORIENTATION_LANDSCAPE else Configuration.ORIENTATION_PORTRAIT
+            }
+        }
+        try {
+            assertEquals(Phase.CONNECTED, withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED || !it.active } }.phase)
+            compose.openSession(session.id)
+            compose.waitUntil(3_000) { shown("cursor-escape") }
+            // Rotating can rebuild the terminal view: look it up each time.
+            fun terminalView() = requireNotNull(terminal(compose.activity.window.decorView))
+            suspend fun imeShown() = withContext(Dispatchers.Main) {
+                ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            }
+            // Right after a rotation the input method may still serve the window rather than the terminal: ask again.
+            suspend fun showIme(phase: String) {
+                assertEquals("keyboard shown in $phase", true, withTimeoutOrNull(8_000) {
+                    while (!imeShown()) {
+                        withContext(Dispatchers.Main) {
+                            // Re-take focus so the input method serves the terminal again, not the window's decor.
+                            val view = terminalView()
+                            view.clearFocus()
+                            view.requestFocus()
+                            view.context.getSystemService(InputMethodManager::class.java).showSoftInput(view, 0)
+                        }
+                        repeat(10) { if (!imeShown()) delay(50) }
+                        // A keyboard left over from before a rotation can still close: it has to stay up.
+                        if (imeShown()) delay(1_000)
+                    }
+                    true
+                })
+            }
+            // Portrait: the keyboard is up, but there is no hide key.
+            orient(false)
+            showIme("portrait")
+            compose.waitUntil(3_000) { shown("cursor-escape") }
+            compose.waitForIdle()
+            assertTrue("no hide key in portrait", !shown("cursor-hide-keyboard"))
+
+            // Landscape: the key appears just left of Esc, on the same row, and hides the keyboard.
+            orient(true)
+            showIme("landscape")
+            val hideShown = runCatching { compose.waitUntil(5_000) { shown("cursor-hide-keyboard") } }.isSuccess
+            if (!hideShown) InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
+                File(context.getExternalFilesDir(null), "cursor-hide-keyboard-missing.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            assertTrue("hide key shown in landscape (esc shown: ${shown("cursor-escape")}, enter shown: ${shown("cursor-enter")})", hideShown)
+            val hide = compose.onNodeWithTag("cursor-hide-keyboard").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            val escape = compose.onNodeWithTag("cursor-escape").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            assertTrue("hide $hide just left of esc $escape", abs(hide.right - escape.left) <= 1f && abs(hide.center.y - escape.center.y) <= 1f)
+            compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
+                File(context.getExternalFilesDir(null), "cursor-hide-keyboard.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            compose.onNodeWithTag("cursor-hide-keyboard").performTouchInput { click() }
+            assertEquals("keyboard hidden", true, withTimeoutOrNull(5_000) { while (imeShown()) delay(50); true })
+            compose.waitUntil(3_000) { !shown("cursor-hide-keyboard") }
+            assertTrue("esc stays once the keyboard is away", shown("cursor-escape"))
+        } finally {
+            requestOrientation(false)
             withContext(Dispatchers.Main) { service.close(session.id) }
             prompts.cancel()
         }

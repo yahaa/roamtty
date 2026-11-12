@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,7 +35,7 @@ import androidx.compose.ui.unit.sp
 import com.termux.view.TerminalView
 import kotlin.math.roundToInt
 
-/** Keys at the right end of the cursor row, [height] tall and centred on it; hidden while the cursor is scrolled away. */
+/** Keys in a row at the right end of the cursor row, [height] tall and centred on it; hidden while the cursor is scrolled away. */
 @Composable
 internal fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, viewportHeight: Int, height: Dp,
     avoid: Rect? = null, keys: @Composable () -> Unit) {
@@ -46,7 +47,7 @@ internal fun CursorRowKeys(view: TerminalView, outputRevision: State<Long>, view
     if (!onScreen) return
     // Where the keys' box sits before its offset, in root coordinates.
     var containerTop by remember { mutableFloatStateOf(0f) }
-    Box(Modifier.onGloballyPositioned { containerTop = it.positionInRoot().y }.offset {
+    Row(Modifier.onGloballyPositioned { containerTop = it.positionInRoot().y }.offset {
         checkNotNull(outputRevision.value)
         // The terminal view sits 6dp below the viewport top; centre the keys on the cursor row.
         val keyHeight = height.roundToPx()
