@@ -6,14 +6,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.bouncycastle.jce.provider.BouncyCastleProvider
-import java.net.InetSocketAddress
-import java.net.Socket
 import java.net.SocketTimeoutException
 import java.io.InputStream
 import java.io.OutputStream
-import java.security.Security
-import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
 
@@ -41,17 +36,14 @@ class JschSession(
 ) : SshSession {
     private val mutableState = MutableStateFlow(ConnectionState(Phase.CONNECTING))
     override val state = mutableState.asStateFlow()
-    private val mutableDetectedSystem = MutableStateFlow<HostSystem?>(null)
-    val detectedSystem = mutableDetectedSystem.asStateFlow()
-    private val mutableDetectedPlugins = MutableStateFlow<Set<HostPlugin>?>(null)
+    private val probes = HostProbes { ssh, command, input -> runCommand(ssh, command, input) }
+    val detectedSystem = probes.system
     /** tmux/mosh availability, probed with the system on every authenticated connection. */
-    val detectedPlugins = mutableDetectedPlugins.asStateFlow()
-    private val mutableDetectedDesktop = MutableStateFlow<HostDesktop?>(null)
+    val detectedPlugins = probes.plugins
     /** The read-only desktop probe that runs with the plugin probe; null until it answered. */
-    val detectedDesktop = mutableDetectedDesktop.asStateFlow()
-    private val mutableNativeWindows = MutableStateFlow<Boolean?>(null)
+    val detectedDesktop = probes.desktop
     /** True once a plugin probe found cmd.exe or PowerShell, not a POSIX shell; null until probed. */
-    val nativeWindows = mutableNativeWindows.asStateFlow()
+    val nativeWindows = probes.nativeWindows
     private val mutableMultiplexer = MutableStateFlow<HostPlugin?>(null)
     /** Which multiplexer keeps this TMUX-mode session; found on the first attach, kept for reattaches. */
     val multiplexer = mutableMultiplexer.asStateFlow()
@@ -80,6 +72,8 @@ class JschSession(
         if (accepting) mutableInputEpoch.value = queueGeneration
     }
     private val interactionJob = SupervisorJob()
+    private val login = SshLogin(target, credentials, pins, connectTimeoutMs, interactionJob, ::ask, { phase, message -> update(phase, message) },
+        onTrustFailure = { trustFailure = it }, onAddress = { remoteAddress = it })
     @Volatile private var session: Session? = null
     @Volatile private var channel: com.jcraft.jsch.Channel? = null
     @Volatile private var moshClient: MoshClient? = null
@@ -170,71 +164,12 @@ class JschSession(
         connect {}
     }
 
-    private suspend fun probeHostSystem(ssh: Session) {
-        val unix = runCommand(ssh, HostSystemProbe.command, HostSystemProbe.script)?.replace("\r\n", "\n")
-        var result = HostSystemProbe.parse(unix)
-        if (result == HostSystem.UNKNOWN) {
-            result = HostSystemProbe.parse(unix, runCommand(ssh, HostSystemProbe.windowsCommand))
-        }
-        if (result != HostSystem.UNKNOWN) mutableDetectedSystem.value = result
-        // Windows hosts whose OpenSSH shell is MSYS2 or Cygwin bash run the same POSIX probe.
-        if (unix?.contains(HostSystemProbe.KERNEL) == true) probePlugins(ssh)
-        else if (result == HostSystem.WINDOWS) probeWindowsPlugins(ssh)
-    }
-
-    /**
-     * JSch's channel open waits out its whole timeout when the connection drops and ignores
-     * cancellation, so the terminal must not join the probe: a drop would be reported 5 s late.
-     */
-    private fun launchProbe(ssh: Session): Job =
-        CoroutineScope(Dispatchers.IO).launch { runCatching { probeHostSystem(ssh) } }
-
-    /** POSIX shells first; a host without one may still answer through PowerShell. */
-    private suspend fun probePlugins(ssh: Session): Set<HostPlugin>? {
-        val output = runCommand(ssh, HostPluginProbe.command, HostPluginProbe.script)
-        HostPluginProbe.parseDesktop(output)?.let { mutableDetectedDesktop.value = it }
-        return HostPluginProbe.parse(output)
-            ?.also { mutableNativeWindows.value = false; mutableDetectedPlugins.value = it }
-            ?: probeWindowsPlugins(ssh)
-    }
-
-    private suspend fun probeWindowsPlugins(ssh: Session): Set<HostPlugin>? {
-        val found = Psmux.parseProbe(runCommand(ssh, Psmux.probeCommand))
-            ?.let { found -> if (found) setOf(HostPlugin.PSMUX) else emptySet() } ?: return null
-        mutableNativeWindows.value = true
-        // The desktop side of a native Windows shell: the console user and the plugin, read-only.
-        val desktop = HostPluginProbe.parseDesktop(runCommand(ssh, WindowsDesktop.probeCommand))
-        desktop?.let { mutableDetectedDesktop.value = it }
-        val plugins = if (desktop?.pluginVersion != null) found + HostPlugin.DESKTOP else found
-        mutableDetectedPlugins.value = plugins
-        return plugins
-    }
-
     /** Check each fresh login: the multiplexer may have been removed while the connection was down. */
     private suspend fun findMultiplexer(ssh: Session): HostPlugin? = when {
         hasTmux(ssh) -> HostPlugin.TMUX
         Psmux.parseProbe(runCommand(ssh, Psmux.probeCommand)) == true -> HostPlugin.PSMUX
         else -> null
     }.also { mutableMultiplexer.value = it }
-
-    private fun tcpKeepaliveFactory() = object : SocketFactory {
-        override fun createSocket(host: String, port: Int): Socket {
-            val socket = Socket()
-            try {
-                socket.keepAlive = true
-                socket.tcpNoDelay = true
-                socket.connect(InetSocketAddress(host, port), connectTimeoutMs)
-                // mosh-server binds to the address this SSH connection reached (mosh-server -s).
-                remoteAddress = socket.inetAddress
-                return socket
-            } catch (e: Exception) {
-                socket.close()
-                throw e
-            }
-        }
-        override fun getInputStream(socket: Socket) = socket.getInputStream()
-        override fun getOutputStream(socket: Socket) = socket.getOutputStream()
-    }
 
     private suspend fun runAttempt(onOutput: suspend (ByteArray) -> Unit, reattaching: Boolean): AttemptOutcome {
         val jsch = JSch()
@@ -243,7 +178,7 @@ class JschSession(
         try {
             coroutineContext.ensureActive()
             if (stopped.get()) return AttemptOutcome.STOPPED
-            val ssh = newSession(jsch)
+            val ssh = login.newSession(jsch)
             session = ssh
             if (stopped.get()) return AttemptOutcome.STOPPED
             ssh.connect(connectTimeoutMs)
@@ -256,7 +191,7 @@ class JschSession(
             coroutineContext.ensureActive()
             if (stopped.get()) return AttemptOutcome.STOPPED
             if (detectionOnly) {
-                probeHostSystem(ssh)
+                probes.probeSystem(ssh)
                 return AttemptOutcome.REMOTE_EXIT
             }
             administration?.let { block ->
@@ -277,108 +212,126 @@ class JschSession(
                 if (target.mode != SessionMode.TMUX) { credentials.clear(); jsch.removeAllIdentity() }
                 mutableMoshFallback.value = "mosh 无法连接（可能未放行 UDP 60000–61000），已改用 SSH。"
             }
-            val size = dimensions
-            val terminal: com.jcraft.jsch.Channel = if (target.mode == SessionMode.TMUX) {
-                (ssh.openChannel("exec") as ChannelExec).apply {
-                    setCommand(if (mux == HostPlugin.PSMUX) Psmux.attachCommand(tmuxName) else Tmux.attachCommand(tmuxName, attachExisting))
-                    setPty(true)
-                    setPtyType(PTY_TYPE, size[0], size[1], size[2], size[3])
-                }
-            } else {
-                (ssh.openChannel("shell") as ChannelShell).apply {
-                    setPty(true)
-                    setPtyType(PTY_TYPE, size[0], size[1], size[2], size[3])
-                }
-            }
-            channel = terminal
-            val stdout = terminal.inputStream
-            val stdin = terminal.outputStream
-            terminal.connect(connectTimeoutMs)
-            // Accept input only while the PTY writer is live — not during post-EOF exit-status grace.
-            setInputAccepting(true)
-            mutableTransport.value = TerminalTransport.SSH
-            update(Phase.CONNECTED)
-            reachedConnected = true
-            try {
-                coroutineScope {
-                    // Metadata must not delay the terminal, enter shell history or steal PTY output.
-                    val systemProbe = launchProbe(ssh)
-                    val writer = launch(Dispatchers.IO) {
-                        try {
-                            for (bytes in queues.currentInput()) {
-                                try { if (!stopped.get() && terminal.isConnected) { stdin.write(bytes); stdin.flush() } }
-                                finally { bytes.fill(0) }
-                            }
-                        } catch (e: CancellationException) { throw e }
-                        catch (e: Exception) { terminal.disconnect() }
-                    }
-                    val resizer = launch(Dispatchers.IO) {
-                        try {
-                            for (d in queues.currentSizes()) when (terminal) {
-                                is ChannelShell -> terminal.setPtySize(d[0], d[1], d[2], d[3])
-                                is ChannelExec -> terminal.setPtySize(d[0], d[1], d[2], d[3])
-                            }
-                        } catch (e: CancellationException) { throw e }
-                        catch (e: Exception) { terminal.disconnect() }
-                    }
-                    try {
-                        val buffer = ByteArray(8192)
-                        while (isActive && !stopped.get()) {
-                            val count = stdout.read(buffer)
-                            if (count < 0) break
-                            if (count > 0) onOutput(buffer.copyOf(count))
-                        }
-                    } finally { writer.cancel(); resizer.cancel(); systemProbe.cancel() }
-                }
-            } finally {
-                // Stop accepting before the exit-status grace wait so UI CONNECTED cannot queue dead writes.
-                setInputAccepting(false)
-            }
-            // EOF/closed channels can precede exit-status or JSch's transport disconnect flag.
-            // Even a closed channel needs this grace period when no exit status has arrived.
-            withTimeoutOrNull(1_000) {
-                while (!stopped.get() && ssh.isConnected && terminal.exitStatus == -1) delay(10)
-            }
-            return when {
-                stopped.get() -> AttemptOutcome.STOPPED
-                // Normal shell/tmux end — exit-status arrived.
-                terminal.exitStatus != -1 -> AttemptOutcome.REMOTE_EXIT
-                // Transport dead, or channel EOF with no exit status while SSH still up:
-                // prefer TRANSPORT_ENDED so TMUX can auto-reattach. Do not treat bare
-                // ssh.isConnected as REMOTE_EXIT.
-                else -> AttemptOutcome.TRANSPORT_ENDED
-            }
+            return runTerminal(ssh, openTerminal(ssh, mux), onOutput)
         } catch (e: Exception) {
-            val failure = trustFailure ?: e
-            if (stopped.get()) return AttemptOutcome.STOPPED
-            if (e is CancellationException) {
-                update(Phase.DISCONNECTED, "连接已取消或验证等待超时")
-                throw e
-            }
-            // A lost network can fail before the next PTY exists. Keep the remaining retry budget,
-            // but never retry rejected credentials, host keys, or local configuration failures.
-            if (trustFailure == null && (reachedConnected || reattaching) && isRetryableTransportFailure(e)) {
-                return AttemptOutcome.TRANSPORT_ENDED
-            }
-            // Host detection and plugin installs answer the user directly, so they fail fast instead.
-            if (trustFailure == null && !detectionOnly && administration == null &&
-                isRetryableTransportFailure(e) && !isTimeoutFailure(e)) {
-                unreachableFailure = e
-                return AttemptOutcome.UNREACHABLE
-            }
-            val detail = failureDetail(failure)
-            mutableState.value = when {
-                failure is HostKeyChanged -> ConnectionState(Phase.HOST_KEY_CHANGED, "主机指纹发生变化，连接已阻止。请通过可信渠道核验。", failure.old.fingerprint, failure.received.fingerprint)
-                failure is HostKeyRejected -> ConnectionState(Phase.DISCONNECTED, "未信任此主机")
-                e.message?.contains("Auth", ignoreCase = true) == true -> ConnectionState(Phase.AUTH_FAILED, "认证失败，请检查用户名、凭据或服务器认证配置。")
-                e is SocketTimeoutException || e.message?.contains("timeout", true) == true -> ConnectionState(Phase.FAILED, ConnectionMessages.TIMEOUT, detail = detail)
-                else -> ConnectionState(Phase.FAILED, "连接失败，请检查网络、地址、密钥格式及服务器算法支持。", detail = detail)
-            }
-            return AttemptOutcome.FATAL
+            return attemptFailed(e, reattaching)
         } finally {
             closeTransport()
             jsch.removeAllIdentity()
         }
+    }
+
+    /** The channel the terminal runs on, not yet connected: the multiplexer's attach command for TMUX, else a login shell. */
+    private fun openTerminal(ssh: Session, mux: HostPlugin?): com.jcraft.jsch.Channel {
+        val size = dimensions
+        return if (target.mode == SessionMode.TMUX) {
+            (ssh.openChannel("exec") as ChannelExec).apply {
+                setCommand(if (mux == HostPlugin.PSMUX) Psmux.attachCommand(tmuxName) else Tmux.attachCommand(tmuxName, attachExisting))
+                setPty(true)
+                setPtyType(PTY_TYPE, size[0], size[1], size[2], size[3])
+            }
+        } else {
+            (ssh.openChannel("shell") as ChannelShell).apply {
+                setPty(true)
+                setPtyType(PTY_TYPE, size[0], size[1], size[2], size[3])
+            }
+        }
+    }
+
+    /** Connects [terminal] and carries it until it ends; says how it ended. */
+    private suspend fun runTerminal(ssh: Session, terminal: com.jcraft.jsch.Channel, onOutput: suspend (ByteArray) -> Unit): AttemptOutcome {
+        channel = terminal
+        val stdout = terminal.inputStream
+        val stdin = terminal.outputStream
+        terminal.connect(connectTimeoutMs)
+        // Accept input only while the PTY writer is live — not during post-EOF exit-status grace.
+        setInputAccepting(true)
+        mutableTransport.value = TerminalTransport.SSH
+        update(Phase.CONNECTED)
+        reachedConnected = true
+        try {
+            pumpTerminal(ssh, terminal, stdout, stdin, onOutput)
+        } finally {
+            // Stop accepting before the exit-status grace wait so UI CONNECTED cannot queue dead writes.
+            setInputAccepting(false)
+        }
+        // EOF/closed channels can precede exit-status or JSch's transport disconnect flag.
+        // Even a closed channel needs this grace period when no exit status has arrived.
+        withTimeoutOrNull(1_000) {
+            while (!stopped.get() && ssh.isConnected && terminal.exitStatus == -1) delay(10)
+        }
+        return when {
+            stopped.get() -> AttemptOutcome.STOPPED
+            // Normal shell/tmux end — exit-status arrived.
+            terminal.exitStatus != -1 -> AttemptOutcome.REMOTE_EXIT
+            // Transport dead, or channel EOF with no exit status while SSH still up:
+            // prefer TRANSPORT_ENDED so TMUX can auto-reattach. Do not treat bare
+            // ssh.isConnected as REMOTE_EXIT.
+            else -> AttemptOutcome.TRANSPORT_ENDED
+        }
+    }
+
+    /** Writes queued input and sizes to the PTY and hands its output on, until the channel reaches EOF or the session stops. */
+    private suspend fun pumpTerminal(ssh: Session, terminal: com.jcraft.jsch.Channel, stdout: InputStream, stdin: OutputStream,
+        onOutput: suspend (ByteArray) -> Unit) = coroutineScope {
+        // Metadata must not delay the terminal, enter shell history or steal PTY output.
+        val systemProbe = probes.launch(ssh)
+        val writer = launch(Dispatchers.IO) {
+            try {
+                for (bytes in queues.currentInput()) {
+                    try { if (!stopped.get() && terminal.isConnected) { stdin.write(bytes); stdin.flush() } }
+                    finally { bytes.fill(0) }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { terminal.disconnect() }
+        }
+        val resizer = launch(Dispatchers.IO) {
+            try {
+                for (d in queues.currentSizes()) when (terminal) {
+                    is ChannelShell -> terminal.setPtySize(d[0], d[1], d[2], d[3])
+                    is ChannelExec -> terminal.setPtySize(d[0], d[1], d[2], d[3])
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { terminal.disconnect() }
+        }
+        try {
+            val buffer = ByteArray(8192)
+            while (isActive && !stopped.get()) {
+                val count = stdout.read(buffer)
+                if (count < 0) break
+                if (count > 0) onOutput(buffer.copyOf(count))
+            }
+        } finally { writer.cancel(); resizer.cancel(); systemProbe.cancel() }
+    }
+
+    /** An attempt threw [e]: whether to try again, and what the user is told when not. A cancellation is thrown on. */
+    private fun attemptFailed(e: Exception, reattaching: Boolean): AttemptOutcome {
+        val failure = trustFailure ?: e
+        if (stopped.get()) return AttemptOutcome.STOPPED
+        if (e is CancellationException) {
+            update(Phase.DISCONNECTED, "连接已取消或验证等待超时")
+            throw e
+        }
+        // A lost network can fail before the next PTY exists. Keep the remaining retry budget,
+        // but never retry rejected credentials, host keys, or local configuration failures.
+        if (trustFailure == null && (reachedConnected || reattaching) && isRetryableTransportFailure(e)) {
+            return AttemptOutcome.TRANSPORT_ENDED
+        }
+        // Host detection and plugin installs answer the user directly, so they fail fast instead.
+        if (trustFailure == null && !detectionOnly && administration == null &&
+            isRetryableTransportFailure(e) && !isTimeoutFailure(e)) {
+            unreachableFailure = e
+            return AttemptOutcome.UNREACHABLE
+        }
+        val detail = failureDetail(failure)
+        mutableState.value = when {
+            failure is HostKeyChanged -> ConnectionState(Phase.HOST_KEY_CHANGED, "主机指纹发生变化，连接已阻止。请通过可信渠道核验。", failure.old.fingerprint, failure.received.fingerprint)
+            failure is HostKeyRejected -> ConnectionState(Phase.DISCONNECTED, "未信任此主机")
+            e.message?.contains("Auth", ignoreCase = true) == true -> ConnectionState(Phase.AUTH_FAILED, "认证失败，请检查用户名、凭据或服务器认证配置。")
+            e is SocketTimeoutException || e.message?.contains("timeout", true) == true -> ConnectionState(Phase.FAILED, ConnectionMessages.TIMEOUT, detail = detail)
+            else -> ConnectionState(Phase.FAILED, "连接失败，请检查网络、地址、密钥格式及服务器算法支持。", detail = detail)
+        }
+        return AttemptOutcome.FATAL
     }
 
     /**
@@ -394,7 +347,7 @@ class JschSession(
         moshClient = client
         val end = try {
             coroutineScope {
-                val systemProbe = launchProbe(ssh)
+                val systemProbe = probes.launch(ssh)
                 // Keep files usable: quietly log back in after the SSH side drops.
                 // Detached: a login stuck on a dead network must not hold the terminal on a frozen
                 // screen after mosh gives up; JSch's connect ignores cancellation.
@@ -453,63 +406,18 @@ class JschSession(
     }
 
     private fun remoteHost(ssh: Session) = object : RemoteHost {
-        override suspend fun probePlugins(): Set<HostPlugin>? = probePlugins(ssh)
+        override suspend fun probePlugins(): Set<HostPlugin>? = probes.probePlugins(ssh)
         override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int? =
             channels.execute(ssh, HostPluginProbe.command, script, timeoutMs, onLine = onLine)?.first
         override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int? =
             channels.execute(ssh, command, null, timeoutMs, onLine = onLine)?.first
         override suspend fun probeDesktop(): HostDesktop? {
-            probePlugins(ssh)
-            return mutableDetectedDesktop.value
+            probes.probePlugins(ssh)
+            return probes.desktop.value
         }
         override suspend fun upload(remotePath: String, source: InputStream) = files.upload(remotePath, source)
         override suspend fun openStream(command: String): RemoteStream? = channels.openStream(ssh, command)
         override suspend fun openSocket(host: String, port: Int): RemoteSocket = channels.openDirect(ssh, host, port)
-    }
-
-    /**
-     * Builds an unconnected session. The terminal login reports progress; an auxiliary login
-     * (files beside a live mosh terminal) must not touch the terminal's state.
-     */
-    private fun newSession(jsch: JSch, auxiliary: Boolean = false): Session {
-        configureCrypto()
-        jsch.hostKeyRepository = repository(reportPhase = !auxiliary)
-        val ssh = jsch.getSession(target.username, target.hostname, target.port)
-        ssh.setSocketFactory(tcpKeepaliveFactory())
-        ssh.setConfig("StrictHostKeyChecking", "yes")
-        ssh.setConfig("PreferredAuthentications", when (target.auth) {
-            AuthMethod.PASSWORD -> "password,keyboard-interactive"
-            AuthMethod.KEY -> "publickey"
-            AuthMethod.INTERACTIVE -> "keyboard-interactive"
-        })
-        ssh.setConfig("NumberOfPasswordPrompts", "1")
-        ssh.userInfo = object : UserInfo, UIKeyboardInteractive {
-            override fun getPassword(): String? = credentials.password?.toString(Charsets.UTF_8)
-            override fun getPassphrase(): String? = null
-            // setPassword supplies the initial attempt; never silently retry a rejected password.
-            override fun promptPassword(message: String?) = false
-            override fun promptPassphrase(message: String?) = false
-            override fun promptYesNo(message: String?) = false
-            override fun showMessage(message: String?) { /* Remote messages never go to logs. */ }
-            override fun promptKeyboardInteractive(destination: String?, name: String?, instruction: String?, prompt: Array<out String>?, echo: BooleanArray?): Array<String>? {
-                if (!auxiliary) update(Phase.AUTHENTICATING, "等待认证输入")
-                val labels = prompt?.toList() ?: emptyList()
-                require(labels.size <= 16) { "Too many authentication prompts" }
-                val answers = ask(Prompt.Keyboard(instruction.orEmpty().take(2048), labels.map { it.take(512) }, echo?.toList() ?: List(labels.size) { false }))
-                return answers?.takeIf { it.size == labels.size }?.toTypedArray()
-            }
-        }
-        if (target.auth == AuthMethod.KEY) {
-            val key = requireNotNull(credentials.privateKey) { "Missing key" }
-            // Keep originals for tmux auto-reattach; JSch receives copies.
-            jsch.addIdentity("session-key", key.copyOf(), null, credentials.passphrase?.copyOf())
-        } else if (target.auth == AuthMethod.PASSWORD) {
-            ssh.setPassword(credentials.password?.copyOf())
-        }
-        // SSH-level keepalive (~15s × 4 ≈ 1 min of silence before drop).
-        ssh.setServerAliveInterval(15_000)
-        ssh.setServerAliveCountMax(4)
-        return ssh
     }
 
     private val auxiliaryLock = Mutex()
@@ -529,7 +437,7 @@ class JschSession(
             withContext(Dispatchers.IO) {
                 val jsch = JSch()
                 try {
-                    val ssh = newSession(jsch, auxiliary = true)
+                    val ssh = login.newSession(jsch, auxiliary = true)
                     ssh.connect(connectTimeoutMs)
                     // A login that outlived its mosh link must not replace the next attempt's session.
                     if (stopped.get() || moshClient !== owner) { ssh.disconnect(); return@withContext null }
@@ -553,28 +461,6 @@ class JschSession(
             withTimeout(connectTimeoutMs.toLong()) { while (!probe.isClosed) { delay(30); if (stopped.get()) throw CancellationException() } }
             probe.exitStatus == 0
         } finally { probe.disconnect() }
-    }
-
-    private fun repository(reportPhase: Boolean = true) = object : HostKeyRepository {
-        override fun check(host: String?, key: ByteArray): Int {
-            try {
-                val pin = HostPin(target.endpoint, HostKey(host, key).type, Base64.getEncoder().encodeToString(key))
-                runBlocking(interactionJob) {
-                    TrustPolicy(pins).verify(pin) {
-                        update(Phase.VERIFYING)
-                        ask(Prompt.VerifyHost(it)) == listOf("trust")
-                    }
-                }
-                if (reportPhase) update(Phase.AUTHENTICATING)
-                return HostKeyRepository.OK
-            } catch (e: Exception) { trustFailure = e; throw e }
-        }
-        override fun add(hostkey: HostKey?, ui: UserInfo?) = Unit
-        override fun remove(host: String?, type: String?) = Unit
-        override fun remove(host: String?, type: String?, key: ByteArray?) = Unit
-        override fun getKnownHostsRepositoryID(): String = "Roamtty pinned hosts"
-        override fun getHostKey(): Array<HostKey> = emptyArray()
-        override fun getHostKey(host: String?, type: String?): Array<HostKey> = emptyArray()
     }
 
     override fun write(bytes: ByteArray): Boolean = queues.write(bytes, stopped.get())
@@ -735,15 +621,5 @@ class JschSession(
          */
         internal fun moshStallLimitMs(mode: SessionMode): Long? =
             if (mode == SessionMode.TMUX) 10_000L else null
-
-        @Synchronized private fun configureCrypto() {
-            // Android ships a reduced BC provider. Use the full library for modern SSH algorithms.
-            if (Security.getProvider("BC") !is BouncyCastleProvider) {
-                Security.removeProvider("BC")
-                Security.addProvider(BouncyCastleProvider())
-            }
-            JSch.setConfig("signature.ed25519", "com.jcraft.jsch.bc.SignatureEd25519")
-            JSch.setConfig("signature.ed448", "com.jcraft.jsch.bc.SignatureEd448")
-        }
     }
 }

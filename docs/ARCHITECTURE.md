@@ -84,11 +84,20 @@ io.itermux.app          tr/trf 翻译、appSettings、字体；ItermuxApp（组�
 
 - `session` 不引用 `ui`；`data` 不引用 `ItermuxApp`（凭据函数只接收 `SecretVault`）；`desktop` 只通过 `login` 登录，不引用 `session`。`SessionService` 是唯一同时持有会话与桌面的地方。
 - 界面按连接状态里的文案区分结局（是否自动重连、是否重试），这些文案只在 `ssh-core` 的 `ConnectionMessages` 定义一次。
-- `JschSession` 负责连接循环、认证与终端通道；终端之外的短生命周期通道（命令执行、长驻流、direct-tcpip）在 `SshChannels`，文件操作在 `SftpOperations`。
+- `JschSession` 负责连接循环与终端通道；建立会话所需的 socket、主机指纹核验与凭据在 `SshLogin`，系统/插件/桌面探测在 `HostProbes`，终端之外的短生命周期通道（命令执行、长驻流、direct-tcpip）在 `SshChannels`，文件操作在 `SftpOperations`。
+- `DesktopConnection` 负责登录、启动插件与收发帧；插件安装与下载在 `DesktopPluginSetup`，心跳与 RTT 在 `DesktopPing`，“谁在显示画面”（决定暂停与小窗降档）在 `DesktopViewers`，数据类在 `DesktopModels.kt`。
+- `desktop-core` 的手势引擎是 `DesktopGestures`；视口换算在 `Viewport.kt`，手势产生的动作类型在 `GestureActions.kt`。`code-core` 的代码分词在 `CodeTokenizer`（每类 token 一个方法），`SyntaxHighlighter` 只做分发与分行。
 
 ## 界面结构
 
-`ItermuxScreen` 只收集主机、会话和桌面的状态并挂接副作用，然后显示当前页。所在页面与打开的弹窗记在 `ScreenState`（按 id 记录的部分随配置变更保存）；页面发起的操作（开关会话、重连、桌面、文件、插件、分享图片）在 `ScreenActions`，它在被调用时读取界面收集到的最新状态；顶栏与各页面在 `ScreenPages.kt`，弹窗在 `ScreenDialogs.kt`，横屏顶栏的滑动在 `HomeBarSlide.kt`。远程桌面页按画面、状态卡、网络统计、操作面板、键盘面板分文件（`Desktop*.kt`）。构造连接请求的纯函数集中在 `SessionRequests.kt`（新建、启动 agent、重连、终止及查找已有卡片），`SessionService.openFor` 负责打开或重连会话并排队启动命令，均可在 JVM 上单测。会话列表的自动重连由 `ReconnectFromSessionList` 独立管理；首页两个标签页、分享目标选择和主机删除/重新核验确认框各自成文件，只通过参数与回调通信。应用级设置统一经 `Context.appSettings()` 读取同一 `app-settings` 文件，主题读写由 `appTheme()` / `saveAppTheme()` 封装。
+`ItermuxScreen` 只组装：数据收集在 `ScreenData.kt`（`rememberScreenData`），返回键、导航副作用与外部请求（通知、分享）在 `ScreenEffects.kt`，然后显示当前页。所在页面与打开的弹窗记在 `ScreenState`（按 id 记录的部分随配置变更保存）；页面发起的操作（开关会话、重连、桌面、文件、插件、分享图片）在 `ScreenActions`，它在被调用时读取界面收集到的最新状态；顶栏与各页面在 `ScreenPages.kt`，弹窗在 `ScreenDialogs.kt`，横屏顶栏的滑动在 `HomeBarSlide.kt`。远程桌面页按画面、状态卡、网络统计、操作面板、键盘面板分文件（`Desktop*.kt`）。构造连接请求的纯函数集中在 `SessionRequests.kt`（新建、启动 agent、重连、终止及查找已有卡片），`SessionService.openFor` 负责打开或重连会话并排队启动命令，均可在 JVM 上单测。会话列表的自动重连由 `ReconnectFromSessionList` 独立管理；首页两个标签页、分享目标选择和主机删除/重新核验确认框各自成文件，只通过参数与回调通信。应用级设置统一经 `Context.appSettings()` 读取同一 `app-settings` 文件，主题读写由 `appTheme()` / `saveAppTheme()` 封装。
+
+较大的页面都按同一方式拆分：一个 `@Stable` 状态类持有该页的可变状态与动作，页面函数只做布局，各部分是读写这个状态类的小组件，彼此不各自持有状态。
+
+- 终端页：`TerminalPaneState`（停靠栏、草稿、粘贴、粘滞修饰键、宠物、键盘、小窗焦点）；`TerminalPane.kt` 布局，`TerminalPaneEffects.kt` 定时器与随会话/连接的重置，`TerminalPaneDock.kt` 停靠栏，`TerminalViewport.kt` 终端视图与光标行按键，`TerminalPet.kt` 宠物与快捷环，`TerminalPanePip.kt` 桌面小窗，`TerminalPaneDialogs.kt` 弹窗。
+- 文件浏览：`RemoteFileBrowser.kt`（页面、顶栏、列表）、`RemoteFileBrowserParts.kt`（路径栏、行、菜单）、`RemoteFileBrowserDialogs.kt`；预览、下载面板、启动面板、会话卡片（`SessionRow.kt` / `SessionRowParts.kt`）同理。
+- 桌面画面：触摸到输入的路由在 `DesktopTouchInput`（非 Compose 类），`DesktopScreen.kt` 只负责画面、光标与长按环；小窗的拖动/缩放手势在 `PipGestures`。
+- 英文译文表单独在 `EnglishText.kt`，`AppLocale.kt` 只有语言选择与 `tr` / `trf`。
 
 ## 上游适配
 
