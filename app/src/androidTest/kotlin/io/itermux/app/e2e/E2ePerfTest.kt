@@ -177,6 +177,18 @@ class E2ePerfTest {
             E2e.gc()
             alive = refs.count { it.get() != null }
         }
+        // Compose keeps the last laid-out nodes of a page that has gone (OnPositionedDispatcher.cachedNodes, 16 slots)
+        // until a later layout pass fills those slots again; a removed session list held there still reaches its
+        // sessions through its composition. That is the old view tree's cache, not a leak of the app's: a recreated
+        // Activity drops it, as the other leak sweeps do, and whatever is alive after that is held by the app.
+        if (alive > 0) {
+            compose.activityRule.scenario.recreate()
+            E2e.prepareActivity(compose)
+            E2e.waitTag(compose, "home-pager")
+            Thread.sleep(1_500)
+            E2e.gc()
+            alive = refs.count { it.get() != null }
+        }
         E2e.metric("leaked_sessions", alive, "count")
         // Keep a heap dump to trace what still holds them (pull with adb, convert with hprof-conv).
         if (alive > 0) android.os.Debug.dumpHprofData(java.io.File(E2e.outputDir, "leaked-sessions.hprof").path)
