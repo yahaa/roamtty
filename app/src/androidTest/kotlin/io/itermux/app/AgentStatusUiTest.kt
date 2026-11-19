@@ -149,4 +149,63 @@ class AgentStatusUiTest {
         }
         Unit
     }
+
+    @Test fun sessionRowShowsWhatAntigravityReports() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val password = InstrumentationRegistry.getArguments().getString("fixturePassword") ?: "test-only"
+        val app = context.applicationContext as ItermuxApp
+        app.database.hosts().forgetPin("[127.0.0.1]:22228")
+        val host = Host(name = "Agy status", address = "127.0.0.1", port = 22228, username = "itermux_test", mode = "TMUX")
+        val service = (serviceRule.bindService(Intent(context, SessionService::class.java)) as SessionService.LocalBinder).service
+        val session = withContext(Dispatchers.Main) { service.open(host, SessionMode.TMUX, Credentials(password.toByteArray())) }
+        val prompts = CoroutineScope(Dispatchers.Main).launch { session.pending.collect { it?.answer?.complete(listOf("trust")) } }
+        try {
+            withTimeout(20_000) { session.state.first { it.phase == Phase.CONNECTED } }
+            val hook = "ROAMTTY_AGENT=agy sh ~/.roamtty/agent-hook.sh agy"
+            withContext(Dispatchers.Main) {
+                session.runWhenConnected("[ -x ~/.roamtty/agy ] && $hook start </dev/null; sleep 10; " +
+                    "printf '{\"invocationNum\":0,\"lastUserInput\":\"support agy\"}' | $hook prompt; " +
+                    "printf '{\"toolCall\":{\"args\":{\"CommandLine\":\"./gradlew test\"},\"id\":\"c1\",\"name\":\"run_command\"}}' | $hook tool; sleep 12; " +
+                    "printf '{\"toolCall\":{\"args\":{\"questions\":[{\"question\":\"Ship it?\"}]},\"id\":\"c2\",\"name\":\"ask_question\"}}' | $hook tool; sleep 12; " +
+                    "printf '%s\\n' '{\"step_index\":1,\"type\":\"PLANNER_RESPONSE\",\"content\":\"**Shipped** agy support.\"}' > /tmp/agy-tx-\$\$; " +
+                    "printf '{\"fullyIdle\":true,\"terminationReason\":\"NO_TOOL_CALL\",\"transcriptPath\":\"/tmp/agy-tx-%s\"}' \"\$\$\" | $hook stop; " +
+                    "rm -f /tmp/agy-tx-\$\$; sleep 600",
+                    agentHooks = CodingAgent.AGY)
+            }
+            fun exists(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            compose.waitUntil(30_000) { exists("home-session-awaiting-${session.id}") }
+            compose.onNode(hasTestTag("agent-icon-agy") and hasAnyAncestor(hasTestTag("home-session-${session.id}")),
+                useUnmergedTree = true).assertExists()
+
+            val working = withTimeout(30_000) { session.agentStatus.first { it?.state == AgentStatus.State.WORKING } }!!
+            check(working.agent == "agy" && working.tool == "run_command" && working.detail == "./gradlew test" &&
+                working.task == "support agy") { "$working" }
+            compose.waitUntil(10_000) { exists("home-session-activity-${session.id}") }
+            compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("Running ./gradlew test")
+            context.getExternalFilesDir(null)?.let { dir ->
+                java.io.FileOutputStream(java.io.File(dir, "agy-row-working.png")).use {
+                    compose.onNodeWithTag("home-sessions-list").captureToImage().asAndroidBitmap()
+                        .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+
+            compose.waitUntil(25_000) { session.agentStatus.value?.state == AgentStatus.State.WAITING }
+            compose.waitUntil(10_000) { exists("home-session-group-waiting") && exists("home-session-approve-${session.id}") }
+            compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("ask_question Ship it?")
+
+            compose.waitUntil(25_000) { exists("home-session-done-${session.id}") && exists("home-session-group-done") }
+            compose.onNodeWithTag("home-session-reply-${session.id}", useUnmergedTree = true).assertTextEquals("Shipped agy support.")
+            context.getExternalFilesDir(null)?.let { dir ->
+                java.io.FileOutputStream(java.io.File(dir, "agy-row-done.png")).use {
+                    compose.onNodeWithTag("home-sessions-list").captureToImage().asAndroidBitmap()
+                        .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+        } finally {
+            session.write("\u0003exit\r")
+            prompts.cancel()
+            withContext(Dispatchers.Main) { service.close(session.id) }
+        }
+        Unit
+    }
 }

@@ -35,6 +35,7 @@ internal fun CodingAgent.brand(): Color = when (this) {
     CodingAgent.CODEX -> Color(0xFF6F86FF)
     // Grok's mark is black on white or white on black: it takes the text colour.
     CodingAgent.GROK -> MaterialTheme.colorScheme.onSurface
+    CodingAgent.AGY -> Color(0xFF3186FF)
 }
 
 /** The agent's own mark, drawn in [brand] on its tile and in the text colour on a button. */
@@ -42,6 +43,7 @@ internal val CodingAgent.iconRes: Int get() = when (this) {
     CodingAgent.CLAUDE -> R.drawable.ic_agent_claude
     CodingAgent.CODEX -> R.drawable.ic_agent_codex
     CodingAgent.GROK -> R.drawable.ic_agent_grok
+    CodingAgent.AGY -> R.drawable.ic_agent_agy
 }
 
 /**

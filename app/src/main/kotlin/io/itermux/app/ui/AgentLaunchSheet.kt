@@ -54,10 +54,15 @@ internal fun AgentLaunchSheet(directory: String, onDismiss: () -> Unit, onLaunch
             FolderLabel(directory, Modifier.padding(horizontal = Spacing.Section).padding(bottom = Spacing.Section))
 
             SectionCaption(tr("Agent"))
-            Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).selectableGroup(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CodingAgent.entries.forEach { option ->
-                    AgentCard(option, selected = option == agent, Modifier.weight(1f)) { agent = option }
+            Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.Page).selectableGroup(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CodingAgent.entries.chunked(2).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEach { option ->
+                            AgentCard(option, selected = option == agent, Modifier.weight(1f)) { agent = option }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
                 }
             }
 

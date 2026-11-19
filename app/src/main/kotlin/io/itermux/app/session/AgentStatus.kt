@@ -31,7 +31,7 @@ data class AgentStatus(
          * Agents that run under their `/bin/sh` launcher, which ends the report itself ([AgentHooks]): the pane shows the
          * launcher's shell while they run, "sh" on Linux but "bash" on macOS, whose `/bin/sh` is bash.
          */
-        private val launched = setOf("codex", "grok")
+        private val launched = setOf("codex", "grok", "agy")
 
         /**
          * Output of the status command: `pane_command|state|since|agent|tool|detail|worked|task|reply` (`worked` and
@@ -102,7 +102,7 @@ private val MARKDOWN_LEADING_MARK = Regex("""^\s*([-*+>]|\d+\.)\s+""")
 internal val WHITESPACE_RUN = Regex("""\s+""")
 
 /** The tools agents run shell commands with. */
-private val shellTools = setOf("Bash", "PowerShell", "run_terminal_command", "shell", "exec_command", "local_shell")
+private val shellTools = setOf("Bash", "PowerShell", "run_terminal_command", "run_command", "shell", "exec_command", "local_shell")
 
 /**
  * What the agent is running, for the session list: a shell command as `Running command`, as Claude Code says it, another tool by its name and what it
@@ -170,6 +170,7 @@ object AgentHooks {
             ?: Triple(SETTINGS_PATH.substringAfterLast('/'), claudeSettings, false)
         CodingAgent.CODEX -> Triple("codex", codexLauncher, true)
         CodingAgent.GROK -> Triple("grok", grokLauncher, true)
+        CodingAgent.AGY -> Triple("agy", agyLauncher, true)
     }
 
     /** What [agent] is typed as: Claude Code with its settings, the others through their launcher. */
@@ -282,5 +283,30 @@ object AgentHooks {
             "export ROAMTTY_AGENT=grok",
             "grok \"\$@\"",
         ) + launcherEnd(CodingAgent.GROK)).joinToString("\n", postfix = "\n")
+    }
+
+    /**
+     * `~/.roamtty/agy`: Antigravity CLI loads global hooks from plugins under `~/.gemini/config/plugins/`, so this
+     * writes a small `roamtty` plugin whose hooks act only for an `agy` started here ([script] checks `ROAMTTY_AGENT`),
+     * reports the initial idle state (Antigravity fires `SessionStart` only on the first prompt), then runs `agy`.
+     */
+    val agyLauncher: String by lazy {
+        val plugin = "{\"name\":\"roamtty\",\"displayName\":\"Roamtty\",\"version\":\"1.0.0\"," +
+            "\"description\":\"Reports Antigravity CLI status to Roamtty.\"}"
+        val hooks = "{\"roamtty\":{" +
+            "\"PreInvocation\":[{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.AGY, "prompt")}\"}]," +
+            "\"PreToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.AGY, "tool")}\"}]}]," +
+            "\"PostToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.AGY, "post")}\"}]}]," +
+            "\"Stop\":[{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.AGY, "stop")}\"}]" +
+            "}}"
+        (listOf(
+            "#!/bin/sh",
+            "# Roamtty: starts Antigravity CLI with hooks that report its state to agent-hook.sh.",
+            "dir=\"\$HOME/.gemini/config/plugins/roamtty\"",
+            "mkdir -p \"\$dir\" && printf '%s\\n' '$plugin' > \"\$dir/plugin.json\" && printf '%s\\n' '$hooks' > \"\$dir/hooks.json\"",
+            "export ROAMTTY_AGENT=agy",
+            "${hookCommand(CodingAgent.AGY, "start")} </dev/null",
+            "agy \"\$@\"",
+        ) + launcherEnd(CodingAgent.AGY)).joinToString("\n", postfix = "\n")
     }
 }

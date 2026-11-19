@@ -1,16 +1,18 @@
 package io.itermux.app.session
 
 /**
- * AI coding CLIs the file browser can start in a folder. [readOnlyFlag] starts a plan (Claude) or read-only sandbox;
- * [yoloFlag] skips approval prompts; [standardFlag] makes the agent ask before edits and commands when its own default
- * would not (newer Claude Code starts in auto mode). Users can subsequently change the CLI's permissions.
+ * AI coding CLIs the file browser can start in a folder. [readOnlyFlag] starts a plan (Claude, Antigravity) or
+ * read-only sandbox; [yoloFlag] skips approval prompts; [standardFlag] makes the agent ask before edits and commands
+ * when its own default would not (newer Claude Code starts in auto mode). Users can subsequently change the CLI's
+ * permissions.
  */
 enum class CodingAgent(val label: String, val shortLabel: String, val command: String, val readOnlyFlag: String,
     val yoloFlag: String, val standardFlag: String = "") {
     // "default" is the asking mode's old name; newer versions call it manual but still take it, older ones only know it.
     CLAUDE("Claude Code", "Claude", "claude", "--permission-mode plan", "--dangerously-skip-permissions", "--permission-mode default"),
     CODEX("Codex", "Codex", "codex", "--sandbox read-only", "--dangerously-bypass-approvals-and-sandbox"),
-    GROK("Grok", "Grok", "grok", "--sandbox read-only", "--always-approve");
+    GROK("Grok", "Grok", "grok", "--sandbox read-only", "--always-approve"),
+    AGY("Antigravity CLI", "Antigravity", "agy", "--mode plan", "--dangerously-skip-permissions");
 
     companion object {
         fun from(value: String?) = entries.firstOrNull { it.name == value } ?: CODEX

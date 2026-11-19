@@ -75,6 +75,7 @@ class HomePageTest {
             compose.onNodeWithTag("add-session").performClick()
             // What runs comes first, then the host; Back from the hosts returns to that first step.
             compose.onNodeWithTag("new-session-pick-claude").assertIsDisplayed()
+            compose.onNodeWithTag("new-session-pick-agy").assertIsDisplayed()
             compose.onNodeWithTag("new-session-host-${host.id}").assertDoesNotExist()
             capture("new-session-agents")
             compose.onNodeWithTag("new-session-pick-terminal").performClick()

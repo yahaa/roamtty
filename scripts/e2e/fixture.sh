@@ -115,7 +115,7 @@ EOF
   sudo mkdir -p "$FIXTURE/bin"
   sudo find /usr/bin /usr/sbin -maxdepth 1 \( -type f -o -type l \) ! -name 'mosh*' -exec ln -sf {} "$FIXTURE/bin/" \; 2>/dev/null
   # Stand-ins for the AI agents: they print how they were started, then wait for a line like a prompt.
-  for agent in claude codex grok; do
+  for agent in claude codex grok agy; do
     sudo rm -f "/tmp/roamtty-e2e/bin/$agent"
     printf '#!/bin/sh\necho "E2E_FAKE_AGENT %s $*"\necho "cwd=$(pwd)"\nread -r line\necho "agent got: $line"\n' "$agent" \
       | sudo tee "$FIXTURE/bin/$agent" >/dev/null
