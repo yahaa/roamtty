@@ -14,3 +14,10 @@ signing.properties
 *.iml
 dist/*-source.zip
 app/src/androidTest/assets/test_password
+
+# Generated SSH test private keys must stay local.
+app/src/androidTest/assets/test_ed25519
+app/src/androidTest/assets/test_ed25519_plain
+app/src/androidTest/assets/test_rsa
+ssh-core/src/test/resources/keys/ed25519
+ssh-core/src/test/resources/keys/rsa
