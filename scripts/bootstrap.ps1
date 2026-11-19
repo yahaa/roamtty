@@ -47,7 +47,6 @@ if (!(Test-Path "$toolDir/android-sdk/platform-tools/adb.exe")) {
 }
 New-Item -ItemType Directory -Force -Path "$root/licenses" | Out-Null
 Download 'https://www.apache.org/licenses/LICENSE-2.0.txt' "$root/licenses/Apache-2.0.txt"
-Copy-Item -LiteralPath "$root/licenses/Apache-2.0.txt" -Destination "$root/LICENSE" -Force
 Download 'https://raw.githubusercontent.com/mwiede/jsch/jsch-2.28.0/LICENSE.txt' "$root/licenses/JSch-BSD.txt"
 Download 'https://raw.githubusercontent.com/mwiede/jsch/jsch-2.28.0/LICENSE.JZlib.txt' "$root/licenses/JZlib-BSD.txt"
 Download 'https://raw.githubusercontent.com/mwiede/jsch/jsch-2.28.0/LICENSE.jBCrypt.txt' "$root/licenses/jBCrypt-ISC.txt"
