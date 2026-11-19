@@ -42,14 +42,14 @@ import io.itermux.app.data.Host
 import io.itermux.ssh.HostSystem
 import kotlinx.coroutines.*
 import java.io.ByteArrayOutputStream
+import android.content.Context
+import android.net.Uri
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
 /** Adds or edits a host. With [forSession], it fills in a new host on the way to a new session, then hands over its id. */
+@Composable
 fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved: (hostId: String) -> Unit,
     forSession: Boolean = false) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val activity = remember(context) {
@@ -59,160 +59,197 @@ fun HostEditor(app: ItermuxApp, original: Host?, onDismiss: () -> Unit, onSaved:
     val draft = remember(activity) { ViewModelProvider(activity)[HostEditorDraft::class.java] }
     // A session started from here would otherwise ask for the password again right after saving.
     draft.open(original, savePasswordByDefault = forSession)
-    var name by draft.name
-    var address by draft.address
-    var port by draft.port
-    var username by draft.username
-    var auth by draft.auth
-    var mode by draft.mode
-    val os by draft.os
-    var savePassword by draft.savePassword
-    var password by draft.password
-    var passphrase by draft.passphrase
-    var imported by draft.imported
-    var keyLabel by draft.keyLabel
-    var error by draft.error
-    var busy by draft.busy
-    val detecting by draft.detecting
+    val busy by draft.busy
     val saved by draft.saved
     LaunchedEffect(saved) { if (saved) { val id = draft.id; draft.close(); onSaved(id) } }
-    val keyPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            busy = true
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    val bytes = context.contentResolver.openInputStream(uri)?.use { stream ->
-                        val buffer = ByteArrayOutputStream()
-                        val chunk = ByteArray(4096)
-                        while (true) {
-                            val count = stream.read(chunk)
-                            if (count < 0) break
-                            require(buffer.size() + count <= 256 * 1024) { tr("私钥文件超过 256 KiB") }
-                            buffer.write(chunk, 0, count)
-                        }
-                        buffer.toByteArray()
-                    } ?: error(tr("无法读取文件"))
-                    val header = bytes.take(100).toByteArray().toString(Charsets.US_ASCII)
-                    require(header.contains("PRIVATE KEY-----")) { tr("请选择 OpenSSH 或 PEM 格式的私钥文件") }
-                    val label = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: tr("已导入私钥")
-                    bytes to label.take(120)
-                }
-                imported?.fill(0)
-                imported = result.first
-                keyLabel = result.second
-                error = null
-            } catch (e: Exception) { error = tr("无法导入，请选择不超过 256 KiB 的 OpenSSH/PEM 私钥。") }
-            finally { busy = false }
-        }
-    }
-    val connectionSection = SectionParts(tr("连接信息"), null) {
-            FormField(name, { name = it }, tr("名称"), Modifier.testTag("host-name"), tr("例如：开发工作站"), enabled = !busy)
-            GroupedDivider()
-            FormField(address, { address = it }, tr("地址 / IP"), Modifier.testTag("host-address"), tr("例如：dev.example.com"),
-                KeyboardOptions(keyboardType = KeyboardType.Uri), enabled = !busy)
-            GroupedDivider()
-            Row(Modifier.height(IntrinsicSize.Min)) {
-                FormField(username, { username = it }, tr("用户名"), modifier = Modifier.weight(1f).testTag("host-username"), enabled = !busy)
-                VerticalDivider(Modifier.padding(vertical = 10.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                FormField(port, { port = it.filter(Char::isDigit).take(5) }, tr("端口"), modifier = Modifier.width(96.dp).testTag("host-port"),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
-            }
-    }
-    val systemSection = SectionParts(tr("远端系统"),
-            tr("保存时自动检测系统。未填写凭据或暂时无法连接时，将在下次连接成功后更新。")) {
-            GroupedRow(if (detecting) tr("正在检测系统…") else if (os == "UNKNOWN") tr("自动检测") else tr(HostSystem.fromStored(os).label),
-                leading = { HostSystemIcon(os, 32.dp) },
-                trailing = { if (detecting) TextButton(onClick = draft::skipDetection) { Text(tr("跳过检测")) } })
-    }
-    val authenticationSection = SectionParts(tr("认证方式"), when (auth) {
-            "PASSWORD" -> tr("密码用于检测系统；仅勾选后才会在本机保存。留空可在连接时输入。")
-            "KEY" -> tr("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅用于本次检测或连接，不会保存。")
-            else -> tr("连接时显示服务器的认证问题，支持一次性验证码和多轮交互。")
-        }) {
-            SegmentedControl(listOf("PASSWORD", "KEY", "INTERACTIVE").map { value ->
-                Segment(authLabel(value), auth == value) { if (!busy) auth = value }
-            }, Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
-            if (auth == "PASSWORD") {
-                GroupedDivider()
-                GroupedRow(tr("在本机加密保存密码"), trailing = {
-                    Switch(savePassword, { savePassword = it }, modifier = Modifier.testTag("save-password"), enabled = !busy)
-                })
-                GroupedDivider()
-                FormField(password, { password = it }, if (original?.encryptedPassword != null) tr("新密码（留空保留原密码）") else tr("密码"),
-                    modifier = Modifier.testTag("host-password"), visualTransformation = PasswordVisualTransformation(), enabled = !busy)
-            } else if (auth == "KEY") {
-                GroupedDivider()
-                // The trailing action stays one short word, so the title keeps its width in any language.
-                GroupedRow(keyLabel ?: tr("尚未导入私钥"), Modifier.testTag("host-key"),
-                    subtitle = if (keyLabel == null) tr("支持 Ed25519 / RSA 私钥") else tr("已导入私钥"),
-                    leading = { Icon(painterResource(R.drawable.ic_keys), contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp)) },
-                    trailing = {
-                        TextButton(onClick = { keyPicker.launch(arrayOf("*/*")) }, enabled = !busy) {
-                            Text(if (keyLabel == null) tr("导入") else tr("更换"), maxLines = 1)
-                        }
-                    }, enabled = !busy, onClick = { keyPicker.launch(arrayOf("*/*")) })
-                GroupedDivider()
-                FormField(passphrase, { passphrase = it }, tr("私钥口令（仅用于检测，可留空）"),
-                    visualTransformation = PasswordVisualTransformation(), modifier = Modifier.testTag("host-passphrase"), enabled = !busy)
-            }
-    }
-    val modeSection = SectionParts(tr("会话模式"), if (mode == "TMUX") tr("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux（Windows 主机为 psmux）。") else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。")) {
-            SegmentedControl(listOf(
-                Segment(tr("tmux · 推荐"), mode == "TMUX") { if (!busy) mode = "TMUX" },
-                Segment(tr("普通 SSH"), mode == "SHELL") { if (!busy) mode = "SHELL" },
-            ), Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
-    }
-    val landscape = isLandscape()
-    Dialog(onDismissRequest = { if (!busy) { draft.close(); onDismiss() } }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    val pickKey = rememberKeyPicker(draft)
+    val sections = EditorSections(connectionSection(draft), systemSection(draft),
+        authenticationSection(draft, replacesPassword = original?.encryptedPassword != null, pickKey), modeSection(draft))
+    val cancel = { draft.close(); onDismiss() }
+    Dialog(onDismissRequest = { if (!busy) cancel() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         SheetSystemBars(MaterialTheme.colorScheme.background)
         Surface(Modifier.fillMaxSize().testTag("host-editor"), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
-            Column(Modifier.fillMaxSize()) {
-                val formTitle = if (forSession) tr("新建会话") else if (original == null) tr("添加主机") else tr("编辑主机")
-                val cancel: @Composable (Modifier) -> Unit = { modifier ->
-                    TextButton(onClick = { draft.close(); onDismiss() }, enabled = !busy, modifier = modifier) { Text(tr("取消")) }
+                val landscape = isLandscape()
+                EditorBar(if (forSession) tr("新建会话") else if (original == null) tr("添加主机") else tr("编辑主机"),
+                    saveLabel = if (busy) tr("处理中") else if (forSession) tr("下一步") else tr("保存"), busy, landscape, cancel) {
+                    focusManager.clearFocus(); keyboard?.hide(); draft.save(app, original)
                 }
-                val save: @Composable (Modifier) -> Unit = { modifier ->
-                    TextButton(enabled = !busy, modifier = modifier.testTag("save-host"),
-                        onClick = { focusManager.clearFocus(); keyboard?.hide(); draft.save(app, original) }) {
-                        Text(if (busy) tr("处理中") else if (forSession) tr("下一步") else tr("保存"), fontWeight = FontWeight.SemiBold)
-                    }
-                }
-                // In landscape, where height is short, the bar is the one of every other landscape page.
-                if (landscape) LandscapeBar(formTitle, leading = { cancel(Modifier) }) { save(Modifier) }
-                // Modal form bar: cancel and save stay on opposite edges, the title is centered.
-                else Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), contentAlignment = Alignment.Center) {
-                    cancel(Modifier.align(Alignment.CenterStart))
-                    Text(formTitle, style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 96.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    save(Modifier.align(Alignment.CenterEnd))
-                }
-                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                    // Landscape and wide screens: the four sections as two rows of two, so every field is in view at once.
-                    val wide = landscape || maxWidth >= 600.dp
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                        .padding(horizontal = Spacing.Page, vertical = if (wide) Spacing.Hairline else Spacing.Tight),
-                        verticalArrangement = Arrangement.spacedBy(if (wide) Spacing.Page else Spacing.Section)) {
-                        error?.let { Text(tr(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(horizontal = Spacing.Page)) }
-                        if (wide) {
-                            SectionPair(connectionSection, authenticationSection)
-                            SectionPair(systemSection, modeSection)
-                        } else listOf(connectionSection, systemSection, authenticationSection, modeSection).forEach { section ->
-                            GroupedSection(header = section.header, footer = section.footer, content = section.content)
-                        }
-                    }
-                }
+                EditorForm(sections, draft.error.value, landscape, Modifier.weight(1f).fillMaxWidth())
             }
         }
-    }
     }
     draft.pending.value?.let { PromptDialog(it) }
 }
 
 /** One grouped section of the form, laid out alone in portrait or beside another in landscape. */
 private class SectionParts(val header: String, val footer: String?, val content: @Composable ColumnScope.() -> Unit)
+
+private class EditorSections(val connection: SectionParts, val system: SectionParts, val authentication: SectionParts,
+    val mode: SectionParts)
+
+/** The form's bar: cancel and save on opposite edges, the title between them. */
+@Composable
+private fun EditorBar(title: String, saveLabel: String, busy: Boolean, landscape: Boolean, onCancel: () -> Unit, onSave: () -> Unit) {
+    val cancel: @Composable (Modifier) -> Unit = { modifier ->
+        TextButton(onClick = onCancel, enabled = !busy, modifier = modifier) { Text(tr("取消")) }
+    }
+    val save: @Composable (Modifier) -> Unit = { modifier ->
+        TextButton(enabled = !busy, modifier = modifier.testTag("save-host"), onClick = onSave) {
+            Text(saveLabel, fontWeight = FontWeight.SemiBold)
+        }
+    }
+    // In landscape, where height is short, the bar is the one of every other landscape page.
+    if (landscape) LandscapeBar(title, leading = { cancel(Modifier) }) { save(Modifier) }
+    // Modal form bar: cancel and save stay on opposite edges, the title is centered.
+    else Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), contentAlignment = Alignment.Center) {
+        cancel(Modifier.align(Alignment.CenterStart))
+        Text(title, style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(horizontal = 96.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        save(Modifier.align(Alignment.CenterEnd))
+    }
+}
+
+/** The four sections under what went wrong, one under the other or, with the width for it, as two rows of two. */
+@Composable
+private fun EditorForm(sections: EditorSections, error: String?, landscape: Boolean, modifier: Modifier) {
+    BoxWithConstraints(modifier) {
+        // Landscape and wide screens: the four sections as two rows of two, so every field is in view at once.
+        val wide = landscape || maxWidth >= 600.dp
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = Spacing.Page, vertical = if (wide) Spacing.Hairline else Spacing.Tight),
+            verticalArrangement = Arrangement.spacedBy(if (wide) Spacing.Page else Spacing.Section)) {
+            error?.let { Text(tr(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = Spacing.Page)) }
+            if (wide) {
+                SectionPair(sections.connection, sections.authentication)
+                SectionPair(sections.system, sections.mode)
+            } else listOf(sections.connection, sections.system, sections.authentication, sections.mode).forEach { section ->
+                GroupedSection(header = section.header, footer = section.footer, content = section.content)
+            }
+        }
+    }
+}
+
+private fun connectionSection(draft: HostEditorDraft) = SectionParts(tr("连接信息"), null) {
+    var name by draft.name
+    var address by draft.address
+    var port by draft.port
+    var username by draft.username
+    val busy by draft.busy
+    FormField(name, { name = it }, tr("名称"), Modifier.testTag("host-name"), tr("例如：开发工作站"), enabled = !busy)
+    GroupedDivider()
+    FormField(address, { address = it }, tr("地址 / IP"), Modifier.testTag("host-address"), tr("例如：dev.example.com"),
+        KeyboardOptions(keyboardType = KeyboardType.Uri), enabled = !busy)
+    GroupedDivider()
+    Row(Modifier.height(IntrinsicSize.Min)) {
+        FormField(username, { username = it }, tr("用户名"), modifier = Modifier.weight(1f).testTag("host-username"), enabled = !busy)
+        VerticalDivider(Modifier.padding(vertical = 10.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+        FormField(port, { port = it.filter(Char::isDigit).take(5) }, tr("端口"), modifier = Modifier.width(96.dp).testTag("host-port"),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
+    }
+}
+
+private fun systemSection(draft: HostEditorDraft) = SectionParts(tr("远端系统"),
+    tr("保存时自动检测系统。未填写凭据或暂时无法连接时，将在下次连接成功后更新。")) {
+    val os by draft.os
+    val detecting by draft.detecting
+    GroupedRow(if (detecting) tr("正在检测系统…") else if (os == "UNKNOWN") tr("自动检测") else tr(HostSystem.fromStored(os).label),
+        leading = { HostSystemIcon(os, 32.dp) },
+        trailing = { if (detecting) TextButton(onClick = draft::skipDetection) { Text(tr("跳过检测")) } })
+}
+
+/** How the host is logged in to. [replacesPassword]: a password is saved already, and typing one replaces it. */
+private fun authenticationSection(draft: HostEditorDraft, replacesPassword: Boolean, pickKey: () -> Unit) = SectionParts(tr("认证方式"),
+    when (draft.auth.value) {
+        "PASSWORD" -> tr("密码用于检测系统；仅勾选后才会在本机保存。留空可在连接时输入。")
+        "KEY" -> tr("支持 OpenSSH、PEM 私钥。文件会加密保存；私钥口令仅用于本次检测或连接，不会保存。")
+        else -> tr("连接时显示服务器的认证问题，支持一次性验证码和多轮交互。")
+    }) {
+    var auth by draft.auth
+    var savePassword by draft.savePassword
+    var password by draft.password
+    var passphrase by draft.passphrase
+    val keyLabel by draft.keyLabel
+    val busy by draft.busy
+    SegmentedControl(listOf("PASSWORD", "KEY", "INTERACTIVE").map { value ->
+        Segment(authLabel(value), auth == value) { if (!busy) auth = value }
+    }, Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
+    if (auth == "PASSWORD") {
+        GroupedDivider()
+        GroupedRow(tr("在本机加密保存密码"), trailing = {
+            Switch(savePassword, { savePassword = it }, modifier = Modifier.testTag("save-password"), enabled = !busy)
+        })
+        GroupedDivider()
+        FormField(password, { password = it }, if (replacesPassword) tr("新密码（留空保留原密码）") else tr("密码"),
+            modifier = Modifier.testTag("host-password"), visualTransformation = PasswordVisualTransformation(), enabled = !busy)
+    } else if (auth == "KEY") {
+        GroupedDivider()
+        // The trailing action stays one short word, so the title keeps its width in any language.
+        GroupedRow(keyLabel ?: tr("尚未导入私钥"), Modifier.testTag("host-key"),
+            subtitle = if (keyLabel == null) tr("支持 Ed25519 / RSA 私钥") else tr("已导入私钥"),
+            leading = { Icon(painterResource(R.drawable.ic_keys), contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp)) },
+            trailing = {
+                TextButton(onClick = pickKey, enabled = !busy) { Text(if (keyLabel == null) tr("导入") else tr("更换"), maxLines = 1) }
+            }, enabled = !busy, onClick = pickKey)
+        GroupedDivider()
+        FormField(passphrase, { passphrase = it }, tr("私钥口令（仅用于检测，可留空）"),
+            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.testTag("host-passphrase"), enabled = !busy)
+    }
+}
+
+private fun modeSection(draft: HostEditorDraft) = SectionParts(tr("会话模式"),
+    if (draft.mode.value == "TMUX") tr("每次连接创建独立的远端 tmux 会话，可同时开多个；重连附着同一会话。服务器需要已安装 tmux（Windows 主机为 psmux）。")
+    else tr("直接打开远端 shell。断线后需重新连接，原 shell 不会被恢复。")) {
+    var mode by draft.mode
+    val busy by draft.busy
+    SegmentedControl(listOf(
+        Segment(tr("tmux · 推荐"), mode == "TMUX") { if (!busy) mode = "TMUX" },
+        Segment(tr("普通 SSH"), mode == "SHELL") { if (!busy) mode = "SHELL" },
+    ), Modifier.padding(horizontal = Spacing.Tight, vertical = Spacing.Hairline))
+}
+
+/** Opens the system's file picker for a private key and puts the chosen one in [draft]. */
+@Composable
+private fun rememberKeyPicker(draft: HostEditorDraft): () -> Unit {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            draft.busy.value = true
+            try {
+                val (key, label) = withContext(Dispatchers.IO) { readPrivateKey(context, uri) }
+                draft.imported.value?.fill(0)
+                draft.imported.value = key
+                draft.keyLabel.value = label
+                draft.error.value = null
+            } catch (e: Exception) { draft.error.value = tr("无法导入，请选择不超过 256 KiB 的 OpenSSH/PEM 私钥。") }
+            finally { draft.busy.value = false }
+        }
+    }
+    return { picker.launch(arrayOf("*/*")) }
+}
+
+/** The private key at [uri], at most 256 KiB, with the file's name to show for it. */
+private fun readPrivateKey(context: Context, uri: Uri): Pair<ByteArray, String> {
+    val bytes = context.contentResolver.openInputStream(uri)?.use { stream ->
+        val buffer = ByteArrayOutputStream()
+        val chunk = ByteArray(4096)
+        while (true) {
+            val count = stream.read(chunk)
+            if (count < 0) break
+            require(buffer.size() + count <= 256 * 1024) { tr("私钥文件超过 256 KiB") }
+            buffer.write(chunk, 0, count)
+        }
+        buffer.toByteArray()
+    } ?: error(tr("无法读取文件"))
+    val header = bytes.take(100).toByteArray().toString(Charsets.US_ASCII)
+    require(header.contains("PRIVATE KEY-----")) { tr("请选择 OpenSSH 或 PEM 格式的私钥文件") }
+    val label = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: tr("已导入私钥")
+    return bytes to label.take(120)
+}
 
 /**
  * Two sections side by side: headers, panels and footers each on one line, and the two panels as tall as the taller

@@ -17,27 +17,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.IOException
-import java.net.HttpURLConnection
 import java.net.InetAddress
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import io.itermux.app.data.credentialsFor
 import io.itermux.app.login.pageLogin
-
-/** The cursor the plugin reports, in native pixels of the selected display; [shape] null until its image came. */
-internal data class RemoteCursor(val x: Int, val y: Int, val visible: Boolean, val shape: CursorImage?)
-internal class CursorImage(val bitmap: Bitmap, val hotX: Int, val hotY: Int)
-
-/** What the network badge and the statistics show. */
-internal data class DesktopStats(val rttMs: Int? = null, val fps: Int = 0, val kbps: Int = 0, val width: Int = 0, val height: Int = 0,
-    val frames: Long = 0, val decoder: String = "", val link: String = "SSH", val encoder: String = "",
-    /** UDP only: share of shards lost before FEC, frames FEC rebuilt, frames lost outright. */
-    val lossPercent: Double? = null, val fecRecovered: Long = 0, val lostFrames: Long = 0,
-    /** Where the last second's frames spent their time, host to screen. */
-    val latency: LatencyMeter.Latency? = null,
-    /** Sound waiting to be heard on the phone, while sound plays. */
-    val audioMs: Int? = null)
 
 /**
  * One host's desktop (plan §4.1): its own SSH login, the plugin's `serve` on an exec channel, frames
@@ -59,6 +43,7 @@ internal class DesktopConnection(
 ) {
     private val settings = DesktopSettings(app)
     private val manifest by lazy { DesktopSettings.manifest(app) }
+    private val setup by lazy { DesktopPluginSetup(manifest, ::line) }
     val phase = MutableStateFlow<DesktopPhase>(DesktopPhase.Idle)
     val pending = MutableStateFlow<PendingPrompt?>(null)
     private val mutableHello = MutableStateFlow<Hello?>(null)
@@ -113,17 +98,8 @@ internal class DesktopConnection(
      * recycled: [cursor] and the page's draw may still hold one.
      */
     private val shapes = ConcurrentHashMap<Long, CursorImage>()
-    @Volatile private var lastPong = 0L
-    @Volatile private var pingSentUs = 0L
-    /** The last ping got its pong; only an unanswered one counts as waiting. */
-    @Volatile private var pingAnswered = true
-    /** Pings in a row that went unanswered for 300 ms; on UDP a single one may simply be lost. */
-    @Volatile private var missedPings = 0
-    /** RTT smoothed like TCP's SRTT (1/4 new sample): one slow answer is not a slow network. */
-    @Volatile private var smoothedRtt = -1.0
-    /** RTT samples since the stream started: the first answers race the first keyframe's encode. */
-    @Volatile private var rttSamples = 0
-    @Volatile private var poorSince = 0L
+    private val ping = DesktopPing(::send)
+    /** When the link was last found good after being poor; 0 while it is poor. */
     @Volatile private var goodSince = 0L
     private var frameWindow = 0
     private var byteWindow = 0L
@@ -229,14 +205,7 @@ internal class DesktopConnection(
     private fun line(text: String) { log.value = (log.value + text).takeLast(200) }
 
     private suspend fun loggedIn(remote: RemoteHost): Outcome {
-        var probe = remote.probeDesktop()
-        probe?.let { saveProbe(it) }
-        if (probe?.uname?.startsWith("Windows") == true) windowsHost = true
-        while (probe?.desktop == "nologin" && !closing) {
-            phase.value = DesktopPhase.NeedsAction(listOf("not-logged-in"))
-            delay(1000)
-            probe = remote.probeDesktop()?.also { saveProbe(it) }
-        }
+        val probe = awaitDesktop(remote)
         if (closing) return Outcome.Closed
         if (probe == null) return Outcome.Failed(tr("无法检测这台主机的桌面"))
         if (probe.desktop == "no") return Outcome.Failed(tr("这台主机没有图形桌面"))
@@ -251,39 +220,15 @@ internal class DesktopConnection(
             if (!everConnected && phase.value !is DesktopPhase.NeedsAction) phase.value = DesktopPhase.Connecting(DesktopPhase.Step.START)
             val s = remote.openStream(serveCommand()) ?: return Outcome.Dropped()
             stream = s
-            var timedOut = false
-            val first = try {
-                withTimeout(HANDSHAKE_MS) {
-                    // Closing the stream unblocks a silent plugin's readLine.
-                    val reader = async(Dispatchers.IO) { try { DesktopProtocol.readLine(s.input) } catch (_: Exception) { null } }
-                    try { reader.await() } catch (e: CancellationException) { s.close(); throw e }
-                }
-            } catch (_: TimeoutCancellationException) {
-                s.close()
-                line(tr("桌面插件握手超时"))
-                timedOut = true
-                null
-            } catch (_: Exception) { null }
-            if (first == null) {
+            val first = readHandshake(s)
+            if (first.line == null) {
                 // Closed by us: no exit status to report, and a later try may well get through.
-                if (timedOut) return Outcome.Dropped(tr("桌面插件握手超时"))
-                val status = withTimeoutOrNull(3000) { while (!s.closed) delay(30); s.exitStatus }
-                // What stderr holds, at most 64 KiB; a plugin still running cannot hold this up past a second.
-                val err = ByteArray(64 * 1024)
-                var errLen = 0
-                withTimeoutOrNull(1000) {
-                    runInterruptible(Dispatchers.IO) {
-                        try { while (errLen < err.size) { val r = s.errors.read(err, errLen, err.size - errLen); if (r < 0) break; errLen += r } }
-                        catch (_: IOException) {}
-                    }
-                }
-                val errors = err.copyOf(errLen).toString(Charsets.UTF_8).trim()
-                s.close()
-                if (errors.isNotEmpty()) line(errors.takeLast(500))
+                if (first.timedOut) return Outcome.Dropped(tr("桌面插件握手超时"))
+                val status = silentExit(s)
                 if (status == 127 || status == WindowsDesktop.NOT_FOUND) { install(remote, target.first, target.second)?.let { return it }; continue }
                 return if (s.closed && status != null) Outcome.Failed(trf("桌面插件启动失败（退出码 %d）", status)) else Outcome.Dropped()
             }
-            when (val start = DesktopProtocol.parseStart(first)) {
+            when (val start = DesktopProtocol.parseStart(first.line)) {
                 is Start.Failed -> {
                     s.close()
                     when (start.code) {
@@ -295,7 +240,7 @@ internal class DesktopConnection(
                             if (target.first.startsWith("macos-") && probe.desktop == "yes" && !agentReloaded) {
                                 agentReloaded = true
                                 line(tr("重新启动桌面代理…"))
-                                val ok = DesktopPluginInstaller(remote, fetch = ::download, onLine = { line(it) }).registerAgent()
+                                val ok = setup.registerAgent(remote)
                                 Log.i(TAG, "${host.name}: agent not running, reloaded: $ok")
                                 if (ok) { tries--; continue }
                             }
@@ -323,6 +268,52 @@ internal class DesktopConnection(
         return if (closing) Outcome.Closed else Outcome.Failed(tr("桌面插件启动失败"))
     }
 
+    /** What the host says of its desktop, asked again every second while nobody is signed in; null when it does not answer. */
+    private suspend fun awaitDesktop(remote: RemoteHost): HostDesktop? {
+        var probe = remote.probeDesktop()
+        probe?.let { saveProbe(it) }
+        if (probe?.uname?.startsWith("Windows") == true) windowsHost = true
+        while (probe?.desktop == "nologin" && !closing) {
+            phase.value = DesktopPhase.NeedsAction(listOf("not-logged-in"))
+            delay(1000)
+            probe = remote.probeDesktop()?.also { saveProbe(it) }
+        }
+        return probe
+    }
+
+    /** The plugin's first line; null when it said nothing, [timedOut] when that was because its time ran out. */
+    private class Handshake(val line: String?, val timedOut: Boolean = false)
+
+    private suspend fun readHandshake(s: RemoteStream): Handshake = try {
+        Handshake(withTimeout(HANDSHAKE_MS) {
+            // Closing the stream unblocks a silent plugin's readLine.
+            val reader = async(Dispatchers.IO) { try { DesktopProtocol.readLine(s.input) } catch (_: Exception) { null } }
+            try { reader.await() } catch (e: CancellationException) { s.close(); throw e }
+        })
+    } catch (_: TimeoutCancellationException) {
+        s.close()
+        line(tr("桌面插件握手超时"))
+        Handshake(null, timedOut = true)
+    } catch (_: Exception) { Handshake(null) }
+
+    /** A plugin that ended without a word: its exit status (null while unknown), with what it wrote to stderr logged. */
+    private suspend fun silentExit(s: RemoteStream): Int? {
+        val status = withTimeoutOrNull(3000) { while (!s.closed) delay(30); s.exitStatus }
+        // What stderr holds, at most 64 KiB; a plugin still running cannot hold this up past a second.
+        val err = ByteArray(64 * 1024)
+        var errLen = 0
+        withTimeoutOrNull(1000) {
+            runInterruptible(Dispatchers.IO) {
+                try { while (errLen < err.size) { val r = s.errors.read(err, errLen, err.size - errLen); if (r < 0) break; errLen += r } }
+                catch (_: IOException) {}
+            }
+        }
+        val errors = err.copyOf(errLen).toString(Charsets.UTF_8).trim()
+        s.close()
+        if (errors.isNotEmpty()) line(errors.takeLast(500))
+        return status
+    }
+
     private suspend fun saveProbe(probe: HostDesktop) {
         runCatching { app.database.hosts().updateDesktop(host.id, host.address, host.port, host.username, probe.desktop, System.currentTimeMillis()) }
     }
@@ -340,65 +331,17 @@ internal class DesktopConnection(
     /** Installs or upgrades the pinned plugin; null once it is in place, else why not. */
     private suspend fun install(remote: RemoteHost, target: String, build: PluginManifest.Target, force: Boolean = false): Outcome? {
         phase.value = DesktopPhase.Connecting(DesktopPhase.Step.INSTALL)
-        line(trf("安装桌面插件 %s（%s）", manifest.version, target))
-        val openh264 = PluginManifest.openh264File(target, manifest.openh264)?.let { "${PluginManifest.OPENH264_BASE}/$it" }
-        val installer = DesktopPluginInstaller(remote, fetch = ::download, onStep = { step ->
-            line(when (step) {
-                DesktopPluginInstaller.Step.HOST_DOWNLOAD -> tr("主机直接下载…")
-                DesktopPluginInstaller.Step.PHONE_DOWNLOAD -> tr("主机下载失败，改为手机下载后上传…")
-                DesktopPluginInstaller.Step.UPLOAD -> tr("上传到主机…")
-                DesktopPluginInstaller.Step.VERIFY -> tr("校验 SHA-256…")
-                DesktopPluginInstaller.Step.ENCODER_HOST -> tr("获取 Cisco OpenH264 编码器…")
-                DesktopPluginInstaller.Step.ENCODER_PHONE -> tr("主机获取编码器失败，改为手机下载后上传…")
-                DesktopPluginInstaller.Step.REGISTER -> tr("注册插件…")
-                DesktopPluginInstaller.Step.DONE -> tr("安装完成")
-            })
-        }, onLine = { if (!it.startsWith("__ROAMTTY_")) line(it) })
-        val result = installer.install(DesktopPluginInstaller.Build(manifest.version, manifest.url(build), build.sha256, openh264))
-        if (force) Log.i(TAG, "reinstalled after a start error: $result")
-        return when (result) {
-            DesktopPluginInstaller.Result.Installed -> null
-            is DesktopPluginInstaller.Result.Failed -> Outcome.Failed(when (result.reason) {
-                DesktopPluginInstaller.Reason.DOWNLOAD -> tr("下载桌面插件失败")
-                DesktopPluginInstaller.Reason.CHECKSUM -> tr("桌面插件校验失败")
-                DesktopPluginInstaller.Reason.ENCODER -> tr("下载 OpenH264 编码器失败")
-                DesktopPluginInstaller.Reason.HOST -> tr("无法在主机上写入插件")
-            })
-        }
+        val failure = setup.install(remote, target, build)
+        if (force) Log.i(TAG, "reinstalled after a start error: ${failure ?: "installed"}")
+        return failure?.let(Outcome::Failed)
     }
 
-    private suspend fun download(url: String): ByteArray = withContext(Dispatchers.IO) {
-        var current = URL(url)
-        repeat(5) {
-            val c = current.openConnection() as HttpURLConnection
-            c.connectTimeout = 15_000
-            c.readTimeout = 30_000
-            c.instanceFollowRedirects = false
-            try {
-                when (c.responseCode) {
-                    in 300..399 -> current = URL(current, c.getHeaderField("Location") ?: error("redirect"))
-                    in 200..299 -> return@withContext c.inputStream.use { it.readBytes() }
-                    else -> error("HTTP ${c.responseCode}")
-                }
-            } finally { c.disconnect() }
-        }
-        error("too many redirects")
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun stream(s: RemoteStream, hello: Hello): Outcome {
-        mutableHello.value = hello
-        if (hello.needs.isNotEmpty()) {
-            phase.value = DesktopPhase.NeedsAction(hello.needs)
-            s.close()
-            stream = null
-            return if (closing) Outcome.Closed else Outcome.Needs
-        }
+    /** Starts a stream's bookkeeping afresh, opens UDP if the host offers it, and tells the host how to send. */
+    private suspend fun beginStream(hello: Hello, channel: Channel<ByteArray>) {
         sessionId = hello.session
         resumeToken = hello.resumeToken
         if (display.value !in hello.displays.indices) display.value = hello.displays.indexOfFirst { it.primary }.coerceAtLeast(0)
         stats.value = stats.value.copy(encoder = hello.hardware)
-        val channel = Channel<ByteArray>(Channel.UNLIMITED)
         sshQueued.set(0)
         outgoing = channel
         received.clear()
@@ -413,15 +356,23 @@ internal class DesktopConnection(
         sendSsh(DesktopProtocol.config(config))
         if (viewOnly.value) sendSsh(DesktopProtocol.req(DesktopProtocol.REQ_VIEW_ONLY_ON))
         if ((phase.value as? DesktopPhase.Connected)?.paused == true) sendSsh(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE))
-        if (hello.needs.isNotEmpty()) phase.value = DesktopPhase.NeedsAction(hello.needs)
-        else if (!everConnected) phase.value = DesktopPhase.Connecting(DesktopPhase.Step.FIRST_FRAME)
-        lastPong = System.currentTimeMillis()
-        pingSentUs = 0L
-        pingAnswered = true
-        missedPings = 0
-        smoothedRtt = -1.0
-        rttSamples = 0
+        if (!everConnected) phase.value = DesktopPhase.Connecting(DesktopPhase.Step.FIRST_FRAME)
+        ping.reset()
         latency.reset()
+    }
+
+    /** Runs a started stream until it ends: writes what is queued, reads what the host sends, ticks four times a second. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun stream(s: RemoteStream, hello: Hello): Outcome {
+        mutableHello.value = hello
+        if (hello.needs.isNotEmpty()) {
+            phase.value = DesktopPhase.NeedsAction(hello.needs)
+            s.close()
+            stream = null
+            return if (closing) Outcome.Closed else Outcome.Needs
+        }
+        val channel = Channel<ByteArray>(Channel.UNLIMITED)
+        beginStream(hello, channel)
         coroutineScope {
             val writer = launch(Dispatchers.IO) {
                 val out = BufferedOutputStream(s.output, 64 * 1024)
@@ -440,22 +391,7 @@ internal class DesktopConnection(
                 }
             }
             try {
-                withContext(Dispatchers.IO) {
-                    val input = BufferedInputStream(s.input, 256 * 1024)
-                    while (!closing) {
-                        val frame = try { DesktopProtocol.read(input) } catch (_: Exception) { null } ?: break
-                        val message = try { DesktopProtocol.decode(frame) } catch (e: Exception) { Log.w(TAG, "bad frame", e); null } ?: continue
-                        handle(message)
-                        if (kicked) break
-                    }
-                    // The SSH channel is gone but UDP still carries the desktop: keep going on it alone,
-                    // as the host does, until UDP falls silent too.
-                    if (!closing && !kicked && link?.alive == true) {
-                        Log.i(TAG, "${host.name}: SSH channel closed, staying on UDP")
-                        outgoing = null
-                        while (!closing && !kicked && link?.alive == true) delay(200)
-                    }
-                }
+                withContext(Dispatchers.IO) { readFrames(s) }
             } finally {
                 outgoing = null
                 channel.close()
@@ -477,6 +413,24 @@ internal class DesktopConnection(
             kicked -> Outcome.Kicked
             closing -> Outcome.Closed
             else -> Outcome.Streamed
+        }
+    }
+
+    /** Reads the host's frames from the SSH channel until it closes; then stays for as long as UDP alone carries the desktop. */
+    private suspend fun readFrames(s: RemoteStream) {
+        val input = BufferedInputStream(s.input, 256 * 1024)
+        while (!closing) {
+            val frame = try { DesktopProtocol.read(input) } catch (_: Exception) { null } ?: break
+            val message = try { DesktopProtocol.decode(frame) } catch (e: Exception) { Log.w(TAG, "bad frame", e); null } ?: continue
+            handle(message)
+            if (kicked) break
+        }
+        // The SSH channel is gone but UDP still carries the desktop: keep going on it alone,
+        // as the host does, until UDP falls silent too.
+        if (!closing && !kicked && link?.alive == true) {
+            Log.i(TAG, "${host.name}: SSH channel closed, staying on UDP")
+            outgoing = null
+            while (!closing && !kicked && link?.alive == true) delay(200)
         }
     }
 
@@ -514,111 +468,109 @@ internal class DesktopConnection(
     private fun tick() {
         val now = System.currentTimeMillis()
         if (keyAskPending) askKeyframe()
-        if (pingSentUs == 0L) {
-            pingAnswered = false
-            pingSentUs = System.nanoTime() / 1000
-            send(DesktopProtocol.ping(pingSentUs))
-        }
-        // A ping unanswered past 300 ms is sent again (UDP may have dropped it); two in a row, or a slow
-        // answer, is a poor link. Five clean seconds restore it.
-        val waiting = if (!pingAnswered && pingSentUs != 0L) (System.nanoTime() / 1000 - pingSentUs) / 1000 else 0
-        if (waiting > POOR_MS) {
-            missedPings++
-            pingSentUs = System.nanoTime() / 1000
-            send(DesktopProtocol.ping(pingSentUs))
-        }
-        val rtt = smoothedRtt.takeIf { it >= 0 && rttSamples >= 3 }?.toInt() ?: 0
+        ping.tick()
+        updateLinkQuality(now)
+        if (now - statsAt >= 1000) publishStats(now)
+    }
+
+    /** Two missed pings in a row, or a slow answer, is a poor link. Five clean seconds restore it. */
+    private fun updateLinkQuality(now: Long) {
+        val rtt = ping.rttMs
         // On UDP the link itself says it: heartbeats answer every 250 ms, so 700 ms without a datagram is
         // a stall; heavy loss counts too. Lost pings there are just loss.
         val l = link
         val bad = if (l != null && l.alive) l.silentUs > 700_000 || l.loss > 0.25 || rtt > POOR_MS
-            else missedPings >= 2 || rtt > POOR_MS
-        if (bad) { poorSince = now; goodSince = 0 } else if (goodSince == 0L) goodSince = now
+            else ping.missed >= 2 || rtt > POOR_MS
+        if (bad) goodSince = 0 else if (goodSince == 0L) goodSince = now
         (phase.value as? DesktopPhase.Connected)?.let { c ->
             val poor = bad || (c.poor && now - goodSince < 5000)
             if (poor != c.poor) {
-                Log.i(TAG, "${host.name}: poor=$poor (udp=${l?.alive} silent=${l?.silentUs?.div(1000)}ms loss=${l?.loss} rtt=$rtt missed=$missedPings)")
+                Log.i(TAG, "${host.name}: poor=$poor (udp=${l?.alive} silent=${l?.silentUs?.div(1000)}ms loss=${l?.loss} rtt=$rtt missed=${ping.missed})")
                 phase.value = c.copy(poor = poor)
             }
         }
-        if (now - statsAt >= 1000) {
-            val seconds = (now - statsAt) / 1000.0
-            val udp = l?.takeIf { it.alive }
-            stats.value = stats.value.copy(fps = (frameWindow / seconds).toInt(), kbps = (byteWindow * 8 / 1000 / seconds).toInt(),
-                decoder = decoder.decoderName, frames = decoder.decodedFrames, link = if (udp != null) "UDP" else "SSH",
-                lossPercent = udp?.let { it.loss * 100 }, fecRecovered = l?.fecRecovered ?: 0, lostFrames = l?.lostMessages ?: 0,
-                // A still screen sends no frames: the last measured second stands.
-                latency = latency.take() ?: stats.value.latency,
-                audioMs = player.packets.takeIf { it != audioPacketsSeen }?.let { audioPacketsSeen = it; player.queuedMs })
-            frameWindow = 0
-            byteWindow = 0
-            statsAt = now
-        }
+    }
+
+    /** What the last second carried, for the network badge and the statistics. */
+    private fun publishStats(now: Long) {
+        val seconds = (now - statsAt) / 1000.0
+        val l = link
+        val udp = l?.takeIf { it.alive }
+        stats.value = stats.value.copy(fps = (frameWindow / seconds).toInt(), kbps = (byteWindow * 8 / 1000 / seconds).toInt(),
+            decoder = decoder.decoderName, frames = decoder.decodedFrames, link = if (udp != null) "UDP" else "SSH",
+            lossPercent = udp?.let { it.loss * 100 }, fecRecovered = l?.fecRecovered ?: 0, lostFrames = l?.lostMessages ?: 0,
+            // A still screen sends no frames: the last measured second stands.
+            latency = latency.take() ?: stats.value.latency,
+            audioMs = player.packets.takeIf { it != audioPacketsSeen }?.let { audioPacketsSeen = it; player.queuedMs })
+        frameWindow = 0
+        byteWindow = 0
+        statsAt = now
     }
 
     /** Frames from either transport; UDP's arrive on its receive thread. */
     private fun handle(m: ServerMessage) {
         when (m) {
-            is ServerMessage.Video -> {
-                // Both transports may deliver around a switch: older frames than the newest are stale.
-                synchronized(this) {
-                    if (m.frame <= lastVideoFrame) return
-                    // A frame lost on UDP breaks every frame after it that refers back to it: decoding
-                    // them smeared the picture into stripes. Hold the last good picture until a keyframe.
-                    if (!m.keyframe && lastVideoFrame >= 0 && m.frame != lastVideoFrame + 1) brokenUntilKey = true
-                    lastVideoFrame = m.frame
-                    if (m.keyframe) brokenUntilKey = false
-                    if (brokenUntilKey) { askKeyframe(); return }
-                }
-                val now = System.nanoTime() / 1000
-                received[m.frame] = now
-                // Frames can arrive with no Surface or a stalled decoder. Bound bookkeeping on receipt,
-                // independent of output callbacks; trim in batches instead of scanning every decoded frame.
-                if (received.size > 240) received.keys.removeAll { it < m.frame - 120 }
-                latency.onReceived(m.frame, m.captureUs, m.encodedUs, now)
-                frameWindow++
-                byteWindow += m.data.size
-                if (videoSize.value != (m.width to m.height)) videoSize.value = m.width to m.height
-                stats.value = stats.value.copy(width = m.width, height = m.height)
-                decoder.submit(m)
-            }
-            is ServerMessage.CursorShape -> {
-                val pixels = IntArray(m.width * m.height) { i ->
-                    val o = i * 4
-                    (m.rgba[o + 3].toInt() and 0xFF shl 24) or (m.rgba[o].toInt() and 0xFF shl 16) or
-                        (m.rgba[o + 1].toInt() and 0xFF shl 8) or (m.rgba[o + 2].toInt() and 0xFF)
-                }
-                if (m.width > 0 && m.height > 0) shapes[m.hash] = CursorImage(Bitmap.createBitmap(pixels, m.width, m.height, Bitmap.Config.ARGB_8888), m.hotX, m.hotY)
-                cursor.value?.let { c -> cursor.value = c.copy(shape = c.shape ?: shapes[m.hash]) }
-            }
+            is ServerMessage.Video -> handleVideo(m)
+            is ServerMessage.CursorShape -> handleCursorShape(m)
             is ServerMessage.Audio -> if (audio.value && (phase.value as? DesktopPhase.Connected)?.paused != true) player.submit(m)
             is ServerMessage.CursorPos -> cursor.value = RemoteCursor(m.x, m.y, m.visible, shapes[m.shape])
-            is ServerMessage.State -> {
-                if (m.kicked) { kicked = true; stream?.close() }
-                m.clip?.let { remoteClipboard.tryEmit(it) }
-                m.needs?.let { if (it.isNotEmpty()) phase.value = DesktopPhase.NeedsAction(it) }
-                m.locked?.let { notice.value = if (it) tr("请在本机解锁") else null }
-                m.error?.let { line(it) }
-                m.audio?.let { Log.i(TAG, "${host.name}: host audio $it: ${m.json.optString("detail")}"); audioAvailable.value = false; player.stop() }
-                m.json.optJSONObject("timing")?.let(latency::onHostTiming)
-            }
+            is ServerMessage.State -> handleState(m)
             is ServerMessage.Ping -> send(DesktopProtocol.pong(m.t1, System.nanoTime() / 1000, System.nanoTime() / 1000))
-            is ServerMessage.Pong -> {
-                latency.onPong(m.t1, m.t2, m.t3, System.nanoTime() / 1000)
-                if (m.t1 == pingSentUs && !pingAnswered) {
-                    pingAnswered = true
-                    missedPings = 0
-                    val rtt = ((System.nanoTime() / 1000 - m.t1) / 1000).toInt()
-                    smoothedRtt = if (smoothedRtt < 0) rtt.toDouble() else smoothedRtt * 0.75 + rtt * 0.25
-                    rttSamples++
-                    stats.value = stats.value.copy(rttMs = rtt)
-                    lastPong = System.currentTimeMillis()
-                    // The next ping goes a second after this one left.
-                    val wait = (1000 - rtt).coerceAtLeast(0).toLong()
-                    scope.launch { delay(wait); pingSentUs = 0L }
-                }
-            }
+            is ServerMessage.Pong -> handlePong(m)
         }
+    }
+
+    private fun handleVideo(m: ServerMessage.Video) {
+        // Both transports may deliver around a switch: older frames than the newest are stale.
+        synchronized(this) {
+            if (m.frame <= lastVideoFrame) return
+            // A frame lost on UDP breaks every frame after it that refers back to it: decoding
+            // them smeared the picture into stripes. Hold the last good picture until a keyframe.
+            if (!m.keyframe && lastVideoFrame >= 0 && m.frame != lastVideoFrame + 1) brokenUntilKey = true
+            lastVideoFrame = m.frame
+            if (m.keyframe) brokenUntilKey = false
+            if (brokenUntilKey) { askKeyframe(); return }
+        }
+        val now = System.nanoTime() / 1000
+        received[m.frame] = now
+        // Frames can arrive with no Surface or a stalled decoder. Bound bookkeeping on receipt,
+        // independent of output callbacks; trim in batches instead of scanning every decoded frame.
+        if (received.size > 240) received.keys.removeAll { it < m.frame - 120 }
+        latency.onReceived(m.frame, m.captureUs, m.encodedUs, now)
+        frameWindow++
+        byteWindow += m.data.size
+        if (videoSize.value != (m.width to m.height)) videoSize.value = m.width to m.height
+        stats.value = stats.value.copy(width = m.width, height = m.height)
+        decoder.submit(m)
+    }
+
+    private fun handleCursorShape(m: ServerMessage.CursorShape) {
+        val pixels = IntArray(m.width * m.height) { i ->
+            val o = i * 4
+            (m.rgba[o + 3].toInt() and 0xFF shl 24) or (m.rgba[o].toInt() and 0xFF shl 16) or
+                (m.rgba[o + 1].toInt() and 0xFF shl 8) or (m.rgba[o + 2].toInt() and 0xFF)
+        }
+        if (m.width > 0 && m.height > 0) shapes[m.hash] = CursorImage(Bitmap.createBitmap(pixels, m.width, m.height, Bitmap.Config.ARGB_8888), m.hotX, m.hotY)
+        cursor.value?.let { c -> cursor.value = c.copy(shape = c.shape ?: shapes[m.hash]) }
+    }
+
+    private fun handleState(m: ServerMessage.State) {
+        if (m.kicked) { kicked = true; stream?.close() }
+        m.clip?.let { remoteClipboard.tryEmit(it) }
+        m.needs?.let { if (it.isNotEmpty()) phase.value = DesktopPhase.NeedsAction(it) }
+        m.locked?.let { notice.value = if (it) tr("请在本机解锁") else null }
+        m.error?.let { line(it) }
+        m.audio?.let { Log.i(TAG, "${host.name}: host audio $it: ${m.json.optString("detail")}"); audioAvailable.value = false; player.stop() }
+        m.json.optJSONObject("timing")?.let(latency::onHostTiming)
+    }
+
+    private fun handlePong(m: ServerMessage.Pong) {
+        latency.onPong(m.t1, m.t2, m.t3, System.nanoTime() / 1000)
+        val rtt = ping.answer(m.t1) ?: return
+        stats.value = stats.value.copy(rttMs = rtt)
+        // The next ping goes a second after this one left.
+        val wait = (1000 - rtt).coerceAtLeast(0).toLong()
+        scope.launch { delay(wait); ping.next() }
     }
 
     private fun decoded(frame: Long, decodedUs: Long) {
@@ -676,47 +628,21 @@ internal class DesktopConnection(
     }
     fun setLockOnClose(on: Boolean) { lockOnClose.value = on; settings.setLockOnClose(host.id, on); send(DesktopProtocol.config(mapOf("lock_on_close" to on))) }
 
-    /** Who shows the picture now (the desktop page, the small window over the terminal), each with whether it is small. */
-    private val shownBy = mutableMapOf<String, Boolean>()
-    private var hideJob: Job? = null
+    /** Who shows the picture now; nothing showing it pauses the host, only small windows showing it thin the stream. */
+    private val viewers = DesktopViewers(scope, onShown = ::resume, onHidden = { if (active) pause() }, onSmallOnlyChanged = { small ->
+        send(DesktopProtocol.config(mapOf("fps" to streamFps(), "max_bitrate" to if (small) MINI_MAX_BITRATE else UNCAPPED_BITRATE)))
+    })
     /** Only small windows show the picture: the host sends fewer, smaller frames ([MINI_FPS], [MINI_MAX_BITRATE]). */
-    private var miniOnly = false
+    private val miniOnly: Boolean get() = viewers.smallOnly
 
     /** The frame rate asked of the host: the user's, capped while only a small window shows the picture. */
     private fun streamFps() = if (miniOnly) minOf(fps.value, MINI_FPS) else fps.value
 
-    /**
-     * [owner] shows the picture, [small] or full. The desktop page and the small window hand the picture to each
-     * other in one frame, so the link pauses only when nothing has shown it for [HIDE_GRACE_MS] ([hidden]): a switch
-     * between them never pauses the host or asks it for a new keyframe.
-     */
-    fun shown(owner: String, small: Boolean) {
-        hideJob?.cancel()
-        hideJob = null
-        val wasShown = shownBy.isNotEmpty()
-        shownBy[owner] = small
-        if (!wasShown) resume()
-        updateMini()
-    }
+    /** [owner] shows the picture, [small] or full; see [DesktopViewers]. */
+    fun shown(owner: String, small: Boolean) = viewers.shown(owner, small)
 
-    /** [owner] no longer shows the picture; see [shown]. */
-    fun hidden(owner: String) {
-        if (shownBy.remove(owner) == null) return
-        if (shownBy.isNotEmpty()) { updateMini(); return }
-        hideJob?.cancel()
-        hideJob = scope.launch {
-            delay(HIDE_GRACE_MS)
-            hideJob = null
-            if (shownBy.isEmpty() && active) pause()
-        }
-    }
-
-    private fun updateMini() {
-        val small = shownBy.isNotEmpty() && shownBy.values.all { it }
-        if (small == miniOnly) return
-        miniOnly = small
-        send(DesktopProtocol.config(mapOf("fps" to streamFps(), "max_bitrate" to if (small) MINI_MAX_BITRATE else UNCAPPED_BITRATE)))
-    }
+    /** [owner] no longer shows the picture. */
+    fun hidden(owner: String) = viewers.hidden(owner)
 
     /** The page went away: no pictures, the link kept for the keep-alive time. */
     fun pause() {

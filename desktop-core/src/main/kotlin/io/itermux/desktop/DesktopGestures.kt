@@ -7,91 +7,6 @@ import kotlin.math.min
 import kotlin.math.pow
 
 /**
- * The remote screen inside the view: fitted with letterboxing, then zoomed and panned locally.
- * Zoom never reaches the host; coordinates always come out in the display's native pixels.
- */
-data class Viewport(val viewWidth: Float, val viewHeight: Float, val remoteWidth: Int, val remoteHeight: Int,
-    val zoom: Float = 1f, val panX: Float = 0f, val panY: Float = 0f) {
-    /** View pixels per native pixel at zoom 1. */
-    val baseScale: Float get() = if (remoteWidth <= 0 || remoteHeight <= 0) 1f else min(viewWidth / remoteWidth, viewHeight / remoteHeight)
-    val scale: Float get() = baseScale * zoom
-    val contentWidth: Float get() = remoteWidth * scale
-    val contentHeight: Float get() = remoteHeight * scale
-    /** Top-left of the content in the view. */
-    val left: Float get() = (viewWidth - contentWidth) / 2 + panX
-    val top: Float get() = (viewHeight - contentHeight) / 2 + panY
-
-    fun toRemote(x: Float, y: Float): Pair<Int, Int> =
-        ((x - left) / scale).toInt().coerceIn(0, max(0, remoteWidth - 1)) to ((y - top) / scale).toInt().coerceIn(0, max(0, remoteHeight - 1))
-
-    fun contains(x: Float, y: Float) = x >= left && y >= top && x < left + contentWidth && y < top + contentHeight
-
-    fun toView(rx: Float, ry: Float): Pair<Float, Float> = left + rx * scale to top + ry * scale
-
-    /** Keeps the zoomed content covering the view where it can, and centred where it cannot. */
-    fun clamped(): Viewport {
-        fun limit(content: Float, view: Float, pan: Float): Float {
-            if (content <= view) return 0f
-            val slack = (content - view) / 2
-            return pan.coerceIn(-slack, slack)
-        }
-        return copy(panX = limit(contentWidth, viewWidth, panX), panY = limit(contentHeight, viewHeight, panY))
-    }
-
-    fun panned(dx: Float, dy: Float) = copy(panX = panX + dx, panY = panY + dy).clamped()
-
-    /** Zooms by [factor] keeping the point under ([fx], [fy]) where it is. */
-    fun zoomed(factor: Float, fx: Float, fy: Float): Viewport {
-        val next = (zoom * factor).coerceIn(1f, MAX_ZOOM)
-        val ratio = next / zoom
-        // The focus stays put: its offset from the view centre plus pan scales with the zoom.
-        val cx = viewWidth / 2
-        val cy = viewHeight / 2
-        val panX = fx - cx - (fx - cx - panX) * ratio
-        val panY = fy - cy - (fy - cy - panY) * ratio
-        return copy(zoom = next, panX = panX, panY = panY).clamped()
-    }
-
-    companion object { const val MAX_ZOOM = 5f }
-}
-
-enum class PointerMode { TOUCH, MOUSE }
-
-enum class SwipeDirection { UP, DOWN, LEFT, RIGHT }
-
-/** What the phone should feel or show, never sent to the host. */
-enum class GestureFeedback {
-    /** A hold was recognised: lift for a right click, or move to drag. */
-    HOLD,
-    /** A held finger started a drag: the button went down. */
-    PICKUP,
-    /** A click that needed a hold or a second finger (right, middle). */
-    CLICK,
-    /** A three-finger swipe, an edge swipe or a smart zoom. */
-    SHORTCUT,
-}
-
-/** What a gesture asks for: remote input, a local change to the viewport, or feedback. */
-sealed interface GestureAction {
-    data class MoveTo(val x: Int, val y: Int) : GestureAction
-    /** 1 left, 2 right, 3 middle. */
-    data class Button(val button: Int, val down: Boolean) : GestureAction
-    /** 1/120 of a notch; positive [dy] scrolls up. */
-    data class Wheel(val dx: Int, val dy: Int) : GestureAction
-    data class View(val viewport: Viewport) : GestureAction
-    /** Three fingers swiped: the page turns it into the host's shortcut ([DesktopSwipeShortcut]). */
-    data class Swipe(val direction: SwipeDirection) : GestureAction
-    data class Feedback(val kind: GestureFeedback) : GestureAction
-}
-
-/** A hold in progress, for the ring the page draws under the fingers (view pixels). */
-data class HoldIndicator(val x: Float, val y: Float, val fingers: Int,
-    /** False while waiting for the hold, true once it fired. */
-    val armed: Boolean,
-    /** When the hold fires, while waiting for it. */
-    val firesAt: Long)
-
-/**
  * Touches to desktop input, after Apple's trackpad (docs/desktop-gestures.md). The number of fingers
  * is the mouse button: one is left, two right, three middle. Taps act at once; holding a finger
  * (two for the right button) until the ring fills picks it up: lift to click with that button, or
@@ -649,27 +564,5 @@ class DesktopGestures(var mode: PointerMode = PointerMode.TOUCH, private val den
 
         /** Pointer acceleration, after macOS: slow for precision, up to 4× for a flick across the screen. [dpPerSecond] of finger speed. */
         fun pointerGain(dpPerSecond: Float): Float = (0.8f * (dpPerSecond / 150f).toDouble().pow(0.6).toFloat()).coerceIn(0.5f, 4f)
-    }
-}
-
-/**
- * Three-finger swipes as the host's own shortcuts: up shows every window, down the desktop (the
- * plugin's actions, which know each system), left and right switch to the desktop on that side.
- */
-object DesktopSwipeShortcut {
-    fun frames(direction: SwipeDirection, os: String): List<ByteArray> {
-        fun combo(keys: List<Int>) = keys.map { DesktopProtocol.key(it, true) } + keys.reversed().map { DesktopProtocol.key(it, false) }
-        val modifiers = when (os.lowercase()) {
-            "macos" -> listOf(HidUsage.LEFT_CTRL)
-            "windows" -> listOf(HidUsage.LEFT_CTRL, HidUsage.LEFT_GUI)
-            else -> listOf(HidUsage.LEFT_CTRL, HidUsage.LEFT_ALT)
-        }
-        return when (direction) {
-            SwipeDirection.UP -> listOf(DesktopProtocol.action(DesktopProtocol.ACTION_ALL_WINDOWS))
-            SwipeDirection.DOWN -> listOf(DesktopProtocol.action(DesktopProtocol.ACTION_SHOW_DESKTOP))
-            // Fingers going left bring in the desktop on the right, as on a trackpad.
-            SwipeDirection.LEFT -> combo(modifiers + HidUsage.RIGHT)
-            SwipeDirection.RIGHT -> combo(modifiers + HidUsage.LEFT)
-        }
     }
 }

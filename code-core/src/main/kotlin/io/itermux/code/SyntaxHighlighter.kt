@@ -1,6 +1,5 @@
 package io.itermux.code
 
-import java.util.regex.Matcher
 
 /** One display row. [number] is 0 for continuation rows of a wrapped long line. */
 class CodeLine(val number: Int, val text: String, val spans: IntArray) {
@@ -31,7 +30,7 @@ object SyntaxHighlighter {
     /** Rows longer than this are split so a minified file cannot produce one enormous text layout. */
     const val MAX_ROW_LENGTH = 2000
     /** The longest pattern token (URL, timestamp, …) matched; longer runs are cut there. */
-    private const val MAX_TOKEN_LENGTH = 2000
+    internal const val MAX_TOKEN_LENGTH = 2000
     private const val TAB_WIDTH = 4
 
     fun highlight(rawText: String, language: CodeLanguage): CodeDocument {
@@ -98,13 +97,13 @@ object SyntaxHighlighter {
         return CodeDocument(language, rows, number, maxColumns)
     }
 
-    private fun isIdentStart(c: Char, language: CodeLanguage) = c.isLetter() || c == '_' || (c != '-' && c in language.identifierExtra)
-    private fun isIdentPart(c: Char, language: CodeLanguage) = c.isLetterOrDigit() || c in language.identifierExtra
+    internal fun isIdentStart(c: Char, language: CodeLanguage) = c.isLetter() || c == '_' || (c != '-' && c in language.identifierExtra)
+    internal fun isIdentPart(c: Char, language: CodeLanguage) = c.isLetterOrDigit() || c in language.identifierExtra
 
-    private fun lineEnd(text: String, from: Int, to: Int): Int = text.indexOf('\n', from).let { if (it < 0 || it > to) to else it }
+    internal fun lineEnd(text: String, from: Int, to: Int): Int = text.indexOf('\n', from).let { if (it < 0 || it > to) to else it }
 
     /** Returns the end of a string literal, or -1 when the opening quote does not start one. */
-    private fun scanString(text: String, from: Int, to: Int, rule: StringRule): Int {
+    internal fun scanString(text: String, from: Int, to: Int, rule: StringRule): Int {
         var j = from + rule.open.length
         while (j < to) {
             val c = text[j]
@@ -117,7 +116,7 @@ object SyntaxHighlighter {
         return if (rule.maxLength == Int.MAX_VALUE) to else -1
     }
 
-    private fun scanNumber(text: String, from: Int, to: Int): Int {
+    internal fun scanNumber(text: String, from: Int, to: Int): Int {
         var j = from
         if (text[j] == '0' && j + 1 < to && text[j + 1] in "xXbBoO") {
             j += 2
@@ -138,168 +137,10 @@ object SyntaxHighlighter {
         return j
     }
 
-    internal fun tokenizeCode(language: CodeLanguage, text: String, from: Int, to: Int, out: SpanBuffer) {
-        // Android's ICU-backed Matcher copies its whole input on every reset or region change, so pointing one at
-        // [text] made each attempt cost the length of the file. Rules and patterns never span lines: match each
-        // against a copy of the rest of its line.
-        val lineMatchers: List<Matcher> = language.lineRules.map { it.pattern.matcher("") }
-        val patternMatchers: List<Matcher> = language.patterns.map { it.pattern.matcher("") }
-        val orderedStrings = language.strings.sortedByDescending { it.open.length }
-        var i = from
-        var lineBegin = from
-        var lineHasContent = false
-        var braceDepth = 0
-        var previousDeclarator: TokenType? = null
-        var lastSignificant = ' '
-        loop@ while (i < to) {
-            if (i == lineBegin && lineMatchers.isNotEmpty()) {
-                val line = text.substring(i, lineEnd(text, i, to))
-                val begin = i
-                for ((index, matcher) in lineMatchers.withIndex()) {
-                    matcher.reset(line)
-                    if (matcher.lookingAt()) {
-                        for ((group, type) in language.lineRules[index].groups) {
-                            if (matcher.start(group) >= 0) out.add(begin + matcher.start(group), begin + matcher.end(group), type)
-                        }
-                        if (matcher.end() > 0) { i = begin + matcher.end(); lineHasContent = true; lastSignificant = text[i - 1] }
-                        break
-                    }
-                }
-                if (i >= to) break
-            }
-            val c = text[i]
-            if (c == '\n') { i++; lineBegin = i; lineHasContent = false; continue }
-            if (c == ' ' || c == '\t' || c == '\u000c') { i++; continue }
+    internal fun tokenizeCode(language: CodeLanguage, text: String, from: Int, to: Int, out: SpanBuffer) =
+        CodeTokenizer(language, text, from, to, out).run()
 
-            for ((open, close) in language.blockComments) {
-                if (text.startsWith(open, i) && (open != "=begin" || !lineHasContent)) {
-                    val closeAt = text.indexOf(close, i + open.length)
-                    val end = if (closeAt < 0 || closeAt >= to) to else closeAt + close.length
-                    out.add(i, end, TokenType.COMMENT)
-                    lineBegin = text.lastIndexOf('\n', end - 1).let { if (it < i) lineBegin else it + 1 }
-                    i = end; lineHasContent = true; continue@loop
-                }
-            }
-            for (prefix in language.lineComments) {
-                if (text.startsWith(prefix, i) && (!language.commentNeedsBoundary || i == lineBegin || text[i - 1].isWhitespace())) {
-                    val end = lineEnd(text, i, to)
-                    out.add(i, end, TokenType.COMMENT)
-                    i = end; continue@loop
-                }
-            }
-            if (language.preprocessor && c == '#' && !lineHasContent) {
-                var j = i + 1
-                while (j < to && text[j] == ' ') j++
-                while (j < to && text[j].isLetter()) j++
-                out.add(i, j, TokenType.META)
-                i = j; lineHasContent = true; continue
-            }
-            lineHasContent = true
-            for (rule in orderedStrings) {
-                if (text.startsWith(rule.open, i)) {
-                    val end = scanString(text, i, to, rule)
-                    if (end > i) {
-                        out.add(i, end, if (language.keyStrings && nextNonSpace(text, end, to) == ':') TokenType.PROPERTY else TokenType.STRING)
-                        lineBegin = text.lastIndexOf('\n', end - 1).let { if (it < i) lineBegin else it + 1 }
-                        i = end; previousDeclarator = null; lastSignificant = '"'; continue@loop
-                    }
-                }
-            }
-            for ((index, matcher) in patternMatchers.withIndex()) {
-                val pattern = language.patterns[index]
-                if (pattern.trigger(c) && (i == from || !isIdentPart(text[i - 1], language))) {
-                    // A token is short: cap the copy so a minified one-line file stays linear.
-                    matcher.reset(text.substring(i, minOf(lineEnd(text, i, to), i + MAX_TOKEN_LENGTH)))
-                    if (matcher.lookingAt() && matcher.end() > 0) {
-                        out.add(i, i + matcher.end(), pattern.type)
-                        i += matcher.end(); lastSignificant = text[i - 1]; continue@loop
-                    }
-                }
-            }
-            if (c == language.annotationPrefix && i + 1 < to && isIdentStart(text[i + 1], language)) {
-                var j = i + 1
-                while (j < to && (isIdentPart(text[j], language) || text[j] == '.')) j++
-                out.add(i, j, TokenType.META)
-                i = j; continue
-            }
-            if (c in language.variablePrefixes && i + 1 < to) {
-                val next = text[i + 1]
-                val end = when {
-                    next == '{' -> text.indexOf('}', i + 2).let { if (it < 0 || it >= lineEnd(text, i, to)) -1 else it + 1 }
-                    next == '(' && language.parenVariables -> text.indexOf(')', i + 2).let { if (it < 0 || it >= lineEnd(text, i, to)) -1 else it + 1 }
-                    isIdentStart(next, language) || next.isDigit() -> {
-                        var j = i + 1
-                        while (j < to && (text[j].isLetterOrDigit() || text[j] == '_')) j++
-                        j
-                    }
-                    next in "@#?$!*-" && c == '$' -> i + 2
-                    else -> -1
-                }
-                if (end > i) { out.add(i, end, TokenType.VARIABLE); i = end; continue }
-            }
-            if (language.numbers && c.isDigit() && (i == from || !isIdentPart(text[i - 1], language))) {
-                val end = scanNumber(text, i, to)
-                out.add(i, end, TokenType.NUMBER)
-                i = end; previousDeclarator = null; lastSignificant = '0'; continue
-            }
-            if (isIdentStart(c, language)) {
-                var j = i + 1
-                while (j < to && isIdentPart(text[j], language)) j++
-                // Python-style string prefixes such as f"..." or rb'...'.
-                if (language.stringPrefixes.isNotEmpty() && j - i <= 2 && j < to &&
-                    (i until j).all { text[it] in language.stringPrefixes }) {
-                    val rule = orderedStrings.firstOrNull { text.startsWith(it.open, j) }
-                    val end = rule?.let { scanString(text, j, to, it) } ?: -1
-                    if (end > j) {
-                        out.add(i, end, TokenType.STRING)
-                        lineBegin = text.lastIndexOf('\n', end - 1).let { if (it < i) lineBegin else it + 1 }
-                        i = end; continue
-                    }
-                }
-                val word = text.substring(i, j)
-                val next = nextNonSpace(text, j, to)
-                val type = language.classify(word) ?: when {
-                    previousDeclarator != null -> previousDeclarator
-                    language.macroBang && j < to && text[j] == '!' -> TokenType.FUNCTION
-                    language.css && braceDepth == 0 -> TokenType.TAG
-                    language.css && next == ':' -> TokenType.PROPERTY
-                    language.css -> null
-                    next == '(' -> TokenType.FUNCTION
-                    lastSignificant == '.' -> TokenType.PROPERTY
-                    language.capitalizedTypes && word[0].isUpperCase() ->
-                        if (word.length > 1 && word.all { it.isUpperCase() || it.isDigit() || it == '_' }) TokenType.CONSTANT else TokenType.TYPE
-                    else -> null
-                }
-                if (word in language.pathKeywords) {
-                    out.add(i, j, TokenType.KEYWORD)
-                    // Skip the dotted path, but let a trailing comment still be highlighted.
-                    var k = j
-                    val end = lineEnd(text, j, to)
-                    while (k < end && !language.lineComments.any { text.startsWith(it, k) }) k++
-                    i = k; previousDeclarator = null; continue
-                }
-                if (type != null) out.add(i, if (type == TokenType.FUNCTION && language.macroBang && j < to && text[j] == '!') j + 1 else j, type)
-                previousDeclarator = language.declarators[word]
-                lastSignificant = 'a'
-                i = j; continue
-            }
-            if (language.css && braceDepth == 0 && (c == '.' || c == '#') && i + 1 < to && isIdentStart(text[i + 1], language)) {
-                var j = i + 1
-                while (j < to && isIdentPart(text[j], language)) j++
-                out.add(i, j, TokenType.TAG)
-                i = j; continue
-            }
-            when (c) {
-                '{' -> braceDepth++
-                '}' -> if (braceDepth > 0) braceDepth--
-            }
-            previousDeclarator = null
-            lastSignificant = c
-            i++
-        }
-    }
-
-    private fun nextNonSpace(text: String, from: Int, to: Int): Char {
+    internal fun nextNonSpace(text: String, from: Int, to: Int): Char {
         var j = from
         while (j < to && (text[j] == ' ' || text[j] == '\t')) j++
         return if (j < to) text[j] else '\n'
