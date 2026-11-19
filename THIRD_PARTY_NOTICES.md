@@ -1,6 +1,10 @@
 # Third-party notices
 
-Roamtty's original code is copyright 2026 Roamtty contributors, licensed under Apache-2.0. See [LICENSE](LICENSE).
+Roamtty's original code in this version is copyright 2026 Roamtty contributors, licensed under the PolyForm Shield License 1.0.0. See [LICENSE](LICENSE). This source-available license restricts competing products; third-party components retain the licenses listed below.
+
+Required Notice: Copyright 2026 Roamtty contributors
+
+Licensor Line of Business: Remote terminal and remote AI coding client software.
 
 | Component | Pinned version / source | License |
 | --- | --- | --- |

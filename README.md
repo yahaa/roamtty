@@ -1,6 +1,14 @@
 # Roamtty
 
-面向远程 AI 编程的免费开源 Android SSH 客户端（原名 iTermux）。Android 8.0（API 26）起，Kotlin + Compose，默认简体中文、可切换 English。应用标识 `com.roamtty.app`，Apache-2.0。
+面向远程 AI 编程的免费、源码可见的 Android SSH 客户端（原名 iTermux）。Android 8.0（API 26）起，Kotlin + Compose，默认简体中文、可切换 English。应用标识 `com.roamtty.app`。
+
+## 许可证
+
+本版本自有代码采用 [PolyForm Shield License 1.0.0](LICENSE)。代码可查看并在许可范围内使用和修改，但不得使用这些代码提供与 Roamtty 竞争的产品或服务；免费竞品同样受限制。这是源码可见许可，不属于 OSI 定义的开源许可。
+
+第三方代码、字体和图标保留各自许可，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本次变更不会撤销旧版本已经授予的 Apache-2.0 权利；历史中的 Apache-2.0 版本继续按原许可使用。
+
+The original code in this version is source-available under the PolyForm Shield License 1.0.0. The license restricts using this code to provide competing products or services, including free competitors. It is not an OSI open-source license. Third-party licenses and existing Apache-2.0 grants for earlier versions remain unchanged. See [NOTICE](NOTICE) and the full license for the applicable terms.
 
 ## 功能
 
