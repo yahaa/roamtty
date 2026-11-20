@@ -179,6 +179,57 @@ class AgentStatusTest {
         }
     }
 
+    @Test fun agyHooksExtractToolCallNameRegardlessOfPropertyOrder() {
+        val dir = Files.createTempDirectory("agent-hook-agy-order").toFile()
+        try {
+            val script = File(dir, "agent-hook.sh").apply { writeText(AgentHooks.script) }
+            File(dir, "tmux").apply {
+                writeText("#!/bin/sh\ncase \"\$1\" in\n  show-options) cat \"$dir/opt\$5\" 2>/dev/null ;;\n" +
+                    "  set-option) if [ \"\$2\" = -u ]; then rm -f \"$dir/opt\$6\"; else printf '%s' \"\$6\" > \"$dir/opt\$5\"; fi ;;\nesac\n")
+                setExecutable(true)
+            }
+            fun hook(json: String): String {
+                val process = ProcessBuilder("sh", script.path, "agy", "tool").apply {
+                    environment()["PATH"] = "${dir.path}:${System.getenv("PATH")}"
+                    environment()["TMUX_PANE"] = "%1"
+                    environment()["ROAMTTY_AGENT"] = "agy"
+                }.start()
+                process.outputStream.use { it.write(json.toByteArray()) }
+                val stdout = process.inputStream.bufferedReader().readText()
+                assertEquals(0, process.waitFor())
+                return stdout
+            }
+            fun reported() = File(dir, "opt@roamtty_agent").readText().split('|').let { "${it[0]}|${it[2]}|${it[3]}|${it[4]}" }
+
+            // Compact payloads with toolCall.name first (Google's PreToolUse doc order) and last.
+            assertEquals("", hook("""{"toolCall":{"name":"run_command","args":{"CommandLine":"./gradlew test"}}}"""))
+            assertEquals("working|agy|run_command|./gradlew test", reported())
+            assertEquals("", hook("""{"toolCall":{"args":{"CommandLine":"make check"},"id":"c1","name":"run_command"}}"""))
+            assertEquals("working|agy|run_command|make check", reported())
+
+            assertEquals("", hook("""{"toolCall":{"name":"ask_question","args":{}}}"""))
+            assertEquals("waiting|agy|ask_question|", reported())
+            assertEquals("", hook("""{"toolCall":{"name":"ask_question","args":{"questions":[{"question":"Ship it?"}]}}}"""))
+            assertEquals("waiting|agy|ask_question|Ship it?", reported())
+            assertEquals("", hook("""{"toolCall":{"args":{"questions":[{"question":"Deploy?"}]},"id":"c2","name":"ask_question"}}"""))
+            assertEquals("waiting|agy|ask_question|Deploy?", reported())
+
+            // Nested "name" inside args and sibling "name" outside toolCall must not shadow toolCall.name.
+            assertEquals("", hook("""{"toolCall":{"name":"swarm","args":{"action":"add","name":"worker-1"}}}"""))
+            assertEquals("working|agy|swarm|", reported())
+            assertEquals("", hook("""{"toolCall":{"args":{"action":"add","name":"worker-1"},"id":"c3","name":"swarm"}}"""))
+            assertEquals("working|agy|swarm|", reported())
+            assertEquals("", hook("""{"plugin":{"name":"roamtty"},"toolCall":{"name":"run_command","args":{"CommandLine":"ls"}},"extra":{"name":"ignored"}}"""))
+            assertEquals("working|agy|run_command|ls", reported())
+
+            // Multi-line pretty-printed PreToolUse JSON also resolves toolCall.name.
+            assertEquals("", hook("{\n  \"toolCall\": {\n    \"name\": \"ask_question\",\n    \"args\": {}\n  }\n}"))
+            assertEquals("waiting|agy|ask_question|", reported())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun activityShowsWhatTheAgentRuns() {
         val working = AgentStatus.parse("sh|working|1|codex|Bash|make test|t\n2")!!
         assertEquals("Running make test", agentActivity(working))
