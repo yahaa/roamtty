@@ -71,6 +71,45 @@ class ScreenAppTest {
         """))
     }
 
+    @Test fun antigravityCliScreens() {
+        // Wide default prompt between rules.
+        assertEquals(ScreenApp.AGY, detect("""
+                  ▄▀▀▄        Antigravity CLI 1.5.12
+                 ▀▀▀▀▀▀       user@example.com
+                ▀▀▀▀▀▀▀▀      Gemini 4 Neon (XHigh)
+               ▄▀▀    ▀▀▄     ~/work/roamtty
+              ▄▀▀      ▀▀▄
+            $rule
+            > <cursor>
+            $rule
+            ? for shortcuts                                         Gemini 4 Neon · xhigh
+        """))
+        // Narrow phone-wide screen in plan mode.
+        assertEquals(ScreenApp.AGY, detect("""
+            ──────────────────────────────────────────
+            > Plan mode: research & plan only (shi...<cursor>
+            ──────────────────────────────────────────
+            ? for shortcuts                       plan
+        """))
+        // Permission prompt while running a tool.
+        assertEquals(ScreenApp.AGY, detect("""
+            Requesting permission for:
+               rm -f /tmp/test
+            Run this command?
+            > 1. Yes, run command<cursor>
+              2. No, cancel
+              ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command
+            esc to cancel                                           Gemini 4 Neon · xhigh
+        """))
+        // Even with a hyphenated Gemini model selected, agy's framed prompt stays AGY.
+        assertEquals(ScreenApp.AGY, detect("""
+            $rule
+            > <cursor>
+            $rule
+            ? for shortcuts                                        gemini-2.5-pro · xhigh
+        """))
+    }
+
     @Test fun shellAfterAnAgentQuit() {
         // Claude's banner stays on screen after it exits, but the cursor is on a shell prompt below.
         assertEquals(ScreenApp.SHELL, detect("""

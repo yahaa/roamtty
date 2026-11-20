@@ -76,7 +76,7 @@ private fun keys(label: String, hint: String, description: String, tag: String, 
 
 /**
  * The ring for the program in front, top to bottom, most used in the middle. Plain Esc stays on the cursor row. Key tables come from each
- * CLI's built-in defaults: Claude Code 2.1, Codex 0.160, Grok Build 1.0, Gemini CLI. A plain shell gets the keys a
+ * CLI's built-in defaults: Claude Code 2.1, Codex 0.160, Grok Build 1.0, Gemini CLI, Antigravity CLI 1.5. A plain shell gets the keys a
  * phone keyboard lacks.
  */
 internal fun petShortcuts(app: ScreenApp): List<PetShortcut> = when (app) {
@@ -114,6 +114,15 @@ internal fun petShortcuts(app: ScreenApp): List<PetShortcut> = when (app) {
         keys("Esc²", "回退", "Esc Esc：清空输入或回退", "pet-escape-twice", "\u001b", repeat = true),
         keys("^L", "清屏", "Ctrl+L：清屏", "pet-ctrl-l", "\u000c"),
         keys("^C", "取消", "Ctrl+C：取消或退出", "pet-ctrl-c", "\u0003"),
+    )
+    ScreenApp.AGY -> listOf(
+        keys("^O", "详情", "Ctrl+O：展开或收起轨迹详情", "pet-ctrl-o", "\u000f"),
+        keys("^R", "产物", "Ctrl+R：查看产物", "pet-ctrl-r", "\u0012"),
+        keys("^K", "批准", "Ctrl+K：快速批准子代理", "pet-ctrl-k", "\u000b"),
+        keys("⇧Tab", "模式", "Shift+Tab：切换模式（默认 / 接受编辑 / 自动 / 计划）", "pet-shift-tab", "\u001b[Z"),
+        keys("^C", "取消", "Ctrl+C：清空输入或取消", "pet-ctrl-c", "\u0003"),
+        keys("^L", "清屏", "Ctrl+L：清屏", "pet-ctrl-l", "\u000c"),
+        keys("⌥J", "代理", "Alt+J：管理子代理", "pet-alt-j", "\u001bj"),
     )
     ScreenApp.SHELL -> listOf(
         PetShortcut("Fn", "F1–12", tr("功能键：停在这里展开 F1–F12"), "pet-fn", PetAction.Menu(functionKeys())),

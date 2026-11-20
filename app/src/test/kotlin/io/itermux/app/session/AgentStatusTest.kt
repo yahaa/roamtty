@@ -28,6 +28,8 @@ class AgentStatusTest {
         // On macOS /bin/sh is bash, so the launcher shows as "bash".
         assertEquals(AgentStatus.State.IDLE, AgentStatus.parse("bash|idle|1000|codex|||task\n1042")!!.state)
         assertEquals(AgentStatus.State.WORKING, AgentStatus.parse("bash|working|1000|grok|||task\n1042")!!.state)
+        assertEquals(AgentStatus.State.WORKING, AgentStatus.parse("sh|working|1000|agy|run_command|ls|task\n1042")!!.state)
+        assertEquals(AgentStatus.State.IDLE, AgentStatus.parse("bash|idle|1000|agy|||task\n1042")!!.state)
     }
 
     @Test fun noReportsOrUnknownStatesMeanNoStatus() {
@@ -71,13 +73,168 @@ class AgentStatusTest {
         val launcher = AgentHooks.grokLauncher
         assertTrue("\"StopCancelled\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh grok stop\"}]}]" in launcher)
         assertTrue("export ROAMTTY_AGENT=grok\ngrok \"\$@\"\n" in launcher)
-        assertTrue("[ \"\$ROAMTTY_AGENT\" = grok ]" in AgentHooks.script)
+        assertTrue("case \"\$agent\" in grok|agy) [ \"\$ROAMTTY_AGENT\" = \"\$agent\" ] || exit 0 ;; esac" in AgentHooks.script)
+    }
+
+    @Test fun agyLauncherInstallsPluginAndReportsStartAndEnd() {
+        val (name, launcher, executable) = AgentHooks.hostFile(CodingAgent.AGY)
+        assertEquals("agy", name)
+        assertTrue(executable)
+        assertTrue(launcher.startsWith("#!/bin/sh\n"))
+        assertTrue("dir=\"\$HOME/.gemini/config/plugins/roamtty\"" in launcher)
+        assertTrue("\"PreInvocation\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy prompt\"}]" in launcher)
+        assertTrue("\"PreToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy tool\"}]}]" in launcher)
+        assertTrue("\"PostToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy post\"}]}]" in launcher)
+        assertTrue("\"Stop\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy stop\"}]" in launcher)
+        assertTrue("export ROAMTTY_AGENT=agy\nsh ~/.roamtty/agent-hook.sh agy start </dev/null\nagy \"\$@\"\n" in launcher)
+        assertTrue("status=\$?\nsh ~/.roamtty/agent-hook.sh agy end </dev/null\nexit \$status\n" in launcher)
+    }
+
+    @Test fun agyHooksReportTurnToolsQuestionsTranscriptAndBackgroundWork() {
+        val dir = Files.createTempDirectory("agent-hook-agy").toFile()
+        try {
+            val script = File(dir, "agent-hook.sh").apply { writeText(AgentHooks.script) }
+            File(dir, "tmux").apply {
+                writeText("#!/bin/sh\ncase \"\$1\" in\n  show-options) cat \"$dir/opt\$5\" 2>/dev/null ;;\n" +
+                    "  set-option) if [ \"\$2\" = -u ]; then rm -f \"$dir/opt\$6\"; else printf '%s' \"\$6\" > \"$dir/opt\$5\"; fi ;;\nesac\n")
+                setExecutable(true)
+            }
+            val transcript = File(dir, "transcript_full.jsonl")
+            fun hook(event: String, json: String = "{}", marker: String? = "agy"): String {
+                val process = ProcessBuilder("sh", script.path, "agy", event).apply {
+                    environment()["PATH"] = "${dir.path}:${System.getenv("PATH")}"
+                    environment()["TMUX_PANE"] = "%1"
+                    if (marker != null) environment()["ROAMTTY_AGENT"] = marker else environment().remove("ROAMTTY_AGENT")
+                }.start()
+                process.outputStream.use { it.write(json.toByteArray()) }
+                val stdout = process.inputStream.bufferedReader().readText()
+                assertEquals(0, process.waitFor())
+                return stdout
+            }
+            fun option(name: String) = File(dir, "opt$name").takeIf { it.exists() }?.readText()
+            fun reported() = option("@roamtty_agent")!!.split('|').let { "${it[0]}|${it[2]}|${it[3]}|${it[4]}" }
+
+            // Outside Roamtty (no ROAMTTY_AGENT): ignored, empty stdout so PreToolUse never blocks.
+            assertEquals("", hook("tool", """{"toolCall":{"args":{"CommandLine":"ls"},"id":"c0","name":"run_command"}}""", marker = null))
+            assertNull(option("@roamtty_agent"))
+
+            // Launcher reports idle on start.
+            assertEquals("", hook("start"))
+            assertEquals("idle|agy||", reported())
+
+            // PreInvocation invocationNum 0 starts a turn.
+            assertEquals("", hook("prompt", """{"invocationNum":0,"lastUserInput":"fix the build"}"""))
+            assertEquals("working|agy||", reported())
+            assertEquals("fix the build", option("@roamtty_task"))
+            val turn = option("@roamtty_turn")
+            assertNotNull(turn)
+
+            // PreToolUse reads toolCall.name and CommandLine, with empty stdout so agy keeps normal permissions.
+            assertEquals("", hook("tool",
+                """{"lastUserInput":"fix the build","toolCall":{"args":{"CommandLine":"./gradlew test","toolSummary":"Run tests"},"id":"c1","name":"run_command"}}"""))
+            assertEquals("working|agy|run_command|./gradlew test", reported())
+            assertEquals("", hook("post", """{"toolCall":{"args":{"CommandLine":"./gradlew test"},"id":"c1","name":"run_command"}}"""))
+            // PreInvocation invocationNum 1 keeps the turn and finished tool.
+            assertEquals("", hook("prompt", """{"invocationNum":1,"lastUserInput":"fix the build"}"""))
+            assertEquals("working|agy|run_command|./gradlew test", reported())
+            assertEquals(turn, option("@roamtty_turn"))
+
+            // write_file uses Path; escaped keys inside Content must not hijack CommandLine or Path.
+            assertEquals("", hook("tool",
+                """{"toolCall":{"args":{"Content":"{\"CommandLine\":\"fake\"}","Path":"/repo/src/Main.kt"},"id":"c2","name":"write_file"}}"""))
+            assertEquals("working|agy|write_file|/repo/src/Main.kt", reported())
+
+            // ask_question waits for the user; PostToolUse returns to working.
+            assertEquals("", hook("tool",
+                """{"toolCall":{"args":{"questions":[{"question":"Which option?","options":["A","B"]}]},"id":"c3","name":"ask_question"}}"""))
+            assertEquals("waiting|agy|ask_question|Which option?", reported())
+            assertEquals("", hook("post"))
+            assertEquals("working|agy|ask_question|Which option?", reported())
+
+            // Stop with fullyIdle:false stays working on background tasks.
+            assertEquals("", hook("stop", """{"fullyIdle":false,"terminationReason":"NO_TOOL_CALL","transcriptPath":"${transcript.path}"}"""))
+            assertEquals("working|agy|Background|", reported())
+            assertNull(option("@roamtty_worked"))
+
+            // Background wakeup with same lastUserInput keeps the turn clock.
+            assertEquals("", hook("prompt", """{"invocationNum":0,"lastUserInput":"fix the build"}"""))
+            assertEquals(turn, option("@roamtty_turn"))
+
+            // Stop with fullyIdle:true reads the final PLANNER_RESPONSE content from transcriptPath.
+            transcript.writeText(
+                """{"step_index":1,"type":"PLANNER_RESPONSE","thinking":"check \"content\":\"ignored\"","tool_calls":[{"name":"run_command"}]}""" + "\n" +
+                    """{"step_index":2,"type":"GENERIC","content":"tool output"}""" + "\n" +
+                    """{"step_index":3,"type":"PLANNER_RESPONSE","thinking":"done","content":"**All** tests pass.\nReady | green"}""" + "\n")
+            assertEquals("", hook("stop", """{"fullyIdle":true,"terminationReason":"NO_TOOL_CALL","transcriptPath":"${transcript.path}"}"""))
+            assertEquals("idle|agy||", reported())
+            assertNotNull(option("@roamtty_worked"))
+            assertEquals("**All** tests pass. Ready / green", option("@roamtty_reply"))
+
+            // End clears options.
+            assertEquals("", hook("end"))
+            assertNull(option("@roamtty_agent"))
+            assertNull(option("@roamtty_reply"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test fun agyHooksExtractToolCallNameRegardlessOfPropertyOrder() {
+        val dir = Files.createTempDirectory("agent-hook-agy-order").toFile()
+        try {
+            val script = File(dir, "agent-hook.sh").apply { writeText(AgentHooks.script) }
+            File(dir, "tmux").apply {
+                writeText("#!/bin/sh\ncase \"\$1\" in\n  show-options) cat \"$dir/opt\$5\" 2>/dev/null ;;\n" +
+                    "  set-option) if [ \"\$2\" = -u ]; then rm -f \"$dir/opt\$6\"; else printf '%s' \"\$6\" > \"$dir/opt\$5\"; fi ;;\nesac\n")
+                setExecutable(true)
+            }
+            fun hook(json: String): String {
+                val process = ProcessBuilder("sh", script.path, "agy", "tool").apply {
+                    environment()["PATH"] = "${dir.path}:${System.getenv("PATH")}"
+                    environment()["TMUX_PANE"] = "%1"
+                    environment()["ROAMTTY_AGENT"] = "agy"
+                }.start()
+                process.outputStream.use { it.write(json.toByteArray()) }
+                val stdout = process.inputStream.bufferedReader().readText()
+                assertEquals(0, process.waitFor())
+                return stdout
+            }
+            fun reported() = File(dir, "opt@roamtty_agent").readText().split('|').let { "${it[0]}|${it[2]}|${it[3]}|${it[4]}" }
+
+            // Compact payloads with toolCall.name first (Google's PreToolUse doc order) and last.
+            assertEquals("", hook("""{"toolCall":{"name":"run_command","args":{"CommandLine":"./gradlew test"}}}"""))
+            assertEquals("working|agy|run_command|./gradlew test", reported())
+            assertEquals("", hook("""{"toolCall":{"args":{"CommandLine":"make check"},"id":"c1","name":"run_command"}}"""))
+            assertEquals("working|agy|run_command|make check", reported())
+
+            assertEquals("", hook("""{"toolCall":{"name":"ask_question","args":{}}}"""))
+            assertEquals("waiting|agy|ask_question|", reported())
+            assertEquals("", hook("""{"toolCall":{"name":"ask_question","args":{"questions":[{"question":"Ship it?"}]}}}"""))
+            assertEquals("waiting|agy|ask_question|Ship it?", reported())
+            assertEquals("", hook("""{"toolCall":{"args":{"questions":[{"question":"Deploy?"}]},"id":"c2","name":"ask_question"}}"""))
+            assertEquals("waiting|agy|ask_question|Deploy?", reported())
+
+            // Nested "name" inside args and sibling "name" outside toolCall must not shadow toolCall.name.
+            assertEquals("", hook("""{"toolCall":{"name":"swarm","args":{"action":"add","name":"worker-1"}}}"""))
+            assertEquals("working|agy|swarm|", reported())
+            assertEquals("", hook("""{"toolCall":{"args":{"action":"add","name":"worker-1"},"id":"c3","name":"swarm"}}"""))
+            assertEquals("working|agy|swarm|", reported())
+            assertEquals("", hook("""{"plugin":{"name":"roamtty"},"toolCall":{"name":"run_command","args":{"CommandLine":"ls"}},"extra":{"name":"ignored"}}"""))
+            assertEquals("working|agy|run_command|ls", reported())
+
+            // Multi-line pretty-printed PreToolUse JSON also resolves toolCall.name.
+            assertEquals("", hook("{\n  \"toolCall\": {\n    \"name\": \"ask_question\",\n    \"args\": {}\n  }\n}"))
+            assertEquals("waiting|agy|ask_question|", reported())
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     @Test fun activityShowsWhatTheAgentRuns() {
         val working = AgentStatus.parse("sh|working|1|codex|Bash|make test|t\n2")!!
         assertEquals("Running make test", agentActivity(working))
         assertEquals("Running sleep 6", agentActivity(working.copy(tool = "run_terminal_command", detail = "sleep 6")))
+        assertEquals("Running ./gradlew test", agentActivity(working.copy(agent = "agy", tool = "run_command", detail = "./gradlew test")))
         assertEquals("Read src/a.kt", agentActivity(working.copy(tool = "Read", detail = "src/a.kt")))
         assertEquals("WebSearch", agentActivity(working.copy(tool = "WebSearch", detail = "")))
         assertEquals("Claude needs your permission to use Bash",

@@ -127,14 +127,14 @@ private fun YoloWarning() {
 }
 
 internal fun modeLabel(mode: AgentMode, agent: CodingAgent = CodingAgent.CODEX) = when (mode) {
-    AgentMode.READ_ONLY -> tr(if (agent == CodingAgent.CLAUDE) "计划" else "只读")
+    AgentMode.READ_ONLY -> tr(if (agent == CodingAgent.CLAUDE || agent == CodingAgent.AGY) "计划" else "只读")
     AgentMode.STANDARD -> tr("普通")
     AgentMode.YOLO -> "YOLO"
 }
 
 internal fun modeHint(mode: AgentMode, agent: CodingAgent = CodingAgent.CODEX) = when (mode) {
     AgentMode.READ_ONLY -> tr(when (agent) {
-        CodingAgent.CLAUDE -> "先分析并制定计划，批准后开始修改"
+        CodingAgent.CLAUDE, CodingAgent.AGY -> "先分析并制定计划，批准后开始修改"
         CodingAgent.CODEX -> "以只读沙箱启动，可在 Agent 中调整权限"
         CodingAgent.GROK -> "只读沙箱；状态与临时目录仍可写"
     })

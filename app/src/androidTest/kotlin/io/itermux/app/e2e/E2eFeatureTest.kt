@@ -688,6 +688,36 @@ class E2eFeatureTest {
         E2e.capture(compose, "f16-agent-card")
     }
 
+    /** Antigravity CLI (agy): launches via ~/.roamtty/agy, installs its plugin hooks and reports initial idle state. */
+    @Test fun f16b_agyLaunch() = runBlocking<Unit> {
+        val host = E2e.save(E2e.host("引力", mode = SessionMode.TMUX))
+        hostsTab()
+        compose.onNodeWithTag("host-grid").performScrollToNode(hasTestTag("host-card-${host.id}"))
+        click("host-card-${host.id}")
+        click("host-detail-agent")
+        val before = service.sessions.value.map { it.id }.toSet()
+        E2e.waitTag(compose, "launch-sheet")
+        click("agent-picker")
+        click("agent-option-agy")
+        E2e.waitGone(compose, hasTestTag("agent-option-claude"))
+        E2e.capture(compose, "f16b-agy-sheet")
+        click("launch-open")
+        compose.waitUntil(15_000) { newSessions(before).isNotEmpty() }
+        val session = newSessions(before).single()
+        assertEquals(Phase.CONNECTED, E2e.connected(session))
+        E2e.waitOutput(compose, session, "E2E_FAKE_AGENT agy", 20_000)
+        assertTrue(session.displayTitle, session.displayTitle.contains("Antigravity"))
+        E2e.run(compose, "hello-agy")
+        E2e.waitOutput(compose, session, "agent got: hello-agy")
+        E2e.capture(compose, "f16b-agy-running")
+        backToHome()
+        sessionsTab()
+        E2e.waitTag(compose, "home-session-${session.id}")
+        compose.onNode(hasTestTag("agent-icon-agy") and hasAnyAncestor(hasTestTag("home-session-${session.id}")),
+            useUnmergedTree = true).assertExists()
+        E2e.capture(compose, "f16b-agy-card")
+    }
+
     // ---- app-wide ------------------------------------------------------------------------------------------
 
     /** Settings: language, theme, notifications and terminal font apply at once and persist. */

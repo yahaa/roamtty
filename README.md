@@ -15,8 +15,8 @@ The original code in this version is source-available under the PolyForm Shield 
 - **主机**：密码、交互式认证或 OpenSSH/PEM 私钥（Ed25519、RSA，含加密私钥）；保存时自动检测远端系统并显示图标，主机卡片显示在线状态与 DNS + TCP 建连延时（从开始 DNS 解析到 TCP 连接成功，不含 SSH 欢迎消息及登录耗时）。密码仅在勾选后用 Keystore 加密保存，私钥口令不落盘。
 - **信任**：首次连接需核对 SHA-256 指纹；指纹变化直接阻止连接，只能显式重新核验。
 - **会话**：tmux 模式为每个会话分配独立远端会话名，断线后可重新附着；主机装有 mosh 时终端优先走 UDP（需放行 60000–61000），8 秒无回应自动回退 SSH。每台主机最多 8 个会话。主机菜单可一键检测并安装 tmux / mosh。
-- **AI Agent**：新建会话先选 Agent（Claude Code、Codex、Grok）或普通终端，再选主机和起始文件夹，可选只读（Claude Code 为计划模式）、普通或 YOLO 权限。会话卡片以 Agent 的当前任务（否则 Agent 与文件夹）为标题，显示运行中 / 等待确认 / 空闲、正在执行的命令及上一轮耗时。
-- **终端**：单击输出中的 HTTP(S) 链接打开，GitHub 地址优先使用可用的 GitHub App，其余情况使用手机浏览器（支持自动折行、回滚历史，以及终端界面自行分行显示的括号内下划线链接）；双击发送 Tab、三击粘贴、长按选择复制或拖动光标，左右滑动发送方向键（滑动后按住跳到行首 / 行尾），双指缩放字号；光标行旁提供回车与 Esc 键。边缘的工具箱幽灵点按展开操作栏（上传、下载、插入图片、常用命令即远端 shell 历史、编辑文本、粘贴），按住拖向快捷键环，按前台程序（Claude Code、Codex、Grok、Gemini CLI 或 shell）提供 Esc、Ctrl、Shift、F1–F12 等按键。设置中可选内置等宽字体或自定义字体，附 Nerd Font 图标回退。
+- **AI Agent**：新建会话先选 Agent（Claude Code、Codex、Grok、Antigravity）或普通终端，再选主机和起始文件夹，可选只读（Claude Code 与 Antigravity 为计划模式）、普通或 YOLO 权限。会话卡片以 Agent 的当前任务（否则 Agent 与文件夹）为标题，显示运行中 / 等待确认 / 空闲、正在执行的命令及上一轮耗时。
+- **终端**：单击输出中的 HTTP(S) 链接打开，GitHub 地址优先使用可用的 GitHub App，其余情况使用手机浏览器（支持自动折行、回滚历史，以及终端界面自行分行显示的括号内下划线链接）；双击发送 Tab、三击粘贴、长按选择复制或拖动光标，左右滑动发送方向键（滑动后按住跳到行首 / 行尾），双指缩放字号；光标行旁提供回车与 Esc 键。边缘的工具箱幽灵点按展开操作栏（上传、下载、插入图片、常用命令即远端 shell 历史、编辑文本、粘贴），按住拖向快捷键环，按前台程序（Claude Code、Codex、Grok、Gemini CLI、Antigravity CLI 或 shell）提供 Esc、Ctrl、Shift、F1–F12 等按键。设置中可选内置等宽字体或自定义字体，附 Nerd Font 图标回退。
 - **历史**：普通 SSH 上下滑动浏览本地回滚；应用创建的 tmux 会话开启鼠标模式，上下滑动以滚轮事件交给 tmux 滚动远端历史。
 - **文件**：SFTP 浏览、预览（文本、代码高亮、Markdown、图片）、重命名、删除、上传、多选与模糊搜索下载、插入图片路径到终端，以及系统分享图片上传。
 
