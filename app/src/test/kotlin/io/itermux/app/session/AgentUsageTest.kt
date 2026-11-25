@@ -178,4 +178,75 @@ class AgentUsageTest {
             home.deleteRecursively()
         }
     }
+
+    @Test fun collectorDropsContextUsageImmediatelyAfterCompactionAcrossAgents() {
+        val home = Files.createTempDirectory("roamtty-usage-compact").toFile()
+        try {
+            fun runSession(agent: CodingAgent, cwd: String): AgentSessionUsage {
+                val proc = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.sessionCommand(agent, null, cwd)).apply {
+                    environment()["HOME"] = home.absolutePath
+                    environment()["ROAMTTY_NO_LIVE_QUOTA"] = "1"
+                }.start()
+                proc.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
+                val text = proc.inputStream.bufferedReader().readText()
+                assertEquals(0, proc.waitFor())
+                return AgentUsageCollector.parseSession(text)!!
+            }
+
+            // 1. Antigravity: CHECKPOINT after high context drops 43% -> ~2% before next PLANNER_RESPONSE, preserving 1M window.
+            val agyLogDir = File(home, ".gemini/antigravity-cli/brain/conv-compact/.system_generated/logs").apply { mkdirs() }
+            val agyFile = File(agyLogDir, "transcript.jsonl")
+            agyFile.writeText(
+                """{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":12180,"output_tokens":300,"cache_read_tokens":0}""" + "\n" +
+                    """{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:10:00Z","model":"gemini-4-neon-xhigh","input_tokens":2519,"output_tokens":1597,"cache_read_tokens":426997}""" + "\n" +
+                    """{"type":"CHECKPOINT","created_at":"2099-01-01T00:15:00Z","input_tokens":2506,"output_tokens":5080,"cache_read_tokens":429517,"content":"# Resuming from a compaction"}""" + "\n"
+            )
+            val agyPost = runSession(CodingAgent.AGY, "/work/app")
+            assertEquals(17_260L, agyPost.contextUsed)
+            assertEquals(1_000_000L, agyPost.contextLimit)
+            assertEquals(2, agyPost.contextPercent)
+            assertEquals(0L, agyPost.contextCacheRead)
+            assertEquals(0L, agyPost.contextTurn)
+            // Once the next PLANNER_RESPONSE arrives, exact model-reported tokens take over.
+            agyFile.appendText(
+                """{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:16:00Z","model":"gemini-4-neon-xhigh","input_tokens":9099,"output_tokens":500,"cache_read_tokens":11981}""" + "\n"
+            )
+            val agyNext = runSession(CodingAgent.AGY, "/work/app")
+            assertEquals(21_080L, agyNext.contextUsed)
+            assertEquals(11_981L, agyNext.contextCacheRead)
+            assertEquals(9_099L, agyNext.contextTurn)
+
+            // 2. Claude Code: compact_boundary drops context immediately to postTokens and keeps 1M window when preTokens > 200k.
+            val claudeDir = File(home, ".claude/projects/-work-app").apply { mkdirs() }
+            val claudeFile = File(claudeDir, "s-compact.jsonl")
+            claudeFile.writeText(
+                """{"type":"assistant","effort":"high","cwd":"/work/app","timestamp":"2099-01-01T00:00:01Z","message":{"id":"m1","model":"claude-opus-4-6","usage":{"input_tokens":5000,"output_tokens":400,"cache_read_input_tokens":781844,"cache_creation_input_tokens":0}}}""" + "\n" +
+                    """{"type":"system","subtype":"compact_boundary","cwd":"/work/app","timestamp":"2099-01-01T00:05:00Z","compactMetadata":{"trigger":"manual","preTokens":786844,"postTokens":15880,"cumulativeDroppedTokens":770964}}""" + "\n"
+            )
+            val claudePost = runSession(CodingAgent.CLAUDE, "/work/app")
+            assertEquals(15_880L, claudePost.contextUsed)
+            assertEquals(1_000_000L, claudePost.contextLimit)
+            assertEquals(2, claudePost.contextPercent)
+            assertEquals(0L, claudePost.contextCacheRead)
+            assertEquals(0L, claudePost.contextTurn)
+
+            // 3. Codex: post-compaction token_count has input_tokens=0 and retained context in total_tokens.
+            val codexDir = File(home, ".codex/sessions/2026/11/25").apply { mkdirs() }
+            File(codexDir, "rollout-compact.jsonl").writeText(
+                """{"timestamp":"2099-01-01T00:00:00Z","type":"session_meta","payload":{"cwd":"/work/app"}}""" + "\n" +
+                    """{"timestamp":"2099-01-01T00:00:01Z","type":"turn_context","payload":{"model":"gpt-5.4","effort":"high","cwd":"/work/app"}}""" + "\n" +
+                    """{"timestamp":"2099-01-01T00:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":243047,"cached_input_tokens":242944,"output_tokens":6845},"last_token_usage":{"input_tokens":243047,"cached_input_tokens":242944,"output_tokens":6845,"total_tokens":249892},"model_context_window":258400}}}""" + "\n" +
+                    """{"timestamp":"2099-01-01T00:02:00Z","type":"compacted","payload":{"message":""}}""" + "\n" +
+                    """{"timestamp":"2099-01-01T00:02:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":243047,"cached_input_tokens":242944,"output_tokens":6845},"last_token_usage":{"input_tokens":0,"cached_input_tokens":0,"output_tokens":0,"total_tokens":37754},"model_context_window":258400}}}""" + "\n"
+            )
+            val codexPost = runSession(CodingAgent.CODEX, "/work/app")
+            assertEquals(37_754L, codexPost.contextUsed)
+            assertEquals(258_400L, codexPost.contextLimit)
+            assertEquals(15, codexPost.contextPercent)
+            assertEquals(0L, codexPost.contextCacheRead)
+            assertEquals(0L, codexPost.contextTurn)
+        } finally {
+            home.deleteRecursively()
+        }
+    }
 }

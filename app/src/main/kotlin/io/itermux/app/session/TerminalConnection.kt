@@ -151,6 +151,7 @@ class TerminalConnection(
     private val mutableAgentUsageLoading = MutableStateFlow(false)
     val agentUsageLoading = mutableAgentUsageLoading.asStateFlow()
     private var agentUsageJob: Job? = null
+    private var compactRefreshJob: Job? = null
     @Volatile private var lastUsageAtMs = 0L
     @Volatile private var lastUsageState: AgentStatus.State? = null
     private val mutableDirectory = MutableStateFlow("")
@@ -197,9 +198,9 @@ class TerminalConnection(
         }
         val now = SystemClock.elapsedRealtime()
         val stateChanged = status?.state != lastUsageState
+        lastUsageState = status?.state
         val due = lastUsageAtMs == 0L || (stateChanged && status?.state == AgentStatus.State.IDLE) || (now - lastUsageAtMs) >= 12_000L
         if (due) {
-            lastUsageState = status?.state
             refreshAgentUsage(force = false)
         }
     }
@@ -236,13 +237,22 @@ class TerminalConnection(
         if (state.value.phase != Phase.CONNECTED) return false
         val kind = CodingAgent.fromCommand(mutableAgentStatus.value?.agent) ?: launchedAgent.value ?: return false
         val cmd = kind.compactCommand ?: return false
+        val beforeCtx = mutableAgentUsage.value?.contextUsed
         if (!ssh.write(pasteInput(cmd).toByteArray(Charsets.UTF_8))) return false
         delay(120)
         val sent = ssh.write("\r".toByteArray())
         if (sent) {
-            scope.launch {
-                delay(4_000)
-                refreshAgentUsage(force = false)
+            compactRefreshJob?.cancel()
+            compactRefreshJob = scope.launch {
+                // Compaction typically finishes in 2-20s; re-poll at staggered intervals and stop once context drops.
+                for (waitMs in longArrayOf(3_000L, 4_000L, 7_000L, 10_000L)) {
+                    delay(waitMs)
+                    if (state.value.phase != Phase.CONNECTED) break
+                    refreshAgentUsage(force = false)
+                    agentUsageJob?.join()
+                    val afterCtx = mutableAgentUsage.value?.contextUsed
+                    if (afterCtx != null && (beforeCtx == null || afterCtx < beforeCtx)) break
+                }
             }
         }
         return sent
@@ -470,6 +480,7 @@ class TerminalConnection(
         commonCommandsJob?.cancel()
         commonCommandsWatcher?.cancel()
         agentUsageJob?.cancel()
+        compactRefreshJob?.cancel()
         agentStatusWatcher?.cancel()
         systemWatcher?.cancel()
         pending.value?.answer?.complete(null)
