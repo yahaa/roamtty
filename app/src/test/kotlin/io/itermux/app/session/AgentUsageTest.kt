@@ -59,7 +59,7 @@ class AgentUsageTest {
         assertNull(u.quota5h)
         assertNull(u.quota7d)
         assertEquals(380_000L, u.sessionTotalTokens)
-        assertNull(CodingAgent.GROK.compactCommand)
+        assertEquals("/compact", CodingAgent.GROK.compactCommand)
         assertEquals("/compact", CodingAgent.CLAUDE.compactCommand)
         assertEquals("/compact", CodingAgent.CODEX.compactCommand)
         assertEquals("/compact", CodingAgent.AGY.compactCommand)
@@ -245,6 +245,27 @@ class AgentUsageTest {
             assertEquals(15, codexPost.contextPercent)
             assertEquals(0L, codexPost.contextCacheRead)
             assertEquals(0L, codexPost.contextTurn)
+
+            // 4. Grok: multi-call turn reads context from signals.json + _meta.totalTokens, honoring summary context_window.
+            val grokDir = File(home, ".grok/sessions/%2Fwork%2Fgrok/sess-multi").apply { mkdirs() }
+            File(grokDir, "summary.json").writeText(
+                """{"current_model_id":"grok-4.7","reasoning_effort":"xhigh","context_window":500000}"""
+            )
+            File(grokDir, "signals.json").writeText(
+                """{"contextTokensUsed":193909,"contextWindowTokens":500000,"contextWindowUsage":38}"""
+            )
+            File(grokDir, "updates.jsonl").writeText(
+                """{"timestamp":4070908800,"method":"session/update","params":{"_meta":{"totalTokens":193909},"update":{"sessionUpdate":"agent_message_chunk"}}}""" + "\n" +
+                    """{"timestamp":4070908801,"method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":1911236,"cachedReadTokens":1897344,"cacheCreationTokens":0,"outputTokens":6724,"modelCalls":10}}}}""" + "\n"
+            )
+            val grokSess = runSession(CodingAgent.GROK, "/work/grok")
+            assertEquals("grok-4.7", grokSess.formattedModel)
+            assertEquals(ReasoningEffort.XHIGH, grokSess.reasoningEffort)
+            assertEquals(193_909L, grokSess.contextUsed)
+            assertEquals(500_000L, grokSess.contextLimit)
+            assertEquals(39, grokSess.contextPercent)
+            assertEquals(0L, grokSess.contextCacheRead)
+            assertEquals(0L, grokSess.contextTurn)
         } finally {
             home.deleteRecursively()
         }

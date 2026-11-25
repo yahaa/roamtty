@@ -121,28 +121,15 @@ internal fun TerminalContextRing(
                         style = Stroke(stroke, cap = StrokeCap.Round))
                 }
             }
-            if (percent != null) {
-                Text(
-                    "$percent%",
-                    fontSize = 9.5.sp,
-                    lineHeight = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    color = tone,
-                    maxLines = 1,
-                )
-            } else {
-                // Graceful fallback when context % has not been reported yet: subtle 3-bar glyph.
-                Canvas(Modifier.size(14.dp)) {
-                    val w = 2.4.dp.toPx()
-                    val gap = 2.dp.toPx()
-                    val startX = (size.width - (w * 3 + gap * 2)) / 2f
-                    val base = size.height - 2.dp.toPx()
-                    drawRoundRect(tone, Offset(startX, base - 5.dp.toPx()), Size(w, 5.dp.toPx()))
-                    drawRoundRect(tone, Offset(startX + w + gap, base - 8.dp.toPx()), Size(w, 8.dp.toPx()))
-                    drawRoundRect(tone, Offset(startX + (w + gap) * 2, base - 10.5.dp.toPx()), Size(w, 10.5.dp.toPx()))
-                }
-            }
+            Text(
+                percent?.let { "$it%" } ?: "--",
+                fontSize = 9.5.sp,
+                lineHeight = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                color = tone,
+                maxLines = 1,
+            )
         }
     }
 }

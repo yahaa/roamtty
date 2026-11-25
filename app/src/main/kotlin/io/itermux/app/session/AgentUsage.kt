@@ -130,8 +130,7 @@ data class HostAiUsage(
 /** Slash command sent behind the native "压缩上下文" button; null when the agent has no built-in compaction command. */
 val CodingAgent.compactCommand: String?
     get() = when (this) {
-        CodingAgent.CLAUDE, CodingAgent.CODEX, CodingAgent.AGY -> "/compact"
-        CodingAgent.GROK -> null
+        CodingAgent.CLAUDE, CodingAgent.CODEX, CodingAgent.AGY, CodingAgent.GROK -> "/compact"
     }
 
 /** Loads `agent-usage.py`, builds safe SSH commands and parses its `key=value` output. */
