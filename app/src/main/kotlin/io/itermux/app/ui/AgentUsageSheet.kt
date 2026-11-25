@@ -54,24 +54,84 @@ internal fun quotaRemainingColor(remainingPercent: Int): Color = when {
     else -> StatusColors.success
 }
 
-/** Quiet 12dp hollow micro-ring + tabular percentage on line 2 of an AI Agent session card. */
+/** Quiet single-line monospace footer above the 2dp bottom progress bar on an AI Agent session card (Option B1). */
 @Composable
-internal fun SessionContextMicroRing(percent: Int, modifier: Modifier = Modifier) {
-    val tone = contextLevelColor(percent)
-    val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
-    Row(modifier.testTag("session-context-ring"), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Canvas(Modifier.size(12.dp)) {
-            val stroke = 1.9.dp.toPx()
-            val inset = stroke / 2f
-            val arcSize = Size(size.width - stroke, size.height - stroke)
-            drawArc(track, 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
-            drawArc(tone, -90f, (percent.coerceIn(0, 100) * 3.6f), false, Offset(inset, inset), arcSize,
-                style = Stroke(stroke, cap = StrokeCap.Round))
+internal fun SessionUsageFooter(usage: AgentSessionUsage, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val pct = usage.contextPercent
+    val used = usage.contextUsed
+    val limit = usage.contextLimit?.takeIf { it > 0 }
+    val total = usage.sessionTotalTokens
+    val hasCtx = used != null && limit != null
+    if (!hasCtx && total <= 0L) return
+    val pctColor = when {
+        pct == null -> colors.onSurfaceVariant.copy(alpha = 0.84f)
+        pct >= 90 -> StatusColors.danger
+        pct >= 75 -> StatusColors.warning
+        else -> colors.onSurfaceVariant.copy(alpha = 0.84f)
+    }
+    Column(modifier.fillMaxWidth().padding(top = 6.dp).testTag("session-usage-footer")) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.onSurface.copy(alpha = 0.045f)))
+        Row(Modifier.fillMaxWidth().padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                if (hasCtx) {
+                    Text(
+                        "${formatTokens(used!!)} / ${formatTokens(limit!!)}",
+                        fontSize = 10.5.sp, lineHeight = 13.sp, fontFamily = FontFamily.Monospace,
+                        style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
+                        color = colors.onSurfaceVariant.copy(alpha = 0.68f), maxLines = 1,
+                    )
+                    if (total > 0L) {
+                        Text("·", fontSize = 10.5.sp, lineHeight = 13.sp,
+                            color = colors.onSurfaceVariant.copy(alpha = 0.45f), maxLines = 1)
+                        Text(
+                            trf("累计 %s", formatTokens(total)),
+                            fontSize = 10.5.sp, lineHeight = 13.sp, fontFamily = FontFamily.Monospace,
+                            style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
+                            color = colors.onSurfaceVariant.copy(alpha = 0.68f), maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                } else {
+                    Text(
+                        trf("累计 %s tokens", formatTokens(total)),
+                        fontSize = 10.5.sp, lineHeight = 13.sp, fontFamily = FontFamily.Monospace,
+                        style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
+                        color = colors.onSurfaceVariant.copy(alpha = 0.68f), maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (pct != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "$pct%",
+                    fontSize = 10.5.sp, lineHeight = 13.sp, fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                    style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
+                    color = pctColor, maxLines = 1,
+                )
+            }
         }
-        Text("$percent%", style = MaterialTheme.typography.labelSmall.copy(
-            fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"
-        ), color = tone, maxLines = 1)
+    }
+}
+
+/** Flush 2dp bottom-edge context progress hairline across an AI Agent session card (Option B1). */
+@Composable
+internal fun SessionContextBottomBar(percent: Int, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val track = colors.onSurface.copy(alpha = 0.055f)
+    val fill = when {
+        percent >= 90 -> StatusColors.danger
+        percent >= 75 -> StatusColors.warning.copy(alpha = 0.90f)
+        else -> colors.onSurfaceVariant.copy(alpha = 0.38f)
+    }
+    val fraction = percent.coerceIn(0, 100) / 100f
+    Box(modifier.fillMaxWidth().height(2.dp).background(track).testTag("session-context-bar")) {
+        if (fraction > 0f) {
+            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight()
+                .clip(RoundedCornerShape(topEnd = 2.dp, bottomEnd = 2.dp)).background(fill))
+        }
     }
 }
 

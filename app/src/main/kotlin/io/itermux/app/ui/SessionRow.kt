@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.data.multiplexer
+import io.itermux.app.session.AgentSessionUsage
 import io.itermux.app.session.AgentStatus
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.TerminalConnection
@@ -89,8 +90,10 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             onLongClick = { ui.menu = true }, onClick = onClick)
         .testTag("$tagPrefix-${session.id}")) {
         if (divider) Box(Modifier.padding(start = 14.dp).fillMaxWidth().height(1.dp).background(colors.onSurface.copy(alpha = 0.07f)))
-        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
+        val showUsageFooter = card.showUsageFooter
+        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = if (showUsageFooter) 9.dp else 12.dp)) {
             if (compact) CompactCardBody(card, desktop) else AgentCardBody(card, ui, onClick, desktop)
+            if (showUsageFooter) SessionUsageFooter(card.usage!!, card.fade)
         }
         if (ui.replying || ui.failure != null) Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
             if (ui.replying) FollowUpField(ui.draft, { ui.draft = it }, card.kind, ui.sending, tagPrefix, session.id) {
@@ -100,6 +103,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 Text(it, Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelMedium, color = colors.error, maxLines = 2)
             }
         }
+        card.usage?.contextPercent?.let { SessionContextBottomBar(it, card.fade) }
         SessionCardMenu(card, ui, onClose)
         SessionCardDialogs(card, ui, onForget)
     }
@@ -124,8 +128,8 @@ private class SessionCard(
     val path: String,
     /** What keeps and carries it: tmux, mosh. */
     val tags: List<String>,
-    /** Current context-window usage percentage for AI agent sessions; null when unavailable or non-agent. */
-    val contextPercent: Int? = null,
+    /** Current session usage snapshot for AI agent sessions; null for non-agent sessions. */
+    val usage: AgentSessionUsage? = null,
 ) {
     val name = customName.ifBlank { automatic }
     val prompt = status?.task.orEmpty()
@@ -134,6 +138,7 @@ private class SessionCard(
     val waiting = status?.state == AgentStatus.State.WAITING
     val idle = status?.state == AgentStatus.State.IDLE
     val fade = Modifier.alpha(if (offline) OFFLINE_ALPHA else 1f)
+    val showUsageFooter = usage != null && (usage.contextPercent != null || usage.sessionTotalTokens > 0L)
     fun tag(part: String) = "$tagPrefix-$part-${session.id}"
 }
 
@@ -164,7 +169,7 @@ private fun sessionCard(session: TerminalConnection, tagPrefix: String, hostOffl
     val tags = sessionTransportTags(session.mode, multiplexer, session.host.multiplexer,
         transport.takeIf { state.phase == Phase.CONNECTED })
     return SessionCard(session, tagPrefix, state, kind, status, live, offline = hostOffline && !state.active, customName,
-        automatic, path, tags, contextPercent = usage?.contextPercent.takeIf { kind != null })
+        automatic, path, tags, usage = usage.takeIf { kind != null })
 }
 
 /** What the user is doing with a card: its menu, its dialogs and the follow-up typed on it. */
@@ -226,10 +231,6 @@ private fun CardTitleLines(card: SessionCard) {
         Text(path.ifEmpty { " " }, Modifier.weight(1f).then(if (path.isNotEmpty()) Modifier.testTag(card.tag("location")) else Modifier),
             style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace,
             color = colors.onSurfaceVariant.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
-        if (card.contextPercent != null) {
-            Spacer(Modifier.width(8.dp))
-            SessionContextMicroRing(card.contextPercent, card.fade)
-        }
     }
 }
 

@@ -834,6 +834,8 @@ internal object EnglishText {
         "周额度 (7 天)" to "Weekly quota (7d)",
         "剩余" to "Left",
         "本次会话 Token" to "Session tokens",
+        "累计 %s" to "Total %s",
+        "累计 %s tokens" to "Total %s tokens",
         "缓存 %d%%" to "Cache %d%%",
         "输入" to "Input",
         "输出" to "Output",
