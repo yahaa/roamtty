@@ -52,6 +52,10 @@ internal fun TerminalPaneDock(pane: TerminalPaneState, availableHeight: Dp, land
     val session = pane.session
     val sessionTitle by session.title.collectAsStateWithLifecycle()
     val transferStatus by session.transfers.status.collectAsStateWithLifecycle()
+    val agentStatus by session.agentStatus.collectAsStateWithLifecycle()
+    val agentPolled by session.agentPolled.collectAsStateWithLifecycle()
+    val launchedAgent by session.launchedAgent.collectAsStateWithLifecycle()
+    val isAgentSession = agentStatus != null || (launchedAgent != null && !agentPolled)
     val connected = phase == Phase.CONNECTED
     TerminalDock(availableHeight, landscape, imeVisible,
         modifier = Modifier.onGloballyPositioned { pane.dockBounds = it.boundsInRoot() },
@@ -70,9 +74,11 @@ internal fun TerminalPaneDock(pane: TerminalPaneState, availableHeight: Dp, land
                 pane.hideKeyboard()
                 pane.fileAction = action
             }
-            IconButton(onClick = { pane.hideKeyboard(); pane.commonCommandsOpen = true }, enabled = connected,
-                modifier = Modifier.testTag("common-commands")) {
-                Icon(painterResource(R.drawable.ic_commands), contentDescription = tr("常用命令"))
+            if (!isAgentSession) {
+                IconButton(onClick = { pane.hideKeyboard(); pane.commonCommandsOpen = true }, enabled = connected,
+                    modifier = Modifier.testTag("common-commands")) {
+                    Icon(painterResource(R.drawable.ic_commands), contentDescription = tr("常用命令"))
+                }
             }
             DockSettingsMenu(pane)
         })

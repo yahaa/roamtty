@@ -124,6 +124,8 @@ private class SessionCard(
     val path: String,
     /** What keeps and carries it: tmux, mosh. */
     val tags: List<String>,
+    /** Current context-window usage percentage for AI agent sessions; null when unavailable or non-agent. */
+    val contextPercent: Int? = null,
 ) {
     val name = customName.ifBlank { automatic }
     val prompt = status?.task.orEmpty()
@@ -147,6 +149,7 @@ private fun sessionCard(session: TerminalConnection, tagPrefix: String, hostOffl
     val directory by session.directory.collectAsStateWithLifecycle()
     val multiplexer by session.multiplexer.collectAsStateWithLifecycle()
     val transport by session.transport.collectAsStateWithLifecycle()
+    val usage by session.agentUsage.collectAsStateWithLifecycle()
     val kind = CodingAgent.fromCommand((agent ?: last)?.agent) ?: launched
     // While it reconnects, what the agent reported last; nothing it offers can be done until it answers again.
     val (status, live) = listedAgentStatus(state, polled, agent, last, hostOffline)
@@ -161,7 +164,7 @@ private fun sessionCard(session: TerminalConnection, tagPrefix: String, hostOffl
     val tags = sessionTransportTags(session.mode, multiplexer, session.host.multiplexer,
         transport.takeIf { state.phase == Phase.CONNECTED })
     return SessionCard(session, tagPrefix, state, kind, status, live, offline = hostOffline && !state.active, customName,
-        automatic, path, tags)
+        automatic, path, tags, contextPercent = usage?.contextPercent.takeIf { kind != null })
 }
 
 /** What the user is doing with a card: its menu, its dialogs and the follow-up typed on it. */
@@ -214,15 +217,19 @@ private fun CardTitleLines(card: SessionCard) {
     }
     // Behind a folder mark; cut in the middle, so both where it starts and the folder's own name stay. Without
     // a folder the line stays, empty, so every card of a kind is as tall as the next.
-    Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         if (path.isNotEmpty()) {
             Icon(painterResource(R.drawable.ic_folder), contentDescription = tr("工作目录"), Modifier.size(12.dp),
                 tint = colors.onSurfaceVariant.copy(alpha = 0.75f))
             Spacer(Modifier.width(5.dp))
         }
-        Text(path.ifEmpty { " " }, if (path.isNotEmpty()) Modifier.testTag(card.tag("location")) else Modifier,
+        Text(path.ifEmpty { " " }, Modifier.weight(1f).then(if (path.isNotEmpty()) Modifier.testTag(card.tag("location")) else Modifier),
             style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace,
             color = colors.onSurfaceVariant.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+        if (card.contextPercent != null) {
+            Spacer(Modifier.width(8.dp))
+            SessionContextMicroRing(card.contextPercent, card.fade)
+        }
     }
 }
 

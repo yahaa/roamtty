@@ -32,6 +32,14 @@ internal fun TerminalPaneDialogs(pane: TerminalPaneState, onRestart: () -> Unit)
         pane.terminal?.scrollToBottom()
         session.executeHistoryCommand(command)
     }, onDismiss = { pane.commonCommandsOpen = false })
+    if (pane.usageSheetOpen) AgentUsageSheet(
+        session = session,
+        onCompacted = {
+            pane.usageSheetOpen = false
+            pane.terminal?.scrollToBottom()
+        },
+        onDismiss = { pane.usageSheetOpen = false },
+    )
     pane.confirmPaste?.let { text ->
         PasteConfirmDialog(enabled = connected, onSend = { pane.sendPaste(text); pane.confirmPaste = null }) { pane.confirmPaste = null }
     }

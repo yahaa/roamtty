@@ -233,6 +233,7 @@ private fun Overview(host: Host, reachability: HostReachability, monitor: HostMo
                 NetworkTile(rate, Modifier.weight(1f))
             }
             if (m != null) Summary(m)
+            HostAiUsageSection(monitor)
         }
     }
 }

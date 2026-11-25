@@ -102,7 +102,10 @@ internal fun HostDetailPage(
                     }
                 }
                 if (monitor == null) MonitorLoginCard { askPassword = true }
-                else MonitorSection(monitor, onLogin = onLogin)
+                else {
+                    MonitorSection(monitor, onLogin = onLogin)
+                    HostAiUsageSection(monitor)
+                }
                 HostInfoSection(host, metrics)
                 monitor?.let { HostPortsSection(it) }
                 Spacer(Modifier.height(Spacing.Page))
