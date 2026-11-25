@@ -19,10 +19,33 @@ data class QuotaWindow(
     val usedRounded: Int get() = (100 - remainingRounded).coerceIn(0, 100)
 }
 
-/** Live context-window, quota and cumulative token telemetry for one AI agent session. */
+/** Normalized reasoning / thinking effort tier reported by coding agents. */
+enum class ReasoningEffort(val raw: String, val bars: Int, val zhLabel: String, val enShort: String) {
+    MINIMAL("minimal", 1, "极低", "Min"),
+    LOW("low", 1, "低", "Low"),
+    MEDIUM("medium", 2, "中等", "Med"),
+    HIGH("high", 3, "高", "High"),
+    XHIGH("xhigh", 4, "极高", "XHigh"),
+    MAX("max", 4, "最大", "Max");
+
+    companion object {
+        fun fromRaw(value: String?): ReasoningEffort? = when (value?.trim()?.lowercase(Locale.US)) {
+            "minimal", "min" -> MINIMAL
+            "low" -> LOW
+            "medium", "med" -> MEDIUM
+            "high" -> HIGH
+            "xhigh", "extra_high", "extra-high", "very_high" -> XHIGH
+            "max" -> MAX
+            else -> null
+        }
+    }
+}
+
+/** Live context-window, quota, reasoning-effort and cumulative token telemetry for one AI agent session. */
 data class AgentSessionUsage(
     val agent: CodingAgent?,
     val model: String = "",
+    val effort: String = "",
     val contextUsed: Long? = null,
     val contextLimit: Long? = null,
     val contextCacheRead: Long = 0,
@@ -62,6 +85,7 @@ data class AgentSessionUsage(
         get() = contextPercent != null || sessionTotalTokens > 0 || quota5h != null || quota7d != null
 
     val formattedModel: String get() = formatModelName(model)
+    val reasoningEffort: ReasoningEffort? get() = ReasoningEffort.fromRaw(effort)
 }
 
 /** Time window for machine-wide AI token statistics on the host detail page. */
@@ -152,6 +176,7 @@ object AgentUsageCollector {
         val parsed = AgentSessionUsage(
             agent = agent,
             model = kv["model"].orEmpty(),
+            effort = kv["effort"].orEmpty(),
             contextUsed = kv["ctx_used"]?.toLongOrNull(),
             contextLimit = kv["ctx_limit"]?.toLongOrNull(),
             contextCacheRead = kv["ctx_cache_read"]?.toLongOrNull() ?: 0L,
@@ -164,7 +189,7 @@ object AgentUsageCollector {
             quota5h = q5h,
             quota7d = q7d,
         )
-        return parsed.takeIf { it.hasAnyData || it.model.isNotEmpty() }
+        return parsed.takeIf { it.hasAnyData || it.model.isNotEmpty() || it.effort.isNotEmpty() }
     }
 
     fun parseHost(lines: List<String>, requestedRange: HostUsageRange): HostAiUsage {
@@ -209,9 +234,9 @@ fun formatTokens(count: Long): String {
     }
 }
 
-/** Turns raw CLI model ids (`claude-opus-4-6`, `gpt-5.4`) into clean short titles without fabricating unknowns. */
+/** Turns raw CLI model ids (`claude-opus-4-6`, `gemini-4-neon`, `gpt-5.4`) into clean short titles. */
 fun formatModelName(raw: String): String {
-    val s = raw.trim()
+    val s = raw.trim().replace(Regex("-(minimal|low|medium|high|xhigh|max)$", RegexOption.IGNORE_CASE), "")
     if (s.isEmpty()) return ""
     val lower = s.lowercase(Locale.US)
     if (lower.startsWith("claude-")) {
@@ -221,6 +246,10 @@ fun formatModelName(raw: String): String {
             val ver = parts.drop(1).takeWhile { it.all { c -> c.isDigit() || c == '.' } }.joinToString(".")
             return if (ver.isNotEmpty()) "$family $ver" else family
         }
+    }
+    if (lower.startsWith("gemini-")) {
+        return lower.split('-').filter { it.isNotEmpty() }
+            .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase(Locale.US) } }
     }
     return s
 }

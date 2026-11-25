@@ -177,13 +177,14 @@ internal fun AgentUsageSheet(
                 .testTag("agent-usage-sheet"),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            UsageSheetHeader(kind, usage?.formattedModel.orEmpty(), "${session.host.name} · $path", loading) {
+            UsageSheetHeader(kind, "${session.host.name} · $path", loading) {
                 session.refreshAgentUsage(force = true)
             }
 
             val u = usage
             val hasData = u != null && (
-                (u.contextPercent != null && u.contextUsed != null && u.contextLimit != null) ||
+                u.formattedModel.isNotEmpty() || u.reasoningEffort != null ||
+                    (u.contextPercent != null && u.contextUsed != null && u.contextLimit != null) ||
                     u.quota5h != null || u.quota7d != null || u.sessionTotalTokens > 0
                 )
             if (u == null || !hasData) {
@@ -205,6 +206,9 @@ internal fun AgentUsageSheet(
                     }
                 }
             } else {
+                if (u.formattedModel.isNotEmpty() || u.reasoningEffort != null) {
+                    ModelEffortCard(u.formattedModel, u.reasoningEffort)
+                }
                 if (u.contextPercent != null && u.contextUsed != null && u.contextLimit != null) {
                     ContextWindowCard(
                         usage = u,
@@ -235,7 +239,6 @@ internal fun AgentUsageSheet(
 @Composable
 private fun UsageSheetHeader(
     kind: CodingAgent?,
-    model: String,
     subtitle: String,
     loading: Boolean,
     onRefresh: () -> Unit,
@@ -243,12 +246,11 @@ private fun UsageSheetHeader(
     val colors = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         if (kind != null) {
-            AgentIcon(kind, 34.dp)
+            AgentIcon(kind, 36.dp)
             Spacer(Modifier.width(10.dp))
         }
         Column(Modifier.weight(1f)) {
-            val title = listOfNotNull(kind?.label ?: "Agent", model.takeIf { it.isNotEmpty() }).joinToString(" · ")
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+            Text(kind?.label ?: "Agent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(subtitle, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
@@ -257,6 +259,79 @@ private fun UsageSheetHeader(
             if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
             else Icon(painterResource(R.drawable.ic_refresh), contentDescription = tr("刷新"),
                 Modifier.size(20.dp), tint = colors.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun effortToneColor(effort: ReasoningEffort): Color = when (effort) {
+    ReasoningEffort.MINIMAL, ReasoningEffort.LOW -> MaterialTheme.colorScheme.onSurfaceVariant
+    ReasoningEffort.MEDIUM -> CodingAgent.CODEX.brand()
+    ReasoningEffort.HIGH -> MaterialTheme.colorScheme.primary
+    ReasoningEffort.XHIGH, ReasoningEffort.MAX -> StatusColors.warning
+}
+
+@Composable
+private fun ModelEffortCard(model: String, effort: ReasoningEffort?) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = colors.groupedContainer,
+        modifier = Modifier.fillMaxWidth().testTag("agent-usage-model-effort"),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                Modifier.weight(if (effort != null) 1.25f else 1f).padding(horizontal = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(tr("当前模型"), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1)
+                Text(
+                    model.ifEmpty { "—" },
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (effort != null) {
+                Box(Modifier.fillMaxHeight().padding(vertical = 2.dp).width(1.dp).background(colors.onSurface.copy(alpha = 0.08f)))
+                val tone = effortToneColor(effort)
+                val localized = tr(effort.zhLabel)
+                Column(
+                    Modifier.weight(1f).padding(horizontal = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(tr("思考等级"), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        EffortSignalBars(effort.bars, tone)
+                        Text(localized, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, color = tone, maxLines = 1)
+                        if (localized != effort.enShort) {
+                            Text(effort.enShort, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+                                color = colors.onSurfaceVariant, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EffortSignalBars(filled: Int, color: Color) {
+    val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.2.dp)) {
+        listOf(4.5.dp, 7.dp, 9.5.dp, 12.dp).forEachIndexed { idx, h ->
+            Box(
+                Modifier
+                    .width(2.8.dp)
+                    .height(h)
+                    .clip(RoundedCornerShape(1.2.dp))
+                    .background(if (idx < filled) color else track),
+            )
         }
     }
 }
@@ -273,22 +348,73 @@ private fun ContextWindowCard(
     val used = usage.contextUsed ?: return
     val limit = usage.contextLimit ?: return
     val rem = usage.contextRemaining ?: 0L
-    val pctColor = if (pct >= 75) contextLevelColor(pct) else colors.onSurface
+    val pctColor = contextLevelColor(pct)
+    val critical = pct >= 90
     val cacheCreateColor = Color(0xFF7AA2F7)
     val cacheReadColor = colors.primary
-    val turnColor = StatusColors.warning
+    val turnColor = if (critical) StatusColors.danger else StatusColors.warning
 
     Surface(shape = MaterialTheme.shapes.medium, color = colors.groupedContainer, modifier = Modifier.testTag("agent-usage-context")) {
-        Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(Modifier.fillMaxWidth().defaultMinSize(minHeight = 26.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(tr("上下文窗口"), style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant,
                     modifier = Modifier.weight(1f))
+                if (canCompact) {
+                    val pillBg = if (critical) StatusColors.danger.copy(alpha = 0.14f) else colors.onSurface.copy(alpha = 0.06f)
+                    val pillBorder = if (critical) StatusColors.danger.copy(alpha = 0.30f) else colors.onSurface.copy(alpha = 0.11f)
+                    val pillFg = if (critical) StatusColors.danger else colors.onSurface.copy(alpha = 0.88f)
+                    val pillIcon = if (critical) StatusColors.danger else colors.onSurfaceVariant
+                    Row(
+                        Modifier
+                            .height(26.dp)
+                            .clip(CircleShape)
+                            .background(pillBg)
+                            .border(0.75.dp, pillBorder, CircleShape)
+                            .clickable(enabled = !compacting, role = Role.Button, onClickLabel = tr("压缩上下文"), onClick = onCompact)
+                            .padding(horizontal = 9.5.dp)
+                            .testTag("agent-usage-compact"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.5.dp),
+                    ) {
+                        if (compacting) {
+                            CircularProgressIndicator(Modifier.size(11.dp), strokeWidth = 1.6.dp, color = pillFg)
+                        } else {
+                            Icon(painterResource(R.drawable.ic_compress), contentDescription = null,
+                                Modifier.size(13.dp), tint = pillIcon)
+                        }
+                        Text(tr("压缩"), fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = pillFg, maxLines = 1)
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        formatTokens(used),
+                        fontSize = 19.sp,
+                        lineHeight = 21.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+                    )
+                    Text(
+                        "/ ${formatTokens(limit)}",
+                        fontSize = 12.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = colors.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 1.dp),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                    )
+                }
                 Text(
-                    "${formatTokens(used)} / ${formatTokens(limit)} · ${trf("已用 %d%%", pct)}",
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum"
-                    ),
+                    trf("已用 %d%%", pct),
+                    fontSize = 12.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
                     color = pctColor,
+                    modifier = Modifier.padding(bottom = 1.dp),
+                    style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                 )
             }
             Spacer(Modifier.height(9.dp))
@@ -299,7 +425,7 @@ private fun ContextWindowCard(
                     if (usage.contextTurn > 0) add(usage.contextTurn.toFloat() / limit to turnColor)
                     if (isEmpty()) add((used.toFloat() / limit) to pctColor)
                 },
-                height = 8.dp,
+                height = 7.dp,
             )
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -312,30 +438,6 @@ private fun ContextWindowCard(
                 Text(trf("余 %s", formatTokens(rem)),
                     style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum"),
                     color = colors.onSurfaceVariant)
-            }
-            if (canCompact) {
-                Spacer(Modifier.height(11.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.primary.copy(alpha = 0.15f))
-                        .clickable(enabled = !compacting, role = Role.Button, onClick = onCompact)
-                        .testTag("agent-usage-compact"),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (compacting) {
-                            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.8.dp, color = colors.primary)
-                        } else {
-                            Icon(painterResource(R.drawable.ic_compress), contentDescription = null,
-                                Modifier.size(16.dp), tint = colors.primary)
-                        }
-                        Text(tr("压缩上下文"), style = MaterialTheme.typography.labelLarge,
-                            color = colors.primary, fontWeight = FontWeight.SemiBold)
-                    }
-                }
             }
         }
     }

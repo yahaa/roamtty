@@ -211,9 +211,11 @@ object AgentHooks {
     fun claudeSettings(session: String?): String {
         fun hook(event: String, action: String) =
             "\"$event\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.CLAUDE, action, session)}\"}]}]"
-        return "{\"hooks\":{" + listOf("SessionStart" to "start", "UserPromptSubmit" to "prompt", "PreToolUse" to "tool",
+        val hooks = listOf("SessionStart" to "start", "UserPromptSubmit" to "prompt", "PreToolUse" to "tool",
             "PostToolUse" to "post", "Notification" to "notify", "Stop" to "stop", "SessionEnd" to "end")
-            .joinToString(",") { (event, action) -> hook(event, action) } + "}}"
+            .joinToString(",") { (event, action) -> hook(event, action) }
+        val statusLine = "\"statusLine\":{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.CLAUDE, "statusline")}\"}"
+        return "{\"hooks\":{$hooks},$statusLine}"
     }
 
     /** Codex events, their key in Codex's hook state, and what the script makes of them. */
