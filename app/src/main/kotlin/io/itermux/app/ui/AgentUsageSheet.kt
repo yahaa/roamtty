@@ -113,24 +113,28 @@ internal fun SessionUsageFooter(usage: AgentSessionUsage, modifier: Modifier = M
                 )
             }
         }
+        if (pct != null) {
+            Spacer(Modifier.height(5.dp))
+            SessionContextBottomBar(pct)
+        }
     }
 }
 
-/** Flush 2dp bottom-edge context progress hairline across an AI Agent session card (Option B1). */
+/** Crisp 2.5dp rounded capsule context progress bar aligned to the card's inner width (Option B1). */
 @Composable
 internal fun SessionContextBottomBar(percent: Int, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
-    val track = colors.onSurface.copy(alpha = 0.055f)
+    val track = colors.onSurface.copy(alpha = 0.06f)
     val fill = when {
         percent >= 90 -> StatusColors.danger
         percent >= 75 -> StatusColors.warning.copy(alpha = 0.90f)
-        else -> colors.onSurfaceVariant.copy(alpha = 0.38f)
+        else -> colors.onSurfaceVariant.copy(alpha = 0.42f)
     }
     val fraction = percent.coerceIn(0, 100) / 100f
-    Box(modifier.fillMaxWidth().height(2.dp).background(track).testTag("session-context-bar")) {
-        if (fraction > 0f) {
-            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight()
-                .clip(RoundedCornerShape(topEnd = 2.dp, bottomEnd = 2.dp)).background(fill))
+    BoxWithConstraints(modifier.fillMaxWidth().height(2.5.dp).clip(CircleShape).background(track).testTag("session-context-bar")) {
+        if (percent > 0) {
+            val fillWidth = (maxWidth * fraction).coerceAtLeast(3.dp).coerceAtMost(maxWidth)
+            Box(Modifier.width(fillWidth).fillMaxHeight().clip(CircleShape).background(fill))
         }
     }
 }

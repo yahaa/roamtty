@@ -91,7 +91,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
         .testTag("$tagPrefix-${session.id}")) {
         if (divider) Box(Modifier.padding(start = 14.dp).fillMaxWidth().height(1.dp).background(colors.onSurface.copy(alpha = 0.07f)))
         val showUsageFooter = card.showUsageFooter
-        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = if (showUsageFooter) 9.dp else 12.dp)) {
+        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
             if (compact) CompactCardBody(card, desktop) else AgentCardBody(card, ui, onClick, desktop)
             if (showUsageFooter) SessionUsageFooter(card.usage!!, card.fade)
         }
@@ -103,7 +103,6 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
                 Text(it, Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelMedium, color = colors.error, maxLines = 2)
             }
         }
-        card.usage?.contextPercent?.let { SessionContextBottomBar(it, card.fade) }
         SessionCardMenu(card, ui, onClose)
         SessionCardDialogs(card, ui, onForget)
     }

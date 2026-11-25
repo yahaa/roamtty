@@ -21,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -129,7 +128,6 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
     val only = filteredGroup(groups, filter.value)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val columns = ((maxWidth - Spacing.Page * 2 + Spacing.Row) / (320.dp + Spacing.Row)).toInt().coerceAtLeast(1)
-        val joined = columns == 1
         LazyVerticalGrid(columns = GridCells.Fixed(columns), state = gridState, modifier = Modifier.fillMaxSize().testTag("home-sessions-list"),
             horizontalArrangement = Arrangement.spacedBy(Spacing.Row),
             contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
@@ -142,17 +140,11 @@ internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (Termi
                     SessionGroupHeader(group, members.size, listed.plainOnly, compact)
                 }
                 gridItemsIndexed(members, key = { _, session -> session.id }) { index, session ->
-                    val radius = 18.dp
-                    val last = index == members.lastIndex
-                    val shape = when {
-                        !joined || (index == 0 && last) -> RoundedCornerShape(radius)
-                        index == 0 -> RoundedCornerShape(topStart = radius, topEnd = radius)
-                        last -> RoundedCornerShape(bottomStart = radius, bottomEnd = radius)
-                        else -> RectangleShape
-                    }
+                    val bottomSpace = if (columns == 1 && index == members.lastIndex) 0.dp else Spacing.Row
                     SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
-                        onForget = { onForget(session) }, hostOffline = hostOffline(session), shape = shape, divider = joined && index > 0,
-                        modifier = if (joined) Modifier else Modifier.padding(bottom = Spacing.Row),
+                        onForget = { onForget(session) }, hostOffline = hostOffline(session),
+                        shape = RoundedCornerShape(18.dp), divider = false,
+                        modifier = Modifier.padding(bottom = bottomSpace),
                         compact = group == SessionGroup.OTHER, desktop = { desktop(session) })
                 }
             }
