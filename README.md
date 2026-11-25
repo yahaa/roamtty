@@ -8,13 +8,6 @@ Mobile SSH, terminal, and remote desktop client for Android — built for remote
 
 ![Roamtty Overview](docs/images/overview.svg)
 
-<p align="center">
-  <img src="docs/images/screens/sessions-en.webp" width="195" alt="AI Agent Sessions">
-  <img src="docs/images/screens/terminal-en.webp" width="195" alt="Agent Terminal">
-  <img src="docs/images/screens/ring-en.webp" width="195" alt="Shortcut Ring">
-  <img src="docs/images/screens/monitor-en.webp" width="195" alt="Host Monitor">
-</p>
-
 ## Highlights
 
 - **Hosts & Trust** — Password, interactive auth, or OpenSSH/PEM private keys (Ed25519, RSA, encrypted keys). Auto-detects OS, online status, and TCP connect latency. Strict TOFU SHA-256 fingerprint pinning blocks changed host keys until explicit re-verification.
