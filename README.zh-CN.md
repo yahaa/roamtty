@@ -8,13 +8,6 @@
 
 ![Roamtty 架构总览](docs/images/overview.svg)
 
-<p align="center">
-  <img src="docs/images/screens/sessions-zh.webp" width="195" alt="AI Agent 会话列表">
-  <img src="docs/images/screens/terminal-zh.webp" width="195" alt="Agent 终端">
-  <img src="docs/images/screens/ring-zh.webp" width="195" alt="快捷键环">
-  <img src="docs/images/screens/monitor-zh.webp" width="195" alt="主机监控">
-</p>
-
 ## 核心特性
 
 - **主机与信任** — 支持密码、交互式认证及 OpenSSH/PEM 私钥（Ed25519、RSA，含加密私钥）。自动识别远端系统、在线状态与 TCP 建连延时；首次连接核对 SHA-256 指纹，指纹变化时强制拦截。
