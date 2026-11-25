@@ -5,7 +5,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $version = (Select-String -Path "$root/gradle.properties" -Pattern '^itermuxVersionName=(.+)$').Matches[0].Groups[1].Value.Trim()
 $zipPath = Join-Path $root "dist/Roamtty-$version-source.zip"
 $folders = @('app','ssh-core','terminal-emulator','terminal-view','scripts','docs','licenses','gradle','artwork')
-$rootNames = @('.gitignore','.gitattributes','settings.gradle.kts','build.gradle.kts','gradle.properties','gradlew','gradlew.bat','LICENSE','NOTICE','README.md','THIRD_PARTY_NOTICES.md','toolchains.lock.json','test-tool.lock.json')
+$rootNames = @('.gitignore','.gitattributes','settings.gradle.kts','build.gradle.kts','gradle.properties','gradlew','gradlew.bat','LICENSE','NOTICE','README.md','README.zh-CN.md','THIRD_PARTY_NOTICES.md','toolchains.lock.json','test-tool.lock.json')
 $files = @($rootNames | ForEach-Object { Get-Item -LiteralPath (Join-Path $root $_) })
 foreach ($folder in $folders) {
     $files += Get-ChildItem -LiteralPath (Join-Path $root $folder) -Recurse -File | Where-Object { $_.FullName -notmatch '\\(build|\.gradle)\\' -and $_.Name -ne 'test_password' }
