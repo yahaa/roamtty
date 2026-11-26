@@ -71,7 +71,9 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
     /** Only the name, the folder and the connection: for sessions without an agent's report. */
     compact: Boolean = false,
     /** The desktop button at the end of the bottom row, when the host can open its desktop. */
-    desktop: (@Composable () -> Unit)? = null) {
+    desktop: (@Composable () -> Unit)? = null,
+    /** Voice-call indicator icon placed beside [desktop] while this session is in a live voice call. */
+    voice: (@Composable () -> Unit)? = null) {
     val card = sessionCard(session, tagPrefix, hostOffline)
     val ui = rememberSessionCardUi(session.id)
     val status = card.status
@@ -92,7 +94,7 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
         if (divider) Box(Modifier.padding(start = 14.dp).fillMaxWidth().height(1.dp).background(colors.onSurface.copy(alpha = 0.07f)))
         val showUsageFooter = card.showUsageFooter
         Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
-            if (compact) CompactCardBody(card, desktop) else AgentCardBody(card, ui, onClick, desktop)
+            if (compact) CompactCardBody(card, desktop, voice) else AgentCardBody(card, ui, onClick, desktop, voice)
             if (showUsageFooter) SessionUsageFooter(card.usage!!, card.fade)
         }
         if (ui.replying || ui.failure != null) Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
@@ -235,7 +237,7 @@ private fun CardTitleLines(card: SessionCard) {
 
 /** A session without an agent's report: the name, the folder and a status line of the connection. */
 @Composable
-private fun CompactCardBody(card: SessionCard, desktop: (@Composable () -> Unit)?) {
+private fun CompactCardBody(card: SessionCard, desktop: (@Composable () -> Unit)?, voice: (@Composable () -> Unit)?) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         SessionIcon(card.session, 40.dp, card.status?.state, modifier = card.fade)
         Column(Modifier.weight(1f).padding(start = Spacing.Row)) { CardTitleLines(card) }
@@ -250,6 +252,7 @@ private fun CompactCardBody(card: SessionCard, desktop: (@Composable () -> Unit)
                 horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 card.tags.forEach { MetaTag(it, Modifier.testTag(card.tag("tag-$it"))) }
             }
+            voice?.invoke()
             desktop?.invoke()
         }
     }
@@ -257,7 +260,8 @@ private fun CompactCardBody(card: SessionCard, desktop: (@Composable () -> Unit)
 
 /** An agent's session: the prompt beside the tile, then what it runs or answered, then its status and what it needs. */
 @Composable
-private fun AgentCardBody(card: SessionCard, ui: SessionCardUi, onClick: () -> Unit, desktop: (@Composable () -> Unit)?) {
+private fun AgentCardBody(card: SessionCard, ui: SessionCardUi, onClick: () -> Unit,
+    desktop: (@Composable () -> Unit)?, voice: (@Composable () -> Unit)?) {
     // The tile stands beside the name, its folder and the prompt; everything after takes the row's whole width.
     Row(verticalAlignment = Alignment.CenterVertically) {
         SessionIcon(card.session, 40.dp, card.status?.state, modifier = card.fade)
@@ -267,7 +271,7 @@ private fun AgentCardBody(card: SessionCard, ui: SessionCardUi, onClick: () -> U
         }
     }
     CardActivityLine(card)
-    CardStatusRow(card, ui, onClick, desktop)
+    CardStatusRow(card, ui, onClick, desktop, voice)
 }
 
 /** The last prompt, or that an idle agent waits for one; empty otherwise, so the line is always there. */
@@ -306,7 +310,8 @@ private fun CardActivityLine(card: SessionCard) {
 
 /** What the agent is doing and for how long; then, held to the right, what keeps and carries it and what the agent needs. */
 @Composable
-private fun CardStatusRow(card: SessionCard, ui: SessionCardUi, onClick: () -> Unit, desktop: (@Composable () -> Unit)?) {
+private fun CardStatusRow(card: SessionCard, ui: SessionCardUi, onClick: () -> Unit,
+    desktop: (@Composable () -> Unit)?, voice: (@Composable () -> Unit)?) {
     val colors = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
     val session = card.session
@@ -329,14 +334,18 @@ private fun CardStatusRow(card: SessionCard, ui: SessionCardUi, onClick: () -> U
             maxLines = 1, softWrap = false)
         SessionRowTrailing(card.tags, card.tagPrefix, session.id, Modifier.weight(1f).padding(start = Spacing.Tight)) {
             if (card.waiting && live) {
+                voice?.invoke()
                 RowAction(tr("查看"), card.tag("view"), plain = true, onClick = onClick)
                 RowAction(tr("允许"), card.tag("approve"), fill = StatusColors.warning) {
                     scope.launch { if (!session.approveAgent()) ui.failure = tr("未发送：Agent 已不在等待确认") }
                 }
-            } else if (card.idle && live) {
-                RowAction(tr("追问"), card.tag("follow-up"), icon = R.drawable.ic_reply, iconOnly = true) { ui.replying = !ui.replying }
+            } else {
+                if (card.idle && live) {
+                    RowAction(tr("追问"), card.tag("follow-up"), icon = R.drawable.ic_reply, iconOnly = true) { ui.replying = !ui.replying }
+                }
+                voice?.invoke()
             }
-            // Rightmost, after 追问: the host's desktop.
+            // Rightmost, after 追问 and active voice icon: the host's desktop.
             desktop?.invoke()
         }
     }

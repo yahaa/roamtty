@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.termux.terminal.TextStyle
 import io.itermux.app.session.TerminalConnection
+import io.itermux.app.voice.VoiceConnection
 import io.itermux.ssh.Phase
 
 /**
@@ -51,6 +52,8 @@ internal fun TerminalPane(
     pip: TerminalPip = TerminalPip(),
     /** Active `agy /voice` call state and controls for this session. */
     voice: TerminalVoice = TerminalVoice(),
+    /** Looks up an active voice call owned by any session id (for the session switcher badge). */
+    voiceForSession: (String) -> VoiceConnection? = { null },
 ) {
     val state by session.state.collectAsStateWithLifecycle()
     val connected = state.phase == Phase.CONNECTED
@@ -80,7 +83,7 @@ internal fun TerminalPane(
 
     val dock: @Composable (Dp) -> Unit = { availableHeight ->
         TerminalPaneDock(pane, availableHeight, landscape, imeVisible, sessions, state.phase, pip,
-            DockActions(onSelectSession, onHostDetail, onClose, onDesktop), voice)
+            DockActions(onSelectSession, onHostDetail, onClose, onDesktop), voice, voiceForSession)
     }
     // The workspace extends under the transparent status bar in the terminal's own background
     // colour (including remote OSC 11 changes). In portrait the text runs under the bar too, faded

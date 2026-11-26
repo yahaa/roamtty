@@ -48,6 +48,7 @@ import io.itermux.app.session.TerminalConnection
 import io.itermux.app.session.isAgyActive
 import io.itermux.app.tr
 import io.itermux.app.trf
+import io.itermux.app.voice.VoiceConnection
 import io.itermux.desktop.VoiceUiState
 import io.itermux.ssh.Phase
 
@@ -64,7 +65,8 @@ internal class DockActions(
 @Composable
 internal fun TerminalPaneDock(pane: TerminalPaneState, availableHeight: Dp, landscape: Boolean, imeVisible: Boolean,
     sessions: List<TerminalConnection>, phase: Phase, pip: TerminalPip, actions: DockActions,
-    voice: TerminalVoice = TerminalVoice()) {
+    voice: TerminalVoice = TerminalVoice(),
+    voiceForSession: (String) -> VoiceConnection? = { null }) {
     val session = pane.session
     val sessionTitle by session.title.collectAsStateWithLifecycle()
     val transferStatus by session.transfers.status.collectAsStateWithLifecycle()
@@ -85,7 +87,8 @@ internal fun TerminalPaneDock(pane: TerminalPaneState, availableHeight: Dp, land
                 onHostDetail = { pane.sessionMenu = false; actions.onHostDetail() },
                 onClose = { pane.sessionMenu = false; actions.onClose() },
                 onRestart = { pane.sessionMenu = false; pane.restartConfirm = true },
-                onSelect = { pane.sessionMenu = false; actions.onSelectSession(it) })
+                onSelect = { pane.sessionMenu = false; actions.onSelectSession(it) },
+                voiceForSession = voiceForSession)
         },
         primaryControls = {
             if (actions.onDesktop != null) DockDesktopButton(pane, pip, actions.onDesktop)

@@ -44,8 +44,6 @@ internal class ScreenData(
     val voicesState: State<Map<String, VoiceConnection>>,
     val sharedImages: List<Uri>,
     val recentHosts: List<String>,
-    /** Recent use leads within each home group and in the drawer; terminal tabs keep their open order. */
-    val sessionsByRecency: List<TerminalConnection>,
 ) {
     val hosts: List<Host> get() = hostsState.value
     val sessions: List<TerminalConnection> get() = sessionsState.value
@@ -60,7 +58,6 @@ internal fun rememberScreenData(app: ItermuxApp, service: SessionService?): Scre
     val loadedHosts by hostFlow.collectAsStateWithLifecycle(initialValue = null)
     val recentUsage = app.recentUsage
     val recentHosts by recentUsage.hostIds.collectAsStateWithLifecycle()
-    val recentSessions by recentUsage.sessionIds.collectAsStateWithLifecycle()
     // A state, not a remembered value: after a rotation the hosts load while an inner scope that reads loadedHosts
     // recomposes on its own, and a captured list would still be the empty one from before, sending the host page home.
     val hostsState = remember { derivedStateOf { loadedHosts.orEmpty().recentFirst(recentHosts) { it.id } } }
@@ -71,7 +68,6 @@ internal fun rememberScreenData(app: ItermuxApp, service: SessionService?): Scre
         if (sessions.isEmpty()) flowOf(emptyMap())
         else combine(sessions.map { session -> session.state.map { session.id to it } }) { it.toMap() }
     }.collectAsStateWithLifecycle(emptyMap())
-    val sessionStates by sessionStatesState
     val desktopFlow = remember(service) { service?.desktops?.connections ?: MutableStateFlow(emptyMap()) }
     val desktopsState = desktopFlow.collectAsStateWithLifecycle()
     val voiceFlow = remember(service) { service?.voices?.connections ?: MutableStateFlow(emptyMap()) }
@@ -81,9 +77,6 @@ internal fun rememberScreenData(app: ItermuxApp, service: SessionService?): Scre
     // The terminal and file previews draw with the terminal font: load it while a session connects, not on its first frame.
     val anySession = sessions.isNotEmpty()
     LaunchedEffect(anySession) { if (anySession) TerminalFonts.preload(context) }
-    val sessionsByRecency = remember(sessions, sessionStates, recentSessions) {
-        sessions.sortedBy { activityRank(sessionStates[it.id] ?: it.state.value) }.recentFirst(recentSessions) { it.id }
-    }
     LaunchedEffect(loadedHosts, sessions, service) {
         val savedHosts = loadedHosts ?: return@LaunchedEffect
         val bound = service ?: return@LaunchedEffect
@@ -92,8 +85,7 @@ internal fun rememberScreenData(app: ItermuxApp, service: SessionService?): Scre
         // A newly saved host can already have a session before Room emits its updated host list.
         recentUsage.retain((savedHosts.map { it.id } + restored.map { it.host.id }).toSet(), restored.map { it.id }.toSet())
     }
-    return ScreenData(loadedHosts, hostsState, sessionsState, sessionStatesState, desktopsState, voicesState, sharedImages, recentHosts,
-        sessionsByRecency)
+    return ScreenData(loadedHosts, hostsState, sessionsState, sessionStatesState, desktopsState, voicesState, sharedImages, recentHosts)
 }
 
 /** The home page's grids: the sessions' and the hosts'. */

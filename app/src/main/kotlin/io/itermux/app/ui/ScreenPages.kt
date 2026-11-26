@@ -36,6 +36,7 @@ import io.itermux.app.data.installedPlugins
 import io.itermux.app.desktop.DesktopConnection
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
+import io.itermux.app.voice.VoiceConnection
 import io.itermux.desktop.DesktopPhase
 import io.itermux.desktop.DesktopProbe
 import io.itermux.desktop.VoiceUiState
@@ -49,7 +50,7 @@ internal class HomeLists(
     val pager: PagerState,
     val sessionGrid: LazyGridState,
     val hostGrid: LazyGridState,
-    /** Sessions with recent use first, as the sessions tab and the drawer list them. */
+    /** Sessions in fixed open order, shared across home list, drawer, and terminal switcher. */
     val sessions: List<TerminalConnection>,
     val hosts: List<Host>,
     val groups: List<ListedGroup>,
@@ -112,7 +113,8 @@ internal fun ScreenToolbar(state: ScreenState, lists: HomeLists, landscape: Bool
 /** The home page: the search field while it is open, then the sessions and hosts tabs side by side. */
 @Composable
 internal fun HomePage(state: ScreenState, actions: ScreenActions, lists: HomeLists, sessions: List<TerminalConnection>,
-    desktops: Map<String, DesktopConnection>, compact: Boolean, barSlide: HomeBarSlide, searchFocus: FocusRequester) {
+    desktops: Map<String, DesktopConnection>, voices: Map<String, VoiceConnection>, compact: Boolean, barSlide: HomeBarSlide,
+    searchFocus: FocusRequester) {
     val hosts = lists.hosts
     val reachability = lists.reachability
     Column(Modifier.fillMaxSize()) {
@@ -153,6 +155,13 @@ internal fun HomePage(state: ScreenState, actions: ScreenActions, lists: HomeLis
                     val offline = !actions.hostConnected(host) && reachability.statusOf(host) == HostReachability.Offline
                     val button = actions.desktopButton(host, !offline, sessionState.phase == Phase.CONNECTED, desktopPhase)
                     DesktopCardButton(button, "home-session-desktop-${session.id}") { actions.openDesktop(host) }
+                },
+                voice = { session ->
+                    val activeVoice = voices.values.firstOrNull { it.sessionId == session.id }
+                    if (activeVoice != null) {
+                        val voiceUi by activeVoice.ui.collectAsStateWithLifecycle()
+                        SessionVoiceIconTag(voiceUi, "home-session-voice-${session.id}")
+                    }
                 })
             else HomeHostsTab(hosts, state.search, lists.hostGrid,
                 reachability = { host ->
@@ -235,8 +244,8 @@ internal fun ColumnScope.DesktopRoute(connection: DesktopConnection, state: Scre
 
 /** The terminal of [active], which reconnects by itself when it was dropped or restored; [sessions] are its tabs. */
 @Composable
-internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: List<TerminalConnection>, state: ScreenState,
-    actions: ScreenActions, lightTheme: Boolean) {
+internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: List<TerminalConnection>,
+    voices: Map<String, VoiceConnection>, state: ScreenState, actions: ScreenActions, lightTheme: Boolean) {
     // Reconnecting preserves the journal id but replaces the transport and emulator.
     key(active) {
         // The saved host, not the session's copy: a password saved since then spares a prompt.
@@ -296,6 +305,7 @@ internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: Lis
                 onToggleMute = { actions.toggleVoiceMute(host) },
                 onCycleRoute = { actions.cycleVoiceRoute(host) },
                 onHangup = { actions.hangupVoice(host) },
-            ))
+            ),
+            voiceForSession = { id -> voices.values.firstOrNull { it.sessionId == id } })
     }
 }

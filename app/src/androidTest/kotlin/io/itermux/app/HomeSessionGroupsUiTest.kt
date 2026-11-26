@@ -71,12 +71,12 @@ class HomeSessionGroupsUiTest {
             withTimeout(40_000) { waiting.agentStatus.first { it?.state == AgentStatus.State.WAITING } }
             fun exists(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
             compose.waitUntil(15_000) {
-                listOf("waiting", "done", "other").all { exists("home-session-group-$it") } && exists("home-session-filter-all")
+                listOf("waiting", "done", "other").all { exists("home-session-filter-$it") } && exists("home-session-filter-all")
             }
             fun top(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true).getUnclippedBoundsInRoot().top
-            // Waiting first, then done, then the plain terminal.
-            assertTrue(top("home-session-${waiting.id}") < top("home-session-${done.id}"))
-            assertTrue(top("home-session-${done.id}") < top("home-session-${plain.id}"))
+            // Fixed creation order stays intact regardless of agent status transitions.
+            assertTrue(top("home-session-${done.id}") < top("home-session-${waiting.id}"))
+            assertTrue(top("home-session-${waiting.id}") < top("home-session-${plain.id}"))
             compose.onNodeWithTag("home-session-reply-${done.id}", useUnmergedTree = true).assertExists()
             compose.onNodeWithTag("home-session-approve-${waiting.id}", useUnmergedTree = true).assertExists()
             capture(context, "session-groups")

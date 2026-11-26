@@ -13,6 +13,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -56,6 +57,123 @@ internal data class TerminalVoice(
     val onCycleRoute: () -> Unit = {},
     val onHangup: () -> Unit = {},
 )
+
+/**
+ * Compact phone-in-call icon tag for a session card's bottom-right status row (matching [IconTag] / [DesktopCardButton]).
+ * Hidden completely when [ui] is not in a call so non-calling cards stay unchanged.
+ */
+@Composable
+internal fun SessionVoiceIconTag(ui: VoiceUiState, tag: String, modifier: Modifier = Modifier) {
+    if (!ui.inCall) return
+    val unstable = ui.networkUnstable
+    val muted = ui.isMuted
+    val tint = if (unstable) StatusColors.warning else StatusColors.success
+    val description = when {
+        unstable -> tr("网络不稳定")
+        muted -> tr("语音通话已静音")
+        else -> tr("语音通话中")
+    }
+    val dotAlpha = if (!muted || unstable) {
+        rememberInfiniteTransition(label = "session-voice-dot").animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "dotAlpha",
+        ).value
+    } else 1f
+    Box(
+        modifier
+            .size(width = 30.dp, height = 24.dp)
+            .semantics { contentDescription = description }
+            .testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(width = 28.dp, height = 20.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(tint.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_phone_fill),
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(13.dp),
+            )
+        }
+        val badgeTag = when {
+            unstable -> "$tag-unstable"
+            muted -> "$tag-muted"
+            else -> "$tag-active"
+        }
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 1.dp, y = 0.dp)
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(tint.copy(alpha = dotAlpha))
+                .border(1.dp, MaterialTheme.colorScheme.groupedContainer, CircleShape)
+                .testTag(badgeTag),
+        )
+    }
+}
+
+/**
+ * Minimal circular phone-in-call icon for dense lists (terminal session switcher and navigation drawer).
+ * Hidden completely when [ui] is not in a call.
+ */
+@Composable
+internal fun SessionVoiceMiniIcon(ui: VoiceUiState, tag: String, modifier: Modifier = Modifier) {
+    if (!ui.inCall) return
+    val unstable = ui.networkUnstable
+    val muted = ui.isMuted
+    val tint = if (unstable) StatusColors.warning else StatusColors.success
+    val description = when {
+        unstable -> tr("网络不稳定")
+        muted -> tr("语音通话已静音")
+        else -> tr("语音通话中")
+    }
+    val dotAlpha = if (!muted || unstable) {
+        rememberInfiniteTransition(label = "session-voice-mini-dot").animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "dotAlpha",
+        ).value
+    } else 1f
+    Box(
+        modifier
+            .size(22.dp)
+            .semantics { contentDescription = description }
+            .testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(tint.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_phone_fill),
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(12.dp),
+            )
+        }
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 1.dp, y = (-1).dp)
+                .size(5.dp)
+                .clip(CircleShape)
+                .background(tint.copy(alpha = dotAlpha)),
+        )
+    }
+}
 
 /** Tiny status micro-pill pinned beneath the floating pet during a call while the popover is closed. */
 @Composable

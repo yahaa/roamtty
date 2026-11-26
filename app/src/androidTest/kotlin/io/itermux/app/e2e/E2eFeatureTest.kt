@@ -836,7 +836,7 @@ class E2eFeatureTest {
         sessionsTab()
         compose.waitUntil(40_000) {
             E2e.exists(compose, hasTestTag("home-session-approve-${waiting.id}")) &&
-                E2e.exists(compose, hasTestTag("home-session-group-done"))
+                E2e.exists(compose, hasTestTag("home-session-done-${latest.id}"))
         }
         fun tag(name: String) = compose.onNodeWithTag(name, useUnmergedTree = true)
         // Every row has its folder under its name (the fixture's home is not under /home, so it stays whole).

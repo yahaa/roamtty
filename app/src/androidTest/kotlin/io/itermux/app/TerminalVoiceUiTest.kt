@@ -146,4 +146,38 @@ class TerminalVoiceUiTest {
         assertEquals(1, dockOpened)
         assertEquals(1, hungUp)
     }
+
+    @Test fun sessionVoiceIconTagsHideWhenIdleAndReflectCallStates() {
+        var ui by mutableStateOf(VoiceUiState())
+        compose.setContent {
+            MaterialTheme(colorScheme = DarkColors, shapes = AppShapes, typography = AppTypography) {
+                SessionVoiceIconTag(ui = ui, tag = "home-session-voice-s1")
+                SessionVoiceMiniIcon(ui = ui, tag = "drawer-session-voice-s1")
+            }
+        }
+        // Hidden when idle or failed
+        compose.onNodeWithTag("home-session-voice-s1").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-session-voice-s1").assertDoesNotExist()
+
+        ui = VoiceUiState(phase = VoiceCallPhase.Failed("err"))
+        compose.waitForIdle()
+        compose.onNodeWithTag("home-session-voice-s1").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-session-voice-s1").assertDoesNotExist()
+
+        // Active call shows both card icon tag and mini icon
+        ui = VoiceUiState(phase = VoiceCallPhase.Listening)
+        compose.waitForIdle()
+        compose.onNodeWithTag("home-session-voice-s1").assertIsDisplayed()
+        compose.onNodeWithTag("home-session-voice-s1-active", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("drawer-session-voice-s1").assertIsDisplayed()
+
+        // Muted and unstable badges track call state
+        ui = ui.copy(phase = VoiceCallPhase.Muted)
+        compose.waitForIdle()
+        compose.onNodeWithTag("home-session-voice-s1-muted", useUnmergedTree = true).assertIsDisplayed()
+
+        ui = ui.copy(phase = VoiceCallPhase.Listening, networkPoor = true)
+        compose.waitForIdle()
+        compose.onNodeWithTag("home-session-voice-s1-unstable", useUnmergedTree = true).assertIsDisplayed()
+    }
 }
