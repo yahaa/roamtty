@@ -285,14 +285,14 @@ internal class VoiceConnection(
                 if (first.timedOut) return Outcome.Dropped(tr("语音插件握手超时"))
                 val status = silentExit(s)
                 // Exit 127 / 9009: binary missing; exit 2: older plugin lacking the `voice` subcommand.
-                if (!installedThisAttempt && (status == 127 || status == WindowsDesktop.NOT_FOUND || status == 2)) {
+                if (!installedThisAttempt && (status == 127 || status == WindowsDesktop.NOT_FOUND || status == EXIT_UNSUPPORTED_SUBCOMMAND)) {
                     dispatch(VoiceEvent.StepChanged(VoiceStep.INSTALL))
                     val failure = setup.install(remote, target.first, target.second, headless = true)
                     if (failure != null) return Outcome.Failed(failure)
                     installedThisAttempt = true
                     continue
                 }
-                return if (s.closed && status != null) Outcome.Failed(trf("语音插件启动失败（退出码 %d）", status))
+                return if (s.closed && status != null) Outcome.Failed(voiceStartExitMessage(status))
                 else Outcome.Dropped()
             }
             when (val start = VoiceProtocol.parseStart(first.line)) {
@@ -567,5 +567,13 @@ internal class VoiceConnection(
         private const val RECOVER_LIMIT_MS = 290_000L // Within plugin's 300s default --idle-timeout
         private const val SSH_SEND_CAP = 128
         private const val MIC_UDP_FEC_RATIO = 1.0f
+        internal const val EXIT_UNSUPPORTED_SUBCOMMAND = 2
+
+        /** User-facing failure message when `roamtty-desktop voice` exits before writing `hello`. */
+        internal fun voiceStartExitMessage(status: Int): String = if (status == EXIT_UNSUPPORTED_SUBCOMMAND) {
+            tr("主机插件版本过旧，不支持语音模式，请更新插件")
+        } else {
+            trf("语音插件启动失败（退出码 %d）", status)
+        }
     }
 }

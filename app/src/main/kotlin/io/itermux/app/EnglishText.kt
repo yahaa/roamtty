@@ -904,6 +904,7 @@ internal object EnglishText {
         "语音连接中断超时，已断开" to "Voice connection timed out and disconnected",
         "无法检测这台主机的系统环境" to "Could not detect this host's operating system",
         "语音插件握手超时" to "Voice plugin handshake timed out",
+        "主机插件版本过旧，不支持语音模式，请更新插件" to "Host plugin is outdated and does not support voice mode; please update the plugin",
         "语音插件启动失败（退出码 %d）" to "Voice plugin failed to start (exit code %d)",
         "语音插件出错：%s" to "Voice plugin error: %s",
         "语音插件启动失败" to "Voice plugin failed to start"

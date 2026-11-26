@@ -99,4 +99,14 @@ class VoiceEnvironmentTest {
         assertEquals(2, commands.size)
         assertTrue(commands.all { it.startsWith("powershell") })
     }
+
+    @Test fun exitCodeTwoShowsFriendlyOutdatedPluginMessage() {
+        val outdated = VoiceConnection.voiceStartExitMessage(VoiceConnection.EXIT_UNSUPPORTED_SUBCOMMAND)
+        assertEquals("主机插件版本过旧，不支持语音模式，请更新插件", outdated)
+        assertEquals(
+            "Host plugin is outdated and does not support voice mode; please update the plugin",
+            io.itermux.app.EnglishText.values[outdated],
+        )
+        assertEquals("语音插件启动失败（退出码 1）", VoiceConnection.voiceStartExitMessage(1))
+    }
 }
