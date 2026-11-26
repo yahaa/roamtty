@@ -639,6 +639,7 @@ internal object EnglishText {
         "Source Code Pro" to "Source Code Pro",
         "IBM Plex Mono" to "IBM Plex Mono",
         "Cascadia Mono" to "Cascadia Mono",
+        "Iosevka 窄体" to "Iosevka Fixed (Narrow)",
         "原指纹：%s\n新指纹：%s" to "Old fingerprint: %s\nNew fingerprint: %s",
         "传输失败：%s" to "Transfer failed: %s",
         "远端文件已存在：%s" to "Remote file already exists: %s",

@@ -21,7 +21,7 @@ Licensor Line of Business: Remote terminal and remote AI coding client software.
 | AndroidX / Jetpack Compose / Room | Exact versions in Gradle build files | Apache-2.0 |
 | Gradle Wrapper | 8.11.1 | Apache-2.0 |
 | JUnit / Hamcrest (tests only) | 4.13.2 / transitive | EPL-1.0 / BSD-3-Clause |
-| Bundled terminal fonts (JetBrains Mono 2.304, Fira Code 6.2, Source Code Pro 2.042, IBM Plex Mono 1.1.0, Cascadia Mono 2404.23) | assets/fonts + licenses/fonts | SIL Open Font License 1.1 |
+| Bundled terminal fonts (JetBrains Mono 2.304, Fira Code 6.2, Source Code Pro 2.042, IBM Plex Mono 1.1.0, Cascadia Mono 2404.23, Iosevka Fixed 34.9.1) | assets/fonts + licenses/fonts | SIL Open Font License 1.1 |
 | Terminal symbol fallback: Noto Sans Symbols 2 (2.008) | assets/fonts + licenses/fonts | SIL Open Font License 1.1 |
 | Terminal icon fallback: Symbols Nerd Font Mono (Nerd Fonts 3.5.1) | assets/fonts + licenses/fonts | MIT |
 
