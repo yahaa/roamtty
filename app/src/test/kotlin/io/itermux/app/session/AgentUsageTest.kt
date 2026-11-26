@@ -270,4 +270,77 @@ class AgentUsageTest {
             home.deleteRecursively()
         }
     }
+
+    @Test fun agyQuotaNeverPollsAutomaticallyAndFetchesOnlyWhenExplicitlyRequested() {
+        val home = Files.createTempDirectory("roamtty-agy-manual-quota").toFile()
+        try {
+            val binDir = File(home, ".local/bin").apply { mkdirs() }
+            val marker = File(home, "agy-invoked.log")
+            val fakeAgy = File(binDir, "agy").apply {
+                writeText(
+                    """#!/bin/sh
+echo "$@" >> "${marker.absolutePath}"
+printf '%s\n' '{"command":{"data":{"groups":[{"name":"Gemini Models","buckets":[{"window":"5h","remaining_fraction":0.64,"reset_time":"2099-01-01T05:00:00Z"},{"window":"weekly","remaining_fraction":0.52,"reset_time":"2099-01-07T00:00:00Z"}]}]}}}'
+"""
+                )
+                setExecutable(true)
+            }
+            assertTrue(fakeAgy.canExecute())
+            val agyLogDir = File(home, ".gemini/antigravity-cli/brain/conv-manual/.system_generated/logs").apply { mkdirs() }
+            File(agyLogDir, "transcript.jsonl").writeText(
+                """{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":5000,"output_tokens":500,"cache_read_tokens":20000}""" + "\n"
+            )
+            val envPath = "${binDir.absolutePath}:${System.getenv("PATH") ?: "/usr/bin:/bin"}"
+
+            // 1. Default session + host reads must NOT invoke `agy -p /quota`.
+            val autoSessProc = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.sessionCommand(CodingAgent.AGY, null, "/work/app")).apply {
+                environment()["HOME"] = home.absolutePath
+                environment()["PATH"] = envPath
+            }.start()
+            autoSessProc.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
+            val autoSess = AgentUsageCollector.parseSession(autoSessProc.inputStream.bufferedReader().readText())!!
+            assertEquals(0, autoSessProc.waitFor())
+            assertNull(autoSess.quota5h)
+            assertNull(autoSess.quota7d)
+            assertTrue("auto session read must not invoke agy", !marker.exists())
+
+            val autoHostProc = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.hostScript(HostUsageRange.TODAY)).apply {
+                environment()["HOME"] = home.absolutePath
+                environment()["PATH"] = envPath
+            }.start()
+            val autoHost = AgentUsageCollector.parseHost(autoHostProc.inputStream.bufferedReader().readLines(), HostUsageRange.TODAY)
+            assertEquals(0, autoHostProc.waitFor())
+            assertEquals(1, autoHost.agents.size)
+            assertNull(autoHost.agents[0].quota5h)
+            assertTrue("auto host read must not invoke agy", !marker.exists())
+
+            // 2. Manual button triggers fetchAgyQuota=true -> invokes `agy -p /quota` once and caches result.
+            val manualProc = ProcessBuilder(
+                "/bin/sh", "-c",
+                AgentUsageCollector.sessionCommand(CodingAgent.AGY, null, "/work/app", fetchAgyQuota = true),
+            ).apply {
+                environment()["HOME"] = home.absolutePath
+                environment()["PATH"] = envPath
+            }.start()
+            manualProc.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
+            val manualSess = AgentUsageCollector.parseSession(manualProc.inputStream.bufferedReader().readText())!!
+            assertEquals(0, manualProc.waitFor())
+            assertEquals(64, manualSess.quota5h?.remainingRounded)
+            assertEquals(52, manualSess.quota7d?.remainingRounded)
+            assertEquals(1, marker.readLines().size)
+
+            // 3. Subsequent default host read serves the cached manual quota without invoking `agy` again.
+            val cachedHostProc = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.hostScript(HostUsageRange.TODAY)).apply {
+                environment()["HOME"] = home.absolutePath
+                environment()["PATH"] = envPath
+            }.start()
+            val cachedHost = AgentUsageCollector.parseHost(cachedHostProc.inputStream.bufferedReader().readLines(), HostUsageRange.TODAY)
+            assertEquals(0, cachedHostProc.waitFor())
+            assertEquals(64, cachedHost.agents[0].quota5h?.remainingRounded)
+            assertEquals(52, cachedHost.agents[0].quota7d?.remainingRounded)
+            assertEquals(1, marker.readLines().size)
+        } finally {
+            home.deleteRecursively()
+        }
+    }
 }

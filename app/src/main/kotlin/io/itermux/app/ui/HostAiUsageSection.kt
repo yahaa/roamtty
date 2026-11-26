@@ -11,12 +11,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.itermux.app.R
 import io.itermux.app.session.*
 import io.itermux.app.tr
 import io.itermux.app.trf
@@ -39,11 +41,29 @@ internal fun HostAiUsageSection(monitor: HostMonitor, modifier: Modifier = Modif
         ) {
             Text(tr("AI 用量"), style = MaterialTheme.typography.sectionHeader, color = colors.onSurfaceVariant,
                 modifier = Modifier.weight(1f))
-            if (loading) {
-                CircularProgressIndicator(Modifier.size(12.dp).padding(end = 4.dp), strokeWidth = 1.5.dp)
-                Spacer(Modifier.width(6.dp))
-            }
             RangeMiniSegment(range, onSelect = monitor::setAiUsageRange)
+            Spacer(Modifier.width(4.dp))
+            Box(
+                Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = ready && !loading, role = Role.Button, onClickLabel = tr("刷新")) {
+                        monitor.refreshAiUsage(force = true, fetchAgyQuota = true)
+                    }
+                    .testTag("host-ai-usage-refresh"),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (loading) {
+                    CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 1.6.dp, color = colors.onSurfaceVariant)
+                } else {
+                    Icon(
+                        painterResource(R.drawable.ic_refresh),
+                        contentDescription = tr("刷新"),
+                        modifier = Modifier.size(16.dp),
+                        tint = colors.onSurfaceVariant,
+                    )
+                }
+            }
         }
 
         GroupedSection {

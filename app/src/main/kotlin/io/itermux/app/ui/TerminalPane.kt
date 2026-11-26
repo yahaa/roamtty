@@ -120,7 +120,6 @@ internal fun TerminalPane(
             ) {
                 pane.hideKeyboard()
                 pane.dismissDockMenus()
-                session.refreshAgentUsage(force = true)
                 pane.usageSheetOpen = true
             }
         }
