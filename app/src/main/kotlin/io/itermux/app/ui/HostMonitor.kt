@@ -197,7 +197,7 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
                 val status = withContext(Dispatchers.IO) {
                     remote.run(
                         AgentUsageCollector.hostScript(range, fetchAgyQuota = fetchAgyQuota),
-                        if (fetchAgyQuota) 20_000 else 15_000,
+                        if (fetchAgyQuota) 25_000 else 15_000,
                     ) { lines += it }
                 }
                 if (status == 0) {

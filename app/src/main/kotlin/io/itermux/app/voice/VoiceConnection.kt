@@ -5,6 +5,8 @@ import io.itermux.app.ItermuxApp
 import io.itermux.app.data.Host
 import io.itermux.app.data.credentialsFor
 import io.itermux.app.data.installedPlugins
+import io.itermux.app.desktop.DesktopConnection
+import io.itermux.app.desktop.DesktopPing
 import io.itermux.app.desktop.DesktopPluginSetup
 import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.login.PendingPrompt
@@ -272,6 +274,8 @@ internal class VoiceConnection(
     @Volatile private var fatalFailure: String? = null
     private val cleanedEnv = AtomicBoolean(false)
     private val fallbackShutdownSent = AtomicBoolean(false)
+    private val ping = DesktopPing(::send)
+    @Volatile private var goodSinceMs = 0L
 
     private var job: Job? = null
     private var timerJob: Job? = null
@@ -304,10 +308,10 @@ internal class VoiceConnection(
         job = scope.launch(Dispatchers.IO) { runLoop(mode) }
     }
 
-    /** Toggles mute in `LIVE` mode once connected; returns the new mute state, or null when ignored (connecting / dictate). */
+    /** Toggles mute once connected; returns the new mute state, or null when ignored (connecting / resuming). */
     fun toggleMute(): Boolean? {
         val current = mutableUi.value
-        if (!current.inCall || current.isConnecting || current.resuming || current.mode != VoiceMode.LIVE) return null
+        if (!current.inCall || current.isConnecting || current.resuming) return null
         dispatch(VoiceEvent.ToggleMute)
         val nowMuted = mutableUi.value.isMuted
         engine.muted = nowMuted
@@ -642,13 +646,15 @@ internal class VoiceConnection(
 
         val active = ActiveStream(s)
         activeStream = active
+        ping.reset()
+        goodSinceMs = 0L
         var writer: Job? = null
         var ticker: Job? = null
         try {
             startUdp(hello)
             if (closing) return Outcome.Closed
 
-            // Inject ANTIGRAVITY_MIC into ~/.roamtty/agy (or Windows agy.ps1) and tmux/psmux sessions before sending F5/F6.
+            // Inject ANTIGRAVITY_MIC into ~/.roamtty/agy (or Windows agy.ps1) and tmux/psmux sessions before sending F6.
             VoiceEnvironment.inject(remote, windowsHost, hello.micPort, tmuxSessions())
             if (closing) return Outcome.Closed
 
@@ -692,9 +698,10 @@ internal class VoiceConnection(
                         val l = link
                         val transportName = if (l != null && l.alive) "UDP" else "SSH"
                         if (mutableUi.value.link != transportName) dispatch(VoiceEvent.LinkChanged(transportName))
-                        if (++ticks % PING_EVERY_TICKS == 0) {
-                            send(VoiceProtocol.ping(System.nanoTime() / 1000))
-                        }
+                        if (ticks % PING_EVERY_TICKS == 0) ping.next()
+                        ping.tick()
+                        updateLinkQuality(System.currentTimeMillis())
+                        ticks++
                         delay(TICK_INTERVAL_MS)
                     }
                 }
@@ -923,7 +930,27 @@ internal class VoiceConnection(
                 val now = System.nanoTime() / 1000
                 send(VoiceProtocol.pong(message.t1, now, now))
             }
-            is VoiceServerMessage.Pong -> Unit
+            is VoiceServerMessage.Pong -> {
+                ping.answer(message.t1)
+            }
+        }
+    }
+
+    /** Two missed pings in a row, or a slow answer (or UDP stall/heavy loss), marks the voice link unstable; 5 clean seconds restore it. */
+    private fun updateLinkQuality(now: Long) {
+        val rtt = ping.rttMs
+        val l = link
+        val bad = if (l != null && l.alive) {
+            l.silentUs > 700_000 || l.loss > 0.25 || rtt > DesktopConnection.POOR_MS
+        } else {
+            ping.missed >= 2 || rtt > DesktopConnection.POOR_MS
+        }
+        if (bad) goodSinceMs = 0L else if (goodSinceMs == 0L) goodSinceMs = now
+        val wasPoor = mutableUi.value.networkPoor
+        val poor = bad || (wasPoor && now - goodSinceMs < POOR_RECOVER_MS)
+        if (poor != wasPoor) {
+            Log.i(TAG, "${host.name}: voice networkPoor=$poor (udp=${l?.alive} silent=${l?.silentUs?.div(1000)}ms loss=${l?.loss} rtt=$rtt missed=${ping.missed})")
+            dispatch(VoiceEvent.NetworkQualityChanged(poor))
         }
     }
 
@@ -993,8 +1020,9 @@ internal class VoiceConnection(
         private const val HANDSHAKE_MS = 25_000L
         private const val RECOVER_LIMIT_MS = 290_000L // Within plugin's 300s default --idle-timeout
         private const val SHUTDOWN_GRACE_MS = 120L
-        private const val TICK_INTERVAL_MS = 500L
-        private const val PING_EVERY_TICKS = 10 // Every ~5s
+        private const val TICK_INTERVAL_MS = 250L
+        private const val PING_EVERY_TICKS = 4 // Every ~1s
+        private const val POOR_RECOVER_MS = 5_000L
         private const val SSH_SEND_CAP = 128
         internal const val MIC_SSH_CAP = 20
         private const val MIC_UDP_FEC_RATIO = 1.0f

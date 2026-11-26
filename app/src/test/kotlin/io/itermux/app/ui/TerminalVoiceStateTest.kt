@@ -25,32 +25,46 @@ class TerminalVoiceStateTest {
         assertEquals(PetVoiceState.Idle, PetVoiceState.from(VoiceUiState(phase = VoiceCallPhase.Failed("err"))))
 
         val connecting = PetVoiceState.from(VoiceUiState(phase = VoiceCallPhase.Connecting()))
-        assertEquals(PetVoiceState.Connecting, connecting)
+        assertEquals(PetVoiceState.Connecting(networkUnstable = false), connecting)
         assertTrue(connecting.inCall)
+        assertFalse(connecting.isNetworkUnstable)
         assertEquals("connecting", connecting.tagName)
 
         val listening = PetVoiceState.from(VoiceUiState(phase = VoiceCallPhase.Listening, mode = VoiceMode.LIVE, micLevel = 0.42f))
-        assertEquals(PetVoiceState.Listening(0.42f, dictating = false), listening)
+        assertEquals(PetVoiceState.Listening(0.42f, networkUnstable = false), listening)
+        assertFalse(listening.isNetworkUnstable)
         assertEquals("listening", listening.tagName)
 
-        val dictating = PetVoiceState.from(VoiceUiState(phase = VoiceCallPhase.Listening, mode = VoiceMode.DICTATE, micLevel = 0.5f))
-        assertEquals(PetVoiceState.Listening(0.5f, dictating = true), dictating)
-        assertEquals("dictating", dictating.tagName)
-
         val speaking = PetVoiceState.from(VoiceUiState(phase = VoiceCallPhase.Speaking, speakerLevel = 0.77f))
-        assertEquals(PetVoiceState.Speaking(0.77f), speaking)
+        assertEquals(PetVoiceState.Speaking(0.77f, networkUnstable = false), speaking)
+        assertFalse(speaking.isNetworkUnstable)
         assertEquals("speaking", speaking.tagName)
 
         val muted = PetVoiceState.from(VoiceUiState(phase = VoiceCallPhase.Muted))
-        assertEquals(PetVoiceState.Muted, muted)
+        assertEquals(PetVoiceState.Muted(networkUnstable = false), muted)
+        assertFalse(muted.isNetworkUnstable)
         assertEquals("muted", muted.tagName)
+
+        // Network instability flags the pet across active states so only poor/reconnecting network shifts color.
+        val unstableListening = PetVoiceState.from(VoiceUiState(phase = VoiceCallPhase.Listening, micLevel = 0.3f, networkPoor = true))
+        assertTrue(unstableListening.isNetworkUnstable)
+        assertEquals("listening-unstable", unstableListening.tagName)
+
+        val unstableSpeaking = PetVoiceState.from(VoiceUiState(phase = VoiceCallPhase.Speaking, speakerLevel = 0.5f, networkPoor = true))
+        assertTrue(unstableSpeaking.isNetworkUnstable)
+        assertEquals("speaking-unstable", unstableSpeaking.tagName)
+
+        val unstableMuted = PetVoiceState.from(VoiceUiState(phase = VoiceCallPhase.Muted, networkPoor = true))
+        assertTrue(unstableMuted.isNetworkUnstable)
+        assertEquals("muted-unstable", unstableMuted.tagName)
     }
 
-    @Test fun resumingMapsPetToConnectingAndPausesTimer() {
+    @Test fun resumingMapsPetToUnstableConnectingAndPausesTimer() {
         val resumingListening = VoiceUiState(phase = VoiceCallPhase.Listening, mode = VoiceMode.LIVE, resuming = true)
-        assertEquals(PetVoiceState.Connecting, PetVoiceState.from(resumingListening))
+        assertEquals(PetVoiceState.Connecting(networkUnstable = true), PetVoiceState.from(resumingListening))
+        assertEquals("reconnecting", PetVoiceState.from(resumingListening).tagName)
         val resumingMuted = VoiceUiState(phase = VoiceCallPhase.Muted, mode = VoiceMode.LIVE, resuming = true)
-        assertEquals(PetVoiceState.Connecting, PetVoiceState.from(resumingMuted))
+        assertEquals(PetVoiceState.Connecting(networkUnstable = true), PetVoiceState.from(resumingMuted))
 
         var state = VoiceStateMachine.reduce(VoiceUiState(), VoiceEvent.Start(VoiceMode.LIVE, AudioRoute.SPEAKER))
         state = VoiceStateMachine.reduce(state, VoiceEvent.Ready(24713, "UDP"))
@@ -61,19 +75,16 @@ class TerminalVoiceStateTest {
 
         state = VoiceStateMachine.reduce(state, VoiceEvent.Resuming(true))
         assertTrue(state.resuming)
+        assertTrue(state.networkUnstable)
         assertNull(state.activeMicStreamId)
         assertNull(state.activeSpkStreamId)
         state = VoiceStateMachine.reduce(state, VoiceEvent.TickSecond)
         assertEquals(1, state.elapsedSeconds)
     }
 
-    @Test fun toggleMuteBlockedInConnectingAndDictate() {
+    @Test fun toggleMuteBlockedWhileConnecting() {
         val connecting = VoiceStateMachine.reduce(VoiceUiState(), VoiceEvent.Start(VoiceMode.LIVE, AudioRoute.SPEAKER))
         assertEquals(connecting, VoiceStateMachine.reduce(connecting, VoiceEvent.ToggleMute))
-
-        var dictate = VoiceStateMachine.reduce(VoiceUiState(), VoiceEvent.Start(VoiceMode.DICTATE, AudioRoute.SPEAKER))
-        dictate = VoiceStateMachine.reduce(dictate, VoiceEvent.Ready(24713, "SSH"))
-        assertEquals(dictate, VoiceStateMachine.reduce(dictate, VoiceEvent.ToggleMute))
     }
 
     @Test fun isAgyActiveHidesVoiceButtonAfterAgyExitsToShell() {

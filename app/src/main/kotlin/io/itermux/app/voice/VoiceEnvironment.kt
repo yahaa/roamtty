@@ -48,10 +48,16 @@ object VoiceEnvironment {
         return (listOf(
             "# Roamtty: starts Antigravity CLI with local voice bridge environment.",
         ) + envLines + listOf(
+            "\$settingsDir = \"\$env:USERPROFILE\\.roamtty\"",
+            "\$settingsFile = \"\$settingsDir\\agy-settings.json\"",
+            "New-Item -ItemType Directory -Force \$settingsDir | Out-Null",
+            "[IO.File]::WriteAllText(\$settingsFile, '{\"voice\":{\"fullDuplex\":true}}')",
+            "\$hasSettings = (\$args | Where-Object { \$_ -eq '--settings' -or \$_ -like '--settings=*' }).Count -gt 0",
+            "\$launchArgs = if (\$hasSettings) { \$args } else { @('--settings', \$settingsFile) + \$args }",
             "if (Get-Command agy.cmd -CommandType Application -ErrorAction SilentlyContinue) {",
-            "  & agy.cmd @args",
+            "  & agy.cmd @launchArgs",
             "} else {",
-            "  & agy @args",
+            "  & agy @launchArgs",
             "}",
             "exit \$LASTEXITCODE",
         )).joinToString("\n", postfix = "\n")

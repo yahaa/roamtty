@@ -43,7 +43,6 @@ internal class TerminalPaneSaved(
     val commonCommandsOpen: MutableState<Boolean>,
     val dockPinned: MutableState<Boolean>,
     val dockExpanded: MutableState<Boolean>,
-    val voiceSheetOpen: MutableState<Boolean>,
     val voiceSuppressesPinnedDock: MutableState<Boolean>,
 )
 
@@ -89,7 +88,7 @@ internal class TerminalPaneState(
     var confirmPaste by mutableStateOf<String?>(null)
     var restartConfirm by mutableStateOf(false)
     var usageSheetOpen by mutableStateOf(false)
-    var voiceSheetOpen by saved.voiceSheetOpen
+    var voiceStartRequested by mutableStateOf(false)
     var voicePopoverOpen by mutableStateOf(false)
     /** Temporarily folds a pinned dock while a voice call is active so the phone-holding pet floats unobstructed. */
     var voiceSuppressesPinnedDock by saved.voiceSuppressesPinnedDock
@@ -393,7 +392,6 @@ internal fun rememberTerminalPaneState(session: TerminalConnection, connected: B
         commonCommandsOpen = rememberSaveable { mutableStateOf(false) },
         dockPinned = rememberSaveable { mutableStateOf(settings.dockPinned) },
         dockExpanded = rememberSaveable { mutableStateOf(false) },
-        voiceSheetOpen = rememberSaveable { mutableStateOf(false) },
         voiceSuppressesPinnedDock = rememberSaveable { mutableStateOf(false) },
     )
     val focus = LocalFocusManager.current

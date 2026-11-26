@@ -59,7 +59,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.itermux.desktop.VoiceCallPhase
-import io.itermux.desktop.VoiceMode
 import io.itermux.desktop.VoiceUiState
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -71,34 +70,45 @@ import kotlin.math.sin
  * Semantic voice call visual state for the `26×26` ghost pet.
  * In any state other than [Idle], the ghost swaps its left-hand mini keyboard for a retro curved
  * telephone handset lifted to its ear and reduces right-hand wrench motion to ~20%.
+ * While network is stable, the pet stays green across connecting, listening, speaking and muted;
+ * only an unstable or reconnecting link shifts the pet color to amber.
  */
 internal sealed interface PetVoiceState {
     data object Idle : PetVoiceState
-    data object Connecting : PetVoiceState
-    data class Listening(val level: Float = 0f, val dictating: Boolean = false) : PetVoiceState
-    data class Speaking(val level: Float = 0f) : PetVoiceState
-    data object Muted : PetVoiceState
+    data class Connecting(val networkUnstable: Boolean = false) : PetVoiceState
+    data class Listening(val level: Float = 0f, val networkUnstable: Boolean = false) : PetVoiceState
+    data class Speaking(val level: Float = 0f, val networkUnstable: Boolean = false) : PetVoiceState
+    data class Muted(val networkUnstable: Boolean = false) : PetVoiceState
 
     val inCall: Boolean get() = this !is Idle
+
+    val isNetworkUnstable: Boolean
+        get() = when (this) {
+            Idle -> false
+            is Connecting -> networkUnstable
+            is Listening -> networkUnstable
+            is Speaking -> networkUnstable
+            is Muted -> networkUnstable
+        }
 
     /** Stable test-tag suffix identifying the visual state. */
     val tagName: String
         get() = when (this) {
             Idle -> "idle"
-            Connecting -> "connecting"
-            is Listening -> if (dictating) "dictating" else "listening"
-            is Speaking -> "speaking"
-            Muted -> "muted"
+            is Connecting -> if (networkUnstable) "reconnecting" else "connecting"
+            is Listening -> if (networkUnstable) "listening-unstable" else "listening"
+            is Speaking -> if (networkUnstable) "speaking-unstable" else "speaking"
+            is Muted -> if (networkUnstable) "muted-unstable" else "muted"
         }
 
     companion object {
         fun from(ui: VoiceUiState): PetVoiceState = when {
             !ui.inCall -> Idle
-            ui.resuming -> Connecting
-            ui.phase is VoiceCallPhase.Connecting -> Connecting
-            ui.phase == VoiceCallPhase.Listening -> Listening(ui.micLevel, dictating = ui.mode == VoiceMode.DICTATE)
-            ui.phase == VoiceCallPhase.Speaking -> Speaking(ui.speakerLevel)
-            ui.phase == VoiceCallPhase.Muted -> Muted
+            ui.resuming -> Connecting(networkUnstable = true)
+            ui.phase is VoiceCallPhase.Connecting -> Connecting(networkUnstable = ui.networkPoor)
+            ui.phase == VoiceCallPhase.Listening -> Listening(ui.micLevel, networkUnstable = ui.networkPoor)
+            ui.phase == VoiceCallPhase.Speaking -> Speaking(ui.speakerLevel, networkUnstable = ui.networkPoor)
+            ui.phase == VoiceCallPhase.Muted -> Muted(networkUnstable = ui.networkPoor)
             else -> Idle
         }
     }
@@ -199,28 +209,6 @@ internal fun ToolboxPet(
     }
 }
 
-/** Enlarged ghost preview holding the telephone handset for the confirmation bottom sheet. */
-@Composable
-internal fun VoicePetPreview(
-    voiceState: PetVoiceState = PetVoiceState.Listening(0.35f),
-    size: Dp = 54.dp,
-    modifier: Modifier = Modifier,
-) {
-    val reducedMotion = rememberReducedMotion()
-    val motion = rememberGhostMotion(voiceState, reducedMotion)
-    val wrench = MaterialTheme.colorScheme.primary
-    Canvas(modifier.size(size).testTag("voice-sheet-pet")) {
-        drawGhostStage(
-            wrench = wrench,
-            voiceState = voiceState,
-            motion = motion,
-            press = 1f,
-            hop = 0f,
-            reducedMotion = reducedMotion,
-        )
-    }
-}
-
 @Composable
 private fun rememberReducedMotion(): Boolean {
     val context = LocalContext.current
@@ -249,13 +237,13 @@ private fun rememberGhostMotion(voiceState: PetVoiceState, reducedMotion: Boolea
     }
     val idle = rememberInfiniteTransition(label = "pet")
     val floatPeriod = when (voiceState) {
-        PetVoiceState.Muted -> 2200
+        is PetVoiceState.Muted -> 2200
         is PetVoiceState.Speaking -> 1050
         else -> 1400
     }
     val swayAmp = when (voiceState) {
         is PetVoiceState.Speaking -> 6.5f
-        PetVoiceState.Muted -> 2.5f
+        is PetVoiceState.Muted -> 2.5f
         else -> 5f
     }
     val swayPeriod = if (voiceState is PetVoiceState.Speaking) 1500 else 2300
@@ -266,9 +254,13 @@ private fun rememberGhostMotion(voiceState: PetVoiceState, reducedMotion: Boolea
     val eyes by idle.animateFloat(1f, 1f, GhostBlink, label = "blink")
     val rawWave by idle.animateFloat(0f, 0f, GhostWave, label = "wave")
 
-    // Do not run voice-call infinite transitions while Idle (or in states that do not draw them).
-    val pulse = if (voiceState is PetVoiceState.Listening || voiceState is PetVoiceState.Speaking || voiceState is PetVoiceState.Connecting) {
-        val pulsePeriod = if (voiceState is PetVoiceState.Connecting) 1400 else 1800
+    // Do not run voice-call infinite transitions while Idle.
+    val pulse = if (voiceState.inCall) {
+        val pulsePeriod = when (voiceState) {
+            is PetVoiceState.Connecting -> 1400
+            is PetVoiceState.Muted -> 2200
+            else -> 1800
+        }
         rememberInfiniteTransition(label = "pet-voice-pulse")
             .animateFloat(0f, 1f, infiniteRepeatable(tween(pulsePeriod, easing = LinearEasing)), label = "pulse").value
     } else 0f
@@ -314,13 +306,9 @@ private fun DrawScope.drawGhostStage(
                 else -> 0f
             }
 
-            // 1) Breathing voice aura behind the ghost during active call states
-            if (voiceState is PetVoiceState.Listening || voiceState is PetVoiceState.Speaking || voiceState is PetVoiceState.Connecting) {
-                val auraColor = when (voiceState) {
-                    is PetVoiceState.Speaking -> VoicePeach
-                    is PetVoiceState.Listening -> VoiceGreen
-                    else -> VoiceConnectingAura
-                }
+            // 1) Breathing voice aura behind the ghost during active call states: green while stable, amber only if unstable
+            if (voiceState.inCall) {
+                val auraColor = if (voiceState.isNetworkUnstable) VoiceWarn else VoiceGreen
                 val cy = 12.6f - lift * 0.6f
                 val baseR = 9.2f + level * 2.4f
                 val auraR = baseR + 2.6f
@@ -368,11 +356,11 @@ private fun DrawScope.drawGhostStage(
                 }
             }
 
-            // 4) Amber muted badge pinned cleanly at bottom-right
+            // 4) Neutral dark muted badge pinned cleanly at bottom-right (keeps pet color green unless network is unstable)
             if (voiceState is PetVoiceState.Muted) {
                 val bx = 21.5f
                 val by = 20.5f
-                drawCircle(VoiceWarn, radius = 3.6f, center = Offset(bx, by))
+                drawCircle(VoiceMutedBadgeFill, radius = 3.6f, center = Offset(bx, by))
                 drawCircle(VoiceMutedBadgeBorder, radius = 3.6f, center = Offset(bx, by), style = Stroke(width = 1.1f))
                 drawLine(VoiceMutedBadgeSlash, Offset(bx, by - 1.5f), Offset(bx, by + 0.5f), strokeWidth = 1.05f, cap = StrokeCap.Round)
                 drawLine(VoiceMutedBadgeSlash, Offset(bx - 1.5f, by - 1.5f), Offset(bx + 1.5f, by + 1.5f), strokeWidth = 1.05f, cap = StrokeCap.Round)
@@ -388,15 +376,12 @@ private val WrenchMetal = Color(0xFFD9DEE8)
 private val KeyboardBody = Color(0xFFEDEBF5)
 
 internal val VoiceGreen = Color(0xFF7FD19B)
-internal val VoiceGreenInk = Color(0xFF162E1F)
-internal val VoicePeach = Color(0xFFEFA783)
 internal val VoiceWarn = Color(0xFFF2C46D)
 internal val VoiceDanger = Color(0xFFFF7A70)
 internal val VoiceDangerText = Color(0xFFFF8F86)
-private val VoiceMutedPhone = Color(0xFF9A9890)
-private val VoiceConnectingAura = Color(0xFFC7C4BD)
-private val VoiceMutedBadgeBorder = Color(0xFF252728)
-private val VoiceMutedBadgeSlash = Color(0xFF2A1D03)
+private val VoiceMutedBadgeFill = Color(0xFF2E3133)
+private val VoiceMutedBadgeBorder = Color(0xFF3B3550)
+private val VoiceMutedBadgeSlash = Color(0xFFF3F0EA)
 
 /** The ghost's idle blink and wrench wave, shared by the toolbox pet and the animated logo. */
 internal val GhostBlink = infiniteRepeatable<Float>(keyframes {
@@ -472,7 +457,7 @@ internal fun DrawScope.drawGhost(
             val mh = 0.85f + level * 1.15f
             drawOval(GhostInk, Offset(12f - mw, 14.6f - mh), Size(mw * 2f, mh * 2f))
         }
-        PetVoiceState.Muted -> {
+        is PetVoiceState.Muted -> {
             drawLine(GhostInk, Offset(11.1f, 14.6f), Offset(12.9f, 14.6f), strokeWidth = 1.05f, cap = StrokeCap.Round)
         }
         else -> {
@@ -498,11 +483,7 @@ internal fun DrawScope.drawGhost(
         drawCircle(GhostInk, 1.8f, grip, style = line)
     } else {
         // CALL MODE: Left paw lifts a curved retro telephone handset + coiled cord to the ghost's ear!
-        val phoneColor = when (voiceState) {
-            is PetVoiceState.Speaking -> VoicePeach
-            PetVoiceState.Muted -> VoiceMutedPhone
-            else -> VoiceGreen
-        }
+        val phoneColor = if (voiceState.isNetworkUnstable) VoiceWarn else VoiceGreen
         val ringJiggle = when {
             reducedMotion -> 0f
             voiceState is PetVoiceState.Connecting -> {
@@ -535,7 +516,7 @@ internal fun DrawScope.drawGhost(
 
             // Sound-wave arcs radiating near the top-left earpiece when speaking or connecting
             if (voiceState is PetVoiceState.Speaking || voiceState is PetVoiceState.Connecting) {
-                val waveCol = if (voiceState is PetVoiceState.Speaking) VoicePeach else VoiceGreen
+                val waveCol = phoneColor
                 val alpha1 = if (reducedMotion) 0.85f else 0.35f + 0.65f * max(0f, sin(soundPhase * 3f))
                 val alpha2 = if (reducedMotion) 0.55f else 0.25f + 0.75f * max(0f, sin(soundPhase * 3f - 1.0f))
                 val arcCenter = Offset(3.5f, 7.4f)

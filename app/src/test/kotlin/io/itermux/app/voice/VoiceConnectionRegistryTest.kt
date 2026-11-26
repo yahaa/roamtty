@@ -189,9 +189,8 @@ class VoiceConnectionRegistryTest {
         assertEquals(0, conn.currentSshQueued)
     }
 
-    @Test fun dictateModeMicStopDeliversShutdownFrameBeforeClosingStream() = runBlocking {
-        val events = Collections.synchronizedList(mutableListOf<String>())
-        val stream = PipedRemoteStream(events)
+    @Test fun missedSshPingsFlagNetworkPoor() = runBlocking {
+        val stream = PipedRemoteStream()
         val readyLatch = CountDownLatch(1)
         val endedLatch = CountDownLatch(1)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -208,7 +207,7 @@ class VoiceConnectionRegistryTest {
         }
         val conn = VoiceConnection(
             host = testHost(),
-            sessionId = "s-dictate",
+            sessionId = "s-poor",
             scope = scope,
             password = "",
             passphrase = "",
@@ -216,28 +215,27 @@ class VoiceConnectionRegistryTest {
             onReady = { _, _ -> readyLatch.countDown(); VoiceReadyOutcome.INJECTED },
             onEnded = { endedLatch.countDown() },
             transport = fakeTransport(remote),
-            engineFactory = { _, _, _, _, _, _ -> FakeAudioBackend(events = events) },
-            shutdownGraceMs = 200L,
+            engineFactory = { _, _, _, _, _, _ -> FakeAudioBackend() },
+            shutdownGraceMs = 80L,
             mainDispatcher = Dispatchers.Unconfined,
         )
 
-        conn.start(VoiceMode.DICTATE, AudioRoute.SPEAKER)
+        conn.start(VoiceMode.LIVE, AudioRoute.SPEAKER)
         assertTrue(readyLatch.await(3, TimeUnit.SECONDS))
+        assertFalse(conn.ui.value.networkPoor)
 
-        // Host sends MIC_START then MIC_STOP (dictation finished) without immediately closing stdout.
-        stream.sendFrame(VoiceProtocol.MIC_START, le(9) { putInt(7); putInt(16_000); put(1) })
-        delay(30)
-        stream.sendFrame(VoiceProtocol.MIC_STOP, le(4) { putInt(7) })
+        // Without server PONG replies, two missed pings mark the link unstable.
+        val deadline = System.currentTimeMillis() + 3_000L
+        while (!conn.ui.value.networkPoor && System.currentTimeMillis() < deadline) {
+            delay(50)
+        }
+        assertTrue("unanswered pings must flag networkPoor", conn.ui.value.networkPoor)
 
-        assertTrue("dictate MIC_STOP must still deliver CONFIG {shutdown:true}", stream.shutdownReceived.await(2, TimeUnit.SECONDS))
+        conn.hangup()
         stream.closeServerStdout(0)
         assertTrue(endedLatch.await(3, TimeUnit.SECONDS))
         scope.cancel()
-
-        val shutdownIdx = events.indexOf("server.receivedShutdown")
-        val closeIdx = events.indexOf("stream.close")
-        assertTrue("shutdown must arrive before stream.close: $events", shutdownIdx >= 0 && closeIdx > shutdownIdx)
-        assertEquals(VoiceCallPhase.Idle, conn.ui.value.phase)
+        assertFalse(conn.ui.value.networkPoor)
     }
 
     @Test fun onDestroyScopeCancelStillDeliversShutdownFrame() = runBlocking {

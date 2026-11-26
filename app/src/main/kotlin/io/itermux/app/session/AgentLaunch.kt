@@ -69,16 +69,24 @@ data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: 
         // cmd.exe silently falls back to another cwd for UNC paths. Never run an agent there.
         val uncGuard = "if ((Get-Location).ProviderPath.StartsWith('\\\\')) { throw 'Please map this network folder to a drive letter before starting the agent.' }"
         val micPrefix = if (agent == CodingAgent.AGY) {
-            if (antigravityMic != null) {
+            val micSetup = if (antigravityMic != null) {
                 require(AgentHooks.isValidLoopbackMicEndpoint(antigravityMic)) { "invalid ANTIGRAVITY_MIC endpoint: $antigravityMic" }
                 "\$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(antigravityMic)}; "
             } else {
                 val micFile = "\$env:USERPROFILE\\.roamtty\\voice-mic"
                 "if (-not \$env:ANTIGRAVITY_MIC) { if (Test-Path \"$micFile\") { \$env:ANTIGRAVITY_MIC = (Get-Content \"$micFile\" -Raw).Trim() }; if (-not \$env:ANTIGRAVITY_MIC) { \$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(AgentHooks.DEFAULT_ANTIGRAVITY_MIC)} } }; "
             }
+            val settingsDir = "\$env:USERPROFILE\\.roamtty"
+            val settingsFile = "\$env:USERPROFILE\\.roamtty\\agy-settings.json"
+            "${micSetup}New-Item -ItemType Directory -Force \"$settingsDir\" | Out-Null; [IO.File]::WriteAllText(\"$settingsFile\", '{\"voice\":{\"fullDuplex\":true}}'); "
         } else ""
+        val effectiveCommand = if (agent == CodingAgent.AGY) {
+            "$agentCommand --settings \"\$env:USERPROFILE\\.roamtty\\agy-settings.json\""
+        } else {
+            agentCommand
+        }
         return WindowsShell.launch(dir, "${micPrefix}if (Get-Command $cmd -CommandType Application -ErrorAction SilentlyContinue) { " +
-            "$uncGuard; ${agentCommand.replaceFirst(agent.command, cmd)} } else { $agentCommand }")
+            "$uncGuard; ${effectiveCommand.replaceFirst(agent.command, cmd)} } else { $effectiveCommand }")
     }
 
     /** Session title: the agent and the folder it works in. */

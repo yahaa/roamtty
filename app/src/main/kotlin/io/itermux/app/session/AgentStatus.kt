@@ -331,7 +331,10 @@ object AgentHooks {
             }
             add("export ROAMTTY_AGENT=agy")
             add("${hookCommand(CodingAgent.AGY, "start")} </dev/null")
-            add("agy \"\$@\"")
+            val agySettings = "{\"voice\":{\"fullDuplex\":true},\"statusLine\":{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.AGY, "statusline")}\",\"enabled\":true,\"stack_with_default\":true}}"
+            add("agy_has_settings=0")
+            add("for arg in \"\$@\"; do case \"\$arg\" in --settings|--settings=*) agy_has_settings=1; break ;; esac; done")
+            add("if [ \"\$agy_has_settings\" = 1 ]; then agy \"\$@\"; else agy --settings '$agySettings' \"\$@\"; fi")
             addAll(launcherEnd(CodingAgent.AGY))
         }
         return lines.joinToString("\n", postfix = "\n")

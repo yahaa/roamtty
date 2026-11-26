@@ -23,7 +23,10 @@ class VoiceEnvironmentTest {
         val withMic = AgentHooks.agyLauncher("127.0.0.1:24713")
         assertTrue(withMic.startsWith("#!/bin/sh\n"))
         assertTrue("export ANTIGRAVITY_MIC=127.0.0.1:24713\nexport ROAMTTY_AGENT=agy\n" in withMic)
-        assertTrue("agy \"\$@\"\n" in withMic)
+        assertTrue("\"voice\":{\"fullDuplex\":true}" in withMic)
+        assertTrue("sh ~/.roamtty/agent-hook.sh agy statusline" in withMic)
+        assertTrue("agy --settings '" in withMic)
+        assertTrue("agy \"\$@\"" in withMic)
 
         assertThrows(IllegalArgumentException::class.java) { AgentHooks.agyLauncher("192.168.1.1:24713") }
         assertThrows(IllegalArgumentException::class.java) { AgentHooks.agyLauncher("127.0.0.1:0") }
@@ -34,7 +37,8 @@ class VoiceEnvironmentTest {
     @Test fun windowsPowerShellLauncherInjectsAntigravityMic() {
         val psLauncher = VoiceEnvironment.windowsLauncherScript("127.0.0.1:24713")
         assertTrue("\$env:ANTIGRAVITY_MIC = '127.0.0.1:24713'" in psLauncher)
-        assertTrue("& agy.cmd @args" in psLauncher)
+        assertTrue("fullDuplex" in psLauncher)
+        assertTrue("& agy.cmd @launchArgs" in psLauncher)
 
         val defaultPs = VoiceEnvironment.windowsLauncherScript(null)
         assertTrue("voice-mic" in defaultPs)

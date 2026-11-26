@@ -103,7 +103,7 @@ internal fun TerminalPaneDock(pane: TerminalPaneState, availableHeight: Dp, land
                             pane.voicePopoverOpen = true
                         } else {
                             pane.dismissDockMenus()
-                            pane.voiceSheetOpen = true
+                            pane.voiceStartRequested = true
                         }
                     },
                 )
@@ -164,7 +164,8 @@ private fun DockDesktopButton(pane: TerminalPaneState, pip: TerminalPip, onDeskt
 
 /**
  * Phone button in the terminal dock for `agy` sessions: outline phone when idle,
- * sage green `#7FD19B` filled phone + breathing dot while in call (amber `#F2C46D` when muted).
+ * sage green `#7FD19B` filled phone + breathing dot while in call with stable network
+ * (amber `#F2C46D` only when network is unstable or reconnecting).
  */
 @Composable
 internal fun DockVoiceButton(
@@ -175,22 +176,24 @@ internal fun DockVoiceButton(
 ) {
     val inCall = voiceUi.inCall
     val muted = voiceUi.isMuted
+    val unstable = voiceUi.networkUnstable
     val tint = when {
         !inCall -> LocalContentColor.current
-        muted -> VoiceWarn
+        unstable -> VoiceWarn
         else -> VoiceGreen
     }
     val wash = when {
         !inCall -> androidx.compose.ui.graphics.Color.Transparent
-        muted -> VoiceWarn.copy(alpha = 0.16f)
+        unstable -> VoiceWarn.copy(alpha = 0.16f)
         else -> VoiceGreen.copy(alpha = 0.16f)
     }
     val description = when {
         !inCall -> tr("语音对话")
+        unstable -> tr("网络不稳定")
         muted -> tr("语音通话已静音")
         else -> tr("语音通话中")
     }
-    val dotAlpha = if (inCall && !muted) {
+    val dotAlpha = if (inCall && (!muted || unstable)) {
         rememberInfiniteTransition(label = "dock-voice-dot").animateFloat(
             initialValue = 0.4f,
             targetValue = 1f,
@@ -217,6 +220,11 @@ internal fun DockVoiceButton(
             modifier = Modifier.size(21.dp),
         )
         if (inCall) {
+            val badgeTag = when {
+                unstable -> "terminal-voice-badge-unstable"
+                muted -> "terminal-voice-badge-muted"
+                else -> "terminal-voice-badge-active"
+            }
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
@@ -224,7 +232,7 @@ internal fun DockVoiceButton(
                     .size(7.dp)
                     .clip(CircleShape)
                     .background(tint.copy(alpha = dotAlpha))
-                    .testTag(if (muted) "terminal-voice-badge-muted" else "terminal-voice-badge-active"),
+                    .testTag(badgeTag),
             )
         }
     }

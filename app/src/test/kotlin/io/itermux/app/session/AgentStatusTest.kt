@@ -86,7 +86,9 @@ class AgentStatusTest {
         assertTrue("\"PreToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy tool\"}]}]" in launcher)
         assertTrue("\"PostToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy post\"}]}]" in launcher)
         assertTrue("\"Stop\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh agy stop\"}]" in launcher)
-        assertTrue("export ROAMTTY_AGENT=agy\nsh ~/.roamtty/agent-hook.sh agy start </dev/null\nagy \"\$@\"\n" in launcher)
+        assertTrue("export ROAMTTY_AGENT=agy\nsh ~/.roamtty/agent-hook.sh agy start </dev/null\n" in launcher)
+        assertTrue("\"voice\":{\"fullDuplex\":true}" in launcher)
+        assertTrue("sh ~/.roamtty/agent-hook.sh agy statusline" in launcher)
         assertTrue("status=\$?\nsh ~/.roamtty/agent-hook.sh agy end </dev/null\nexit \$status\n" in launcher)
     }
 

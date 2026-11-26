@@ -220,13 +220,15 @@ class TerminalConnection(
         agentUsageJob = scope.launch {
             if (force) mutableAgentUsageLoading.value = true
             try {
+                val fetchAgy = fetchAgyQuota && kind == CodingAgent.AGY
                 val cmd = AgentUsageCollector.sessionCommand(
                     agent = kind,
                     tmuxSession = tmuxName,
                     directory = dir,
-                    fetchAgyQuota = fetchAgyQuota && kind == CodingAgent.AGY,
+                    fetchAgyQuota = fetchAgy,
                 )
-                val out = withContext(Dispatchers.IO) { ssh.runHostOutput(cmd, AgentUsageCollector.script) }
+                val timeoutMs = if (fetchAgy) 25_000L else 15_000L
+                val out = withContext(Dispatchers.IO) { ssh.runHostOutput(cmd, AgentUsageCollector.script, timeoutMs) }
                 lastUsageAtMs = SystemClock.elapsedRealtime()
                 AgentUsageCollector.parseSession(out)?.let { mutableAgentUsage.value = it }
             } catch (e: CancellationException) {

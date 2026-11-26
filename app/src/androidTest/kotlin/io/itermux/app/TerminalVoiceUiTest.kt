@@ -45,65 +45,10 @@ class TerminalVoiceUiTest {
         voiceUi = voiceUi.copy(phase = VoiceCallPhase.Muted)
         compose.waitForIdle()
         compose.onNodeWithTag("terminal-voice-badge-muted").assertIsDisplayed()
-    }
 
-    @Test fun confirmationSheetSwitchesModesRoutesAndNotices() {
-        var mode by mutableStateOf(VoiceMode.LIVE)
-        var route by mutableStateOf(AudioRoute.SPEAKER)
-        var hasMic by mutableStateOf(false)
-        var pipMuted by mutableStateOf(true)
-        var pluginInstalled by mutableStateOf(false)
-        var confirmed = 0
-        var cancelled = 0
-
-        compose.setContent {
-            MaterialTheme(colorScheme = DarkColors, shapes = AppShapes, typography = AppTypography) {
-                VoiceStartSheetContent(
-                    hostName = "mac-studio",
-                    mode = mode,
-                    route = route,
-                    hasMicPermission = hasMic,
-                    desktopPipAudioActive = pipMuted,
-                    pluginInstalled = pluginInstalled,
-                    onModeChange = { mode = it },
-                    onRouteChange = { route = it },
-                    onCancel = { cancelled++ },
-                    onConfirm = { confirmed++ },
-                )
-            }
-        }
-
-        // Enlarged phone-holding pet + live mode + route pills + all 3 contextual notices
-        compose.onNodeWithTag("voice-sheet-pet").assertIsDisplayed()
-        compose.onNodeWithTag("voice-route-row").assertIsDisplayed()
-        compose.onNodeWithTag("voice-notice-permission").assertIsDisplayed()
-        compose.onNodeWithTag("voice-notice-desktop-mute").assertIsDisplayed()
-        compose.onNodeWithTag("voice-notice-install").assertIsDisplayed()
-        compose.onNodeWithText(tr("安装插件并通话")).assertIsDisplayed()
-
-        // Switch audio route pill
-        compose.onNodeWithTag("voice-route-earpiece").performClick()
-        assertEquals(AudioRoute.EARPIECE, route)
-
-        // Switch to dictate mode -> route row hides, button reflects dictation
-        compose.onNodeWithTag("voice-mode-dictate").performClick()
+        voiceUi = voiceUi.copy(phase = VoiceCallPhase.Listening, networkPoor = true)
         compose.waitForIdle()
-        assertEquals(VoiceMode.DICTATE, mode)
-        compose.onNodeWithTag("voice-route-row").assertDoesNotExist()
-        compose.onNodeWithText(tr("安装插件并听写")).assertIsDisplayed()
-
-        // When permission granted, PiP inactive, and plugin installed -> notices vanish
-        hasMic = true; pipMuted = false; pluginInstalled = true; mode = VoiceMode.LIVE
-        compose.waitForIdle()
-        compose.onNodeWithTag("voice-notice-permission").assertDoesNotExist()
-        compose.onNodeWithTag("voice-notice-desktop-mute").assertDoesNotExist()
-        compose.onNodeWithTag("voice-notice-install").assertDoesNotExist()
-        compose.onNodeWithText(tr("开始通话")).assertIsDisplayed()
-
-        compose.onNodeWithTag("voice-sheet-confirm").performClick()
-        compose.onNodeWithTag("voice-sheet-cancel").performClick()
-        assertEquals(1, confirmed)
-        assertEquals(1, cancelled)
+        compose.onNodeWithTag("terminal-voice-badge-unstable").assertIsDisplayed()
     }
 
     @Test fun petVoiceStatesTransitionAndKeepTapAndLongPressSeparate() {
@@ -126,10 +71,11 @@ class TerminalVoiceUiTest {
 
         val states = listOf(
             PetVoiceState.Idle to "pet-voice-idle",
-            PetVoiceState.Connecting to "pet-voice-connecting",
+            PetVoiceState.Connecting() to "pet-voice-connecting",
             PetVoiceState.Listening(0.6f) to "pet-voice-listening",
             PetVoiceState.Speaking(0.8f) to "pet-voice-speaking",
-            PetVoiceState.Muted to "pet-voice-muted",
+            PetVoiceState.Muted() to "pet-voice-muted",
+            PetVoiceState.Listening(0.4f, networkUnstable = true) to "pet-voice-listening-unstable",
         )
         for ((state, tag) in states) {
             voiceState = state
@@ -173,6 +119,12 @@ class TerminalVoiceUiTest {
 
         compose.onNodeWithTag("voice-call-timer").assertTextEquals("01:24")
         compose.onNodeWithTag("voice-popover-state").assertTextEquals(tr("聆听中"))
+
+        ui = ui.copy(networkPoor = true)
+        compose.waitForIdle()
+        compose.onNodeWithTag("voice-popover-state").assertTextEquals(tr("网络不稳定"))
+        ui = ui.copy(networkPoor = false)
+        compose.waitForIdle()
 
         compose.onNodeWithTag("voice-popover-mute").performClick()
         compose.waitForIdle()

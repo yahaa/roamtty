@@ -3,12 +3,10 @@ package io.itermux.desktop
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-/** Dialogue mode selected in the confirmation sheet. */
+/** Voice dialogue mode (`agy /voice live` with full-duplex barge-in). */
 enum class VoiceMode {
     /** `/voice live` triggered via F6: full-duplex conversation with barge-in. */
     LIVE,
-    /** `/voice dictate` triggered via F5: speech-to-text into terminal without speaker playback. */
-    DICTATE,
 }
 
 /** Phone audio output route for live voice calls. */
@@ -43,19 +41,22 @@ data class VoiceUiState(
     val activeSpkStreamId: Long? = null,
     val link: String = "SSH",
     val resuming: Boolean = false,
+    val networkPoor: Boolean = false,
 ) {
     val inCall: Boolean get() = phase !is VoiceCallPhase.Idle && phase !is VoiceCallPhase.Failed
     val isMuted: Boolean get() = phase is VoiceCallPhase.Muted
     val isSpeaking: Boolean get() = phase is VoiceCallPhase.Speaking
     val isConnecting: Boolean get() = phase is VoiceCallPhase.Connecting
+    val networkUnstable: Boolean get() = networkPoor || resuming
 }
 
 /** Pure events driving [VoiceStateMachine] transitions. */
 sealed interface VoiceEvent {
-    data class Start(val mode: VoiceMode, val route: AudioRoute, val bluetoothAvailable: Boolean = false) : VoiceEvent
+    data class Start(val mode: VoiceMode = VoiceMode.LIVE, val route: AudioRoute, val bluetoothAvailable: Boolean = false) : VoiceEvent
     data class StepChanged(val step: VoiceStep) : VoiceEvent
     data class Ready(val micPort: Int, val link: String = "SSH") : VoiceEvent
     data class Resuming(val active: Boolean) : VoiceEvent
+    data class NetworkQualityChanged(val poor: Boolean) : VoiceEvent
     data class LinkChanged(val link: String) : VoiceEvent
     data class MicStarted(val streamId: Long) : VoiceEvent
     data class MicStopped(val streamId: Long) : VoiceEvent
@@ -75,8 +76,8 @@ sealed interface VoiceEvent {
 }
 
 /**
- * Deterministic state reducer for a voice session: handles live/dictate lifecycles,
- * concurrent mic+speaker streams, barge-in (`SPK_CLEAR`), mute toggles, and audio route cycling.
+ * Deterministic state reducer for a live voice session: handles full-duplex lifecycles,
+ * concurrent mic+speaker streams, barge-in (`SPK_CLEAR`), mute toggles, network stability, and audio route cycling.
  */
 object VoiceStateMachine {
     fun reduce(state: VoiceUiState, event: VoiceEvent): VoiceUiState = when (event) {
@@ -94,7 +95,7 @@ object VoiceStateMachine {
                 is VoiceCallPhase.Connecting -> VoiceCallPhase.Listening
                 else -> state.phase
             }
-            state.copy(phase = nextPhase, micPort = event.micPort, link = event.link, resuming = false)
+            state.copy(phase = nextPhase, micPort = event.micPort, link = event.link, resuming = false, networkPoor = false)
         } else state
         is VoiceEvent.Resuming -> if (state.inCall) {
             if (event.active) {
@@ -110,6 +111,7 @@ object VoiceStateMachine {
                 state.copy(resuming = false)
             }
         } else state
+        is VoiceEvent.NetworkQualityChanged -> if (state.inCall) state.copy(networkPoor = event.poor) else state
         is VoiceEvent.LinkChanged -> if (state.inCall) state.copy(link = event.link) else state
         is VoiceEvent.MicStarted -> if (state.inCall) {
             val nextPhase = when (state.phase) {
@@ -120,17 +122,7 @@ object VoiceStateMachine {
         } else state
         is VoiceEvent.MicStopped -> {
             if (!state.inCall || state.activeMicStreamId != event.streamId) state
-            else if (state.mode == VoiceMode.DICTATE) {
-                // Dictation finishes automatically once agy closes the mic TCP socket.
-                VoiceUiState(
-                    phase = VoiceCallPhase.Idle,
-                    mode = state.mode,
-                    audioRoute = state.audioRoute,
-                    bluetoothAvailable = state.bluetoothAvailable,
-                )
-            } else {
-                state.copy(activeMicStreamId = null, micLevel = 0f)
-            }
+            else state.copy(activeMicStreamId = null, micLevel = 0f)
         }
         is VoiceEvent.SpkStarted -> if (state.inCall) {
             state.copy(activeSpkStreamId = event.streamId)
@@ -173,7 +165,7 @@ object VoiceStateMachine {
             }
             state.copy(phase = nextPhase, speakerLevel = level)
         } else state
-        VoiceEvent.ToggleMute -> if (!state.inCall || state.phase is VoiceCallPhase.Connecting || state.mode != VoiceMode.LIVE) state else when (state.phase) {
+        VoiceEvent.ToggleMute -> if (!state.inCall || state.phase is VoiceCallPhase.Connecting) state else when (state.phase) {
             is VoiceCallPhase.Muted -> {
                 val resumed = if (state.activeSpkStreamId != null && state.speakerLevel > 0.01f) {
                     VoiceCallPhase.Speaking

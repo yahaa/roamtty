@@ -217,18 +217,31 @@ class VoiceProtocolTest {
         assertNull(s.micPort)
     }
 
-    @Test fun dictateModeAutomaticallyEndsOnMicStop() {
-        var s = VoiceStateMachine.reduce(VoiceUiState(), VoiceEvent.Start(VoiceMode.DICTATE, AudioRoute.SPEAKER))
+    @Test fun networkQualityChangesTrackInstabilityAndResetOnReadyOrHangup() {
+        var s = VoiceStateMachine.reduce(VoiceUiState(), VoiceEvent.Start(VoiceMode.LIVE, AudioRoute.SPEAKER))
         s = VoiceStateMachine.reduce(s, VoiceEvent.Ready(24713, "UDP"))
+        assertFalse(s.networkPoor)
+        assertFalse(s.networkUnstable)
+
+        s = VoiceStateMachine.reduce(s, VoiceEvent.NetworkQualityChanged(true))
+        assertTrue(s.networkPoor)
+        assertTrue(s.networkUnstable)
+
+        // Speaking & Muted preserve networkPoor flag until link recovers
+        s = VoiceStateMachine.reduce(s, VoiceEvent.SpkStarted(2L))
+        s = VoiceStateMachine.reduce(s, VoiceEvent.SpkAudio(2L, 0.7f))
+        assertTrue(s.networkUnstable)
+        s = VoiceStateMachine.reduce(s, VoiceEvent.NetworkQualityChanged(false))
+        assertFalse(s.networkPoor)
+        assertFalse(s.networkUnstable)
+
+        // MicStopped in live mode clears activeMicStreamId without hanging up
         s = VoiceStateMachine.reduce(s, VoiceEvent.MicStarted(10L))
-        assertEquals(VoiceCallPhase.Listening, s.phase)
-        // Unrelated stream stop ignored
         s = VoiceStateMachine.reduce(s, VoiceEvent.MicStopped(99L))
-        assertTrue(s.inCall)
-        // Active mic stream stop ends dictation so pet swaps handset back to keyboard
+        assertEquals(10L, s.activeMicStreamId)
         s = VoiceStateMachine.reduce(s, VoiceEvent.MicStopped(10L))
-        assertEquals(VoiceCallPhase.Idle, s.phase)
-        assertFalse(s.inCall)
+        assertTrue(s.inCall)
+        assertNull(s.activeMicStreamId)
     }
 
     @Test fun resumingClearsStreamsAndPausesTimerAndGatesToggleMute() {
@@ -246,9 +259,10 @@ class VoiceProtocolTest {
         assertEquals(VoiceCallPhase.Speaking, s.phase)
         assertEquals(1, s.elapsedSeconds)
 
-        // Resuming clears stale stream IDs/levels and pauses duration timer
+        // Resuming clears stale stream IDs/levels, marks link unstable, and pauses duration timer
         s = VoiceStateMachine.reduce(s, VoiceEvent.Resuming(true))
         assertTrue(s.resuming)
+        assertTrue(s.networkUnstable)
         assertNull(s.activeMicStreamId)
         assertNull(s.activeSpkStreamId)
         assertEquals(0f, s.micLevel, 0.001f)
@@ -256,13 +270,6 @@ class VoiceProtocolTest {
         assertEquals(VoiceCallPhase.Listening, s.phase)
         s = VoiceStateMachine.reduce(s, VoiceEvent.TickSecond)
         assertEquals(1, s.elapsedSeconds)
-
-        // ToggleMute is ignored in DICTATE mode even when Listening
-        var dictate = VoiceStateMachine.reduce(VoiceUiState(), VoiceEvent.Start(VoiceMode.DICTATE, AudioRoute.SPEAKER))
-        dictate = VoiceStateMachine.reduce(dictate, VoiceEvent.Ready(24713, "SSH"))
-        dictate = VoiceStateMachine.reduce(dictate, VoiceEvent.ToggleMute)
-        assertEquals(VoiceCallPhase.Listening, dictate.phase)
-        assertFalse(dictate.isMuted)
     }
 
     @Test fun audioMathComputesRmsAndSampleAlignedChunks() {
