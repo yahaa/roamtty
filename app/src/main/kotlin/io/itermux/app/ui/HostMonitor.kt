@@ -51,6 +51,7 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     val aiUsageLoading = mutableAiUsageLoading.asStateFlow()
     private val aiUsageCache = mutableMapOf<HostUsageRange, Pair<Long, HostAiUsage>>()
     private var aiUsageJob: Job? = null
+    private var initialAgyQuotaFetched = false
     private var job: Job? = null
     /** Whether the current login has read at least one sample. */
     @Volatile private var sampled = false
@@ -96,7 +97,11 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
                 } }
                 this@HostMonitor.remote = remote
                 ready.value = true
-                if (sampleMetrics) refreshAiUsage(force = false)
+                if (sampleMetrics) {
+                    val fetchAgy = !initialAgyQuotaFetched
+                    initialAgyQuotaFetched = true
+                    refreshAiUsage(force = false, fetchAgyQuota = fetchAgy)
+                }
                 try { if (sampleMetrics) sample(remote) else awaitCancellation() }
                 finally { this@HostMonitor.remote = null; ready.value = false }
             }
@@ -173,14 +178,14 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
         refreshAiUsage(force = false)
     }
 
-    /** Loads machine-wide per-agent token consumption & active quotas over the monitor's SSH connection. */
-    fun refreshAiUsage(force: Boolean = true) {
+    /** Loads machine-wide per-agent token consumption & quotas; only runs `agy -p /quota` when [fetchAgyQuota] is true. */
+    fun refreshAiUsage(force: Boolean = true, fetchAgyQuota: Boolean = false) {
         if (host.os == HostSystem.WINDOWS.name) return
         val remote = remote ?: return
         val range = mutableAiUsageRange.value
         val now = SystemClock.elapsedRealtime()
         val cached = aiUsageCache[range]
-        if (!force && cached != null && now - cached.first < AI_USAGE_CACHE_MS) {
+        if (!force && !fetchAgyQuota && cached != null && now - cached.first < AI_USAGE_CACHE_MS) {
             mutableAiUsage.value = cached.second
             return
         }
@@ -190,10 +195,14 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
             try {
                 val lines = mutableListOf<String>()
                 val status = withContext(Dispatchers.IO) {
-                    remote.run(AgentUsageCollector.hostScript(range), 15_000) { lines += it }
+                    remote.run(
+                        AgentUsageCollector.hostScript(range, fetchAgyQuota = fetchAgyQuota),
+                        if (fetchAgyQuota) 20_000 else 15_000,
+                    ) { lines += it }
                 }
                 if (status == 0) {
                     val parsed = AgentUsageCollector.parseHost(lines, range)
+                    if (fetchAgyQuota) aiUsageCache.clear()
                     aiUsageCache[range] = SystemClock.elapsedRealtime() to parsed
                     if (mutableAiUsageRange.value == range) mutableAiUsage.value = parsed
                 }

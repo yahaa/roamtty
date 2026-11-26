@@ -217,7 +217,7 @@ internal fun AgentUsageSheet(
     val scope = rememberCoroutineScope()
     var compacting by remember { mutableStateOf(false) }
 
-    LaunchedEffect(session.id) { session.refreshAgentUsage(force = true) }
+    LaunchedEffect(session.id) { session.refreshAgentUsage(force = true, fetchAgyQuota = true) }
 
     AppSheet(onDismiss, fillHeight = false) {
         Column(
@@ -229,7 +229,7 @@ internal fun AgentUsageSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             UsageSheetHeader(kind, "${session.host.name} · $path", loading) {
-                session.refreshAgentUsage(force = true)
+                session.refreshAgentUsage(force = true, fetchAgyQuota = true)
             }
 
             val u = usage

@@ -149,18 +149,26 @@ object AgentUsageCollector {
         "PATH=\"\$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/home/linuxbrew/.linuxbrew/bin:/snap/bin\"; export PATH"
 
     /** Command that reads `script` on stdin and prints single-session usage lines. */
-    fun sessionCommand(agent: CodingAgent?, tmuxSession: String?, directory: String): String {
+    fun sessionCommand(
+        agent: CodingAgent?,
+        tmuxSession: String?,
+        directory: String,
+        fetchAgyQuota: Boolean = false,
+    ): String {
         val a = shellQuote(agent?.command.orEmpty())
         val t = shellQuote(tmuxSession.orEmpty())
         val d = shellQuote(directory)
-        return "/bin/sh -c " + shellQuote("$EXTRA_PATH; command -v python3 >/dev/null 2>&1 || exit 0; exec python3 - session $a $t $d")
+        val flag = if (fetchAgyQuota) " --fetch-agy-quota" else ""
+        return "/bin/sh -c " + shellQuote("$EXTRA_PATH; command -v python3 >/dev/null 2>&1 || exit 0; exec python3 - session $a $t $d$flag")
     }
 
     /** Self-contained POSIX shell snippet for [io.itermux.ssh.RemoteHost.run] (no stdin channel). */
-    fun hostScript(range: HostUsageRange): String =
-        "$EXTRA_PATH; command -v python3 >/dev/null 2>&1 || exit 0; " +
+    fun hostScript(range: HostUsageRange, fetchAgyQuota: Boolean = false): String {
+        val flag = if (fetchAgyQuota) " --fetch-agy-quota" else ""
+        return "$EXTRA_PATH; command -v python3 >/dev/null 2>&1 || exit 0; " +
             "python3 -c 'import base64,sys; code=base64.b64decode(sys.argv.pop(1)); exec(compile(code,\"agent-usage.py\",\"exec\"))' " +
-            "'$scriptBase64' host ${range.arg}"
+            "'$scriptBase64' host ${range.arg}$flag"
+    }
 
     fun parseSession(output: String?): AgentSessionUsage? {
         if (output.isNullOrBlank()) return null

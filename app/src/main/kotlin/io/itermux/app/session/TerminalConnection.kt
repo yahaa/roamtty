@@ -205,12 +205,12 @@ class TerminalConnection(
         }
     }
 
-    /** Reads current session context, quota and token counts from the host's local CLI transcript. */
-    fun refreshAgentUsage(force: Boolean = true) {
+    /** Reads current session context, quota and token counts; only runs `agy -p /quota` when [fetchAgyQuota] is true. */
+    fun refreshAgentUsage(force: Boolean = true, fetchAgyQuota: Boolean = false) {
         if (state.value.phase != Phase.CONNECTED) return
         if (!force && agentUsageJob?.isActive == true) return
         val status = mutableAgentStatus.value
-        val kind = CodingAgent.fromCommand(status?.agent) ?: launchedAgent.value
+        val kind = CodingAgent.fromCommand(status?.agent) ?: mutableAgentUsage.value?.agent ?: launchedAgent.value
         if (kind == null) return
         val dir = status?.directory?.ifEmpty { mutableDirectory.value } ?: mutableDirectory.value
         val tmuxName = remoteSessionName.takeIf { mode == SessionMode.TMUX }
@@ -218,7 +218,12 @@ class TerminalConnection(
         agentUsageJob = scope.launch {
             if (force) mutableAgentUsageLoading.value = true
             try {
-                val cmd = AgentUsageCollector.sessionCommand(kind, tmuxName, dir)
+                val cmd = AgentUsageCollector.sessionCommand(
+                    agent = kind,
+                    tmuxSession = tmuxName,
+                    directory = dir,
+                    fetchAgyQuota = fetchAgyQuota && kind == CodingAgent.AGY,
+                )
                 val out = withContext(Dispatchers.IO) { ssh.runHostOutput(cmd, AgentUsageCollector.script) }
                 lastUsageAtMs = SystemClock.elapsedRealtime()
                 AgentUsageCollector.parseSession(out)?.let { mutableAgentUsage.value = it }
