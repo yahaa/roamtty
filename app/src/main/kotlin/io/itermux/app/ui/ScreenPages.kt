@@ -32,11 +32,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.data.Host
+import io.itermux.app.data.installedPlugins
 import io.itermux.app.desktop.DesktopConnection
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
 import io.itermux.desktop.DesktopPhase
 import io.itermux.desktop.DesktopProbe
+import io.itermux.desktop.VoiceCallPhase
+import io.itermux.desktop.VoiceUiState
+import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.Phase
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -252,6 +256,21 @@ internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: Lis
             reconnect()
         }
         val desktopReady = actions.desktopReady(host)
+        val pipDesktop = state.pipDesktopHostId?.takeIf { it == host.id }?.let(actions::desktopOf)
+        val voiceConnection = actions.voiceOf(host.id)
+        val idleVoice = remember { MutableStateFlow(VoiceUiState()) }
+        val voiceUi by (voiceConnection?.ui ?: idleVoice).collectAsStateWithLifecycle()
+        val voicePendingFlow = remember(voiceConnection) { voiceConnection?.pending ?: MutableStateFlow(null) }
+        val voicePending by voicePendingFlow.collectAsStateWithLifecycle()
+        voicePending?.let { PromptDialog(it) }
+        val voiceFailed = (voiceUi.phase as? VoiceCallPhase.Failed)?.message
+        LaunchedEffect(voiceFailed) {
+            if (!voiceFailed.isNullOrBlank()) actions.toast(voiceFailed)
+        }
+        val desktopAudioFlow = remember(pipDesktop) { pipDesktop?.audio ?: MutableStateFlow(false) }
+        val desktopAudioOn by desktopAudioFlow.collectAsStateWithLifecycle()
+        val desktopPipAudioActive = pipDesktop != null && pipDesktop.active && desktopAudioOn
+        val pluginInstalled = HostPlugin.DESKTOP in host.installedPlugins.orEmpty()
         TerminalPane(active, Modifier.weight(1f),
             sessions = sessions, lightTheme = lightTheme, onSelectSession = { state.selected = it },
             onHostDetail = actions::showSessionHost,
@@ -264,11 +283,22 @@ internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: Lis
             onClose = { actions.leaveTerminal(); actions.closeSession(active) },
             // A tap opens the desktop small over the terminal (or closes it); a long press opens its page.
             onDesktop = { actions.toggleDesktopPip(host) }.takeIf { desktopReady },
-            pip = TerminalPip(desktop = state.pipDesktopHostId?.takeIf { it == host.id }?.let(actions::desktopOf),
+            pip = TerminalPip(desktop = pipDesktop,
                 onTap = { state.showDesktopFromSmallWindow(host.id) }, onClose = { state.pipDesktopHostId = null },
                 onFull = {
                     if (state.pipDesktopHostId == host.id && actions.desktopOf(host.id) != null) state.showDesktopFromSmallWindow(host.id)
                     else actions.openDesktop(host)
-                }.takeIf { desktopReady }))
+                }.takeIf { desktopReady }),
+            voice = TerminalVoice(
+                ui = voiceUi,
+                hostName = host.name,
+                pluginInstalled = pluginInstalled,
+                desktopPipAudioActive = desktopPipAudioActive,
+                bluetoothAvailable = actions.isBluetoothAudioAvailable(),
+                onStart = { mode, route -> actions.startVoice(active, host, mode, route) },
+                onToggleMute = { actions.toggleVoiceMute(active, host) },
+                onCycleRoute = { actions.cycleVoiceRoute(host) },
+                onHangup = { actions.hangupVoice(active, host) },
+            ))
     }
 }

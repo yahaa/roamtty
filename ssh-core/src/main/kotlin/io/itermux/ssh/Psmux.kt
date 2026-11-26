@@ -64,6 +64,21 @@ object Psmux {
         exit ${'$'}LASTEXITCODE
     """.trimIndent()))
 
+    /** Sets a psmux session environment variable on Windows hosts. */
+    fun setEnvironmentCommand(sessionName: String, name: String, value: String): String {
+        require(name.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) { "invalid env var name: $name" }
+        require(value.isNotEmpty() && value.none { it.isWhitespace() || it.isISOControl() || it in "'\"\\$`;&|" }) {
+            "invalid env var value: $value"
+        }
+        return PowerShell.command(script(sessionName, "psmux set-environment -t \$n $name $value\nexit \$LASTEXITCODE"))
+    }
+
+    /** Removes a psmux session environment variable on Windows hosts. */
+    fun unsetEnvironmentCommand(sessionName: String, name: String): String {
+        require(name.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) { "invalid env var name: $name" }
+        return PowerShell.command(script(sessionName, "psmux set-environment -u -t \$n $name\nexit \$LASTEXITCODE"))
+    }
+
     /** psmux reports `C:\Users\me`; Windows OpenSSH's SFTP addresses it as `/C:/Users/me`. */
     fun sftpPath(path: String): String? {
         val trimmed = path.trim()

@@ -7,6 +7,8 @@ import io.itermux.app.tr
 import io.itermux.app.trf
 
 import io.itermux.app.data.Host
+import io.itermux.desktop.AudioRoute
+import io.itermux.desktop.VoiceMode
 import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.Phase
@@ -38,7 +40,12 @@ internal data class ConnectRequest(
     /** Credentials end this closed entry's remote tmux session instead of opening a terminal. */
     val terminateSessionId: String? = null,
     /** Attach this tmux session already on the server instead of creating one. */
-    val attach: String? = null
+    val attach: String? = null,
+    /** Credentials are for starting an `agy /voice` bridge on this host. */
+    val voice: Boolean = false,
+    val voiceSessionId: String? = null,
+    val voiceMode: VoiceMode? = null,
+    val voiceRoute: AudioRoute? = null,
 )
 
 /** Messages of a connection that dropped or was restored from the journal, not one the user or the server ended. */

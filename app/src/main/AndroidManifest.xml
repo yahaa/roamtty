@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Android 11+ must expose web handlers so unavailable browsers can be filtered before launch. -->
     <queries>
@@ -52,7 +55,7 @@
                 <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
-        <service android:name=".session.SessionService" android:exported="false" android:foregroundServiceType="specialUse">
+        <service android:name=".session.SessionService" android:exported="false" android:foregroundServiceType="specialUse|microphone">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User initiated SSH terminal and remote desktop connections to the user's own computers; ongoing sessions with explicit disconnect notification." />
         </service>

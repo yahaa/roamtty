@@ -59,15 +59,20 @@ data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: 
     /**
      * What starts the agent, in tmux session [session], which Claude Code's hooks then report to from outside tmux too.
      * Windows folders open PowerShell; keep npm's .ps1 execution policy from blocking its native .cmd shim.
+     * When [antigravityMic] is set on Windows for [CodingAgent.AGY], exports `$env:ANTIGRAVITY_MIC` before starting `agy`.
      */
-    fun commandLine(session: String?): String {
+    fun commandLine(session: String?, antigravityMic: String? = null): String {
         val dir = StartDirectory.normalize(directory)
         val typed = typedCommand(session)
         if (!WindowsShell.isPath(dir)) return StartDirectory.command(dir)?.let { "$it && $typed" } ?: typed
         val cmd = "${agent.command}.cmd"
         // cmd.exe silently falls back to another cwd for UNC paths. Never run an agent there.
         val uncGuard = "if ((Get-Location).ProviderPath.StartsWith('\\\\')) { throw 'Please map this network folder to a drive letter before starting the agent.' }"
-        return WindowsShell.launch(dir, "if (Get-Command $cmd -CommandType Application -ErrorAction SilentlyContinue) { " +
+        val micPrefix = if (agent == CodingAgent.AGY && antigravityMic != null) {
+            require(AgentHooks.isValidLoopbackMicEndpoint(antigravityMic)) { "invalid ANTIGRAVITY_MIC endpoint: $antigravityMic" }
+            "\$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(antigravityMic)}; "
+        } else ""
+        return WindowsShell.launch(dir, "${micPrefix}if (Get-Command $cmd -CommandType Application -ErrorAction SilentlyContinue) { " +
             "$uncGuard; ${agentCommand.replaceFirst(agent.command, cmd)} } else { $agentCommand }")
     }
 

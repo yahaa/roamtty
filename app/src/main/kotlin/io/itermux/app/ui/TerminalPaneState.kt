@@ -86,6 +86,10 @@ internal class TerminalPaneState(
     var confirmPaste by mutableStateOf<String?>(null)
     var restartConfirm by mutableStateOf(false)
     var usageSheetOpen by mutableStateOf(false)
+    var voiceSheetOpen by mutableStateOf(false)
+    var voicePopoverOpen by mutableStateOf(false)
+    /** Temporarily folds a pinned dock while a voice call is active so the phone-holding pet floats unobstructed. */
+    var voiceSuppressesPinnedDock by mutableStateOf(false)
     var menu by mutableStateOf(false)
     var sessionMenu by mutableStateOf(false)
     var fileAction by mutableStateOf<FileAction?>(null)
@@ -98,8 +102,8 @@ internal class TerminalPaneState(
     // Only explicit pinning reserves terminal width; placement follows the IME-sized viewport.
     // Connection notices use the same golden-section anchor; show controls only when ready.
     val dockAvailable: Boolean get() = connected && !editor
-    val dockVisible: Boolean get() = dockAvailable && (dockPinned || dockExpanded)
-    val dockReserved: Boolean get() = dockVisible && dockPinned
+    val dockVisible: Boolean get() = dockAvailable && ((dockPinned && !voiceSuppressesPinnedDock) || dockExpanded)
+    val dockReserved: Boolean get() = dockVisible && dockPinned && !voiceSuppressesPinnedDock
     val floatingDock: Boolean get() = dockVisible && !dockReserved
     /** The pet stands in for a dock that is put away. */
     val petAvailable: Boolean get() = dockAvailable && !dockVisible
@@ -184,6 +188,24 @@ internal class TerminalPaneState(
         if (keyCode !in ArrowKeys) sticky.clear()
         terminal?.sendInputControlKey(keyCode)
         sticky.clear()
+    }
+
+    /** Sends an `agy /voice` interactive hotkey (`F5` dictate, `F6` live/mute, `F7` hangup). */
+    fun sendVoiceKey(keyCode: Int) {
+        sticky.clear()
+        terminal?.scrollToBottom()
+        val view = terminal
+        if (view != null) {
+            view.sendInputControlKey(keyCode)
+        } else {
+            val seq = when (keyCode) {
+                KeyEvent.KEYCODE_F5 -> "\u001b[15~"
+                KeyEvent.KEYCODE_F6 -> "\u001b[17~"
+                KeyEvent.KEYCODE_F7 -> "\u001b[18~"
+                else -> return
+            }
+            session.write(seq)
+        }
     }
 
     /** An arrow key beside the pet: keeps the arrows up a while longer and sends the key at the live screen. */

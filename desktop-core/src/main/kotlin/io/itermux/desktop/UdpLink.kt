@@ -55,7 +55,7 @@ class UdpLink(
      */
     private sealed class Out {
         class Raw(val plain: ByteArray) : Out()
-        class Plain(var frame: ByteArray) : Out()
+        class Plain(var frame: ByteArray, val fecRatio: Float = 0f) : Out()
         class Reliable(val id: Long, val frame: ByteArray, val unacked: Unacked) : Out()
     }
     private val queue = ArrayDeque<Out>()
@@ -151,7 +151,7 @@ class UdpLink(
             is Out.Plain -> {
                 // Ids are u32 on the wire: wrap the same way as reliable ones.
                 val id = (plainSeq.getAndIncrement() * 2) and 0xFFFFFFFFL
-                UdpWire.fragment(id, 0, item.frame, 0f).forEach { emit(it.encode()) }
+                UdpWire.fragment(id, 0, item.frame, item.fecRatio).forEach { emit(it.encode()) }
             }
             is Out.Reliable -> {
                 // Handed to SSH by [giveUp] while it waited here: the host gets it from there.
@@ -177,7 +177,7 @@ class UdpLink(
     }
 
     /** Sends a whole protocol frame; [reliable] ones are resent until the host acknowledges them. */
-    fun send(frame: ByteArray, reliable: Boolean) {
+    fun send(frame: ByteArray, reliable: Boolean, fecRatio: Float = 0f) {
         if (reliable) {
             // The id and the resend entry exist at once, so a [giveUp] right after still hands this frame over in order.
             val id = (reliableSeq.getAndIncrement() * 2 + 1) and 0xFFFFFFFFL
@@ -192,7 +192,7 @@ class UdpLink(
             val merged = last?.let { merge(it.frame, frame) }
             if (merged != null) { last.frame = merged; return }
             if (queue.size >= SEND_QUEUE_CAP && coalesceable(frame)) return
-            queue.addLast(Out.Plain(frame))
+            queue.addLast(Out.Plain(frame, fecRatio))
             queueLock.notify()
         }
     }
@@ -267,9 +267,9 @@ class UdpLink(
         const val ALIVE_US = 3_000_000L
         private const val SEND_QUEUE_CAP = 512
 
-        /** Which client frames must arrive: everything except pointer moves, wheel, ACK and pings. */
+        /** Which client frames must arrive: everything except pointer moves, wheel, ACK, pings, and live mic audio. */
         fun reliable(frame: ByteArray): Boolean = when (frame[0].toInt() and 0xFF) {
-            DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG -> false
+            DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG, VoiceProtocol.MIC_AUDIO -> false
             DesktopProtocol.INPUT -> (frame.getOrNull(4)?.toInt() ?: 0) !in setOf(1, 2, 4)
             else -> true
         }

@@ -1,6 +1,8 @@
 package io.itermux.app.ui
 
 import android.content.Context
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.view.WindowManager
@@ -22,9 +24,12 @@ import io.itermux.app.session.StartDirectory
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
 import io.itermux.app.trf
+import io.itermux.app.voice.VoiceConnection
+import io.itermux.desktop.AudioRoute
 import io.itermux.desktop.DesktopButton
 import io.itermux.desktop.DesktopPhase
 import io.itermux.desktop.DesktopProbe
+import io.itermux.desktop.VoiceMode
 import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.HostSystem
@@ -53,6 +58,7 @@ internal class ScreenActions(
     private val sessionStates: State<Map<String, ConnectionState>>,
     private val savedHosts: State<List<Host>>,
     private val openDesktops: State<Map<String, DesktopConnection>>,
+    private val openVoices: State<Map<String, VoiceConnection>>,
     /** The desktop plugin's targets ("linux-x86_64", …), which tell the hosts it runs on. */
     private val desktopTargets: Set<String>,
     /** Asks for the notification permission when it is still missing; sessions run without it. */
@@ -140,6 +146,19 @@ internal class ScreenActions(
             request.desktop -> {
                 startDesktop(request.host, password, passphrase, show = !request.desktopSmall)
                 if (request.desktopSmall) state.pipDesktopHostId = request.host.id
+            }
+            request.voice -> {
+                val targetSession = sessions.firstOrNull { it.id == request.voiceSessionId }
+                if (targetSession != null) {
+                    launchVoice(
+                        session = targetSession,
+                        host = request.host,
+                        mode = request.voiceMode ?: VoiceMode.LIVE,
+                        route = request.voiceRoute ?: AudioRoute.SPEAKER,
+                        password = password,
+                        passphrase = passphrase,
+                    )
+                }
             }
             else -> start(request, password, passphrase)
         }
@@ -256,6 +275,84 @@ internal class ScreenActions(
         hostId?.let { openDesktops.value[it] ?: service?.desktops?.get(it) }
 
     fun closeDesktop(hostId: String) { service?.desktops?.close(hostId) }
+
+    fun voiceOf(hostId: String?): VoiceConnection? =
+        hostId?.let { openVoices.value[it] ?: service?.voices?.get(it) }
+
+    fun closeVoice(hostId: String) { service?.stopVoice(hostId) }
+
+    fun isBluetoothAudioAvailable(): Boolean = runCatching {
+        val am = context.getSystemService(AudioManager::class.java)
+        val btTypes = buildSet {
+            add(AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                add(AudioDeviceInfo.TYPE_BLE_HEADSET)
+                add(AudioDeviceInfo.TYPE_BLE_SPEAKER)
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            am.availableCommunicationDevices.any { it.type in btTypes }
+        } else {
+            am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in btTypes }
+        }
+    }.getOrDefault(false)
+
+    /** Starts an `agy /voice` session after user confirmation (asking for an unsaved SSH secret first if needed). */
+    fun startVoice(session: TerminalConnection, host: Host, mode: VoiceMode, route: AudioRoute) {
+        if (host.needsTypedSecret(app.vault)) {
+            state.connectRequest = ConnectRequest(
+                host = host,
+                mode = SessionMode.SHELL,
+                voice = true,
+                voiceSessionId = session.id,
+                voiceMode = mode,
+                voiceRoute = route,
+            )
+            return
+        }
+        launchVoice(session, host, mode, route)
+    }
+
+    private fun launchVoice(
+        session: TerminalConnection,
+        host: Host,
+        mode: VoiceMode,
+        route: AudioRoute,
+        password: String = "",
+        passphrase: String = "",
+    ) {
+        val bound = readyService() ?: return
+        bound.startVoice(host, session.id, password, passphrase, mode, route) { readyMode, _ ->
+            // Trigger agy's native interactive voice hotkey once the bridge & ANTIGRAVITY_MIC are ready.
+            val keySeq = if (readyMode == VoiceMode.LIVE) "\u001b[17~" else "\u001b[15~" // F6 / F5
+            session.write(keySeq)
+        }
+    }
+
+    fun toggleVoiceMute(session: TerminalConnection, host: Host) {
+        val voice = voiceOf(host.id) ?: return
+        val muted = voice.toggleMute()
+        // F6 pauses/resumes agy voice capture on the remote side as well.
+        session.write("\u001b[17~")
+        toast(tr(if (muted) "已静音（F6）" else "已恢复麦克风"))
+    }
+
+    fun cycleVoiceRoute(host: Host) {
+        val voice = voiceOf(host.id) ?: return
+        val route = voice.cycleAudioRoute()
+        val label = when (route) {
+            AudioRoute.SPEAKER -> tr("已切换扬声器")
+            AudioRoute.EARPIECE -> tr("已切换听筒")
+            AudioRoute.BLUETOOTH -> tr("已切换蓝牙耳机")
+        }
+        toast(label)
+    }
+
+    fun hangupVoice(session: TerminalConnection, host: Host) {
+        // F7 ends agy's active voice mode, then close the local audio bridge.
+        session.write("\u001b[18~")
+        service?.stopVoice(host.id)
+    }
 
     fun desktopSupported(host: Host): Boolean {
         val system = HostSystem.fromStored(host.os)

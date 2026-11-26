@@ -37,6 +37,9 @@ object WindowsDesktop {
     /** `serve` through cmd /c, whichever shell sshd runs: PowerShell would not pass a binary stream through. */
     fun serveCommand(args: String): String = "cmd /c \"\"%USERPROFILE%\\.roamtty\\bin\\roamtty-desktop.exe\" serve $args\""
 
+    /** Headless `voice` bridge through cmd /c so stdin/stdout carry binary protocol frames cleanly. */
+    fun voiceCommand(args: String): String = "cmd /c \"\"%USERPROFILE%\\.roamtty\\bin\\roamtty-desktop.exe\" voice $args\""
+
     /** cmd's "is not recognized as a command": the plugin is not installed. */
     const val NOT_FOUND = 9009
 

@@ -164,13 +164,14 @@ object AgentHooks {
     /**
      * The hook file [agent] needs on the host, as a name in `~/.roamtty` and its contents; true when it must run.
      * With [session], Claude Code's file names the tmux session it reports to.
+     * With [antigravityMic], Antigravity CLI's launcher exports `ANTIGRAVITY_MIC` for voice audio forwarding.
      */
-    fun hostFile(agent: CodingAgent, session: String? = null): Triple<String, String, Boolean> = when (agent) {
+    fun hostFile(agent: CodingAgent, session: String? = null, antigravityMic: String? = null): Triple<String, String, Boolean> = when (agent) {
         CodingAgent.CLAUDE -> reportingSession(session)?.let { Triple("$SETTINGS_PREFIX$it.json", claudeSettings(it), false) }
             ?: Triple(SETTINGS_PATH.substringAfterLast('/'), claudeSettings, false)
         CodingAgent.CODEX -> Triple("codex", codexLauncher, true)
         CodingAgent.GROK -> Triple("grok", grokLauncher, true)
-        CodingAgent.AGY -> Triple("agy", agyLauncher, true)
+        CodingAgent.AGY -> Triple("agy", agyLauncher(antigravityMic), true)
     }
 
     /** What [agent] is typed as: Claude Code with its settings, the others through their launcher. */
@@ -292,7 +293,14 @@ object AgentHooks {
      * writes a small `roamtty` plugin whose hooks act only for an `agy` started here ([script] checks `ROAMTTY_AGENT`),
      * reports the initial idle state (Antigravity fires `SessionStart` only on the first prompt), then runs `agy`.
      */
-    val agyLauncher: String by lazy {
+    val agyLauncher: String by lazy { agyLauncher(null) }
+
+    /** Builds `~/.roamtty/agy`, optionally exporting `ANTIGRAVITY_MIC=<micEndpoint>` when voice forwarding is active. */
+    fun agyLauncher(micEndpoint: String?): String {
+        val validatedMic = micEndpoint?.let { endpoint ->
+            require(isValidLoopbackMicEndpoint(endpoint)) { "invalid ANTIGRAVITY_MIC endpoint: $endpoint" }
+            endpoint
+        }
         val plugin = "{\"name\":\"roamtty\",\"displayName\":\"Roamtty\",\"version\":\"1.0.0\"," +
             "\"description\":\"Reports Antigravity CLI status to Roamtty.\"}"
         val hooks = "{\"roamtty\":{" +
@@ -301,14 +309,23 @@ object AgentHooks {
             "\"PostToolUse\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.AGY, "post")}\"}]}]," +
             "\"Stop\":[{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.AGY, "stop")}\"}]" +
             "}}"
-        (listOf(
-            "#!/bin/sh",
-            "# Roamtty: starts Antigravity CLI with hooks that report its state to agent-hook.sh.",
-            "dir=\"\$HOME/.gemini/config/plugins/roamtty\"",
-            "mkdir -p \"\$dir\" && printf '%s\\n' '$plugin' > \"\$dir/plugin.json\" && printf '%s\\n' '$hooks' > \"\$dir/hooks.json\"",
-            "export ROAMTTY_AGENT=agy",
-            "${hookCommand(CodingAgent.AGY, "start")} </dev/null",
-            "agy \"\$@\"",
-        ) + launcherEnd(CodingAgent.AGY)).joinToString("\n", postfix = "\n")
+        val lines = buildList {
+            add("#!/bin/sh")
+            add("# Roamtty: starts Antigravity CLI with hooks that report its state to agent-hook.sh.")
+            add("dir=\"\$HOME/.gemini/config/plugins/roamtty\"")
+            add("mkdir -p \"\$dir\" && printf '%s\\n' '$plugin' > \"\$dir/plugin.json\" && printf '%s\\n' '$hooks' > \"\$dir/hooks.json\"")
+            if (validatedMic != null) add("export ANTIGRAVITY_MIC=$validatedMic")
+            add("export ROAMTTY_AGENT=agy")
+            add("${hookCommand(CodingAgent.AGY, "start")} </dev/null")
+            add("agy \"\$@\"")
+            addAll(launcherEnd(CodingAgent.AGY))
+        }
+        return lines.joinToString("\n", postfix = "\n")
+    }
+
+    internal fun isValidLoopbackMicEndpoint(endpoint: String): Boolean {
+        if (!endpoint.startsWith("127.0.0.1:")) return false
+        val port = endpoint.removePrefix("127.0.0.1:").toIntOrNull() ?: return false
+        return port in 1..65535 && endpoint == "127.0.0.1:$port"
     }
 }

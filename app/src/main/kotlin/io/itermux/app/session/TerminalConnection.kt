@@ -68,7 +68,9 @@ class TerminalConnection(
     /** What the agent reported last time, from the journal. */
     lastAgentStatus: AgentStatus? = null,
     /** The agent reported something new, which the journal keeps. */
-    private val onAgentReport: () -> Unit = {}
+    private val onAgentReport: () -> Unit = {},
+    /** Active `ANTIGRAVITY_MIC` endpoint for this host while a voice channel is open, or null. */
+    private val antigravityMic: () -> String? = { null },
 ) : TerminalOutput(), TerminalSession {
     val pending = MutableStateFlow<PendingPrompt?>(null)
     val inputWarning = MutableStateFlow<String?>(null)
@@ -444,13 +446,22 @@ class TerminalConnection(
     private suspend fun installAgentHooks(agent: CodingAgent) {
         ssh.state.first { !it.active || it.phase == Phase.CONNECTED }
         try {
-            val (name, content, executable) = AgentHooks.hostFile(agent)
+            val activeMic = if (agent == CodingAgent.AGY) antigravityMic() else null
+            val (name, content, executable) = AgentHooks.hostFile(agent, antigravityMic = activeMic)
             val written = ssh.writeHostFile(AgentHooks.SCRIPT_PATH.substringAfterLast('/'), AgentHooks.script) &&
                 ssh.writeHostFile(name, content, executable)
             if (written && agent == CodingAgent.CLAUDE && mode == SessionMode.TMUX) {
                 val (sessionName, sessionContent) = AgentHooks.hostFile(agent, remoteSessionName)
                 if (sessionName != name) ssh.writeHostFile(sessionName, sessionContent)
                 ssh.runHostCommand(AgentHooks.pruneSettings)
+            }
+            if (activeMic != null && mode == SessionMode.TMUX) {
+                val setEnv = if (multiplexer.value == HostPlugin.PSMUX) {
+                    Psmux.setEnvironmentCommand(remoteSessionName, "ANTIGRAVITY_MIC", activeMic)
+                } else {
+                    Tmux.setEnvironmentCommand(remoteSessionName, "ANTIGRAVITY_MIC", activeMic)
+                }
+                ssh.runHostCommand(setEnv)
             }
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { /* The agent still starts, without reporting. */ }

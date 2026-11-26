@@ -3,10 +3,12 @@ package io.itermux.app.session
 import io.itermux.app.tr
 import io.itermux.app.trf
 
+import android.Manifest
 import android.app.*
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
@@ -22,6 +24,10 @@ import io.itermux.app.data.installedPlugins
 import io.itermux.app.data.prefersMosh
 import io.itermux.app.desktop.DesktopConnection
 import io.itermux.app.desktop.DesktopRegistry
+import io.itermux.app.voice.VoiceConnection
+import io.itermux.app.voice.VoiceRegistry
+import io.itermux.desktop.AudioRoute
+import io.itermux.desktop.VoiceMode
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,6 +46,7 @@ class SessionService : Service() {
     val pendingSharedImages = MutableStateFlow<List<Uri>>(emptyList())
     private val binder = LocalBinder()
     private var foreground = false
+    private var foregroundType = 0
     private lateinit var journal: SessionJournal
     private lateinit var restoration: Job
     private lateinit var wakeLock: PowerManager.WakeLock
@@ -57,6 +64,19 @@ class SessionService : Service() {
     /** Remote desktops, one per host; see [DesktopRegistry]. */
     internal val desktops by lazy { DesktopRegistry(app, scope) { scope.launch { watchDesktops() } } }
     private var desktopWatcher: Job? = null
+    /** Active `agy /voice` audio bridges, one per host; see [VoiceRegistry]. */
+    internal val voices by lazy {
+        VoiceRegistry(
+            app = app,
+            scope = scope,
+            tmuxSessionsForHost = { hostId ->
+                mutableSessions.value.filter { it.host.id == hostId && it.mode == SessionMode.TMUX && it.state.value.active }
+                    .map { it.remoteSessionName }
+            },
+            onChange = { scope.launch { watchVoices() } },
+        )
+    }
+    private var voiceWatcher: Job? = null
     inner class LocalBinder : Binder() { val service get() = this@SessionService }
     override fun onBind(intent: Intent?) = binder
     override fun onCreate() {
@@ -123,7 +143,8 @@ class SessionService : Service() {
         onPluginsDetected = { updatePlugins(host, it) },
         onDesktopDetected = { updateDesktop(host, it) },
         lastAgentStatus = lastAgentStatus,
-        onAgentReport = ::saveSessions
+        onAgentReport = ::saveSessions,
+        antigravityMic = { voices.activeMicEndpoint(host.id) },
     )
     /**
      * Opens a new local entry. TMUX mode allocates a fresh remote session name, unless [attach] names a tmux session
@@ -162,9 +183,57 @@ class SessionService : Service() {
     /** Opens (or returns) [host]'s desktop and keeps the service in the foreground while it lives. */
     internal fun openDesktop(host: Host, password: String, passphrase: String, width: Int, height: Int, dpi: Int): DesktopConnection {
         val connection = desktops.open(host, password, passphrase, width, height, dpi)
+        if (voices.live.isNotEmpty()) connection.setVoiceMuted(true)
         ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
         watchDesktops()
         return connection
+    }
+
+    /** Starts an `agy /voice` bridge on [host], upgrades FGS to microphone type, and mutes remote desktop audio. */
+    internal fun startVoice(
+        host: Host,
+        sessionId: String,
+        password: String,
+        passphrase: String,
+        mode: VoiceMode,
+        route: AudioRoute,
+        onReady: (VoiceMode, Int) -> Unit,
+    ): VoiceConnection {
+        val connection = voices.start(host, sessionId, password, passphrase, mode, route, onReady)
+        syncDesktopAudioForVoice()
+        ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
+        watchVoices()
+        return connection
+    }
+
+    internal fun stopVoice(hostId: String) {
+        voices.close(hostId)
+        syncDesktopAudioForVoice()
+        refreshNotification()
+    }
+
+    private fun watchVoices() {
+        voiceWatcher?.cancel()
+        syncDesktopAudioForVoice()
+        voiceWatcher = scope.launch {
+            val all = voices.connections.value.values.toList()
+            if (all.isEmpty()) {
+                syncDesktopAudioForVoice()
+                refreshNotification()
+                return@launch
+            }
+            refreshNotification()
+            merge(*all.map { it.ui }.toTypedArray()).collect {
+                syncDesktopAudioForVoice()
+                refreshNotification()
+            }
+        }
+    }
+
+    /** Auto-mutes remote desktop PiP audio while any voice call is active to protect hardware AEC. */
+    private fun syncDesktopAudioForVoice() {
+        val voiceActive = voices.live.isNotEmpty()
+        desktops.connections.value.values.forEach { it.setVoiceMuted(voiceActive) }
     }
 
     private fun watchDesktops() {
@@ -372,7 +441,7 @@ class SessionService : Service() {
                 val changed = current != null && current != network
                 Log.i(CONNECTION_LOG_TAG, "default network $network available, changed=$changed")
                 current = network
-                if (changed) scope.launch { verifyConnections(); desktops.networkChanged() }
+                if (changed) scope.launch { verifyConnections(); desktops.networkChanged(); voices.networkChanged() }
             }
             // No replacement network (airplane mode, Wi-Fi gone without mobile data) sends no onAvailable.
             override fun onLost(network: Network) { Log.i(CONNECTION_LOG_TAG, "default network $network lost"); scope.launch { verifyConnections() } }
@@ -383,28 +452,57 @@ class SessionService : Service() {
         }.getOrNull()
     }
 
-    fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; desktops.closeAll(); refreshNotification() }
+    fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; desktops.closeAll(); voices.closeAll(); refreshNotification() }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        ServiceCompat.startForeground(this, NOTIFICATION, notification(),
-            if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
+        val type = desiredForegroundType()
+        startForegroundSafe(type)
         foreground = true
         postedNotice = notice()
         refreshNotification()
         return START_NOT_STICKY
     }
+
+    private fun desiredForegroundType(): Int {
+        if (Build.VERSION.SDK_INT < 34) return 0
+        val hasMicVoice = voices.live.isNotEmpty() &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        return if (hasMicVoice) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        }
+    }
+
+    private fun startForegroundSafe(type: Int) {
+        val notif = notification()
+        val applied = runCatching {
+            ServiceCompat.startForeground(this, NOTIFICATION, notif, type)
+            type
+        }.getOrElse {
+            val fallback = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
+            runCatching { ServiceCompat.startForeground(this, NOTIFICATION, notif, fallback) }
+            fallback
+        }
+        foregroundType = applied
+    }
+
     private fun notification(): Notification {
         val live = desktops.live
+        val liveVoice = voices.live
         // One live desktop: tapping goes back to it. Several: the app opens on its list, where each has its button.
-        val desktopHost = live.singleOrNull()?.host?.id
+        val desktopHost = if (liveVoice.isEmpty()) live.singleOrNull()?.host?.id else null
+        val voiceSession = liveVoice.singleOrNull()?.sessionId
         val launch = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).apply {
-            if (desktopHost != null) putExtra(MainActivity.EXTRA_DESKTOP_HOST, desktopHost)
+            if (voiceSession != null) putExtra(MainActivity.EXTRA_SESSION, voiceSession)
+            else if (desktopHost != null) putExtra(MainActivity.EXTRA_DESKTOP_HOST, desktopHost)
         }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val active = sessions.value.count { it.state.value.active }
-        // Only the count: what needs the user comes as notifications of its own. Live desktops get the line, by name.
-        val text = when (live.size) {
-            0 -> null
-            1 -> trf("%s 桌面 · 已连接", live[0].host.name)
-            else -> trf("%d 个桌面已连接 · %s", live.size, live.joinToString("、") { it.host.name })
+        // Only the count: what needs the user comes as notifications of its own. Live voice/desktops get the line, by name.
+        val text = when {
+            liveVoice.isNotEmpty() -> trf("%s 语音通话中", liveVoice.first().host.name)
+            live.size == 1 -> trf("%s 桌面 · 已连接", live[0].host.name)
+            live.size > 1 -> trf("%d 个桌面已连接 · %s", live.size, live.joinToString("、") { it.host.name })
+            else -> null
         }
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification).setContentTitle(trf(sessionCountKey(active), active))
@@ -418,26 +516,35 @@ class SessionService : Service() {
     // break long connections again. Every inactive state, explicit disconnect and onDestroy release it.
     @SuppressLint("WakelockTimeout")
     private fun refreshNotification() {
-        val active = sessions.value.any { it.state.value.active } || desktops.live.isNotEmpty()
+        val active = sessions.value.any { it.state.value.active } || desktops.live.isNotEmpty() || voices.live.isNotEmpty()
         // A foreground notification alone does not keep the CPU running with the screen off.
         if (active && !wakeLock.isHeld) wakeLock.acquire()
         if (!active && wakeLock.isHeld) wakeLock.release()
         if (!active) {
-            if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false }
+            if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false; foregroundType = 0 }
             stopSelf()
             postedNotice = null
-        } else if (foreground && notice() != postedNotice) {
-            // Posted again only when what it says changes.
-            notifications.notify(NOTIFICATION, notification())
-            postedNotice = notice()
+        } else if (foreground) {
+            val desiredType = desiredForegroundType()
+            if (desiredType != foregroundType) {
+                startForegroundSafe(desiredType)
+                postedNotice = notice()
+            } else if (notice() != postedNotice) {
+                // Posted again only when what it says changes.
+                notifications.notify(NOTIFICATION, notification())
+                postedNotice = notice()
+            }
         }
     }
-    /** What the ongoing notification says: the live sessions, and the live desktops by host; see [notification]. */
-    private fun notice() = listOf(sessions.value.count { it.state.value.active }.toString()) + desktops.live.map { it.host.id }
+    /** What the ongoing notification says: the live sessions, live desktops, and live voice calls by host; see [notification]. */
+    private fun notice() = listOf(sessions.value.count { it.state.value.active }.toString()) +
+        desktops.live.map { "d:${it.host.id}" } +
+        voices.live.map { "v:${it.host.id}" }
     override fun onDestroy() {
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         mutableSessions.value.forEach { it.disconnect() }
         desktops.closeAll()
+        voices.closeAll()
         app.appSettings().unregisterOnSharedPreferenceChangeListener(settingListener)
         scope.cancel()
         if (wakeLock.isHeld) wakeLock.release()

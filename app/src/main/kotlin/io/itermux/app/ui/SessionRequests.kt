@@ -39,7 +39,11 @@ internal suspend fun SessionService.openFor(request: ConnectRequest, credentials
     if (request.title.isNotBlank()) session.rename(request.title)
     request.agent?.let { session.launchedAgent.value = it }
     // Only now is the tmux session known that the agent's hooks report to.
-    val startup = request.launch?.commandLine(session.remoteSessionName.takeIf { session.mode == SessionMode.TMUX }) ?: request.startupCommand
+    val activeMic = voices.activeMicEndpoint(request.host.id)
+    val startup = request.launch?.commandLine(
+        session = session.remoteSessionName.takeIf { session.mode == SessionMode.TMUX },
+        antigravityMic = activeMic,
+    ) ?: request.startupCommand
     startup?.let { session.runWhenConnected(it, request.agent.takeIf { request.agentHooks }) }
     return session
 }

@@ -13,8 +13,8 @@ import kotlinx.coroutines.delay
 
 /** The page's timers and the resets that follow the session, its connection, the keyboard and the small window. */
 @Composable
-internal fun TerminalPaneEffects(pane: TerminalPaneState, phase: Phase, imeVisible: Boolean, pipShown: Boolean) {
-    DockTimers(pane)
+internal fun TerminalPaneEffects(pane: TerminalPaneState, phase: Phase, imeVisible: Boolean, pipShown: Boolean, voiceActive: Boolean = false) {
+    DockTimers(pane, voiceActive)
     PetRingTimers(pane)
     PetKeyTimers(pane)
     SessionEffects(pane, phase)
@@ -22,10 +22,16 @@ internal fun TerminalPaneEffects(pane: TerminalPaneState, phase: Phase, imeVisib
     // A keyboard closed some other way drops a pending hide, so reopening it is not undone.
     LaunchedEffect(imeVisible) { if (!imeVisible) { pane.sticky.ctrl = false; pane.cancelKeyboardHide() } }
     LaunchedEffect(pipShown) { if (!pipShown) pane.dropPipFocus() }
+    LaunchedEffect(voiceActive) {
+        if (!voiceActive) {
+            pane.voicePopoverOpen = false
+            pane.voiceSuppressesPinnedDock = false
+        }
+    }
 }
 
 @Composable
-private fun DockTimers(pane: TerminalPaneState) {
+private fun DockTimers(pane: TerminalPaneState, voiceActive: Boolean) {
     // A dock the pet opened (not pinned) goes back to the pet after a quiet spell; a touch on it starts the spell over,
     // and an open menu holds it.
     // Timed by frames, not an animation: with animations turned off in the system settings one would end at once.
@@ -43,12 +49,13 @@ private fun DockTimers(pane: TerminalPaneState) {
         pane.dockExpanded = false
     }
     // The collapsed toolbox fades out after a quiet spell and returns on the next touch.
+    // Never auto-hide while a voice call is active.
     val dockAvailable = pane.dockAvailable
     val dockVisible = pane.dockVisible
-    LaunchedEffect(pane.touches, dockAvailable, dockVisible) {
+    LaunchedEffect(pane.touches, dockAvailable, dockVisible, voiceActive) {
         pane.toolboxAwake = true
         val hideAfter = TerminalToolbox.autoHideMillis
-        if (dockAvailable && !dockVisible && hideAfter > 0) {
+        if (dockAvailable && !dockVisible && !voiceActive && hideAfter > 0) {
             delay(hideAfter)
             pane.toolboxAwake = false
         }

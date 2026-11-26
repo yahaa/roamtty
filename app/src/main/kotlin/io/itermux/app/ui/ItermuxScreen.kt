@@ -100,7 +100,7 @@ fun ItermuxScreen(
     val boundService = rememberUpdatedState(service)
     val actions = remember(app, context, scope, state, homePager) {
         ScreenActions(app, context, scope, state, homePager, boundService, data.sessionsState, data.sessionStatesState,
-            data.hostsState, data.desktopsState, desktopTargets, requestNotifications = {
+            data.hostsState, data.desktopsState, data.voicesState, desktopTargets, requestNotifications = {
                 if (Build.VERSION.SDK_INT >= 33 &&
                     context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                     permission.launch(Manifest.permission.POST_NOTIFICATIONS)

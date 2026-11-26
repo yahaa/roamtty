@@ -37,6 +37,7 @@ internal fun ScreenDialogs(app: ItermuxApp, service: SessionService?, state: Scr
                 // Keep remote tmux running; only drop the phone's links (and any desktop keep-alive).
                 sessions.filter { it.host.id == host.id }.forEach { service?.disconnectLocal(it.id, forgetCard = true) }
                 actions.closeDesktop(host.id)
+                actions.closeVoice(host.id)
                 app.database.hosts().delete(host.id)
                 DesktopThumbnails.remove(app, host.id)
                 // WebView's profile store insists on the main thread; Room may hand the coroutine back on another.
@@ -66,6 +67,10 @@ internal fun ScreenDialogs(app: ItermuxApp, service: SessionService?, state: Scr
                     ?.filter { it.host.target().endpoint == endpoint }
                     ?.map { it.host.id }?.distinct()
                     ?.forEach(actions::closeDesktop)
+                service?.voices?.connections?.value?.values
+                    ?.filter { it.host.target().endpoint == endpoint }
+                    ?.map { it.host.id }?.distinct()
+                    ?.forEach(actions::closeVoice)
                 app.database.hosts().forgetPin(endpoint)
                 state.reverify = null
                 actions.connect(session.host, session.mode, session.title.value,

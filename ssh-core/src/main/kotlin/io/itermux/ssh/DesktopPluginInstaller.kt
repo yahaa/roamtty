@@ -22,7 +22,14 @@ class DesktopPluginInstaller(
      * A `.zip` [url] is the notarized macOS app: [sha256] is the archive's own, it is unpacked into
      * ~/.roamtty and its binary linked to ~/.roamtty/bin; `roamtty-desktop install` then starts the agent.
      */
-    data class Build(val version: String, val url: String, val sha256: String, val openh264Url: String?) {
+    data class Build(
+        val version: String,
+        val url: String,
+        val sha256: String,
+        val openh264Url: String?,
+        /** Headless voice-only install: places the binary without OpenH264 download or GUI/LaunchAgent/service setup. */
+        val headless: Boolean = false,
+    ) {
         val app: Boolean get() = url.endsWith(".zip")
         /** A native Windows host: PowerShell scripts, an .exe, a logon task. */
         val windows: Boolean get() = url.endsWith(".exe")
@@ -68,24 +75,26 @@ class DesktopPluginInstaller(
             onStep(Step.VERIFY)
             if (remote.run(placeScript("\$HOME/$part", build.sha256), 15_000, onLine) != 0) return Result.Failed(Reason.CHECKSUM)
         }
-        build.openh264Url?.let { url ->
-            onStep(Step.ENCODER_HOST)
-            if (remote.run("exec 2>&1; \"\$HOME/.roamtty/bin/roamtty-desktop\" install", 30_000, onLine) != 0) {
-                onStep(Step.ENCODER_PHONE)
-                val packed = try { fetch(url) } catch (e: Exception) { return Result.Failed(Reason.ENCODER, e.message.orEmpty()) }
-                val part = ".roamtty/desktop/openh264-${UUID.randomUUID()}.bz2"
-                try { remote.upload(part, ByteArrayInputStream(packed)) } catch (e: Exception) {
-                    return Result.Failed(Reason.HOST, e.message.orEmpty())
+        if (!build.headless) {
+            build.openh264Url?.let { url ->
+                onStep(Step.ENCODER_HOST)
+                if (remote.run("exec 2>&1; \"\$HOME/.roamtty/bin/roamtty-desktop\" install", 30_000, onLine) != 0) {
+                    onStep(Step.ENCODER_PHONE)
+                    val packed = try { fetch(url) } catch (e: Exception) { return Result.Failed(Reason.ENCODER, e.message.orEmpty()) }
+                    val part = ".roamtty/desktop/openh264-${UUID.randomUUID()}.bz2"
+                    try { remote.upload(part, ByteArrayInputStream(packed)) } catch (e: Exception) {
+                        return Result.Failed(Reason.HOST, e.message.orEmpty())
+                    }
+                    // The plugin unpacks it and loads only Cisco's own build (it checks the hash).
+                    val status = remote.run("exec 2>&1; f=\"\$HOME/$part\"; \"\$HOME/.roamtty/bin/roamtty-desktop\" install --openh264 \"\$f\"; s=\$?; rm -f \"\$f\"; exit \$s",
+                        30_000, onLine)
+                    if (status != 0) return Result.Failed(Reason.ENCODER)
                 }
-                // The plugin unpacks it and loads only Cisco's own build (it checks the hash).
-                val status = remote.run("exec 2>&1; f=\"\$HOME/$part\"; \"\$HOME/.roamtty/bin/roamtty-desktop\" install --openh264 \"\$f\"; s=\$?; rm -f \"\$f\"; exit \$s",
-                    30_000, onLine)
-                if (status != 0) return Result.Failed(Reason.ENCODER)
             }
+            onStep(Step.REGISTER)
+            // macOS: (re)load the LaunchAgent; it runs in the GUI session, where TCC permissions apply.
+            if (build.app && !registerAgent()) return Result.Failed(Reason.HOST, "agent")
         }
-        onStep(Step.REGISTER)
-        // macOS: (re)load the LaunchAgent; it runs in the GUI session, where TCC permissions apply.
-        if (build.app && !registerAgent()) return Result.Failed(Reason.HOST, "agent")
         onStep(Step.DONE)
         return Result.Installed
     }
@@ -111,17 +120,19 @@ class DesktopPluginInstaller(
             if (ps(WindowsDesktop.placeScript("\"\$env:USERPROFILE\\${part.replace('/', '\\')}\"", build.sha256), 30_000) != 0)
                 return Result.Failed(Reason.CHECKSUM)
         }
-        onStep(Step.ENCODER_HOST)
-        var status = ps(WindowsDesktop.installScript(), 60_000)
-        if (status == 3 && build.openh264Url != null) {
-            onStep(Step.ENCODER_PHONE)
-            val packed = try { fetch(build.openh264Url) } catch (e: Exception) { return Result.Failed(Reason.ENCODER, e.message.orEmpty()) }
-            val part = ".roamtty/desktop/openh264-${UUID.randomUUID()}.bz2"
-            try { remote.upload(part, ByteArrayInputStream(packed)) } catch (e: Exception) { return Result.Failed(Reason.HOST, e.message.orEmpty()) }
-            status = ps(WindowsDesktop.installScript(part.replace('/', '\\')), 60_000)
+        if (!build.headless) {
+            onStep(Step.ENCODER_HOST)
+            var status = ps(WindowsDesktop.installScript(), 60_000)
+            if (status == 3 && build.openh264Url != null) {
+                onStep(Step.ENCODER_PHONE)
+                val packed = try { fetch(build.openh264Url) } catch (e: Exception) { return Result.Failed(Reason.ENCODER, e.message.orEmpty()) }
+                val part = ".roamtty/desktop/openh264-${UUID.randomUUID()}.bz2"
+                try { remote.upload(part, ByteArrayInputStream(packed)) } catch (e: Exception) { return Result.Failed(Reason.HOST, e.message.orEmpty()) }
+                status = ps(WindowsDesktop.installScript(part.replace('/', '\\')), 60_000)
+            }
+            onStep(Step.REGISTER)
+            if (status != 0) return Result.Failed(if (status == 3) Reason.ENCODER else Reason.HOST, "install $status")
         }
-        onStep(Step.REGISTER)
-        if (status != 0) return Result.Failed(if (status == 3) Reason.ENCODER else Reason.HOST, "install $status")
         onStep(Step.DONE)
         return Result.Installed
     }

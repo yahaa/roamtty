@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.State
 import io.itermux.app.data.Host
 import io.itermux.app.desktop.DesktopConnection
+import io.itermux.app.voice.VoiceConnection
 import io.itermux.ssh.ConnectionState
 
 /**
@@ -40,6 +41,7 @@ internal class ScreenData(
     val sessionsState: State<List<TerminalConnection>>,
     val sessionStatesState: State<Map<String, ConnectionState>>,
     val desktopsState: State<Map<String, DesktopConnection>>,
+    val voicesState: State<Map<String, VoiceConnection>>,
     val sharedImages: List<Uri>,
     val recentHosts: List<String>,
     /** Recent use leads within each home group and in the drawer; terminal tabs keep their open order. */
@@ -48,6 +50,7 @@ internal class ScreenData(
     val hosts: List<Host> get() = hostsState.value
     val sessions: List<TerminalConnection> get() = sessionsState.value
     val desktops: Map<String, DesktopConnection> get() = desktopsState.value
+    val voices: Map<String, VoiceConnection> get() = voicesState.value
 }
 
 @Composable
@@ -71,6 +74,8 @@ internal fun rememberScreenData(app: ItermuxApp, service: SessionService?): Scre
     val sessionStates by sessionStatesState
     val desktopFlow = remember(service) { service?.desktops?.connections ?: MutableStateFlow(emptyMap()) }
     val desktopsState = desktopFlow.collectAsStateWithLifecycle()
+    val voiceFlow = remember(service) { service?.voices?.connections ?: MutableStateFlow(emptyMap()) }
+    val voicesState = voiceFlow.collectAsStateWithLifecycle()
     val shareFlow = remember(service) { service?.pendingSharedImages ?: MutableStateFlow(emptyList()) }
     val sharedImages by shareFlow.collectAsStateWithLifecycle()
     // The terminal and file previews draw with the terminal font: load it while a session connects, not on its first frame.
@@ -87,7 +92,7 @@ internal fun rememberScreenData(app: ItermuxApp, service: SessionService?): Scre
         // A newly saved host can already have a session before Room emits its updated host list.
         recentUsage.retain((savedHosts.map { it.id } + restored.map { it.host.id }).toSet(), restored.map { it.id }.toSet())
     }
-    return ScreenData(loadedHosts, hostsState, sessionsState, sessionStatesState, desktopsState, sharedImages, recentHosts,
+    return ScreenData(loadedHosts, hostsState, sessionsState, sessionStatesState, desktopsState, voicesState, sharedImages, recentHosts,
         sessionsByRecency)
 }
 
