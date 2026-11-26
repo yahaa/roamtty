@@ -303,7 +303,9 @@ internal class VoiceConnection(
         val effectiveRoute = if (route == AudioRoute.BLUETOOTH && !bt) AudioRoute.SPEAKER else route
         dispatch(VoiceEvent.Start(mode, effectiveRoute, bluetoothAvailable = bt))
         engine.muted = false
-        engine.beginSession(effectiveRoute)
+        // Defer AudioManager mode/focus/route acquisition until the bridge is ready in runStream()
+        // so any superseded call finishes audio teardown (clearCommunicationDevice + MODE_NORMAL) first.
+        engine.applyRoute(effectiveRoute)
         startTimer()
         job = scope.launch(Dispatchers.IO) { runLoop(mode) }
     }
@@ -371,7 +373,7 @@ internal class VoiceConnection(
     private fun hangupInternal(keepFailure: Boolean) {
         if (!closingFlag.compareAndSet(false, true)) return
         closing = true
-        engine.muted = true
+        engine.silenceForHangup()
         timerJob?.cancel()
         pending.value?.answer?.complete(null)
         val active = activeStream
@@ -656,6 +658,12 @@ internal class VoiceConnection(
 
             // Inject ANTIGRAVITY_MIC into ~/.roamtty/agy (or Windows agy.ps1) and tmux/psmux sessions before sending F6.
             VoiceEnvironment.inject(remote, windowsHost, hello.micPort, tmuxSessions())
+            if (closing) return Outcome.Closed
+
+            // Refresh Bluetooth availability and enter MODE_IN_COMMUNICATION + communication routing right before
+            // triggering F6 so any superseded call has already finished tearing down its Bluetooth SCO/BLE route.
+            dispatch(VoiceEvent.BluetoothChanged(engine.isBluetoothAvailable()))
+            engine.beginSession(mutableUi.value.audioRoute)
             if (closing) return Outcome.Closed
 
             everConnected = true

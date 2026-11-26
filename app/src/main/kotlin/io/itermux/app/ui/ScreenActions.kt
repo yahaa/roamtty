@@ -312,6 +312,15 @@ internal class ScreenActions(
     ) {
         val bound = readyService() ?: return
         val targetSessionId = session.id
+        // End any other active agy /voice session cleanly (F7) before VoiceRegistry hands over audio.
+        bound.voices.live.forEach { existing ->
+            if (existing.startKeySent && existing.sessionId != targetSessionId) {
+                val prevSession = sessionById(existing.sessionId)
+                if (prevSession != null && prevSession.state.value.phase == Phase.CONNECTED) {
+                    prevSession.write("\u001b[18~")
+                }
+            }
+        }
         bound.startVoice(host, targetSessionId, password, passphrase, mode, route) { _, micPort ->
             val target = sessionById(targetSessionId)
             if (target == null || target.state.value.phase != Phase.CONNECTED) {

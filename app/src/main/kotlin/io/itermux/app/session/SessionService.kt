@@ -69,7 +69,7 @@ class SessionService : Service() {
     /** Remote desktops, one per host; see [DesktopRegistry]. */
     internal val desktops by lazy { DesktopRegistry(app, scope) { scope.launch { watchDesktops() } } }
     private var desktopWatcher: Job? = null
-    /** Active `agy /voice` audio bridges, one per host; see [VoiceRegistry]. */
+    /** Active `agy /voice` audio bridge (single live call across the app); see [VoiceRegistry]. */
     internal val voices by lazy {
         VoiceRegistry(
             app = app,

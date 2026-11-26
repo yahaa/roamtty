@@ -21,8 +21,9 @@ import java.util.concurrent.atomic.AtomicLong
 internal data class VoiceFailure(val hostId: String, val sessionId: String, val message: String)
 
 /**
- * Holds active `roamtty-desktop voice` sessions in [io.itermux.app.session.SessionService],
- * keyed by host id so at most one voice bridge runs per host at a time.
+ * Holds the active `roamtty-desktop voice` session in [io.itermux.app.session.SessionService],
+ * keyed by host id while enforcing at most one live voice call across the entire app so Android's
+ * communication audio route and microphone never overlap between sessions or hosts.
  */
 internal class VoiceRegistry(
     private val scope: CoroutineScope,
@@ -101,12 +102,9 @@ internal class VoiceRegistry(
             ::onEnded,
             { hostGenerations[host.id]?.get() == gen },
         )
-        var old: VoiceConnection? = null
-        mutable.update { current ->
-            old = current[host.id]
-            current + (host.id to connection)
-        }
-        old?.let { prev ->
+        // Android only has one communication audio route & mic: supersede every active voice call across all hosts.
+        val superseded = mutable.getAndUpdate { mapOf(host.id to connection) }.values.toList()
+        superseded.forEach { prev ->
             prev.clearSecrets()
             prev.hangup()
         }

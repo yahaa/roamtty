@@ -36,24 +36,36 @@ class VoiceConnectionRegistryTest {
         private val startMicOk: Boolean = true,
         private val releaseDelayMs: Long = 0L,
         private val events: MutableList<String>? = null,
+        private val bluetoothAvailable: Boolean = false,
+        private val label: String = "engine",
     ) : VoiceAudioBackend {
         override var muted: Boolean = false
         val released = AtomicBoolean(false)
-        override fun isBluetoothAvailable(): Boolean = false
-        override fun beginSession(route: AudioRoute) { events?.add("engine.beginSession") }
-        override fun applyRoute(route: AudioRoute) {}
+        val silenced = AtomicBoolean(false)
+        val beginRoutes = CopyOnWriteArrayList<AudioRoute>()
+        override fun isBluetoothAvailable(): Boolean = bluetoothAvailable
+        override fun beginSession(route: AudioRoute) {
+            beginRoutes += route
+            events?.add("$label.beginSession:$route")
+        }
+        override fun applyRoute(route: AudioRoute) { events?.add("$label.applyRoute:$route") }
+        override fun silenceForHangup() {
+            muted = true
+            silenced.set(true)
+            events?.add("$label.silenceForHangup")
+        }
         override fun startMic(streamId: Long, sampleRate: Int, channels: Int): Boolean {
-            events?.add("engine.startMic:$streamId")
+            events?.add("$label.startMic:$streamId")
             return startMicOk
         }
-        override fun stopMic(streamId: Long?) { events?.add("engine.stopMic") }
+        override fun stopMic(streamId: Long?) { events?.add("$label.stopMic") }
         override fun startSpeaker(streamId: Long, sampleRate: Int, channels: Int): String? = null
         override fun writeSpeaker(streamId: Long, pcm: ByteArray, offset: Int, length: Int) {}
         override fun clearSpeaker(streamId: Long) {}
         override fun stopSpeaker(streamId: Long?) {}
         override fun release() {
             if (releaseDelayMs > 0) Thread.sleep(releaseDelayMs)
-            events?.add("engine.release")
+            events?.add("$label.release")
             released.set(true)
         }
     }
@@ -608,6 +620,227 @@ class VoiceConnectionRegistryTest {
         delay(120)
         stream.close()
         serverRx.join(1000)
+        scope.cancel()
+    }
+
+    @Test fun switchingSessionWithoutHangupReleasesPreviousBluetoothAudioBeforeNewBeginSession() = runBlocking {
+        val events = Collections.synchronizedList(mutableListOf<String>())
+        val stream1 = PipedRemoteStream(events)
+        val stream2 = PipedRemoteStream(events)
+        val ready1 = CountDownLatch(1)
+        val ready2 = CountDownLatch(1)
+        val ended1 = CountDownLatch(1)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        val audio1 = FakeAudioBackend(events = events, bluetoothAvailable = true, label = "audio1")
+        val audio2 = FakeAudioBackend(events = events, bluetoothAvailable = true, label = "audio2")
+
+        // Server 1 closes stdout promptly on shutdown, while Server 2 takes realistic SSH login time (~40ms).
+        val eof1 = Thread {
+            if (stream1.shutdownReceived.await(3, TimeUnit.SECONDS)) {
+                stream1.closeServerStdout(0)
+            }
+        }.apply { isDaemon = true; start() }
+
+        val remote1 = object : RemoteHost {
+            override suspend fun probePlugins(): Set<HostPlugin>? = null
+            override suspend fun probeDesktop(): HostDesktop = HostDesktop("yes", "Linux x86_64", "roamtty-desktop 0.9.9 proto 1")
+            override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun openStream(command: String): RemoteStream {
+                stream1.sendLine(helloJson(session = "sess-1"))
+                return stream1
+            }
+        }
+        val remote2 = object : RemoteHost {
+            override suspend fun probePlugins(): Set<HostPlugin>? = null
+            override suspend fun probeDesktop(): HostDesktop {
+                delay(40)
+                return HostDesktop("yes", "Linux x86_64", "roamtty-desktop 0.9.9 proto 1")
+            }
+            override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun openStream(command: String): RemoteStream {
+                stream2.sendLine(helloJson(session = "sess-2"))
+                return stream2
+            }
+        }
+        val pairs = ArrayDeque(listOf(remote1 to audio1, remote2 to audio2))
+        val registry = VoiceRegistry(
+            scope = scope,
+            tmuxSessionsForHost = { emptyList() },
+            onChange = {},
+            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, isOwner ->
+                val (r, a) = pairs.removeFirst()
+                val isFirst = (a === audio1)
+                VoiceConnection(
+                    host = host, sessionId = sid, scope = scope, password = pw, passphrase = pp,
+                    tmuxSessions = tmux, onReady = onReady,
+                    onEnded = { c -> onEnded(c); if (isFirst) ended1.countDown() },
+                    isCurrentOwner = isOwner,
+                    transport = fakeTransport(r),
+                    engineFactory = { _, _, _, _, _, _ -> a },
+                    shutdownGraceMs = 200L, mainDispatcher = Dispatchers.Unconfined,
+                )
+            },
+        )
+        val host = testHost("host-bt")
+        registry.start(host, "session-1", "", "", VoiceMode.LIVE, AudioRoute.BLUETOOTH) { _, _ ->
+            ready1.countDown()
+            VoiceReadyOutcome.INJECTED
+        }
+        assertTrue(ready1.await(3, TimeUnit.SECONDS))
+
+        // Switch directly to session 2 and dial on Bluetooth without hanging up session 1.
+        val conn2 = registry.start(host, "session-2", "", "", VoiceMode.LIVE, AudioRoute.BLUETOOTH) { _, _ ->
+            ready2.countDown()
+            VoiceReadyOutcome.INJECTED
+        }
+        assertTrue("session 1 must terminate", ended1.await(3, TimeUnit.SECONDS))
+        assertTrue("session 2 must connect", ready2.await(3, TimeUnit.SECONDS))
+        eof1.join(1000)
+
+        assertTrue("session 1 must be silenced immediately on handover", audio1.silenced.get())
+        assertEquals(AudioRoute.BLUETOOTH, conn2.ui.value.audioRoute)
+        assertEquals(listOf(AudioRoute.BLUETOOTH), audio2.beginRoutes.toList())
+        val release1Idx = events.indexOf("audio1.release")
+        val begin2Idx = events.indexOf("audio2.beginSession:BLUETOOTH")
+        assertTrue("audio1 must finish release before audio2 begins Bluetooth session: $events",
+            release1Idx >= 0 && begin2Idx > release1Idx)
+
+        conn2.hangup()
+        stream2.closeServerStdout(0)
+        scope.cancel()
+    }
+
+    @Test fun startingVoiceOnAnotherHostSupersedesPreviousCallAcrossHosts() = runBlocking {
+        val stream1 = PipedRemoteStream()
+        val stream2 = PipedRemoteStream()
+        val ready1 = CountDownLatch(1)
+        val ready2 = CountDownLatch(1)
+        val ended1 = CountDownLatch(1)
+        val clearedHost1 = AtomicBoolean(false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        val eof1 = Thread {
+            if (stream1.shutdownReceived.await(3, TimeUnit.SECONDS)) {
+                stream1.closeServerStdout(0)
+            }
+        }.apply { isDaemon = true; start() }
+
+        val remote1 = object : RemoteHost {
+            override suspend fun probePlugins(): Set<HostPlugin>? = null
+            override suspend fun probeDesktop(): HostDesktop = HostDesktop("yes", "Linux x86_64", "roamtty-desktop 0.9.9 proto 1")
+            override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int {
+                if ("rm -f" in script) clearedHost1.set(true)
+                return 0
+            }
+            override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun openStream(command: String): RemoteStream {
+                stream1.sendLine(helloJson(session = "sess-h1"))
+                return stream1
+            }
+        }
+        val remote2 = object : RemoteHost {
+            override suspend fun probePlugins(): Set<HostPlugin>? = null
+            override suspend fun probeDesktop(): HostDesktop = HostDesktop("yes", "Linux x86_64", "roamtty-desktop 0.9.9 proto 1")
+            override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun openStream(command: String): RemoteStream {
+                stream2.sendLine(helloJson(session = "sess-h2"))
+                return stream2
+            }
+        }
+        val remotes = ArrayDeque(listOf(remote1, remote2))
+        val registry = VoiceRegistry(
+            scope = scope,
+            tmuxSessionsForHost = { emptyList() },
+            onChange = {},
+            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, isOwner ->
+                val r = remotes.removeFirst()
+                val isFirst = (r === remote1)
+                VoiceConnection(
+                    host = host, sessionId = sid, scope = scope, password = pw, passphrase = pp,
+                    tmuxSessions = tmux, onReady = onReady,
+                    onEnded = { c -> onEnded(c); if (isFirst) ended1.countDown() },
+                    isCurrentOwner = isOwner,
+                    transport = fakeTransport(r),
+                    engineFactory = { _, _, _, _, _, _ -> FakeAudioBackend(bluetoothAvailable = true) },
+                    shutdownGraceMs = 200L, mainDispatcher = Dispatchers.Unconfined,
+                )
+            },
+        )
+        registry.start(testHost("host-1"), "s-1", "", "", VoiceMode.LIVE, AudioRoute.BLUETOOTH) { _, _ ->
+            ready1.countDown()
+            VoiceReadyOutcome.INJECTED
+        }
+        assertTrue(ready1.await(3, TimeUnit.SECONDS))
+        assertNotNull(registry["host-1"])
+
+        // Starting a call on host-2 must hang up host-1 so two calls never fight over Android audio.
+        val conn2 = registry.start(testHost("host-2"), "s-2", "", "", VoiceMode.LIVE, AudioRoute.BLUETOOTH) { _, _ ->
+            ready2.countDown()
+            VoiceReadyOutcome.INJECTED
+        }
+        assertNull("host-1 must be superseded immediately", registry["host-1"])
+        assertSame(conn2, registry["host-2"])
+        assertTrue("host-1 call must shut down cleanly", ended1.await(3, TimeUnit.SECONDS))
+        assertTrue("host-2 call must connect", ready2.await(3, TimeUnit.SECONDS))
+        assertTrue("superseded host-1 must still clear its own VoiceEnvironment", clearedHost1.get())
+        eof1.join(1000)
+
+        conn2.hangup()
+        stream2.closeServerStdout(0)
+        scope.cancel()
+    }
+
+    @Test fun routeChangedWhileConnectingAppliesLatestRouteAtBeginSession() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val probeEntered = CountDownLatch(1)
+        val releaseProbe = CountDownLatch(1)
+        val readyLatch = CountDownLatch(1)
+        val stream = PipedRemoteStream()
+        val audio = FakeAudioBackend(bluetoothAvailable = true)
+
+        val remote = object : RemoteHost {
+            override suspend fun probePlugins(): Set<HostPlugin>? = null
+            override suspend fun probeDesktop(): HostDesktop {
+                probeEntered.countDown()
+                releaseProbe.await(3, TimeUnit.SECONDS)
+                return HostDesktop("yes", "Linux x86_64", "roamtty-desktop 0.9.9 proto 1")
+            }
+            override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun openStream(command: String): RemoteStream {
+                stream.sendLine(helloJson())
+                return stream
+            }
+        }
+        val conn = VoiceConnection(
+            host = testHost(),
+            sessionId = "s-route",
+            scope = scope,
+            password = "",
+            passphrase = "",
+            tmuxSessions = { emptyList() },
+            onReady = { _, _ -> readyLatch.countDown(); VoiceReadyOutcome.INJECTED },
+            onEnded = {},
+            transport = fakeTransport(remote),
+            engineFactory = { _, _, _, _, _, _ -> audio },
+            shutdownGraceMs = 80L,
+            mainDispatcher = Dispatchers.Unconfined,
+        )
+        conn.start(VoiceMode.LIVE, AudioRoute.BLUETOOTH)
+        assertTrue(probeEntered.await(3, TimeUnit.SECONDS))
+        // User cycles route from Bluetooth -> Speaker while still connecting.
+        assertEquals(AudioRoute.SPEAKER, conn.cycleAudioRoute())
+        assertTrue("beginSession must wait until stream is ready", audio.beginRoutes.isEmpty())
+        releaseProbe.countDown()
+        assertTrue(readyLatch.await(3, TimeUnit.SECONDS))
+        assertEquals(listOf(AudioRoute.SPEAKER), audio.beginRoutes.toList())
+
+        conn.hangup()
+        stream.closeServerStdout(0)
         scope.cancel()
     }
 
