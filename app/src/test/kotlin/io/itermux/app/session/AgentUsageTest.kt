@@ -418,4 +418,144 @@ printf '%s\n' '{"command":{"data":{"groups":[{"name":"Gemini Models","buckets":[
             home.deleteRecursively()
         }
     }
+
+    @Test fun agyLiveFetchFallsBackToTmuxOnSshOAuthAndAvoidsDoubleRounding() {
+        val home = Files.createTempDirectory("roamtty-agy-tmux-fallback").toFile()
+        try {
+            val binDir = File(home, ".local/bin").apply { mkdirs() }
+            val tmuxMarker = File(home, "tmux-used.log")
+            // Fake agy: simulates macOS sshd OAuth hang when direct, succeeds when invoked via tmux run-shell.
+            File(binDir, "agy").apply {
+                writeText(
+                    """#!/bin/sh
+if [ "${'$'}{FAKE_TMUX_AQUA:-0}" != "1" ]; then
+  echo "Authentication required. Please visit the URL to log in:" >&2
+  echo "  https://accounts.google.com/o/oauth2/auth?client_id=test" >&2
+  sleep 10
+  exit 1
+fi
+printf '%s\n' '{"command":{"data":{"groups":[{"name":"Gemini Models","buckets":[{"id":"gemini-5h","window":"5h","remaining_fraction":0.9454,"reset_time":"2099-01-01T05:00:00Z"},{"id":"gemini-weekly","window":"weekly","remaining_fraction":0.7648,"reset_time":"2099-01-07T00:00:00Z"}]}]}}}'
+"""
+                )
+                setExecutable(true)
+            }
+            // Fake tmux: executes `run-shell <cmd>` with FAKE_TMUX_AQUA=1 (simulating unlocked Keychain session).
+            File(binDir, "tmux").apply {
+                writeText(
+                    """#!/bin/sh
+while [ "${'$'}#" -gt 0 ]; do
+  if [ "${'$'}1" = "run-shell" ]; then
+    shift
+    echo "run-shell" >> "${tmuxMarker.absolutePath}"
+    FAKE_TMUX_AQUA=1 /bin/sh -c "${'$'}1"
+    exit ${'$'}?
+  fi
+  shift
+done
+exit 1
+"""
+                )
+                setExecutable(true)
+            }
+            val agyLogDir = File(home, ".gemini/antigravity-cli/brain/conv-ssh/.system_generated/logs").apply { mkdirs() }
+            File(agyLogDir, "transcript.jsonl").writeText(
+                """{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":5000,"output_tokens":500,"cache_read_tokens":20000}""" + "\n"
+            )
+            // Seed stale cache so fallback must replace it rather than returning stale 98%/78%.
+            File(home, ".roamtty/quota-agy.json").apply { parentFile?.mkdirs() }.writeText(
+                """{"_fetched_at":1,"quota":{"gemini-5h":{"remaining_fraction":0.98,"reset_time":"2099-01-01T05:00:00Z"},"gemini-weekly":{"remaining_fraction":0.78,"reset_time":"2099-01-07T00:00:00Z"}}}"""
+            )
+
+            val envPath = "${binDir.absolutePath}:${System.getenv("PATH") ?: "/usr/bin:/bin"}"
+            val startedMs = System.currentTimeMillis()
+            val proc = ProcessBuilder(
+                "/bin/sh", "-c",
+                AgentUsageCollector.sessionCommand(CodingAgent.AGY, null, "/work/app", fetchAgyQuota = true),
+            ).apply {
+                environment()["HOME"] = home.absolutePath
+                environment()["PATH"] = envPath
+            }.start()
+            proc.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
+            val out = proc.inputStream.bufferedReader().readText()
+            assertEquals(0, proc.waitFor())
+            val elapsedMs = System.currentTimeMillis() - startedMs
+            assertTrue("OAuth abort + tmux fallback must not wait for sleep 10 (took ${elapsedMs}ms)", elapsedMs < 8_000L)
+            assertTrue("must invoke tmux run-shell fallback", tmuxMarker.exists())
+
+            val parsed = AgentUsageCollector.parseSession(out)!!
+            assertEquals(95, parsed.quota5h?.remainingRounded)
+            // 0.7648 -> 76.48% must round to 76%, not double-round 76.48 -> 76.5 -> 77%.
+            assertEquals(76, parsed.quota7d?.remainingRounded)
+        } finally {
+            home.deleteRecursively()
+        }
+    }
+
+    @Test fun agyStatusLineIdleRedrawDoesNotClobberFresherQuotaCache() {
+        val home = Files.createTempDirectory("roamtty-agy-sl-stale").toFile()
+        try {
+            val hookFile = File(home, "agent-hook.sh").apply { writeText(AgentHooks.script); setExecutable(true) }
+            val agyLogDir = File(home, ".gemini/antigravity-cli/brain/conv-guard/.system_generated/logs").apply { mkdirs() }
+            File(agyLogDir, "transcript.jsonl").writeText(
+                """{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":1000,"output_tokens":200,"cache_read_tokens":5000}""" + "\n"
+            )
+
+            fun runStatusLine(convId: String, f5h: Double, f7d: Double, reset5h: String, reset7d: String, resetSec: Int) {
+                val p = ProcessBuilder("sh", hookFile.absolutePath, "agy", "statusline").apply {
+                    environment()["HOME"] = home.absolutePath
+                    environment()["ROAMTTY_AGENT"] = "agy"
+                }.start()
+                p.outputStream.use {
+                    val payload = """{"conversation_id":"$convId","model":{"id":"Gemini 4 Neon (XHigh)"},"quota":{""" +
+                        """"gemini-5h":{"remaining_fraction":$f5h,"reset_time":"$reset5h","reset_in_seconds":$resetSec},""" +
+                        """"gemini-weekly":{"remaining_fraction":$f7d,"reset_time":"$reset7d","reset_in_seconds":500000}}}"""
+                    it.write(payload.toByteArray())
+                }
+                assertEquals(0, p.waitFor())
+            }
+
+            fun readQuota(): AgentSessionUsage {
+                val p = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.sessionCommand(CodingAgent.AGY, null, "/work/app")).apply {
+                    environment()["HOME"] = home.absolutePath
+                    environment()["ROAMTTY_NO_LIVE_QUOTA"] = "1"
+                }.start()
+                p.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
+                val u = AgentUsageCollector.parseSession(p.inputStream.bufferedReader().readText())!!
+                assertEquals(0, p.waitFor())
+                return u
+            }
+
+            // 1. Session A reports initial quota (98% / 78%).
+            runStatusLine("sess-A", 0.978, 0.777, "2099-01-01T05:00:00Z", "2099-01-07T00:00:00Z", 15600)
+            assertEquals(98, readQuota().quota5h?.remainingRounded)
+            assertEquals(78, readQuota().quota7d?.remainingRounded)
+
+            // 2. Session B actively works and writes fresher quota (94% / 76%).
+            runStatusLine("sess-B", 0.942, 0.761, "2099-01-01T05:00:00Z", "2099-01-07T00:00:00Z", 15000)
+            assertEquals(94, readQuota().quota5h?.remainingRounded)
+            assertEquals(76, readQuota().quota7d?.remainingRounded)
+
+            // 3. Idle Session A redraws (reset_in_seconds ticked down, fractions unchanged) -> must NOT clobber 94%/76%.
+            runStatusLine("sess-A", 0.978, 0.777, "2099-01-01T05:00:00Z", "2099-01-07T00:00:00Z", 14200)
+            assertEquals(94, readQuota().quota5h?.remainingRounded)
+            assertEquals(76, readQuota().quota7d?.remainingRounded)
+
+            // 4. First-time redraw from an older idle Session C holding stale 97%/78% in the same window -> must NOT clobber recent 94%/76%.
+            runStatusLine("sess-C", 0.970, 0.776, "2099-01-01T05:00:00Z", "2099-01-07T00:00:00Z", 14100)
+            assertEquals(94, readQuota().quota5h?.remainingRounded)
+            assertEquals(76, readQuota().quota7d?.remainingRounded)
+
+            // 5. Session A actually refreshes after a real turn (91% / 75%) -> MUST update cache.
+            runStatusLine("sess-A", 0.912, 0.748, "2099-01-01T05:00:00Z", "2099-01-07T00:00:00Z", 13900)
+            assertEquals(91, readQuota().quota5h?.remainingRounded)
+            assertEquals(75, readQuota().quota7d?.remainingRounded)
+
+            // 6. After a 5h reset window rolls over to a newer reset_time (100%), even a brand-new session MUST update cache.
+            runStatusLine("sess-D", 1.0, 0.748, "2099-01-01T10:00:00Z", "2099-01-07T00:00:00Z", 18000)
+            assertEquals(100, readQuota().quota5h?.remainingRounded)
+            assertEquals(75, readQuota().quota7d?.remainingRounded)
+        } finally {
+            home.deleteRecursively()
+        }
+    }
 }
