@@ -112,6 +112,9 @@ internal fun rememberSessionGroups(sessions: List<TerminalConnection>, hostOffli
     }
 }
 
+/** Returns [sessions] in fixed newest-created-first order (reversing creation-ordered [SessionService.sessions]). */
+internal fun sessionsNewestFirst(sessions: List<TerminalConnection>): List<TerminalConnection> = sessions.asReversed()
+
 /**
  * Returns [sessions] in their original fixed order, narrowed to [only] when a filter pill is active.
  */

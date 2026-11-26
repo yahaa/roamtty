@@ -74,9 +74,9 @@ class HomeSessionGroupsUiTest {
                 listOf("waiting", "done", "other").all { exists("home-session-filter-$it") } && exists("home-session-filter-all")
             }
             fun top(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true).getUnclippedBoundsInRoot().top
-            // Fixed creation order stays intact regardless of agent status transitions.
-            assertTrue(top("home-session-${done.id}") < top("home-session-${waiting.id}"))
-            assertTrue(top("home-session-${waiting.id}") < top("home-session-${plain.id}"))
+            // Fixed newest-created-first order stays intact regardless of agent status transitions.
+            assertTrue(top("home-session-${plain.id}") < top("home-session-${waiting.id}"))
+            assertTrue(top("home-session-${waiting.id}") < top("home-session-${done.id}"))
             compose.onNodeWithTag("home-session-reply-${done.id}", useUnmergedTree = true).assertExists()
             compose.onNodeWithTag("home-session-approve-${waiting.id}", useUnmergedTree = true).assertExists()
             capture(context, "session-groups")

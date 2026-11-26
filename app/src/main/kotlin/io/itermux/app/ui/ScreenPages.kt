@@ -50,7 +50,7 @@ internal class HomeLists(
     val pager: PagerState,
     val sessionGrid: LazyGridState,
     val hostGrid: LazyGridState,
-    /** Sessions in fixed open order, shared across home list, drawer, and terminal switcher. */
+    /** Sessions in fixed newest-created-first order, shared across home list, drawer, and terminal switcher. */
     val sessions: List<TerminalConnection>,
     val hosts: List<Host>,
     val groups: List<ListedGroup>,

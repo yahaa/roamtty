@@ -143,9 +143,9 @@ fun ItermuxScreen(
         // A session's host is offline when nothing connects to it and its last probe found it down.
         fun sessionHostOffline(session: TerminalConnection) = data.hosts.firstOrNull { it.id == session.host.id }
             ?.let { !actions.hostConnected(it) && hostReachability.statusOf(it) == HostReachability.Offline } == true
-        val sessionGroups = rememberSessionGroups(sessionsMatching(data.sessions, state.search), ::sessionHostOffline)
+        val sessionGroups = rememberSessionGroups(sessionsMatching(data.sessionsNewestFirst, state.search), ::sessionHostOffline)
         val sessionFilter = rememberSaveable { mutableStateOf<String?>(null) }
-        val lists = HomeLists(homePager, sessionGridState, hostGridState, data.sessions, data.hosts, sessionGroups,
+        val lists = HomeLists(homePager, sessionGridState, hostGridState, data.sessionsNewestFirst, data.hosts, sessionGroups,
             sessionFilter, hostReachability, ::sessionHostOffline)
         ScreenDrawer(state, drawerState, lists, data.voices, gesturesEnabled = !terminalChrome && page != AppPage.HOST) {
             ScreenBody(state, actions, data, lists, service, drawerState, lightTheme, SettingsControls(theme, onTheme = { option ->
@@ -247,7 +247,7 @@ private fun ScreenBody(state: ScreenState, actions: ScreenActions, data: ScreenD
                     EmptyState(tr("终端已就绪"), tr("连接一台主机，开始远端工作。"), Modifier.fillMaxSize(),
                         action = { FilledTonalButton(onClick = { state.page = AppPage.HOME }) { Text(tr("返回主机列表")) } })
                 } else {
-                    data.sessions.find { it.id == state.selected }?.let { TerminalRoute(it, data.sessions, data.voices, state, actions, lightTheme) }
+                    data.sessions.find { it.id == state.selected }?.let { TerminalRoute(it, data.sessionsNewestFirst, data.voices, state, actions, lightTheme) }
                 }
             }
         }

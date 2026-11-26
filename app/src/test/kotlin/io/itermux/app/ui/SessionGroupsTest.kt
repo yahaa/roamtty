@@ -81,16 +81,17 @@ class SessionGroupsTest {
             "s-4" to SessionGroup.DONE,
         )
         try {
-            // All sessions stay strictly in creation order regardless of agent state (WAITING does not jump above DONE).
-            assertEquals(listOf("s-1", "s-2", "s-3", "s-4"),
-                filterSessionsPreservingOrder(sessions, groupOf, null).map { it.id })
-            // Filtering to a status preserves fixed relative order.
-            assertEquals(listOf("s-1", "s-4"),
-                filterSessionsPreservingOrder(sessions, groupOf, SessionGroup.DONE).map { it.id })
+            val ordered = sessionsNewestFirst(sessions)
+            // Newest created sits at the top and never reorders when agent states differ.
+            assertEquals(listOf("s-4", "s-3", "s-2", "s-1"),
+                filterSessionsPreservingOrder(ordered, groupOf, null).map { it.id })
+            // Filtering to a status preserves fixed newest-first relative order.
+            assertEquals(listOf("s-4", "s-1"),
+                filterSessionsPreservingOrder(ordered, groupOf, SessionGroup.DONE).map { it.id })
             assertEquals(listOf("s-2"),
-                filterSessionsPreservingOrder(sessions, groupOf, SessionGroup.WAITING).map { it.id })
+                filterSessionsPreservingOrder(ordered, groupOf, SessionGroup.WAITING).map { it.id })
             assertEquals(listOf("s-3"),
-                filterSessionsPreservingOrder(sessions, groupOf, SessionGroup.OTHER).map { it.id })
+                filterSessionsPreservingOrder(ordered, groupOf, SessionGroup.OTHER).map { it.id })
         } finally {
             scope.cancel()
         }

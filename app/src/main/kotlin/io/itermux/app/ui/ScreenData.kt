@@ -44,6 +44,8 @@ internal class ScreenData(
     val voicesState: State<Map<String, VoiceConnection>>,
     val sharedImages: List<Uri>,
     val recentHosts: List<String>,
+    /** Fixed newest-created-first order shared by the home list, drawer, and terminal session switcher. */
+    val sessionsNewestFirst: List<TerminalConnection>,
 ) {
     val hosts: List<Host> get() = hostsState.value
     val sessions: List<TerminalConnection> get() = sessionsState.value
@@ -77,6 +79,7 @@ internal fun rememberScreenData(app: ItermuxApp, service: SessionService?): Scre
     // The terminal and file previews draw with the terminal font: load it while a session connects, not on its first frame.
     val anySession = sessions.isNotEmpty()
     LaunchedEffect(anySession) { if (anySession) TerminalFonts.preload(context) }
+    val sessionsNewestFirst = remember(sessions) { sessionsNewestFirst(sessions) }
     LaunchedEffect(loadedHosts, sessions, service) {
         val savedHosts = loadedHosts ?: return@LaunchedEffect
         val bound = service ?: return@LaunchedEffect
@@ -85,7 +88,8 @@ internal fun rememberScreenData(app: ItermuxApp, service: SessionService?): Scre
         // A newly saved host can already have a session before Room emits its updated host list.
         recentUsage.retain((savedHosts.map { it.id } + restored.map { it.host.id }).toSet(), restored.map { it.id }.toSet())
     }
-    return ScreenData(loadedHosts, hostsState, sessionsState, sessionStatesState, desktopsState, voicesState, sharedImages, recentHosts)
+    return ScreenData(loadedHosts, hostsState, sessionsState, sessionStatesState, desktopsState, voicesState, sharedImages, recentHosts,
+        sessionsNewestFirst)
 }
 
 /** The home page's grids: the sessions' and the hosts'. */
