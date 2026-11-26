@@ -23,7 +23,9 @@ internal fun TerminalPaneEffects(pane: TerminalPaneState, phase: Phase, imeVisib
     LaunchedEffect(imeVisible) { if (!imeVisible) { pane.sticky.ctrl = false; pane.cancelKeyboardHide() } }
     LaunchedEffect(pipShown) { if (!pipShown) pane.dropPipFocus() }
     LaunchedEffect(voiceActive) {
-        if (!voiceActive) {
+        if (voiceActive) {
+            pane.voiceSuppressesPinnedDock = true
+        } else {
             pane.voicePopoverOpen = false
             pane.voiceSuppressesPinnedDock = false
         }

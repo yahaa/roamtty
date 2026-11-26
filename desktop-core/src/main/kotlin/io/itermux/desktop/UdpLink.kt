@@ -193,6 +193,15 @@ class UdpLink(
             val merged = last?.let { merge(it.frame, frame) }
             if (merged != null) { last.frame = merged; return }
             if (queue.size >= SEND_QUEUE_CAP && coalesceable(frame)) return
+            if (isMicAudio(frame)) {
+                var micCount = queue.count { it is Out.Plain && isMicAudio(it.frame) }
+                while (micCount >= MIC_AUDIO_QUEUE_CAP) {
+                    val oldestIdx = queue.indexOfFirst { it is Out.Plain && isMicAudio(it.frame) }
+                    if (oldestIdx < 0) break
+                    queue.removeAt(oldestIdx)
+                    micCount--
+                }
+            }
             queue.addLast(Out.Plain(frame, fecRatio))
             queueLock.notify()
         }
@@ -267,12 +276,19 @@ class UdpLink(
     companion object {
         const val ALIVE_US = 3_000_000L
         private const val SEND_QUEUE_CAP = 512
+        internal const val MIC_AUDIO_QUEUE_CAP = 20
+
+        private fun isMicAudio(frame: ByteArray): Boolean =
+            frame.isNotEmpty() && (frame[0].toInt() and 0xFF) == VoiceProtocol.MIC_AUDIO
 
         /** Which client frames must arrive: everything except pointer moves, wheel, ACK, pings, and live mic audio. */
-        fun reliable(frame: ByteArray): Boolean = when (frame[0].toInt() and 0xFF) {
-            DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG, VoiceProtocol.MIC_AUDIO -> false
-            DesktopProtocol.INPUT -> (frame.getOrNull(4)?.toInt() ?: 0) !in setOf(1, 2, 4)
-            else -> true
+        fun reliable(frame: ByteArray): Boolean {
+            if (frame.isEmpty()) return true
+            return when (frame[0].toInt() and 0xFF) {
+                DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG, VoiceProtocol.MIC_AUDIO -> false
+                DesktopProtocol.INPUT -> (frame.getOrNull(4)?.toInt() ?: 0) !in setOf(1, 2, 4)
+                else -> true
+            }
         }
 
         private fun inputKind(frame: ByteArray): Int =

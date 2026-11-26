@@ -908,6 +908,13 @@ internal object EnglishText {
         "语音插件启动失败（退出码 %d）" to "Voice plugin failed to start (exit code %d)",
         "语音插件出错：%s" to "Voice plugin error: %s",
         "语音插件启动失败" to "Voice plugin failed to start",
-        "语音端口 24713 被占用，已改用 %d；若当前 agy 无响应请重启会话" to "Voice port 24713 is busy; using %d instead. Restart the agy session if voice does not respond"
+        "语音端口 24713 被占用，已改用 %d；若当前 agy 无响应请重启会话" to "Voice port 24713 is busy; using %d instead. Restart the agy session if voice does not respond",
+        "重连中…" to "Reconnecting…",
+        "当前主机" to "Host",
+        "麦克风权限已被拒绝，请在系统设置中开启" to "Microphone permission was denied; please enable it in system settings",
+        "前往设置" to "Open settings",
+        "无法启动麦克风，请检查麦克风权限" to "Could not start microphone; please check microphone permission",
+        "麦克风采集异常，语音已断开" to "Microphone capture error; voice call disconnected",
+        "当前终端已退出 agy，已取消语音连接" to "agy exited in this terminal; voice call cancelled",
     )
 }

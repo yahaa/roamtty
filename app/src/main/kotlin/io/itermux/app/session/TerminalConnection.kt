@@ -342,6 +342,9 @@ class TerminalConnection(
         val rows = List(parser.mRows) { row -> parser.screen.getSelectedText(0, row, parser.mColumns, row, false, false) }
         return ScreenApp.detect(rows, parser.cursorRow)
     }
+
+    /** Whether Antigravity CLI (`agy`) is currently active in this terminal (must be called on Main). */
+    fun isAgyActive(): Boolean = isAgyActive(agentStatus.value, launchedAgent.value, agentPolled.value, screenApp())
     override fun write(data: ByteArray, offset: Int, count: Int) {
         if (!ssh.write(data.copyOfRange(offset, offset + count))) inputWarning.value = tr(INPUT_NOT_SENT)
     }
@@ -447,7 +450,8 @@ class TerminalConnection(
         ssh.state.first { !it.active || it.phase == Phase.CONNECTED }
         try {
             val activeMic = if (agent == CodingAgent.AGY) antigravityMic() else null
-            val (name, content, executable) = AgentHooks.hostFile(agent, antigravityMic = activeMic)
+            // Keep ~/.roamtty/agy on the dynamic template so ephemeral fallback ports never get hardcoded.
+            val (name, content, executable) = AgentHooks.hostFile(agent)
             val written = ssh.writeHostFile(AgentHooks.SCRIPT_PATH.substringAfterLast('/'), AgentHooks.script) &&
                 ssh.writeHostFile(name, content, executable)
             if (written && agent == CodingAgent.CLAUDE && mode == SessionMode.TMUX) {

@@ -38,7 +38,6 @@ import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
 import io.itermux.desktop.DesktopPhase
 import io.itermux.desktop.DesktopProbe
-import io.itermux.desktop.VoiceCallPhase
 import io.itermux.desktop.VoiceUiState
 import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.Phase
@@ -257,16 +256,13 @@ internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: Lis
         }
         val desktopReady = actions.desktopReady(host)
         val pipDesktop = state.pipDesktopHostId?.takeIf { it == host.id }?.let(actions::desktopOf)
-        val voiceConnection = actions.voiceOf(host.id)
+        // Attach voice pet and controls strictly to the owning terminal session so other tabs on the same host never receive F5/F6/F7.
+        val voiceConnection = actions.voiceOf(host.id)?.takeIf { it.sessionId == active.id }
         val idleVoice = remember { MutableStateFlow(VoiceUiState()) }
         val voiceUi by (voiceConnection?.ui ?: idleVoice).collectAsStateWithLifecycle()
         val voicePendingFlow = remember(voiceConnection) { voiceConnection?.pending ?: MutableStateFlow(null) }
         val voicePending by voicePendingFlow.collectAsStateWithLifecycle()
         voicePending?.let { PromptDialog(it) }
-        val voiceFailed = (voiceUi.phase as? VoiceCallPhase.Failed)?.message
-        LaunchedEffect(voiceFailed) {
-            if (!voiceFailed.isNullOrBlank()) actions.toast(voiceFailed)
-        }
         val desktopAudioFlow = remember(pipDesktop) { pipDesktop?.audio ?: MutableStateFlow(false) }
         val desktopAudioOn by desktopAudioFlow.collectAsStateWithLifecycle()
         val desktopPipAudioActive = pipDesktop != null && pipDesktop.active && desktopAudioOn
@@ -294,11 +290,12 @@ internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: Lis
                 hostName = host.name,
                 pluginInstalled = pluginInstalled,
                 desktopPipAudioActive = desktopPipAudioActive,
-                bluetoothAvailable = actions.isBluetoothAudioAvailable(),
+                bluetoothAvailable = voiceUi.bluetoothAvailable,
+                checkBluetoothAvailable = actions::isBluetoothAudioAvailable,
                 onStart = { mode, route -> actions.startVoice(active, host, mode, route) },
-                onToggleMute = { actions.toggleVoiceMute(active, host) },
+                onToggleMute = { actions.toggleVoiceMute(host) },
                 onCycleRoute = { actions.cycleVoiceRoute(host) },
-                onHangup = { actions.hangupVoice(active, host) },
+                onHangup = { actions.hangupVoice(host) },
             ))
     }
 }

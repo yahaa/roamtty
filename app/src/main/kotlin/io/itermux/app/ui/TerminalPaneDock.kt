@@ -44,9 +44,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
-import io.itermux.app.session.CodingAgent
-import io.itermux.app.session.ScreenApp
 import io.itermux.app.session.TerminalConnection
+import io.itermux.app.session.isAgyActive
 import io.itermux.app.tr
 import io.itermux.app.trf
 import io.itermux.desktop.VoiceUiState
@@ -75,10 +74,7 @@ internal fun TerminalPaneDock(pane: TerminalPaneState, availableHeight: Dp, land
     val revision by session.revision.collectAsStateWithLifecycle()
     val isAgentSession = agentStatus != null || (launchedAgent != null && !agentPolled)
     val screenApp = remember(session, revision) { session.screenApp() }
-    val isAgySession = voice.ui.inCall ||
-        CodingAgent.fromCommand(agentStatus?.agent) == CodingAgent.AGY ||
-        (launchedAgent == CodingAgent.AGY && (!agentPolled || agentStatus == null)) ||
-        screenApp == ScreenApp.AGY
+    val isAgySession = voice.ui.inCall || isAgyActive(agentStatus, launchedAgent, agentPolled, screenApp)
     val connected = phase == Phase.CONNECTED
     TerminalDock(availableHeight, landscape, imeVisible,
         modifier = Modifier.onGloballyPositioned { pane.dockBounds = it.boundsInRoot() },
@@ -133,7 +129,7 @@ private fun DockCollapseButton(pane: TerminalPaneState) {
         val ring = MaterialTheme.colorScheme.primary
         val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
         Box(Modifier.size(32.dp).drawBehind {
-            if (pane.dockPinned || TerminalToolbox.dockHideMillis <= 0) return@drawBehind
+            if (pane.dockReserved || TerminalToolbox.dockHideMillis <= 0) return@drawBehind
             val stroke = Stroke(2.dp.toPx())
             drawCircle(track, style = stroke)
             drawArc(ring, -90f, 360f * pane.dockCountdown.floatValue, false, style = stroke)

@@ -127,6 +127,12 @@ fun ItermuxScreen(
     }
     ScreenRequestEffects(ScreenRequests(pendingShareImages, onShareImagesConsumed, pendingDesktopHost, onDesktopHostConsumed,
         pendingSession, onSessionConsumed), state, actions, service)
+    // Surface voice bridge failures reliably even when VoiceRegistry immediately cleans up the ended connection.
+    LaunchedEffect(service) {
+        service?.voices?.failures?.collect { failure ->
+            if (failure.message.isNotBlank()) actions.toast(failure.message)
+        }
+    }
 
     MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors, shapes = AppShapes, typography = AppTypography) {
         if (data.loadedHosts == null) {

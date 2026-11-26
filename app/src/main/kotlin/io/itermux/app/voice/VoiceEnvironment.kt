@@ -5,6 +5,7 @@ import io.itermux.ssh.PowerShell
 import io.itermux.ssh.Psmux
 import io.itermux.ssh.RemoteHost
 import io.itermux.ssh.Tmux
+import kotlinx.coroutines.CancellationException
 
 /**
  * Injects `ANTIGRAVITY_MIC=127.0.0.1:<mic_port>` into the remote host's `agy` launchers and active
@@ -76,20 +77,57 @@ object VoiceEnvironment {
             "chmod 755 \"\$HOME/.roamtty/agy\"\n"
     }
 
+    /** Combined POSIX script updating `~/.roamtty/voice-mic`, `~/.roamtty/agy`, and all tmux sessions in one exec. */
+    fun posixEnvScript(micEndpoint: String?, tmuxSessions: List<String>): String = buildString {
+        append(posixUpdateLauncherScript(micEndpoint))
+        val sessions = tmuxSessions.distinct()
+        if (sessions.isNotEmpty()) {
+            append(Tmux.PATH_SETUP).append('\n')
+            val validated = micEndpoint?.let(::validateEndpoint)
+            for (name in sessions) {
+                val safe = Tmux.sanitizeSessionName(name)
+                if (validated != null) {
+                    append("tmux set-environment -t ").append(safe).append(' ')
+                        .append(ENV_NAME).append(' ').append(validated).append(" 2>/dev/null || true\n")
+                } else {
+                    append("tmux set-environment -u -t ").append(safe).append(' ')
+                        .append(ENV_NAME).append(" 2>/dev/null || true\n")
+                }
+            }
+        }
+    }
+
     /** PowerShell command that updates `%USERPROFILE%\.roamtty\voice-mic` and `agy.ps1`. */
-    fun windowsUpdateLauncherCommand(micEndpoint: String?): String {
-        val micFileLine = if (micEndpoint != null) {
-            val validated = validateEndpoint(micEndpoint)
+    fun windowsUpdateLauncherCommand(micEndpoint: String?): String = windowsEnvCommand(micEndpoint, emptyList())
+
+    /** Combined PowerShell command updating `voice-mic`, `agy.ps1`, and all psmux sessions in one exec. */
+    fun windowsEnvCommand(micEndpoint: String?, tmuxSessions: List<String>): String {
+        val validated = micEndpoint?.let(::validateEndpoint)
+        val micFileLine = if (validated != null) {
             "[IO.File]::WriteAllText(\"\${dir}\\voice-mic\", '$validated')"
         } else {
             "Remove-Item \"\${dir}\\voice-mic\" -ErrorAction SilentlyContinue"
         }
         val encoded = java.util.Base64.getEncoder().encodeToString(windowsLauncherScript(null).toByteArray(Charsets.UTF_8))
+        val sessions = tmuxSessions.distinct()
+        val psmuxBlock = if (sessions.isEmpty()) "" else buildString {
+            append('\n').append(Psmux.PATH_SETUP)
+            for (name in sessions) {
+                val safe = Tmux.sanitizeSessionName(name)
+                if (validated != null) {
+                    append("\npsmux set-environment -t '").append(safe).append("' ")
+                        .append(ENV_NAME).append(' ').append(validated).append(" 2>\$null")
+                } else {
+                    append("\npsmux set-environment -u -t '").append(safe).append("' ")
+                        .append(ENV_NAME).append(" 2>\$null")
+                }
+            }
+        }
         return PowerShell.command("""
             ${'$'}dir = "${'$'}env:USERPROFILE\.roamtty"
             New-Item -ItemType Directory -Force ${'$'}dir | Out-Null
             $micFileLine
-            [IO.File]::WriteAllText("${'$'}dir\agy.ps1", [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded')))
+            [IO.File]::WriteAllText("${'$'}dir\agy.ps1", [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded')))$psmuxBlock
             exit 0
         """.trimIndent())
     }
@@ -113,31 +151,29 @@ object VoiceEnvironment {
     /** Injects `ANTIGRAVITY_MIC=127.0.0.1:<micPort>` into launchers and every attached tmux/psmux session. */
     suspend fun inject(remote: RemoteHost, windowsHost: Boolean, micPort: Int, tmuxSessions: List<String>) {
         val ep = endpoint(micPort)
-        if (windowsHost) {
-            runCatching { remote.runCommand(windowsUpdateLauncherCommand(ep), 10_000) {} }
-            tmuxSessions.distinct().forEach { name ->
-                runCatching { remote.runCommand(psmuxSetEnvCommand(name, ep), 5_000) {} }
+        try {
+            if (windowsHost) {
+                remote.runCommand(windowsEnvCommand(ep, tmuxSessions), 10_000) {}
+            } else {
+                remote.run(posixEnvScript(ep, tmuxSessions), 10_000) {}
             }
-        } else {
-            runCatching { remote.run(posixUpdateLauncherScript(ep), 10_000) {} }
-            tmuxSessions.distinct().forEach { name ->
-                runCatching { remote.runCommand(tmuxSetEnvCommand(name, ep), 5_000) {} }
-            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
         }
     }
 
     /** Removes `ANTIGRAVITY_MIC` from launchers and tmux/psmux sessions when voice ends cleanly. */
     suspend fun clear(remote: RemoteHost, windowsHost: Boolean, tmuxSessions: List<String>) {
-        if (windowsHost) {
-            runCatching { remote.runCommand(windowsUpdateLauncherCommand(null), 10_000) {} }
-            tmuxSessions.distinct().forEach { name ->
-                runCatching { remote.runCommand(psmuxUnsetEnvCommand(name), 5_000) {} }
+        try {
+            if (windowsHost) {
+                remote.runCommand(windowsEnvCommand(null, tmuxSessions), 10_000) {}
+            } else {
+                remote.run(posixEnvScript(null, tmuxSessions), 10_000) {}
             }
-        } else {
-            runCatching { remote.run(posixUpdateLauncherScript(null), 10_000) {} }
-            tmuxSessions.distinct().forEach { name ->
-                runCatching { remote.runCommand(tmuxUnsetEnvCommand(name), 5_000) {} }
-            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
         }
     }
 }

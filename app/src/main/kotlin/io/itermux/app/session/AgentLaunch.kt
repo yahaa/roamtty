@@ -73,7 +73,8 @@ data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: 
                 require(AgentHooks.isValidLoopbackMicEndpoint(antigravityMic)) { "invalid ANTIGRAVITY_MIC endpoint: $antigravityMic" }
                 "\$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(antigravityMic)}; "
             } else {
-                "if (-not \$env:ANTIGRAVITY_MIC) { \$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(AgentHooks.DEFAULT_ANTIGRAVITY_MIC)} }; "
+                val micFile = "\$env:USERPROFILE\\.roamtty\\voice-mic"
+                "if (-not \$env:ANTIGRAVITY_MIC) { if (Test-Path \"$micFile\") { \$env:ANTIGRAVITY_MIC = (Get-Content \"$micFile\" -Raw).Trim() }; if (-not \$env:ANTIGRAVITY_MIC) { \$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(AgentHooks.DEFAULT_ANTIGRAVITY_MIC)} } }; "
             }
         } else ""
         return WindowsShell.launch(dir, "${micPrefix}if (Get-Command $cmd -CommandType Application -ErrorAction SilentlyContinue) { " +

@@ -92,7 +92,10 @@ internal fun TerminalPane(
     BoxWithConstraints(modifier.fillMaxWidth().testTag("terminal-workspace")
         .drawBehind { drawRect(background.value) }
         .windowInsetsPadding(WindowInsets.imeAnimationTarget)
-        .onGloballyPositioned { pane.workspaceOrigin = it.positionInRoot() }.workspaceTouches(pane)) {
+        .onGloballyPositioned {
+            pane.workspaceOrigin = it.positionInRoot()
+            pane.workspaceSize = it.size
+        }.workspaceTouches(pane)) {
         val safeDockHeight = with(LocalDensity.current) {
             val edges = WindowInsets.displayCutout.union(WindowInsets.statusBars)
             maxHeight - edges.getTop(this).toDp() - edges.getBottom(this).toDp() - 8.dp

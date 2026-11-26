@@ -13,7 +13,7 @@ object Psmux {
      * Chocolatey shims may not be on its PATH; [INSTALL_DIR] is where the release fallback unpacks.
      */
     private const val INSTALL_DIR = "\$env:LOCALAPPDATA\\Programs\\psmux"
-    private const val PATH_SETUP = "\$env:Path += ';' + ((\"\$env:LOCALAPPDATA\\Microsoft\\WinGet\\Links\"," +
+    const val PATH_SETUP = "\$env:Path += ';' + ((\"\$env:LOCALAPPDATA\\Microsoft\\WinGet\\Links\"," +
         "\"\$env:USERPROFILE\\.cargo\\bin\",\"\$env:USERPROFILE\\scoop\\shims\",\"\$env:ProgramData\\chocolatey\\bin\"," +
         "\"$INSTALL_DIR\") -join ';')"
     private const val HAS = "function Has(\$c) { [bool](Get-Command \$c -CommandType Application -ErrorAction SilentlyContinue) }"

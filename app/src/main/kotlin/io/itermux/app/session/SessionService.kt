@@ -25,6 +25,7 @@ import io.itermux.app.data.prefersMosh
 import io.itermux.app.desktop.DesktopConnection
 import io.itermux.app.desktop.DesktopRegistry
 import io.itermux.app.voice.VoiceConnection
+import io.itermux.app.voice.VoiceReadyOutcome
 import io.itermux.app.voice.VoiceRegistry
 import io.itermux.desktop.AudioRoute
 import io.itermux.desktop.VoiceMode
@@ -32,6 +33,8 @@ import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import java.util.UUID
@@ -47,6 +50,8 @@ class SessionService : Service() {
     private val binder = LocalBinder()
     private var foreground = false
     private var foregroundType = 0
+    /** Prevents tight Android 14+ FGS microphone upgrade retry loops after a SecurityException until the next foreground/start. */
+    private var micFgsDenied = false
     private lateinit var journal: SessionJournal
     private lateinit var restoration: Job
     private lateinit var wakeLock: PowerManager.WakeLock
@@ -197,8 +202,9 @@ class SessionService : Service() {
         passphrase: String,
         mode: VoiceMode,
         route: AudioRoute,
-        onReady: (VoiceMode, Int) -> Unit,
+        onReady: (VoiceMode, Int) -> VoiceReadyOutcome,
     ): VoiceConnection {
+        micFgsDenied = false
         val connection = voices.start(host, sessionId, password, passphrase, mode, route, onReady)
         syncDesktopAudioForVoice()
         ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
@@ -223,7 +229,7 @@ class SessionService : Service() {
                 return@launch
             }
             refreshNotification()
-            merge(*all.map { it.ui }.toTypedArray()).collect {
+            merge(*all.map { it.ui.map { u -> u.inCall }.distinctUntilChanged() }.toTypedArray()).collect {
                 syncDesktopAudioForVoice()
                 refreshNotification()
             }
@@ -317,7 +323,13 @@ class SessionService : Service() {
     /** Whether the app is on screen; told by the activity, as the UI does not recompose once it is stopped. */
     fun setAppVisible(visible: Boolean) {
         appVisible = visible
-        if (visible) viewing?.let(::withdrawAlert)
+        if (visible) {
+            viewing?.let(::withdrawAlert)
+            if (micFgsDenied) {
+                micFgsDenied = false
+                if (voices.live.isNotEmpty()) refreshNotification()
+            }
+        }
     }
 
     /**
@@ -347,6 +359,8 @@ class SessionService : Service() {
     fun disconnectLocal(id: String, forgetCard: Boolean = true) {
         val existing = find(id) ?: return
         stateWatchers.remove(id)?.cancel()
+        voices.closeBySession(id)
+        syncDesktopAudioForVoice()
         existing.disconnect()
         if (forgetCard || existing.external || existing.mode != SessionMode.TMUX) {
             remove(id)
@@ -363,6 +377,8 @@ class SessionService : Service() {
     fun close(id: String) {
         val existing = find(id) ?: return
         stateWatchers.remove(id)?.cancel()
+        voices.closeBySession(id)
+        syncDesktopAudioForVoice()
         if (existing.external) {
             existing.disconnect()
             remove(id)
@@ -434,17 +450,27 @@ class SessionService : Service() {
     }
 
     private fun watchNetwork() {
-        var current: Network? = null
+        var lastNetwork: Network? = null
+        var activeNetwork: Network? = null
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 // The first callback reports the network the sessions already use.
-                val changed = current != null && current != network
+                val changed = lastNetwork != null && lastNetwork != network
                 Log.i(CONNECTION_LOG_TAG, "default network $network available, changed=$changed")
-                current = network
+                lastNetwork = network
+                activeNetwork = network
                 if (changed) scope.launch { verifyConnections(); desktops.networkChanged(); voices.networkChanged() }
             }
             // No replacement network (airplane mode, Wi-Fi gone without mobile data) sends no onAvailable.
-            override fun onLost(network: Network) { Log.i(CONNECTION_LOG_TAG, "default network $network lost"); scope.launch { verifyConnections() } }
+            override fun onLost(network: Network) {
+                val lostActive = activeNetwork == network
+                if (lostActive) activeNetwork = null
+                Log.i(CONNECTION_LOG_TAG, "default network $network lost, active=$lostActive")
+                scope.launch {
+                    verifyConnections()
+                    if (lostActive) voices.networkLost()
+                }
+            }
         }
         networkCallback = runCatching {
             getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback)
@@ -454,6 +480,7 @@ class SessionService : Service() {
 
     fun disconnectAll() { mutableSessions.value.forEach { it.disconnect() }; desktops.closeAll(); voices.closeAll(); refreshNotification() }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        micFgsDenied = false
         val type = desiredForegroundType()
         startForegroundSafe(type)
         foreground = true
@@ -464,7 +491,7 @@ class SessionService : Service() {
 
     private fun desiredForegroundType(): Int {
         if (Build.VERSION.SDK_INT < 34) return 0
-        val hasMicVoice = voices.live.isNotEmpty() &&
+        val hasMicVoice = !micFgsDenied && voices.live.isNotEmpty() &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         return if (hasMicVoice) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
@@ -478,9 +505,16 @@ class SessionService : Service() {
         val applied = runCatching {
             ServiceCompat.startForeground(this, NOTIFICATION, notif, type)
             type
-        }.getOrElse {
+        }.getOrElse { e ->
+            if (Build.VERSION.SDK_INT >= 34 && (type and ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) != 0) {
+                if (!micFgsDenied) Log.w(CONNECTION_LOG_TAG, "microphone FGS upgrade denied; staying on specialUse", e)
+                micFgsDenied = true
+            } else {
+                Log.w(CONNECTION_LOG_TAG, "startForeground($type) failed", e)
+            }
             val fallback = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
             runCatching { ServiceCompat.startForeground(this, NOTIFICATION, notif, fallback) }
+                .onFailure { Log.w(CONNECTION_LOG_TAG, "startForeground fallback failed", it) }
             fallback
         }
         foregroundType = applied
@@ -521,10 +555,12 @@ class SessionService : Service() {
         if (active && !wakeLock.isHeld) wakeLock.acquire()
         if (!active && wakeLock.isHeld) wakeLock.release()
         if (!active) {
+            micFgsDenied = false
             if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false; foregroundType = 0 }
             stopSelf()
             postedNotice = null
         } else if (foreground) {
+            if (voices.live.isEmpty()) micFgsDenied = false
             val desiredType = desiredForegroundType()
             if (desiredType != foregroundType) {
                 startForegroundSafe(desiredType)

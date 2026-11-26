@@ -22,8 +22,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -54,6 +56,7 @@ internal data class TerminalVoice(
     val pluginInstalled: Boolean = true,
     val desktopPipAudioActive: Boolean = false,
     val bluetoothAvailable: Boolean = false,
+    val checkBluetoothAvailable: () -> Boolean = { bluetoothAvailable },
     val onStart: (VoiceMode, AudioRoute) -> Unit = { _, _ -> },
     val onToggleMute: () -> Unit = {},
     val onCycleRoute: () -> Unit = {},
@@ -72,12 +75,22 @@ internal fun VoiceStartSheet(
     desktopPipAudioActive: Boolean,
     pluginInstalled: Boolean,
     bluetoothAvailable: Boolean,
+    micPermissionPermanentlyDenied: Boolean = false,
+    onOpenAppSettings: () -> Unit = {},
     onDismiss: () -> Unit,
     onConfirm: (VoiceMode, AudioRoute) -> Unit,
 ) {
-    var mode by remember { mutableStateOf(VoiceMode.LIVE) }
-    var route by remember(bluetoothAvailable) {
-        mutableStateOf(if (bluetoothAvailable) AudioRoute.BLUETOOTH else AudioRoute.SPEAKER)
+    var modeName by rememberSaveable { mutableStateOf(VoiceMode.LIVE.name) }
+    var routeName by rememberSaveable {
+        mutableStateOf((if (bluetoothAvailable) AudioRoute.BLUETOOTH else AudioRoute.SPEAKER).name)
+    }
+    val mode = runCatching { VoiceMode.valueOf(modeName) }.getOrDefault(VoiceMode.LIVE)
+    val route = runCatching { AudioRoute.valueOf(routeName) }.getOrDefault(AudioRoute.SPEAKER)
+    // Only fall back BLUETOOTH -> SPEAKER when Bluetooth disappears; never reset a manual EARPIECE choice.
+    LaunchedEffect(bluetoothAvailable) {
+        if (!bluetoothAvailable && route == AudioRoute.BLUETOOTH) {
+            routeName = AudioRoute.SPEAKER.name
+        }
     }
     AppSheet(onDismiss = onDismiss, fillHeight = false) {
         VoiceStartSheetContent(
@@ -87,8 +100,11 @@ internal fun VoiceStartSheet(
             hasMicPermission = hasMicPermission,
             desktopPipAudioActive = desktopPipAudioActive,
             pluginInstalled = pluginInstalled,
-            onModeChange = { mode = it },
-            onRouteChange = { route = it },
+            bluetoothAvailable = bluetoothAvailable,
+            micPermissionPermanentlyDenied = micPermissionPermanentlyDenied,
+            onOpenAppSettings = onOpenAppSettings,
+            onModeChange = { modeName = it.name },
+            onRouteChange = { routeName = it.name },
             onCancel = onDismiss,
             onConfirm = { onConfirm(mode, route) },
         )
@@ -108,6 +124,9 @@ internal fun VoiceStartSheetContent(
     onRouteChange: (AudioRoute) -> Unit,
     onCancel: () -> Unit,
     onConfirm: () -> Unit,
+    bluetoothAvailable: Boolean = true,
+    micPermissionPermanentlyDenied: Boolean = false,
+    onOpenAppSettings: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val okColor = StatusColors.success
@@ -142,7 +161,7 @@ internal fun VoiceStartSheetContent(
                 Text(tr("开启语音对话"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    trf("agy · %s（通过主机插件低延迟通道）", hostName.ifBlank { "host" }),
+                    trf("agy · %s（通过主机插件低延迟通道）", hostName.ifBlank { tr("当前主机") }),
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant,
                     maxLines = 2,
@@ -191,7 +210,12 @@ internal fun VoiceStartSheetContent(
                     AudioRoutePill(tr("听筒"), route == AudioRoute.EARPIECE, "voice-route-earpiece") {
                         onRouteChange(AudioRoute.EARPIECE)
                     }
-                    AudioRoutePill(tr("蓝牙"), route == AudioRoute.BLUETOOTH, "voice-route-bluetooth") {
+                    AudioRoutePill(
+                        label = tr("蓝牙"),
+                        selected = route == AudioRoute.BLUETOOTH,
+                        tag = "voice-route-bluetooth",
+                        enabled = bluetoothAvailable,
+                    ) {
                         onRouteChange(AudioRoute.BLUETOOTH)
                     }
                 }
@@ -201,7 +225,14 @@ internal fun VoiceStartSheetContent(
 
         // Contextual notices (hidden when not needed)
         val notices = buildList {
-            if (!hasMicPermission) add("voice-notice-permission" to tr("开始后将请求麦克风权限"))
+            if (!hasMicPermission) {
+                val msg = if (micPermissionPermanentlyDenied) {
+                    tr("麦克风权限已被拒绝，请在系统设置中开启")
+                } else {
+                    tr("开始后将请求麦克风权限")
+                }
+                add("voice-notice-permission" to msg)
+            }
             if (desktopPipAudioActive) add("voice-notice-desktop-mute" to tr("通话期间将自动静音远程桌面"))
             if (!pluginInstalled) add("voice-notice-install" to tr("首次使用将自动安装主机插件"))
         }
@@ -216,12 +247,27 @@ internal fun VoiceStartSheetContent(
                         color = colors.surfaceContainerHigh,
                         modifier = Modifier.fillMaxWidth().testTag(tag),
                     ) {
-                        Text(
-                            text = text,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        )
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (tag == "voice-notice-permission" && micPermissionPermanentlyDenied) {
+                                TextButton(
+                                    onClick = onOpenAppSettings,
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                    modifier = Modifier.testTag("voice-open-settings"),
+                                ) {
+                                    Text(tr("前往设置"), style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -319,7 +365,7 @@ private fun VoiceModeCard(
 }
 
 @Composable
-private fun AudioRoutePill(label: String, selected: Boolean, tag: String, onClick: () -> Unit) {
+private fun AudioRoutePill(label: String, selected: Boolean, tag: String, enabled: Boolean = true, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Surface(
         shape = CircleShape,
@@ -327,7 +373,8 @@ private fun AudioRoutePill(label: String, selected: Boolean, tag: String, onClic
         border = BorderStroke(1.dp, if (selected) colors.primary else colors.outlineVariant),
         modifier = Modifier
             .clip(CircleShape)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.38f)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .testTag(tag),
     ) {
         Text(
@@ -345,7 +392,9 @@ private fun AudioRoutePill(label: String, selected: Boolean, tag: String, onClic
 internal fun VoicePetStatusTag(ui: VoiceUiState, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val duration = VoiceStateMachine.formatDuration(ui.elapsedSeconds)
-    val text = when (ui.phase) {
+    val text = if (ui.resuming) {
+        tr("重连中…")
+    } else when (ui.phase) {
         is VoiceCallPhase.Connecting -> tr("连接中…")
         VoiceCallPhase.Muted -> tr("已静音")
         VoiceCallPhase.Speaking -> tr("AI 回复中")
@@ -356,7 +405,9 @@ internal fun VoicePetStatusTag(ui: VoiceUiState, modifier: Modifier = Modifier) 
         }
         else -> ""
     }
-    val tint = when (ui.phase) {
+    val tint = if (ui.resuming) {
+        colors.onSurfaceVariant
+    } else when (ui.phase) {
         VoiceCallPhase.Speaking -> VoicePeach
         VoiceCallPhase.Muted -> VoiceWarn
         is VoiceCallPhase.Connecting -> colors.onSurfaceVariant
@@ -424,13 +475,17 @@ internal fun VoiceCallPopoverCard(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    val dotColor = when (ui.phase) {
+    val dotColor = if (ui.resuming) {
+        colors.onSurfaceVariant
+    } else when (ui.phase) {
         VoiceCallPhase.Speaking -> VoicePeach
         VoiceCallPhase.Muted -> VoiceWarn
         is VoiceCallPhase.Connecting -> colors.onSurfaceVariant
         else -> VoiceGreen
     }
-    val stateText = when (ui.phase) {
+    val stateText = if (ui.resuming) {
+        tr("重连中…")
+    } else when (ui.phase) {
         is VoiceCallPhase.Connecting -> tr("正在接通…")
         VoiceCallPhase.Listening -> if (ui.mode == VoiceMode.DICTATE) tr("正在听写") else tr("聆听中")
         VoiceCallPhase.Speaking -> tr("AI 语音回复中")
@@ -501,24 +556,27 @@ internal fun VoiceCallPopoverCard(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                PopoverActionButton(
-                    icon = if (ui.isMuted) R.drawable.ic_mic_off else R.drawable.ic_mic,
-                    label = if (ui.isMuted) tr("取消静音") else tr("静音"),
-                    background = if (ui.isMuted) VoiceWarn.copy(alpha = 0.22f) else colors.surfaceContainerHigh,
-                    contentColor = if (ui.isMuted) VoiceWarn else colors.onSurface,
-                    tag = "voice-popover-mute",
-                    onClick = onToggleMute,
-                    modifier = Modifier.weight(1f),
-                )
-                PopoverActionButton(
-                    icon = routeIcon,
-                    label = routeLabel,
-                    background = colors.surfaceContainerHigh,
-                    contentColor = colors.onSurface,
-                    tag = "voice-popover-route",
-                    onClick = onCycleRoute,
-                    modifier = Modifier.weight(1f),
-                )
+                if (ui.mode == VoiceMode.LIVE) {
+                    PopoverActionButton(
+                        icon = if (ui.isMuted) R.drawable.ic_mic_off else R.drawable.ic_mic,
+                        label = if (ui.isMuted) tr("取消静音") else tr("静音"),
+                        background = if (ui.isMuted) VoiceWarn.copy(alpha = 0.22f) else colors.surfaceContainerHigh,
+                        contentColor = if (ui.isMuted) VoiceWarn else colors.onSurface,
+                        tag = "voice-popover-mute",
+                        enabled = !ui.isConnecting && !ui.resuming,
+                        onClick = onToggleMute,
+                        modifier = Modifier.weight(1f),
+                    )
+                    PopoverActionButton(
+                        icon = routeIcon,
+                        label = routeLabel,
+                        background = colors.surfaceContainerHigh,
+                        contentColor = colors.onSurface,
+                        tag = "voice-popover-route",
+                        onClick = onCycleRoute,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 PopoverActionButton(
                     icon = R.drawable.ic_dock,
                     label = tr("操作栏"),
@@ -549,6 +607,7 @@ private fun PopoverActionButton(
     background: Color,
     contentColor: Color,
     tag: String,
+    enabled: Boolean = true,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -558,7 +617,8 @@ private fun PopoverActionButton(
         contentColor = contentColor,
         modifier = modifier
             .clip(RoundedCornerShape(13.dp))
-            .clickable(role = Role.Button, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.38f)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label }
             .testTag(tag),
     ) {

@@ -51,6 +51,21 @@ class VoiceProtocolTest {
             VoiceProtocol.parseStart("""{"error":"bind_failed","detail":"address in use"}"""),
         )
         assertEquals("internal", (VoiceProtocol.parseStart("not json") as VoiceStart.Failed).code)
+        // Invalid mic_port and malformed Base64 udp.key must fail cleanly without throwing IllegalArgumentException.
+        assertEquals(
+            "internal",
+            (VoiceProtocol.parseStart("""{"proto":1,"ver":"0.9.9","os":"linux","mode":"voice","mic_port":0,"session":"s","resume_token":"t"}""") as VoiceStart.Failed).code,
+        )
+        assertEquals(
+            "internal",
+            (VoiceProtocol.parseStart("""{"proto":1,"ver":"0.9.9","os":"linux","mode":"voice","mic_port":70000,"session":"s","resume_token":"t"}""") as VoiceStart.Failed).code,
+        )
+        assertEquals(
+            "internal",
+            (VoiceProtocol.parseStart("""{"proto":1,"ver":"0.9.9","os":"linux","mode":"voice","mic_port":24713,"session":"s","resume_token":"t","udp":{"port":60000,"key":"!!!bad-base64!!!"}}""") as VoiceStart.Failed).code,
+        )
+        val badUdpPort = VoiceProtocol.parseStart("""{"proto":1,"ver":"0.9.9","os":"linux","mode":"voice","mic_port":24713,"session":"s","resume_token":"t","udp":{"port":0,"key":"AAAAAAAAAAAAAAAAAAAAAA=="}}""") as VoiceStart.Ready
+        assertNull(badUdpPort.hello.udp)
     }
 
     @Test fun micAudioEncodesLittleEndianStreamIdAndRawPcm() {
@@ -214,6 +229,40 @@ class VoiceProtocolTest {
         s = VoiceStateMachine.reduce(s, VoiceEvent.MicStopped(10L))
         assertEquals(VoiceCallPhase.Idle, s.phase)
         assertFalse(s.inCall)
+    }
+
+    @Test fun resumingClearsStreamsAndPausesTimerAndGatesToggleMute() {
+        var s = VoiceStateMachine.reduce(VoiceUiState(), VoiceEvent.Start(VoiceMode.LIVE, AudioRoute.SPEAKER))
+        // ToggleMute is ignored while Connecting
+        s = VoiceStateMachine.reduce(s, VoiceEvent.ToggleMute)
+        assertTrue(s.isConnecting)
+        assertFalse(s.isMuted)
+
+        s = VoiceStateMachine.reduce(s, VoiceEvent.Ready(24713, "UDP"))
+        s = VoiceStateMachine.reduce(s, VoiceEvent.MicStarted(1L))
+        s = VoiceStateMachine.reduce(s, VoiceEvent.SpkStarted(2L))
+        s = VoiceStateMachine.reduce(s, VoiceEvent.SpeakerLevel(0.8f))
+        s = VoiceStateMachine.reduce(s, VoiceEvent.TickSecond)
+        assertEquals(VoiceCallPhase.Speaking, s.phase)
+        assertEquals(1, s.elapsedSeconds)
+
+        // Resuming clears stale stream IDs/levels and pauses duration timer
+        s = VoiceStateMachine.reduce(s, VoiceEvent.Resuming(true))
+        assertTrue(s.resuming)
+        assertNull(s.activeMicStreamId)
+        assertNull(s.activeSpkStreamId)
+        assertEquals(0f, s.micLevel, 0.001f)
+        assertEquals(0f, s.speakerLevel, 0.001f)
+        assertEquals(VoiceCallPhase.Listening, s.phase)
+        s = VoiceStateMachine.reduce(s, VoiceEvent.TickSecond)
+        assertEquals(1, s.elapsedSeconds)
+
+        // ToggleMute is ignored in DICTATE mode even when Listening
+        var dictate = VoiceStateMachine.reduce(VoiceUiState(), VoiceEvent.Start(VoiceMode.DICTATE, AudioRoute.SPEAKER))
+        dictate = VoiceStateMachine.reduce(dictate, VoiceEvent.Ready(24713, "SSH"))
+        dictate = VoiceStateMachine.reduce(dictate, VoiceEvent.ToggleMute)
+        assertEquals(VoiceCallPhase.Listening, dictate.phase)
+        assertFalse(dictate.isMuted)
     }
 
     @Test fun audioMathComputesRmsAndSampleAlignedChunks() {

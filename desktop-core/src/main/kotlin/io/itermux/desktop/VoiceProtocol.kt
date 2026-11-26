@@ -70,6 +70,8 @@ object VoiceProtocol {
         }
     } catch (_: org.json.JSONException) {
         VoiceStart.Failed("internal", "bad hello: ${line.take(200)}")
+    } catch (_: IllegalArgumentException) {
+        VoiceStart.Failed("internal", "bad hello: ${line.take(200)}")
     }
 
     // ---- Client -> Server encoders ----
@@ -100,13 +102,7 @@ object VoiceProtocol {
     }
 
     /** Whether a client-to-server voice frame must use reliable UDP delivery. */
-    fun isReliable(frame: ByteArray): Boolean {
-        if (frame.isEmpty()) return true
-        return when (frame[0].toInt() and 0xFF) {
-            MIC_AUDIO, DesktopProtocol.PING, DesktopProtocol.PONG, DesktopProtocol.ACK -> false
-            else -> true
-        }
-    }
+    fun isReliable(frame: ByteArray): Boolean = UdpLink.reliable(frame)
 
     // ---- Server -> Client decoder ----
 
@@ -196,9 +192,9 @@ data class VoiceHello(
             val port = json.getInt("mic_port")
             require(port in 1..65535) { "invalid mic_port: $port" }
             val udp = json.optJSONObject("udp")?.let { u ->
-                java.util.Base64.getDecoder().decode(u.getString("key"))
-                    .takeIf { it.size == 16 }
-                    ?.let { UdpOffer(u.getInt("port"), it) }
+                val udpPort = u.getInt("port")
+                val key = java.util.Base64.getDecoder().decode(u.getString("key"))
+                if (udpPort in 1..65535 && key.size == 16) UdpOffer(udpPort, key) else null
             }
             return VoiceHello(
                 proto = json.getInt("proto"),

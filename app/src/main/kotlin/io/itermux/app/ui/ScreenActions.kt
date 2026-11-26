@@ -1,8 +1,6 @@
 package io.itermux.app.ui
 
 import android.content.Context
-import android.media.AudioDeviceInfo
-import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.view.WindowManager
@@ -24,7 +22,9 @@ import io.itermux.app.session.StartDirectory
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
 import io.itermux.app.trf
+import io.itermux.app.voice.VoiceAudioEngine
 import io.itermux.app.voice.VoiceConnection
+import io.itermux.app.voice.VoiceReadyOutcome
 import io.itermux.desktop.AudioRoute
 import io.itermux.desktop.DesktopButton
 import io.itermux.desktop.DesktopPhase
@@ -281,21 +281,10 @@ internal class ScreenActions(
 
     fun closeVoice(hostId: String) { service?.stopVoice(hostId) }
 
-    fun isBluetoothAudioAvailable(): Boolean = runCatching {
-        val am = context.getSystemService(AudioManager::class.java)
-        val btTypes = buildSet {
-            add(AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                add(AudioDeviceInfo.TYPE_BLE_HEADSET)
-                add(AudioDeviceInfo.TYPE_BLE_SPEAKER)
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            am.availableCommunicationDevices.any { it.type in btTypes }
-        } else {
-            am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in btTypes }
-        }
-    }.getOrDefault(false)
+    fun isBluetoothAudioAvailable(): Boolean = VoiceAudioEngine.isBluetoothAvailable(context)
+
+    private fun sessionById(id: String): TerminalConnection? =
+        service?.sessions?.value?.find { it.id == id }
 
     /** Starts an `agy /voice` session after user confirmation (asking for an unsaved SSH secret first if needed). */
     fun startVoice(session: TerminalConnection, host: Host, mode: VoiceMode, route: AudioRoute) {
@@ -322,21 +311,33 @@ internal class ScreenActions(
         passphrase: String = "",
     ) {
         val bound = readyService() ?: return
-        bound.startVoice(host, session.id, password, passphrase, mode, route) { readyMode, micPort ->
+        val targetSessionId = session.id
+        bound.startVoice(host, targetSessionId, password, passphrase, mode, route) { readyMode, micPort ->
+            val target = sessionById(targetSessionId)
+            if (target == null || target.state.value.phase != Phase.CONNECTED) {
+                return@startVoice VoiceReadyOutcome.SESSION_GONE
+            }
+            if (!target.isAgyActive()) {
+                return@startVoice VoiceReadyOutcome.AGY_EXITED
+            }
             if (micPort != io.itermux.desktop.VoiceProtocol.DEFAULT_MIC_PORT) {
                 toast(trf("语音端口 24713 被占用，已改用 %d；若当前 agy 无响应请重启会话", micPort))
             }
             // Trigger agy's native interactive voice hotkey once the bridge & ANTIGRAVITY_MIC are ready.
             val keySeq = if (readyMode == VoiceMode.LIVE) "\u001b[17~" else "\u001b[15~" // F6 / F5
-            session.write(keySeq)
+            target.write(keySeq)
+            VoiceReadyOutcome.INJECTED
         }
     }
 
-    fun toggleVoiceMute(session: TerminalConnection, host: Host) {
+    fun toggleVoiceMute(host: Host) {
         val voice = voiceOf(host.id) ?: return
-        val muted = voice.toggleMute()
-        // F6 pauses/resumes agy voice capture on the remote side as well.
-        session.write("\u001b[17~")
+        val muted = voice.toggleMute() ?: return
+        // F6 pauses/resumes agy voice capture on the owning session only.
+        val target = sessionById(voice.sessionId)
+        if (target != null && target.state.value.phase == Phase.CONNECTED) {
+            target.write("\u001b[17~")
+        }
         toast(tr(if (muted) "已静音（F6）" else "已恢复麦克风"))
     }
 
@@ -351,9 +352,15 @@ internal class ScreenActions(
         toast(label)
     }
 
-    fun hangupVoice(session: TerminalConnection, host: Host) {
-        // F7 ends agy's active voice mode, then close the local audio bridge.
-        session.write("\u001b[18~")
+    fun hangupVoice(host: Host) {
+        val voice = voiceOf(host.id)
+        if (voice != null && voice.startKeySent) {
+            // F7 ends agy's active voice mode only if the start key was actually sent to the owning connected session.
+            val target = sessionById(voice.sessionId)
+            if (target != null && target.state.value.phase == Phase.CONNECTED) {
+                target.write("\u001b[18~")
+            }
+        }
         service?.stopVoice(host.id)
     }
 

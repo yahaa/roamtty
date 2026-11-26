@@ -92,12 +92,14 @@ internal sealed interface PetVoiceState {
         }
 
     companion object {
-        fun from(ui: VoiceUiState): PetVoiceState = when (ui.phase) {
-            VoiceCallPhase.Idle, is VoiceCallPhase.Failed -> Idle
-            is VoiceCallPhase.Connecting -> Connecting
-            VoiceCallPhase.Listening -> Listening(ui.micLevel, dictating = ui.mode == VoiceMode.DICTATE)
-            VoiceCallPhase.Speaking -> Speaking(ui.speakerLevel)
-            VoiceCallPhase.Muted -> Muted
+        fun from(ui: VoiceUiState): PetVoiceState = when {
+            !ui.inCall -> Idle
+            ui.resuming -> Connecting
+            ui.phase is VoiceCallPhase.Connecting -> Connecting
+            ui.phase == VoiceCallPhase.Listening -> Listening(ui.micLevel, dictating = ui.mode == VoiceMode.DICTATE)
+            ui.phase == VoiceCallPhase.Speaking -> Speaking(ui.speakerLevel)
+            ui.phase == VoiceCallPhase.Muted -> Muted
+            else -> Idle
         }
     }
 }
@@ -257,16 +259,27 @@ private fun rememberGhostMotion(voiceState: PetVoiceState, reducedMotion: Boolea
         else -> 5f
     }
     val swayPeriod = if (voiceState is PetVoiceState.Speaking) 1500 else 2300
-    val pulsePeriod = if (voiceState is PetVoiceState.Connecting) 1400 else 1800
 
     val floatVal by idle.animateFloat(0f, 1f, infiniteRepeatable(tween(floatPeriod, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "float")
     val sway by idle.animateFloat(-swayAmp, swayAmp, infiniteRepeatable(tween(swayPeriod, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "sway")
     val hem by idle.animateFloat(0f, 2f * PI.toFloat(), infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "hem")
     val eyes by idle.animateFloat(1f, 1f, GhostBlink, label = "blink")
     val rawWave by idle.animateFloat(0f, 0f, GhostWave, label = "wave")
-    val pulse by idle.animateFloat(0f, 1f, infiniteRepeatable(tween(pulsePeriod, easing = LinearEasing)), label = "pulse")
-    val ring by idle.animateFloat(0f, 2f * PI.toFloat(), infiniteRepeatable(tween(840, easing = LinearEasing)), label = "ring")
-    val sound by idle.animateFloat(0f, 2f * PI.toFloat(), infiniteRepeatable(tween(1190, easing = LinearEasing)), label = "sound")
+
+    // Do not run voice-call infinite transitions while Idle (or in states that do not draw them).
+    val pulse = if (voiceState is PetVoiceState.Listening || voiceState is PetVoiceState.Speaking || voiceState is PetVoiceState.Connecting) {
+        val pulsePeriod = if (voiceState is PetVoiceState.Connecting) 1400 else 1800
+        rememberInfiniteTransition(label = "pet-voice-pulse")
+            .animateFloat(0f, 1f, infiniteRepeatable(tween(pulsePeriod, easing = LinearEasing)), label = "pulse").value
+    } else 0f
+    val ring = if (voiceState is PetVoiceState.Connecting) {
+        rememberInfiniteTransition(label = "pet-voice-ring")
+            .animateFloat(0f, 2f * PI.toFloat(), infiniteRepeatable(tween(840, easing = LinearEasing)), label = "ring").value
+    } else 0f
+    val sound = if (voiceState is PetVoiceState.Speaking || voiceState is PetVoiceState.Connecting) {
+        rememberInfiniteTransition(label = "pet-voice-sound")
+            .animateFloat(0f, 2f * PI.toFloat(), infiniteRepeatable(tween(1190, easing = LinearEasing)), label = "sound").value
+    } else 0f
 
     return GhostMotion(
         float = floatVal,

@@ -51,7 +51,8 @@ class VoiceEnvironmentTest {
         val defaultCmd = AgentLaunch(CodingAgent.AGY, "C:\\work\\app", AgentMode.STANDARD)
             .commandLine(session = null, antigravityMic = null)
         val defaultDecoded = String(Base64.getDecoder().decode(defaultCmd.substringAfter("-EncodedCommand ").trim()), Charsets.UTF_16LE)
-        assertTrue(defaultDecoded, "if (-not \$env:ANTIGRAVITY_MIC) { \$env:ANTIGRAVITY_MIC = $expectedLiteral };" in defaultDecoded)
+        assertTrue(defaultDecoded, "voice-mic" in defaultDecoded)
+        assertTrue(defaultDecoded, "\$env:ANTIGRAVITY_MIC = $expectedLiteral" in defaultDecoded)
     }
 
     @Test fun posixUpdateScriptWritesExecutableAgyLauncherToDisk() {
@@ -90,26 +91,51 @@ class VoiceEnvironmentTest {
 
         VoiceEnvironment.inject(fakeRemote, windowsHost = false, micPort = 24713, tmuxSessions = listOf("roamtty-1", "roamtty-2", "roamtty-1"))
         assertEquals(1, scripts.size)
-        assertTrue("printf '%s\\n' '127.0.0.1:24713' > \"\$HOME/.roamtty/voice-mic\"" in scripts.single())
-        assertTrue("export ANTIGRAVITY_MIC=127.0.0.1:24713" in scripts.single())
-        assertEquals(2, commands.size)
-        assertTrue(commands[0].contains("tmux set-environment -t roamtty-1 ANTIGRAVITY_MIC 127.0.0.1:24713"))
-        assertTrue(commands[1].contains("tmux set-environment -t roamtty-2 ANTIGRAVITY_MIC 127.0.0.1:24713"))
+        assertTrue(commands.isEmpty())
+        val injectScript = scripts.single()
+        assertTrue("printf '%s\\n' '127.0.0.1:24713' > \"\$HOME/.roamtty/voice-mic\"" in injectScript)
+        assertTrue("export ANTIGRAVITY_MIC=127.0.0.1:24713" in injectScript)
+        assertTrue("tmux set-environment -t roamtty-1 ANTIGRAVITY_MIC 127.0.0.1:24713" in injectScript)
+        assertTrue("tmux set-environment -t roamtty-2 ANTIGRAVITY_MIC 127.0.0.1:24713" in injectScript)
 
         scripts.clear(); commands.clear()
         VoiceEnvironment.clear(fakeRemote, windowsHost = false, tmuxSessions = listOf("roamtty-1"))
         assertEquals(1, scripts.size)
-        assertTrue("rm -f \"\$HOME/.roamtty/voice-mic\"" in scripts.single())
-        assertTrue("export ANTIGRAVITY_MIC=127.0.0.1:24713" in scripts.single())
-        assertEquals(1, commands.size)
-        assertTrue(commands.single().contains("tmux set-environment -u -t roamtty-1 ANTIGRAVITY_MIC"))
+        assertTrue(commands.isEmpty())
+        val clearScript = scripts.single()
+        assertTrue("rm -f \"\$HOME/.roamtty/voice-mic\"" in clearScript)
+        assertTrue("export ANTIGRAVITY_MIC=127.0.0.1:24713" in clearScript)
+        assertTrue("tmux set-environment -u -t roamtty-1 ANTIGRAVITY_MIC" in clearScript)
 
-        // Windows path updates agy.ps1 + psmux set-environment
+        // Windows path updates agy.ps1 + psmux set-environment in a single PowerShell command
         scripts.clear(); commands.clear()
         VoiceEnvironment.inject(fakeRemote, windowsHost = true, micPort = 25000, tmuxSessions = listOf("roamtty-w"))
         assertTrue(scripts.isEmpty())
-        assertEquals(2, commands.size)
-        assertTrue(commands.all { it.startsWith("powershell") })
+        assertEquals(1, commands.size)
+        assertTrue(commands.single().startsWith("powershell"))
+        val decodedWin = String(
+            Base64.getDecoder().decode(commands.single().substringAfter("-EncodedCommand ").trim()),
+            Charsets.UTF_16LE,
+        )
+        assertTrue(decodedWin, "psmux set-environment -t 'roamtty-w' ANTIGRAVITY_MIC 127.0.0.1:25000" in decodedWin)
+    }
+
+    @Test fun injectAndClearRethrowCancellationException() {
+        val cancellingRemote = object : RemoteHost {
+            override suspend fun probePlugins(): Set<HostPlugin>? = null
+            override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int? {
+                throw kotlinx.coroutines.CancellationException("cancelled")
+            }
+            override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int? {
+                throw kotlinx.coroutines.CancellationException("cancelled")
+            }
+        }
+        assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            runBlocking { VoiceEnvironment.inject(cancellingRemote, windowsHost = false, micPort = 24713, tmuxSessions = emptyList()) }
+        }
+        assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            runBlocking { VoiceEnvironment.clear(cancellingRemote, windowsHost = true, tmuxSessions = emptyList()) }
+        }
     }
 
     @Test fun exitCodeTwoShowsFriendlyOutdatedPluginMessage() {

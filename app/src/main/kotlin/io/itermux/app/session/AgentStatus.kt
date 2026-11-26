@@ -78,6 +78,16 @@ data class AgentStatus(
 val TmuxSessionInfo.agent: AgentStatus?
     get() = AgentStatus.parse("$command|$agentReport" + (if (directory.isEmpty()) "" else "\n$directory") + "\n0")
 
+/** Whether Antigravity CLI (`agy`) is currently active in a terminal session. */
+internal fun isAgyActive(
+    agentStatus: AgentStatus?,
+    launchedAgent: CodingAgent?,
+    agentPolled: Boolean,
+    screenApp: ScreenApp,
+): Boolean = CodingAgent.fromCommand(agentStatus?.agent) == CodingAgent.AGY ||
+    (launchedAgent == CodingAgent.AGY && !agentPolled) ||
+    screenApp == ScreenApp.AGY
+
 /** Whether a listed tmux session's pane is only at a shell prompt. */
 val TmuxSessionInfo.idleShell: Boolean get() = agent == null && (command.isEmpty() || AgentStatus.isShell(command))
 

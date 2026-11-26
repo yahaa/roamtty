@@ -96,7 +96,20 @@ object VoiceStateMachine {
             }
             state.copy(phase = nextPhase, micPort = event.micPort, link = event.link, resuming = false)
         } else state
-        is VoiceEvent.Resuming -> if (state.inCall) state.copy(resuming = event.active) else state
+        is VoiceEvent.Resuming -> if (state.inCall) {
+            if (event.active) {
+                state.copy(
+                    resuming = true,
+                    activeMicStreamId = null,
+                    activeSpkStreamId = null,
+                    micLevel = 0f,
+                    speakerLevel = 0f,
+                    phase = if (state.phase is VoiceCallPhase.Speaking) VoiceCallPhase.Listening else state.phase,
+                )
+            } else {
+                state.copy(resuming = false)
+            }
+        } else state
         is VoiceEvent.LinkChanged -> if (state.inCall) state.copy(link = event.link) else state
         is VoiceEvent.MicStarted -> if (state.inCall) {
             val nextPhase = when (state.phase) {
@@ -160,7 +173,7 @@ object VoiceStateMachine {
             }
             state.copy(phase = nextPhase, speakerLevel = level)
         } else state
-        VoiceEvent.ToggleMute -> if (!state.inCall) state else when (state.phase) {
+        VoiceEvent.ToggleMute -> if (!state.inCall || state.phase is VoiceCallPhase.Connecting || state.mode != VoiceMode.LIVE) state else when (state.phase) {
             is VoiceCallPhase.Muted -> {
                 val resumed = if (state.activeSpkStreamId != null && state.speakerLevel > 0.01f) {
                     VoiceCallPhase.Speaking
@@ -180,7 +193,7 @@ object VoiceStateMachine {
             val next = nextAudioRoute(state.audioRoute, state.bluetoothAvailable)
             state.copy(audioRoute = next)
         }
-        VoiceEvent.TickSecond -> if (state.inCall && !state.isConnecting) {
+        VoiceEvent.TickSecond -> if (state.inCall && !state.isConnecting && !state.resuming) {
             state.copy(elapsedSeconds = state.elapsedSeconds + 1)
         } else state
         VoiceEvent.Hangup -> VoiceUiState(

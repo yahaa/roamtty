@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -24,11 +28,13 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import io.itermux.app.R
 import io.itermux.app.tr
+import kotlin.math.roundToInt
 
 /** The ring of shortcuts that holding the pet opens around it; left open, its items take taps. */
 @Composable
@@ -104,21 +110,47 @@ internal fun TerminalPet(pane: TerminalPaneState, arrowsShown: Boolean, voice: T
                             pane.petArrow(KeyEvent.KEYCODE_DPAD_LEFT)
                         }
                     }
-                    Box(Modifier.layout { measurable, constraints ->
-                        val pop = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
-                        val gap = 8.dp.roundToPx()
-                        layout(0, 0) { pop.placeRelative(-pop.width - gap, -pop.height / 2) }
-                    }) {
+                    var popoverAnchor by remember { mutableStateOf<Offset?>(null) }
+                    val topInset = WindowInsets.displayCutout.union(WindowInsets.statusBars).getTop(LocalDensity.current)
+                    Box(Modifier
+                        .onGloballyPositioned { popoverAnchor = it.positionInRoot() - pane.workspaceOrigin }
+                        .layout { measurable, constraints ->
+                            val margin = 8.dp.roundToPx()
+                            val gap = 8.dp.roundToPx()
+                            val wsW = pane.workspaceSize.width
+                            val wsH = pane.workspaceSize.height
+                            val maxPopWidth = if (wsW > margin * 2) wsW - margin * 2 else constraints.maxWidth
+                            val pop = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0, maxWidth = maxPopWidth))
+                            val desiredX = -pop.width - gap
+                            val desiredY = -pop.height / 2
+                            val anchor = popoverAnchor
+                            val (placedX, placedY) = if (anchor != null && wsW > 0 && wsH > 0) {
+                                val minX = (margin - anchor.x).roundToInt()
+                                val maxX = (wsW - margin - pop.width - anchor.x).roundToInt()
+                                val minY = (topInset + margin - anchor.y).roundToInt()
+                                val maxY = (wsH - margin - pop.height - anchor.y).roundToInt()
+                                val clampedX = if (minX <= maxX) desiredX.coerceIn(minX, maxX) else minX
+                                val clampedY = if (minY <= maxY) desiredY.coerceIn(minY, maxY) else minY
+                                clampedX to clampedY
+                            } else {
+                                desiredX to desiredY
+                            }
+                            layout(0, 0) { pop.placeRelative(placedX, placedY) }
+                        }) {
                         VoiceCallPopover(
                             visible = showPopover,
                             ui = voice.ui,
-                            onToggleMute = voice.onToggleMute,
+                            onToggleMute = {
+                                pane.terminal?.scrollToBottom()
+                                voice.onToggleMute()
+                            },
                             onCycleRoute = voice.onCycleRoute,
                             onOpenDock = {
                                 pane.voicePopoverOpen = false
                                 pane.dockExpanded = true
                             },
                             onHangup = {
+                                pane.terminal?.scrollToBottom()
                                 pane.voicePopoverOpen = false
                                 pane.voiceSuppressesPinnedDock = false
                                 voice.onHangup()
