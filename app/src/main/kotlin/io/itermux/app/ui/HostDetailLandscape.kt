@@ -214,6 +214,7 @@ private fun Overview(host: Host, reachability: HostReachability, monitor: HostMo
             connection != null && (!connection.active || samplingFailed) -> MonitorProblem(monitor, connection, samplingFailed, onLogin)
         }
         if (monitor != null) {
+            HostAiUsageSection(monitor)
             val rate by monitor.netRate.collectAsStateWithLifecycle()
             val cpuHistory by monitor.cpuHistory.collectAsStateWithLifecycle()
             val memHistory by monitor.memHistory.collectAsStateWithLifecycle()
@@ -233,7 +234,6 @@ private fun Overview(host: Host, reachability: HostReachability, monitor: HostMo
                 NetworkTile(rate, Modifier.weight(1f))
             }
             if (m != null) Summary(m)
-            HostAiUsageSection(monitor)
         }
     }
 }
