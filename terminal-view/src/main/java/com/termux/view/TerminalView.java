@@ -32,8 +32,11 @@ import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.SurroundingText;
+import android.view.inputmethod.TextAttribute;
+import android.view.inputmethod.TextSnapshot;
 import android.widget.Scroller;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 
@@ -534,12 +537,71 @@ public final class TerminalView extends View {
                 return new SurroundingText(snapshot.text.subSequence(start, end), selStart - start, selEnd - start, start);
             }
 
+            @RequiresApi(33)
+            @Nullable
+            @Override
+            public TextSnapshot takeSnapshot() {
+                Editable content = getEditable();
+                if (content == null) return null;
+                int compStart = BaseInputConnection.getComposingSpanStart(content);
+                int compEnd = BaseInputConnection.getComposingSpanEnd(content);
+                if (compEnd < compStart) {
+                    int tmp = compStart;
+                    compStart = compEnd;
+                    compEnd = tmp;
+                }
+                if (compStart >= 0 && compEnd >= 0) {
+                    compStart += IME_PLACEHOLDER_LENGTH;
+                    compEnd += IME_PLACEHOLDER_LENGTH;
+                } else {
+                    compStart = -1;
+                    compEnd = -1;
+                }
+                SurroundingText surroundingText = getSurroundingText(1024, 1024, GET_TEXT_WITH_STYLES);
+                if (surroundingText == null) return null;
+                int capsMode = getCursorCapsMode(
+                    TextUtils.CAP_MODE_CHARACTERS | TextUtils.CAP_MODE_WORDS | TextUtils.CAP_MODE_SENTENCES);
+                return new TextSnapshot(surroundingText, compStart, compEnd, capsMode);
+            }
+
+            @Override
+            public boolean setComposingRegion(int start, int end) {
+                if (!isCurrentConnection()) return false;
+                int len = getEditable().length();
+                return super.setComposingRegion(imeLocalIndex(start, len), imeLocalIndex(end, len));
+            }
+
+            @Override
+            public boolean setSelection(int start, int end) {
+                if (!isCurrentConnection()) return false;
+                if (start < 0 || end < 0) return true;
+                int len = getEditable().length();
+                return super.setSelection(imeLocalIndex(start, len), imeLocalIndex(end, len));
+            }
+
             @Override
             public boolean setComposingText(CharSequence text, int newCursorPosition) {
                 if (!isCurrentConnection()) return false;
                 noteUserInput();
                 mImeBackspace.reset();
                 return super.setComposingText(text, newCursorPosition);
+            }
+
+            @RequiresApi(34)
+            @Override
+            public boolean replaceText(int start, int end, @NonNull CharSequence text, int newCursorPosition,
+                                       @Nullable TextAttribute textAttribute) {
+                if (!isCurrentConnection()) return false;
+                if (start < 0 || end < 0) {
+                    return super.replaceText(start, end, text, newCursorPosition, textAttribute);
+                }
+                noteUserInput();
+                mImeBackspace.reset();
+                int len = getEditable().length();
+                boolean replaced = super.replaceText(
+                    imeLocalIndex(start, len), imeLocalIndex(end, len), text, newCursorPosition, textAttribute);
+                if (replaced && mEmulator != null) flushCommittedText();
+                return replaced;
             }
 
             @Override
@@ -720,23 +782,31 @@ public final class TerminalView extends View {
     }
 
     /**
-     * Stands for the remote line while nothing is composed: IMEs stop a held delete (WeChat IME) or skip
-     * delete entirely (Typeless) when they see no text before the cursor. Deleting it sends DEL keys.
+     * Stands for the remote line before uncommitted text: IMEs stop a held delete (WeChat IME) or skip
+     * delete entirely (Typeless) when they see no text before the cursor, and WeChat IME 4.0+ aborts
+     * streaming voice composing if the reported cursor jumps backward once composition starts.
      */
     private static final String IME_REMOTE_PLACEHOLDER = new String(new char[64]).replace('\0', ' ');
+    private static final int IME_PLACEHOLDER_LENGTH = IME_REMOTE_PLACEHOLDER.length();
 
-    /** IME offsets must refer to its editable buffer or the placeholder, never the remote screen's padded cells. */
+    /** Maps an IME-facing offset (including {@link #IME_REMOTE_PLACEHOLDER}) back into the local editable buffer. */
+    static int imeLocalIndex(int imeIndex, int localLength) {
+        if (localLength <= 0 || imeIndex <= IME_PLACEHOLDER_LENGTH) return 0;
+        return Math.min(imeIndex - IME_PLACEHOLDER_LENGTH, localLength);
+    }
+
+    /** IME offsets always include the placeholder prefix so coordinates never jump when composition starts or clears. */
     private ExtractedText imeSnapshot(@Nullable Editable composing) {
         ExtractedText result = new ExtractedText();
         result.partialStartOffset = result.partialEndOffset = -1;
         if (composing != null && composing.length() > 0) {
-            result.text = composing.toString();
-            int len = result.text.length();
-            result.selectionStart = ImeDeleteGuard.clampIndex(Selection.getSelectionStart(composing), len);
-            result.selectionEnd = ImeDeleteGuard.clampIndex(Selection.getSelectionEnd(composing), len);
+            int len = composing.length();
+            result.text = IME_REMOTE_PLACEHOLDER + composing;
+            result.selectionStart = IME_PLACEHOLDER_LENGTH + ImeDeleteGuard.clampIndex(Selection.getSelectionStart(composing), len);
+            result.selectionEnd = IME_PLACEHOLDER_LENGTH + ImeDeleteGuard.clampIndex(Selection.getSelectionEnd(composing), len);
         } else {
             result.text = IME_REMOTE_PLACEHOLDER;
-            result.selectionStart = result.selectionEnd = IME_REMOTE_PLACEHOLDER.length();
+            result.selectionStart = result.selectionEnd = IME_PLACEHOLDER_LENGTH;
         }
         return result;
     }
