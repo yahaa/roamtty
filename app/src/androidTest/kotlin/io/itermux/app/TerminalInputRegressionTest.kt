@@ -1,7 +1,9 @@
 package io.itermux.app
 
 import android.graphics.Typeface
+import android.os.Build
 import android.os.SystemClock
+import android.text.SpannableString
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -205,7 +207,10 @@ class TerminalInputRegressionTest {
             // Text outside the composing span is still uncommitted in this connection's Editable.
             BaseInputConnection.removeComposingSpans(checkNotNull((ime as BaseInputConnection).editable))
             ime.deleteSurroundingTextInCodePoints(1, 0)
-            assertEquals("中文", checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0)).text.toString())
+            assertEquals("中文", checkNotNull((ime as BaseInputConnection).editable).toString())
+            val extracted = checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0))
+            assertTrue(extracted.text.toString().endsWith("中文"))
+            assertEquals(extracted.text.length, extracted.selectionStart)
             assertEquals("", session.input.toString())
             ime.finishComposingText()
             assertEquals("中文", session.input.toString())
@@ -316,7 +321,10 @@ class TerminalInputRegressionTest {
             assertFalse(old.deleteSurroundingTextInCodePoints(1, 0))
             assertFalse(old.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)))
             assertFalse(old.setComposingText("wrong", 1))
-            assertEquals("new", current.getExtractedText(ExtractedTextRequest(), 0).text.toString())
+            assertFalse(old.setComposingRegion(64, 67))
+            assertFalse(old.setSelection(64, 67))
+            assertEquals("new", checkNotNull((current as BaseInputConnection).editable).toString())
+            assertTrue(checkNotNull(current.getExtractedText(ExtractedTextRequest(), 0)).text.toString().endsWith("new"))
             assertEquals("", session.input.toString())
             assertEquals("", next.input.toString())
             current.finishComposingText()
@@ -405,6 +413,84 @@ class TerminalInputRegressionTest {
         compose.runOnIdle {
             assertEquals("ls\r\r\r", session.input.toString())
             assertEquals("A hardware keyboard's Enter keeps the keyboard state", 2, softEnters)
+        }
+    }
+
+    @Test fun streamingVoiceComposingKeepsCursorOffsetsContinuousWithoutTruncating() {
+        terminalContent()
+        val ime = connection()
+        compose.runOnIdle {
+            // Reproduces WeChat IME 4.0.1 VoiceComposingRegionWriter: it anchors [regionStart, regionEnd]
+            // at the idle cursor offset and aborts further streaming writes if selection ever shifts backward.
+            fun speakUtterance(chunks: List<String>) {
+                val startSnap = checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0))
+                val regionStart = startSnap.selectionStart
+                var regionEnd = startSnap.selectionEnd
+                assertTrue(regionStart >= 16 && regionStart == regionEnd)
+                for (chunk in chunks) {
+                    ime.beginBatchEdit()
+                    val cur = checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0))
+                    assertEquals("Cursor must not shift backward mid-utterance", regionEnd, cur.selectionStart)
+                    assertEquals("Cursor must stay collapsed at composing end", regionEnd, cur.selectionEnd)
+                    assertTrue(ime.setComposingRegion(regionStart, regionEnd))
+                    assertTrue(ime.setSelection(regionEnd, regionEnd))
+                    assertTrue(ime.setComposingText(SpannableString(chunk), 1))
+                    regionEnd = regionStart + chunk.length
+                    ime.endBatchEdit()
+                }
+                assertTrue(ime.finishComposingText())
+            }
+
+            speakUtterance(listOf("你", "你好", "你好呢", "你好，", "你好，能听到我说话吗"))
+            assertEquals("你好，能听到我说话吗", session.input.toString())
+            session.input.clear()
+
+            // A follow-up utterance on the same connection starts cleanly at the same placeholder anchor.
+            speakUtterance(listOf("第", "第二句语音测试", "第二句测试"))
+            assertEquals("第二句测试", session.input.toString())
+        }
+    }
+
+    @Test fun virtualPlaceholderOffsetsTranslateSelectionComposingRegionReplaceTextAndSnapshot() {
+        terminalContent()
+        val ime = connection()
+        compose.runOnIdle {
+            val baseOffset = checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0)).selectionStart
+            assertTrue(ime.setComposingText("你好世界", 1))
+            val extracted = checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0))
+            assertEquals(baseOffset + 4, extracted.selectionStart)
+            assertEquals(baseOffset + 4, extracted.selectionEnd)
+            assertTrue(extracted.text.toString().endsWith("你好世界"))
+
+            if (Build.VERSION.SDK_INT >= 31) {
+                val surrounding = checkNotNull(ime.getSurroundingText(100, 100, 0))
+                assertEquals(baseOffset + 4, surrounding.offset + surrounding.selectionStart)
+                assertTrue(surrounding.text.toString().endsWith("你好世界"))
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                val snapshot = checkNotNull(ime.takeSnapshot())
+                assertEquals(baseOffset, snapshot.compositionStart)
+                assertEquals(baseOffset + 4, snapshot.compositionEnd)
+            }
+
+            assertTrue(ime.setSelection(baseOffset + 1, baseOffset + 3))
+            assertEquals("好世", ime.getSelectedText(0)?.toString())
+            val selectedSnap = checkNotNull(ime.getExtractedText(ExtractedTextRequest(), 0))
+            assertEquals(baseOffset + 1, selectedSnap.selectionStart)
+            assertEquals(baseOffset + 3, selectedSnap.selectionEnd)
+
+            assertTrue(ime.setComposingRegion(baseOffset, baseOffset + 4))
+            assertTrue(ime.setSelection(baseOffset + 4, baseOffset + 4))
+            assertTrue(ime.setComposingText("替换", 1))
+            assertEquals("替换", checkNotNull((ime as BaseInputConnection).editable).toString())
+
+            if (Build.VERSION.SDK_INT >= 34) {
+                assertTrue(ime.replaceText(baseOffset, baseOffset + 2, "最终文本", 1, null))
+                assertEquals("最终文本", session.input.toString())
+            } else {
+                assertTrue(ime.finishComposingText())
+                assertEquals("替换", session.input.toString())
+            }
         }
     }
 }

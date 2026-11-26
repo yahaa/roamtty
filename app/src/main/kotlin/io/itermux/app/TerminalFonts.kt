@@ -28,6 +28,7 @@ enum class TerminalFontId(val id: String, val label: String, val assetFile: Stri
     SOURCE_CODE_PRO("source_code_pro", "Source Code Pro", "fonts/SourceCodePro-Regular.otf"),
     IBM_PLEX_MONO("ibm_plex_mono", "IBM Plex Mono", "fonts/IBMPlexMono-Regular.ttf"),
     CASCADIA_MONO("cascadia_mono", "Cascadia Mono", "fonts/CascadiaMono-Regular.ttf"),
+    IOSEVKA_FIXED("iosevka_fixed", "Iosevka 窄体", "fonts/IosevkaFixed-Regular.ttf"),
     CUSTOM("custom", "自定义字体", null);
 
     companion object {

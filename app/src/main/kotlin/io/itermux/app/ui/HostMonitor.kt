@@ -2,14 +2,18 @@ package io.itermux.app.ui
 
 import android.os.SystemClock
 import io.itermux.app.ItermuxApp
+import io.itermux.app.session.AgentUsageCollector
+import io.itermux.app.session.HostAiUsage
 import io.itermux.app.session.HostMetrics
 import io.itermux.app.session.HostMetricsReader
+import io.itermux.app.session.HostUsageRange
 import io.itermux.app.session.MetricsReading
 import io.itermux.app.login.PendingPrompt
 import io.itermux.app.session.RemoteFolders
 import io.itermux.ssh.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import io.itermux.app.data.credentialsFor
 import io.itermux.app.login.pageLogin
@@ -38,6 +42,15 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     @Volatile private var remote: RemoteHost? = null
     /** True while the login is up and [listFolders] can run. */
     val ready = MutableStateFlow(false)
+    val supportsAiUsage: Boolean get() = host.os != HostSystem.WINDOWS.name
+    private val mutableAiUsageRange = MutableStateFlow(HostUsageRange.TODAY)
+    val aiUsageRange = mutableAiUsageRange.asStateFlow()
+    private val mutableAiUsage = MutableStateFlow<HostAiUsage?>(null)
+    val aiUsage = mutableAiUsage.asStateFlow()
+    private val mutableAiUsageLoading = MutableStateFlow(false)
+    val aiUsageLoading = mutableAiUsageLoading.asStateFlow()
+    private val aiUsageCache = mutableMapOf<HostUsageRange, Pair<Long, HostAiUsage>>()
+    private var aiUsageJob: Job? = null
     private var job: Job? = null
     /** Whether the current login has read at least one sample. */
     @Volatile private var sampled = false
@@ -83,6 +96,7 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
                 } }
                 this@HostMonitor.remote = remote
                 ready.value = true
+                if (sampleMetrics) refreshAiUsage(force = false)
                 try { if (sampleMetrics) sample(remote) else awaitCancellation() }
                 finally { this@HostMonitor.remote = null; ready.value = false }
             }
@@ -153,7 +167,48 @@ internal class HostMonitor(private val app: ItermuxApp, private val login: Plugi
     suspend fun openSocket(host: String, port: Int): RemoteSocket =
         (remote ?: throw SshUnavailableException()).openSocket(host, port)
 
+    fun setAiUsageRange(range: HostUsageRange) {
+        mutableAiUsageRange.value = range
+        aiUsageCache[range]?.let { (_, cached) -> mutableAiUsage.value = cached }
+        refreshAiUsage(force = false)
+    }
+
+    /** Loads machine-wide per-agent token consumption & active quotas over the monitor's SSH connection. */
+    fun refreshAiUsage(force: Boolean = true) {
+        if (host.os == HostSystem.WINDOWS.name) return
+        val remote = remote ?: return
+        val range = mutableAiUsageRange.value
+        val now = SystemClock.elapsedRealtime()
+        val cached = aiUsageCache[range]
+        if (!force && cached != null && now - cached.first < AI_USAGE_CACHE_MS) {
+            mutableAiUsage.value = cached.second
+            return
+        }
+        aiUsageJob?.cancel()
+        aiUsageJob = scope.launch {
+            mutableAiUsageLoading.value = true
+            try {
+                val lines = mutableListOf<String>()
+                val status = withContext(Dispatchers.IO) {
+                    remote.run(AgentUsageCollector.hostScript(range), 15_000) { lines += it }
+                }
+                if (status == 0) {
+                    val parsed = AgentUsageCollector.parseHost(lines, range)
+                    aiUsageCache[range] = SystemClock.elapsedRealtime() to parsed
+                    if (mutableAiUsageRange.value == range) mutableAiUsage.value = parsed
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Keep previous snapshot on transient errors.
+            } finally {
+                mutableAiUsageLoading.value = false
+            }
+        }
+    }
+
     fun close() {
+        aiUsageJob?.cancel()
         pending.value?.answer?.complete(null)
         session?.disconnect()
         job?.cancel()
@@ -181,3 +236,4 @@ private const val MONITOR_RETRIES = 5
 internal const val MONITOR_RECONNECTING = "连接中断，正在自动重连…"
 internal const val SAMPLE_INTERVAL_MS = 3_000L
 internal const val MONITOR_HISTORY = 40
+private const val AI_USAGE_CACHE_MS = 30_000L

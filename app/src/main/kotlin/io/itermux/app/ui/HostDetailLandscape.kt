@@ -214,6 +214,7 @@ private fun Overview(host: Host, reachability: HostReachability, monitor: HostMo
             connection != null && (!connection.active || samplingFailed) -> MonitorProblem(monitor, connection, samplingFailed, onLogin)
         }
         if (monitor != null) {
+            HostAiUsageSection(monitor)
             val rate by monitor.netRate.collectAsStateWithLifecycle()
             val cpuHistory by monitor.cpuHistory.collectAsStateWithLifecycle()
             val memHistory by monitor.memHistory.collectAsStateWithLifecycle()

@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.data.multiplexer
+import io.itermux.app.session.AgentSessionUsage
 import io.itermux.app.session.AgentStatus
 import io.itermux.app.session.CodingAgent
 import io.itermux.app.session.TerminalConnection
@@ -89,8 +90,10 @@ internal fun SessionRow(session: TerminalConnection, onClick: () -> Unit, onClos
             onLongClick = { ui.menu = true }, onClick = onClick)
         .testTag("$tagPrefix-${session.id}")) {
         if (divider) Box(Modifier.padding(start = 14.dp).fillMaxWidth().height(1.dp).background(colors.onSurface.copy(alpha = 0.07f)))
+        val showUsageFooter = card.showUsageFooter
         Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
             if (compact) CompactCardBody(card, desktop) else AgentCardBody(card, ui, onClick, desktop)
+            if (showUsageFooter) SessionUsageFooter(card.usage!!, card.fade)
         }
         if (ui.replying || ui.failure != null) Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
             if (ui.replying) FollowUpField(ui.draft, { ui.draft = it }, card.kind, ui.sending, tagPrefix, session.id) {
@@ -124,6 +127,8 @@ private class SessionCard(
     val path: String,
     /** What keeps and carries it: tmux, mosh. */
     val tags: List<String>,
+    /** Current session usage snapshot for AI agent sessions; null for non-agent sessions. */
+    val usage: AgentSessionUsage? = null,
 ) {
     val name = customName.ifBlank { automatic }
     val prompt = status?.task.orEmpty()
@@ -132,6 +137,7 @@ private class SessionCard(
     val waiting = status?.state == AgentStatus.State.WAITING
     val idle = status?.state == AgentStatus.State.IDLE
     val fade = Modifier.alpha(if (offline) OFFLINE_ALPHA else 1f)
+    val showUsageFooter = usage != null && (usage.contextPercent != null || usage.sessionTotalTokens > 0L)
     fun tag(part: String) = "$tagPrefix-$part-${session.id}"
 }
 
@@ -147,6 +153,7 @@ private fun sessionCard(session: TerminalConnection, tagPrefix: String, hostOffl
     val directory by session.directory.collectAsStateWithLifecycle()
     val multiplexer by session.multiplexer.collectAsStateWithLifecycle()
     val transport by session.transport.collectAsStateWithLifecycle()
+    val usage by session.agentUsage.collectAsStateWithLifecycle()
     val kind = CodingAgent.fromCommand((agent ?: last)?.agent) ?: launched
     // While it reconnects, what the agent reported last; nothing it offers can be done until it answers again.
     val (status, live) = listedAgentStatus(state, polled, agent, last, hostOffline)
@@ -161,7 +168,7 @@ private fun sessionCard(session: TerminalConnection, tagPrefix: String, hostOffl
     val tags = sessionTransportTags(session.mode, multiplexer, session.host.multiplexer,
         transport.takeIf { state.phase == Phase.CONNECTED })
     return SessionCard(session, tagPrefix, state, kind, status, live, offline = hostOffline && !state.active, customName,
-        automatic, path, tags)
+        automatic, path, tags, usage = usage.takeIf { kind != null })
 }
 
 /** What the user is doing with a card: its menu, its dialogs and the follow-up typed on it. */
@@ -214,13 +221,13 @@ private fun CardTitleLines(card: SessionCard) {
     }
     // Behind a folder mark; cut in the middle, so both where it starts and the folder's own name stay. Without
     // a folder the line stays, empty, so every card of a kind is as tall as the next.
-    Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         if (path.isNotEmpty()) {
             Icon(painterResource(R.drawable.ic_folder), contentDescription = tr("工作目录"), Modifier.size(12.dp),
                 tint = colors.onSurfaceVariant.copy(alpha = 0.75f))
             Spacer(Modifier.width(5.dp))
         }
-        Text(path.ifEmpty { " " }, if (path.isNotEmpty()) Modifier.testTag(card.tag("location")) else Modifier,
+        Text(path.ifEmpty { " " }, Modifier.weight(1f).then(if (path.isNotEmpty()) Modifier.testTag(card.tag("location")) else Modifier),
             style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace,
             color = colors.onSurfaceVariant.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
     }

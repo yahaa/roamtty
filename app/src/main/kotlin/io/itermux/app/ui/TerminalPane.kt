@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
@@ -61,6 +62,11 @@ internal fun TerminalPane(
     // A line starting with `/` brings the pet's arrows for its command menu, and keeps them up for as long as it does.
     val slashCommandLine by session.slashCommandLine.collectAsStateWithLifecycle()
     val petArrowsShown = (pane.petArrowsAwake || slashCommandLine != 0) && pane.petRing.center == null
+    val agentStatus by session.agentStatus.collectAsStateWithLifecycle()
+    val agentPolled by session.agentPolled.collectAsStateWithLifecycle()
+    val launchedAgent by session.launchedAgent.collectAsStateWithLifecycle()
+    val agentUsage by session.agentUsage.collectAsStateWithLifecycle()
+    val isAgentSession = agentStatus != null || (launchedAgent != null && !agentPolled)
 
     TerminalPaneEffects(pane, state.phase, imeVisible, pipShown = pip.desktop != null)
     BackHandler(pane.editor || imeVisible) { pane.closeEditor() }
@@ -102,6 +108,21 @@ internal fun TerminalPane(
         }
         pip.desktop?.let { desktop ->
             TerminalPipOverlay(pane, desktop, pip, landscape, imeVisible, if (pane.dockReserved) pinnedDockWidth else 0.dp)
+        }
+        if (connected && !pane.editor && isAgentSession) {
+            TerminalContextRing(
+                percent = agentUsage?.contextPercent,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .windowInsetsPadding(WindowInsets.displayCutout.union(WindowInsets.statusBars)
+                        .only(WindowInsetsSides.Top + WindowInsetsSides.End))
+                    .padding(top = 6.dp, end = if (pane.dockReserved) pinnedDockWidth + 4.dp else 8.dp),
+            ) {
+                pane.hideKeyboard()
+                pane.dismissDockMenus()
+                session.refreshAgentUsage(force = true)
+                pane.usageSheetOpen = true
+            }
         }
         TerminalPetRing(pane)
         if (pane.floatingDock) FloatingDock(pane, landscape, imeVisible, dock)

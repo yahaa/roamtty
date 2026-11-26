@@ -145,6 +145,15 @@ class TerminalConnection(
     private val mutableAgentPolled = MutableStateFlow(false)
     /** Whether the host has answered a status poll since the connection came up. */
     val agentPolled = mutableAgentPolled.asStateFlow()
+    private val mutableAgentUsage = MutableStateFlow<AgentSessionUsage?>(null)
+    /** Live context-window, remaining quota and session token telemetry for the active AI agent; null when none. */
+    val agentUsage = mutableAgentUsage.asStateFlow()
+    private val mutableAgentUsageLoading = MutableStateFlow(false)
+    val agentUsageLoading = mutableAgentUsageLoading.asStateFlow()
+    private var agentUsageJob: Job? = null
+    private var compactRefreshJob: Job? = null
+    @Volatile private var lastUsageAtMs = 0L
+    @Volatile private var lastUsageState: AgentStatus.State? = null
     private val mutableDirectory = MutableStateFlow("")
     /**
      * The folder the tmux pane was last seen in, agent or not, so every session can say where it runs; kept while the
@@ -176,7 +185,77 @@ class TerminalConnection(
             mutableAgentPolled.value = true
         }
         AgentStatus.directory(output).takeIf { it.isNotEmpty() }?.let { mutableDirectory.value = it }
+        maybeRefreshAgentUsage(status)
         return status
+    }
+
+    private fun maybeRefreshAgentUsage(status: AgentStatus?) {
+        val kind = CodingAgent.fromCommand(status?.agent) ?: launchedAgent.value?.takeIf { !mutableAgentPolled.value }
+        if (kind == null) {
+            if (mutableAgentPolled.value && status == null) mutableAgentUsage.value = null
+            lastUsageState = null
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        val stateChanged = status?.state != lastUsageState
+        lastUsageState = status?.state
+        val due = lastUsageAtMs == 0L || (stateChanged && status?.state == AgentStatus.State.IDLE) || (now - lastUsageAtMs) >= 12_000L
+        if (due) {
+            refreshAgentUsage(force = false)
+        }
+    }
+
+    /** Reads current session context, quota and token counts from the host's local CLI transcript. */
+    fun refreshAgentUsage(force: Boolean = true) {
+        if (state.value.phase != Phase.CONNECTED) return
+        if (!force && agentUsageJob?.isActive == true) return
+        val status = mutableAgentStatus.value
+        val kind = CodingAgent.fromCommand(status?.agent) ?: launchedAgent.value
+        if (kind == null) return
+        val dir = status?.directory?.ifEmpty { mutableDirectory.value } ?: mutableDirectory.value
+        val tmuxName = remoteSessionName.takeIf { mode == SessionMode.TMUX }
+        agentUsageJob?.cancel()
+        agentUsageJob = scope.launch {
+            if (force) mutableAgentUsageLoading.value = true
+            try {
+                val cmd = AgentUsageCollector.sessionCommand(kind, tmuxName, dir)
+                val out = withContext(Dispatchers.IO) { ssh.runHostOutput(cmd, AgentUsageCollector.script) }
+                lastUsageAtMs = SystemClock.elapsedRealtime()
+                AgentUsageCollector.parseSession(out)?.let { mutableAgentUsage.value = it }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Keep last reading on transient SSH hiccups.
+            } finally {
+                mutableAgentUsageLoading.value = false
+            }
+        }
+    }
+
+    /** Sends the active agent's native context compaction command (e.g. `/compact`) and refreshes usage afterwards. */
+    suspend fun compactContext(): Boolean {
+        if (state.value.phase != Phase.CONNECTED) return false
+        val kind = CodingAgent.fromCommand(mutableAgentStatus.value?.agent) ?: launchedAgent.value ?: return false
+        val cmd = kind.compactCommand ?: return false
+        val beforeCtx = mutableAgentUsage.value?.contextUsed
+        if (!ssh.write(pasteInput(cmd).toByteArray(Charsets.UTF_8))) return false
+        delay(120)
+        val sent = ssh.write("\r".toByteArray())
+        if (sent) {
+            compactRefreshJob?.cancel()
+            compactRefreshJob = scope.launch {
+                // Compaction typically finishes in 2-20s; re-poll at staggered intervals and stop once context drops.
+                for (waitMs in longArrayOf(3_000L, 4_000L, 7_000L, 10_000L)) {
+                    delay(waitMs)
+                    if (state.value.phase != Phase.CONNECTED) break
+                    refreshAgentUsage(force = false)
+                    agentUsageJob?.join()
+                    val afterCtx = mutableAgentUsage.value?.contextUsed
+                    if (afterCtx != null && (beforeCtx == null || afterCtx < beforeCtx)) break
+                }
+            }
+        }
+        return sent
     }
 
     /**
@@ -400,6 +479,8 @@ class TerminalConnection(
         transfers.cancel()
         commonCommandsJob?.cancel()
         commonCommandsWatcher?.cancel()
+        agentUsageJob?.cancel()
+        compactRefreshJob?.cancel()
         agentStatusWatcher?.cancel()
         systemWatcher?.cancel()
         pending.value?.answer?.complete(null)

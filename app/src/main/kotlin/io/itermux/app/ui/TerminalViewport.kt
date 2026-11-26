@@ -38,7 +38,7 @@ internal fun TerminalViewport(pane: TerminalPaneState, modifier: Modifier, light
     notices: @Composable () -> Unit) {
     var viewportHeight by remember { mutableIntStateOf(0) }
     Box(modifier.testTag("terminal-viewport").onSizeChanged { viewportHeight = it.height }) {
-        TerminalScreen(pane, lightTheme)
+        TerminalScreen(pane, lightTheme, landscape)
         CursorRowControls(pane, outputRevision, viewportHeight, landscape, imeVisible, petArrowsShown)
         StatusBarScrim(background)
         notices()
@@ -47,14 +47,16 @@ internal fun TerminalViewport(pane: TerminalPaneState, modifier: Modifier, light
 
 /** The Termux view, bound to the session shown now. */
 @Composable
-private fun TerminalScreen(pane: TerminalPaneState, lightTheme: Boolean) {
+private fun TerminalScreen(pane: TerminalPaneState, lightTheme: Boolean, landscape: Boolean) {
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     // Snapshot reads: changing font in Settings recomposes this and AndroidView.update.
     val terminalFontKey = TerminalFonts.selection to TerminalFonts.revision
     val session = pane.session
     val connected = pane.connected
     val fontSize = pane.fontSize
-    AndroidView(modifier = Modifier.fillMaxSize().padding(start = 10.dp, end = 6.dp, top = 6.dp).clipToBounds()
+    val startPadding = if (landscape) 10.dp else 4.dp
+    val endPadding = if (landscape) 6.dp else 4.dp
+    AndroidView(modifier = Modifier.fillMaxSize().padding(start = startPadding, end = endPadding, top = 6.dp).clipToBounds()
         .pointerInput(Unit) {
             // A touch on the terminal takes the input back from the desktop's small window.
             awaitPointerEventScope {

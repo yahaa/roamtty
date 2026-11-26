@@ -85,6 +85,7 @@ internal class TerminalPaneState(
     var terminal by mutableStateOf<TerminalView?>(null)
     var confirmPaste by mutableStateOf<String?>(null)
     var restartConfirm by mutableStateOf(false)
+    var usageSheetOpen by mutableStateOf(false)
     var menu by mutableStateOf(false)
     var sessionMenu by mutableStateOf(false)
     var fileAction by mutableStateOf<FileAction?>(null)

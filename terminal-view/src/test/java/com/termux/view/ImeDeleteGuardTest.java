@@ -55,4 +55,16 @@ public class ImeDeleteGuardTest {
         assertEquals(3, ImeDeleteGuard.clampLength(10, 3));
         assertEquals(3, ImeDeleteGuard.clampLength(3, 10));
     }
+
+    @Test public void imeLocalIndexMapsVirtualPlaceholderOffsetsSafely() {
+        assertEquals(0, TerminalView.imeLocalIndex(Integer.MIN_VALUE, 5));
+        assertEquals(0, TerminalView.imeLocalIndex(-1, 5));
+        assertEquals(0, TerminalView.imeLocalIndex(0, 5));
+        assertEquals(0, TerminalView.imeLocalIndex(64, 5));
+        assertEquals(1, TerminalView.imeLocalIndex(65, 5));
+        assertEquals(5, TerminalView.imeLocalIndex(69, 5));
+        assertEquals(5, TerminalView.imeLocalIndex(200, 5));
+        assertEquals(5, TerminalView.imeLocalIndex(Integer.MAX_VALUE, 5));
+        assertEquals(0, TerminalView.imeLocalIndex(65, 0));
+    }
 }

@@ -503,6 +503,10 @@ class JschSession(
     suspend fun runHostCommand(command: String): Boolean =
         auxiliarySession(interactive = false)?.let { runCommand(it, command) } != null
 
+    /** Runs [command] with [input] on stdin beside the terminal and returns its stdout, or null on failure. */
+    suspend fun runHostOutput(command: String, input: String = ""): String? =
+        auxiliarySession(interactive = false)?.let { runCommand(it, command, input) }
+
     /** See [Tmux.restartPaneCommand]: the ended foreground command line ("" for a bare shell), or null on failure. */
     suspend fun restartTmuxPane(): String? = runCommand(
         if (multiplexer.value == HostPlugin.PSMUX) Psmux.restartPaneCommand(tmuxName) else Tmux.restartPaneCommand(tmuxName))?.trim()
