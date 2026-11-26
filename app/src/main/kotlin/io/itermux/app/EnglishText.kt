@@ -907,6 +907,7 @@ internal object EnglishText {
         "主机插件版本过旧，不支持语音模式，请更新插件" to "Host plugin is outdated and does not support voice mode; please update the plugin",
         "语音插件启动失败（退出码 %d）" to "Voice plugin failed to start (exit code %d)",
         "语音插件出错：%s" to "Voice plugin error: %s",
-        "语音插件启动失败" to "Voice plugin failed to start"
+        "语音插件启动失败" to "Voice plugin failed to start",
+        "语音端口 24713 被占用，已改用 %d；若当前 agy 无响应请重启会话" to "Voice port 24713 is busy; using %d instead. Restart the agy session if voice does not respond"
     )
 }

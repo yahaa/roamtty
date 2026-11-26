@@ -17,7 +17,8 @@ import java.util.Base64
 class VoiceEnvironmentTest {
     @Test fun posixAgyLauncherInjectsAntigravityMicAndRejectsUnsafeEndpoints() {
         val plain = AgentHooks.agyLauncher
-        assertFalse("default launcher leaves ANTIGRAVITY_MIC unset", "ANTIGRAVITY_MIC" in plain)
+        assertTrue("default launcher pre-configures default ANTIGRAVITY_MIC 24713", "export ANTIGRAVITY_MIC=127.0.0.1:24713" in plain)
+        assertTrue("default launcher honors voice-mic override file", "voice-mic" in plain)
 
         val withMic = AgentHooks.agyLauncher("127.0.0.1:24713")
         assertTrue(withMic.startsWith("#!/bin/sh\n"))
@@ -35,30 +36,39 @@ class VoiceEnvironmentTest {
         assertTrue("\$env:ANTIGRAVITY_MIC = '127.0.0.1:24713'" in psLauncher)
         assertTrue("& agy.cmd @args" in psLauncher)
 
-        val cleared = VoiceEnvironment.windowsLauncherScript(null)
-        assertTrue("Remove-Item Env:ANTIGRAVITY_MIC" in cleared)
+        val defaultPs = VoiceEnvironment.windowsLauncherScript(null)
+        assertTrue("voice-mic" in defaultPs)
+        assertTrue("'127.0.0.1:24713'" in defaultPs)
 
-        // AgentLaunch on Windows injects $env:ANTIGRAVITY_MIC when active
+        // AgentLaunch on Windows injects $env:ANTIGRAVITY_MIC both when explicit and by default
         val cmd = AgentLaunch(CodingAgent.AGY, "C:\\work\\app", AgentMode.STANDARD)
             .commandLine(session = null, antigravityMic = "127.0.0.1:24713")
         val encoded = cmd.substringAfter("-EncodedCommand ").trim()
         val decoded = String(Base64.getDecoder().decode(encoded), Charsets.UTF_16LE)
         val expectedLiteral = PowerShell.literal("127.0.0.1:24713")
         assertTrue(decoded, "\$env:ANTIGRAVITY_MIC = $expectedLiteral;" in decoded)
+
+        val defaultCmd = AgentLaunch(CodingAgent.AGY, "C:\\work\\app", AgentMode.STANDARD)
+            .commandLine(session = null, antigravityMic = null)
+        val defaultDecoded = String(Base64.getDecoder().decode(defaultCmd.substringAfter("-EncodedCommand ").trim()), Charsets.UTF_16LE)
+        assertTrue(defaultDecoded, "if (-not \$env:ANTIGRAVITY_MIC) { \$env:ANTIGRAVITY_MIC = $expectedLiteral };" in defaultDecoded)
     }
 
     @Test fun posixUpdateScriptWritesExecutableAgyLauncherToDisk() {
         val home = Files.createTempDirectory("voice-env-posix").toFile()
         try {
-            val script = VoiceEnvironment.posixUpdateLauncherScript("127.0.0.1:24713")
+            val script = VoiceEnvironment.posixUpdateLauncherScript("127.0.0.1:34567")
             val proc = ProcessBuilder("/bin/sh", "-s").apply { environment()["HOME"] = home.path }.start()
             proc.outputStream.use { it.write(script.toByteArray()) }
             assertEquals(0, proc.waitFor())
             val agy = File(home, ".roamtty/agy")
+            val micFile = File(home, ".roamtty/voice-mic")
             assertTrue(agy.exists())
             assertTrue(agy.canExecute())
+            assertEquals("127.0.0.1:34567", micFile.readText().trim())
             val content = agy.readText()
             assertTrue("export ANTIGRAVITY_MIC=127.0.0.1:24713" in content)
+            assertTrue("voice-mic" in content)
             assertTrue("export ROAMTTY_AGENT=agy" in content)
         } finally {
             home.deleteRecursively()
@@ -80,6 +90,7 @@ class VoiceEnvironmentTest {
 
         VoiceEnvironment.inject(fakeRemote, windowsHost = false, micPort = 24713, tmuxSessions = listOf("roamtty-1", "roamtty-2", "roamtty-1"))
         assertEquals(1, scripts.size)
+        assertTrue("printf '%s\\n' '127.0.0.1:24713' > \"\$HOME/.roamtty/voice-mic\"" in scripts.single())
         assertTrue("export ANTIGRAVITY_MIC=127.0.0.1:24713" in scripts.single())
         assertEquals(2, commands.size)
         assertTrue(commands[0].contains("tmux set-environment -t roamtty-1 ANTIGRAVITY_MIC 127.0.0.1:24713"))
@@ -88,7 +99,8 @@ class VoiceEnvironmentTest {
         scripts.clear(); commands.clear()
         VoiceEnvironment.clear(fakeRemote, windowsHost = false, tmuxSessions = listOf("roamtty-1"))
         assertEquals(1, scripts.size)
-        assertFalse("ANTIGRAVITY_MIC" in scripts.single())
+        assertTrue("rm -f \"\$HOME/.roamtty/voice-mic\"" in scripts.single())
+        assertTrue("export ANTIGRAVITY_MIC=127.0.0.1:24713" in scripts.single())
         assertEquals(1, commands.size)
         assertTrue(commands.single().contains("tmux set-environment -u -t roamtty-1 ANTIGRAVITY_MIC"))
 

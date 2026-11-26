@@ -29,40 +29,66 @@ object VoiceEnvironment {
 
     /** Contents of `%USERPROFILE%\.roamtty\agy.ps1` on Windows hosts. */
     fun windowsLauncherScript(micEndpoint: String?): String {
-        val envLine = if (micEndpoint != null) {
+        val envLines = if (micEndpoint != null) {
             val validated = validateEndpoint(micEndpoint)
-            "\$env:$ENV_NAME = '$validated'"
+            listOf("\$env:$ENV_NAME = '$validated'")
         } else {
-            "Remove-Item Env:$ENV_NAME -ErrorAction SilentlyContinue"
+            listOf(
+                "if (-not \$env:$ENV_NAME) {",
+                "  if (Test-Path \"\$env:USERPROFILE\\.roamtty\\voice-mic\") {",
+                "    \$env:$ENV_NAME = (Get-Content \"\$env:USERPROFILE\\.roamtty\\voice-mic\" -Raw).Trim()",
+                "  }",
+                "  if (-not \$env:$ENV_NAME) {",
+                "    \$env:$ENV_NAME = '${AgentHooks.DEFAULT_ANTIGRAVITY_MIC}'",
+                "  }",
+                "}",
+            )
         }
-        return listOf(
+        return (listOf(
             "# Roamtty: starts Antigravity CLI with local voice bridge environment.",
-            envLine,
+        ) + envLines + listOf(
             "if (Get-Command agy.cmd -CommandType Application -ErrorAction SilentlyContinue) {",
             "  & agy.cmd @args",
             "} else {",
             "  & agy @args",
             "}",
             "exit \$LASTEXITCODE",
-        ).joinToString("\n", postfix = "\n")
+        )).joinToString("\n", postfix = "\n")
     }
 
-    /** POSIX shell script that updates `~/.roamtty/agy` (and ensures `~/.roamtty/agent-hook.sh` exists). */
+    /**
+     * POSIX shell script that updates `~/.roamtty/voice-mic` and keeps `~/.roamtty/agy` on the
+     * dynamic default template (so ephemeral fallback ports never stick permanently after hangup).
+     */
     fun posixUpdateLauncherScript(micEndpoint: String?): String {
-        val launcher = posixLauncher(micEndpoint)
+        val micFileCmd = if (micEndpoint != null) {
+            val validated = validateEndpoint(micEndpoint)
+            "printf '%s\\n' '$validated' > \"\$HOME/.roamtty/voice-mic\"\n"
+        } else {
+            "rm -f \"\$HOME/.roamtty/voice-mic\"\n"
+        }
+        val launcher = posixLauncher(null)
         return "mkdir -p \"\$HOME/.roamtty\"\n" +
+            micFileCmd +
             "cat > \"\$HOME/.roamtty/agy\" <<'__ROAMTTY_AGY_EOF__'\n" +
             launcher +
             "__ROAMTTY_AGY_EOF__\n" +
             "chmod 755 \"\$HOME/.roamtty/agy\"\n"
     }
 
-    /** PowerShell command that writes `%USERPROFILE%\.roamtty\agy.ps1` with the active mic endpoint. */
+    /** PowerShell command that updates `%USERPROFILE%\.roamtty\voice-mic` and `agy.ps1`. */
     fun windowsUpdateLauncherCommand(micEndpoint: String?): String {
-        val encoded = java.util.Base64.getEncoder().encodeToString(windowsLauncherScript(micEndpoint).toByteArray(Charsets.UTF_8))
+        val micFileLine = if (micEndpoint != null) {
+            val validated = validateEndpoint(micEndpoint)
+            "[IO.File]::WriteAllText(\"\${dir}\\voice-mic\", '$validated')"
+        } else {
+            "Remove-Item \"\${dir}\\voice-mic\" -ErrorAction SilentlyContinue"
+        }
+        val encoded = java.util.Base64.getEncoder().encodeToString(windowsLauncherScript(null).toByteArray(Charsets.UTF_8))
         return PowerShell.command("""
             ${'$'}dir = "${'$'}env:USERPROFILE\.roamtty"
             New-Item -ItemType Directory -Force ${'$'}dir | Out-Null
+            $micFileLine
             [IO.File]::WriteAllText("${'$'}dir\agy.ps1", [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded')))
             exit 0
         """.trimIndent())

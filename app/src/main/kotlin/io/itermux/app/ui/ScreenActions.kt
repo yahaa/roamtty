@@ -322,7 +322,10 @@ internal class ScreenActions(
         passphrase: String = "",
     ) {
         val bound = readyService() ?: return
-        bound.startVoice(host, session.id, password, passphrase, mode, route) { readyMode, _ ->
+        bound.startVoice(host, session.id, password, passphrase, mode, route) { readyMode, micPort ->
+            if (micPort != io.itermux.desktop.VoiceProtocol.DEFAULT_MIC_PORT) {
+                toast(trf("语音端口 24713 被占用，已改用 %d；若当前 agy 无响应请重启会话", micPort))
+            }
             // Trigger agy's native interactive voice hotkey once the bridge & ANTIGRAVITY_MIC are ready.
             val keySeq = if (readyMode == VoiceMode.LIVE) "\u001b[17~" else "\u001b[15~" // F6 / F5
             session.write(keySeq)

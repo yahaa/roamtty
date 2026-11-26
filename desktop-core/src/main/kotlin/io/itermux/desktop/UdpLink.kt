@@ -56,7 +56,7 @@ class UdpLink(
     private sealed class Out {
         class Raw(val plain: ByteArray) : Out()
         class Plain(var frame: ByteArray, val fecRatio: Float = 0f) : Out()
-        class Reliable(val id: Long, val frame: ByteArray, val unacked: Unacked) : Out()
+        class Reliable(val id: Long, val frame: ByteArray, val unacked: Unacked, val fecRatio: Float = 0f) : Out()
     }
     private val queue = ArrayDeque<Out>()
     private val queueLock = Object()
@@ -156,7 +156,8 @@ class UdpLink(
             is Out.Reliable -> {
                 // Handed to SSH by [giveUp] while it waited here: the host gets it from there.
                 if (unacked[item.id] !== item.unacked) return
-                val frags = UdpWire.fragment(item.id, UdpWire.FLAG_RELIABLE, item.frame, if (item.frame.size > UdpWire.SHARD) 0.25f else 0f)
+                val ratio = if (item.fecRatio > 0f) item.fecRatio else if (item.frame.size > UdpWire.SHARD) 0.25f else 0f
+                val frags = UdpWire.fragment(item.id, UdpWire.FLAG_RELIABLE, item.frame, ratio)
                 item.unacked.frags = frags
                 item.unacked.at = now()
                 frags.forEach { emit(it.encode()) }
@@ -183,7 +184,7 @@ class UdpLink(
             val id = (reliableSeq.getAndIncrement() * 2 + 1) and 0xFFFFFFFFL
             val u = Unacked(frame, null, now(), 0)
             unacked[id] = u
-            enqueue(Out.Reliable(id, frame, u))
+            enqueue(Out.Reliable(id, frame, u, fecRatio))
             return
         }
         synchronized(queueLock) {

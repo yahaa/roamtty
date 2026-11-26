@@ -128,24 +128,50 @@ internal class VoiceConnection(
     }
 
     fun hangup() {
+        if (closing) return
         closing = true
         timerJob?.cancel()
         pending.value?.answer?.complete(null)
-        engine.release()
-        val hadStream = stream != null
-        stream?.close()
-        link?.close()
-        // If still logging in (no active stream), drop SSH immediately; otherwise let runStream exit and clear env first.
-        if (!hadStream) ssh?.disconnect()
+        val s = stream
+        val l = link
+        val ch = outgoing
+        val hadStream = s != null
         dispatch(VoiceEvent.Hangup)
+        scope.launch(Dispatchers.IO) {
+            engine.release()
+            if (hadStream || (l != null && l.alive)) {
+                val shutdownFrame = VoiceProtocol.config(mapOf("shutdown" to true))
+                if (l != null && l.alive) {
+                    runCatching { l.send(shutdownFrame, reliable = true, fecRatio = 1.0f) }
+                }
+                if (ch != null) {
+                    runCatching { ch.trySend(shutdownFrame) }
+                } else if (s != null) {
+                    runCatching {
+                        s.output.write(shutdownFrame)
+                        s.output.flush()
+                    }
+                }
+                // Give the host voice-daemon a brief window to receive `shutdown: true` and release mic_port immediately.
+                delay(120)
+            }
+            runCatching { s?.close() }
+            runCatching { l?.close() }
+            // If still logging in (no active stream), drop SSH immediately; otherwise let runStream exit and clear env first.
+            if (!hadStream) runCatching { ssh?.disconnect() }
+        }
         if (job?.isActive != true) {
             onEnded(this)
         }
     }
 
-    fun release() {
+    fun clearSecrets() {
         password = ""
         passphrase = ""
+    }
+
+    fun release() {
+        clearSecrets()
         timerJob?.cancel()
         engine.release()
     }
@@ -451,21 +477,19 @@ internal class VoiceConnection(
                 engine.stopMic(message.streamId)
                 dispatch(VoiceEvent.MicStopped(message.streamId))
                 if (!mutableUi.value.inCall) {
-                    // Dictation finished cleanly on host FIN -> tear down voice stream and restore pet keyboard.
-                    closing = true
-                    stream?.close()
-                    link?.close()
+                    // Dictation finished cleanly on host FIN -> tear down voice daemon immediately and restore pet keyboard.
+                    hangup()
                 }
             }
             is VoiceServerMessage.SpkStart -> {
                 Log.i(TAG, "${host.name}: SPK_START stream=${message.streamId} rate=${message.sampleRate} ch=${message.channels}")
                 val err = engine.startSpeaker(message.streamId, message.sampleRate, message.channels)
-                send(VoiceProtocol.spkAck(message.streamId, ok = err == null, error = err.orEmpty()))
                 if (err == null) {
                     dispatch(VoiceEvent.SpkStarted(message.streamId))
                 } else {
                     Log.w(TAG, "${host.name}: SPK_START failed: $err")
                 }
+                send(VoiceProtocol.spkAck(message.streamId, ok = err == null, error = err.orEmpty()), fecRatio = 1.0f)
             }
             is VoiceServerMessage.SpkAudio -> {
                 if (mutableUi.value.activeSpkStreamId != message.streamId) return

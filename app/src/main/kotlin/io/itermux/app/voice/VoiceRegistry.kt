@@ -42,8 +42,8 @@ internal class VoiceRegistry(
         // Close any previous voice bridge on this host cleanly before opening a new one.
         mutable.value[host.id]?.let { old ->
             mutable.value = mutable.value - host.id
+            old.clearSecrets()
             old.hangup()
-            old.release()
         }
         val connection = VoiceConnection(
             host = host,
@@ -74,14 +74,20 @@ internal class VoiceRegistry(
     fun close(hostId: String) {
         val c = mutable.value[hostId] ?: return
         mutable.value = mutable.value - hostId
+        c.clearSecrets()
         c.hangup()
-        c.release()
         onChange()
     }
 
     fun networkChanged() = mutable.value.values.forEach { it.networkChanged() }
 
     fun closeAll() {
-        mutable.value.keys.toList().forEach(::close)
+        val all = mutable.value.values.toList()
+        mutable.value = emptyMap()
+        all.forEach {
+            it.hangup()
+            it.release()
+        }
+        onChange()
     }
 }

@@ -295,7 +295,7 @@ object AgentHooks {
      */
     val agyLauncher: String by lazy { agyLauncher(null) }
 
-    /** Builds `~/.roamtty/agy`, optionally exporting `ANTIGRAVITY_MIC=<micEndpoint>` when voice forwarding is active. */
+    /** Builds `~/.roamtty/agy`, pre-configuring `ANTIGRAVITY_MIC` for local voice forwarding (default `127.0.0.1:24713`). */
     fun agyLauncher(micEndpoint: String?): String {
         val validatedMic = micEndpoint?.let { endpoint ->
             require(isValidLoopbackMicEndpoint(endpoint)) { "invalid ANTIGRAVITY_MIC endpoint: $endpoint" }
@@ -314,7 +314,11 @@ object AgentHooks {
             add("# Roamtty: starts Antigravity CLI with hooks that report its state to agent-hook.sh.")
             add("dir=\"\$HOME/.gemini/config/plugins/roamtty\"")
             add("mkdir -p \"\$dir\" && printf '%s\\n' '$plugin' > \"\$dir/plugin.json\" && printf '%s\\n' '$hooks' > \"\$dir/hooks.json\"")
-            if (validatedMic != null) add("export ANTIGRAVITY_MIC=$validatedMic")
+            if (validatedMic != null) {
+                add("export ANTIGRAVITY_MIC=$validatedMic")
+            } else {
+                add("[ -n \"\${ANTIGRAVITY_MIC:-}\" ] || { [ -s \"\$HOME/.roamtty/voice-mic\" ] && export ANTIGRAVITY_MIC=\"\$(cat \"\$HOME/.roamtty/voice-mic\")\" || export ANTIGRAVITY_MIC=$DEFAULT_ANTIGRAVITY_MIC; }")
+            }
             add("export ROAMTTY_AGENT=agy")
             add("${hookCommand(CodingAgent.AGY, "start")} </dev/null")
             add("agy \"\$@\"")
@@ -322,6 +326,8 @@ object AgentHooks {
         }
         return lines.joinToString("\n", postfix = "\n")
     }
+
+    const val DEFAULT_ANTIGRAVITY_MIC = "127.0.0.1:24713"
 
     internal fun isValidLoopbackMicEndpoint(endpoint: String): Boolean {
         if (!endpoint.startsWith("127.0.0.1:")) return false

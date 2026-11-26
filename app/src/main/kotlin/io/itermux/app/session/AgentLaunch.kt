@@ -68,9 +68,13 @@ data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: 
         val cmd = "${agent.command}.cmd"
         // cmd.exe silently falls back to another cwd for UNC paths. Never run an agent there.
         val uncGuard = "if ((Get-Location).ProviderPath.StartsWith('\\\\')) { throw 'Please map this network folder to a drive letter before starting the agent.' }"
-        val micPrefix = if (agent == CodingAgent.AGY && antigravityMic != null) {
-            require(AgentHooks.isValidLoopbackMicEndpoint(antigravityMic)) { "invalid ANTIGRAVITY_MIC endpoint: $antigravityMic" }
-            "\$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(antigravityMic)}; "
+        val micPrefix = if (agent == CodingAgent.AGY) {
+            if (antigravityMic != null) {
+                require(AgentHooks.isValidLoopbackMicEndpoint(antigravityMic)) { "invalid ANTIGRAVITY_MIC endpoint: $antigravityMic" }
+                "\$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(antigravityMic)}; "
+            } else {
+                "if (-not \$env:ANTIGRAVITY_MIC) { \$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(AgentHooks.DEFAULT_ANTIGRAVITY_MIC)} }; "
+            }
         } else ""
         return WindowsShell.launch(dir, "${micPrefix}if (Get-Command $cmd -CommandType Application -ErrorAction SilentlyContinue) { " +
             "$uncGuard; ${agentCommand.replaceFirst(agent.command, cmd)} } else { $agentCommand }")
