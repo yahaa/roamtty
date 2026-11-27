@@ -196,4 +196,42 @@ class VoiceOpusPipelineTest {
         assertTrue("resumed speech after pause must not be dropped (got $resumedAudible/15)", resumedAudible >= 13)
         assertEquals(0, jb.statsSnapshot(70L * 20L).lossPermille)
     }
+
+    @Test fun lateSpkClearAfterNewTurnPacketDoesNotDoubleAdvanceTurnGen() {
+        val enc = VoiceOpusEncoderWrapper(24_000, 32_000, dtx = false)
+        val frame = enc.encode(sineFrame(24_000, 440.0, 0))
+        val jb = VoiceJitterBuffer(streamId = 9L, sampleRate = 24_000)
+
+        jb.push(VoiceOpusPacket(9L, 1L, 480L, VoiceProtocol.withTurnGen(VoiceProtocol.VOICE_FLAG_SPEECH, 1), emptyList(), frame), 100L)
+        assertNotNull(jb.popFrame(120L))
+
+        // New-turn gen=2 packet arrives over UDP BEFORE delayed SPK_CLEAR arrives over SSH.
+        jb.push(
+            VoiceOpusPacket(
+                9L,
+                2L,
+                960L,
+                VoiceProtocol.withTurnGen(VoiceProtocol.VOICE_FLAG_SPEECH or VoiceProtocol.VOICE_FLAG_RESET, 2),
+                emptyList(),
+                frame,
+            ),
+            140L,
+        )
+        // Delayed SPK_CLEAR must be absorbed without advancing turnGen to 3 or dropping gen=2 packets.
+        assertFalse(jb.clearForBargeIn(160L))
+        jb.push(VoiceOpusPacket(9L, 3L, 1440L, VoiceProtocol.withTurnGen(VoiceProtocol.VOICE_FLAG_SPEECH, 2), emptyList(), frame), 180L)
+        assertNotNull(jb.popFrame(180L))
+        assertNotNull(jb.popFrame(200L))
+
+        // Next genuine barge-in SPK_CLEAR still advances turnGen 2 -> 3 and drops stale gen=2 packets.
+        assertTrue(jb.clearForBargeIn(220L))
+        jb.push(VoiceOpusPacket(9L, 4L, 1920L, VoiceProtocol.withTurnGen(VoiceProtocol.VOICE_FLAG_SPEECH, 2), emptyList(), frame), 240L)
+        assertNull(jb.popFrame(260L))
+
+        // Negotiated 24 kHz mic sender exposes 960 B frame size.
+        val sender24 = VoiceRedSender(streamId = 2L, sampleRate = 24_000, enableDtx = false)
+        assertEquals(960, sender24.frameBytes)
+        val bytes24 = VoiceOpusMath.shortsToBytes(sineFrame(24_000, 440.0, 0))
+        assertNotNull(sender24.encodePcm20ms(bytes24, 0, bytes24.size))
+    }
 }

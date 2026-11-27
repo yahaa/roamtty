@@ -915,11 +915,13 @@ internal class VoiceAudioEngine(
     /** Barge-in (`SPK_CLEAR`): drops queued audio and immediately runs `pause() / flush() / play()` without blocking on `write()`. */
     override fun clearSpeaker(streamId: Long) {
         if (spkStreamId != streamId) return
+        val nowMs = System.nanoTime() / 1_000_000L
+        val shouldFlush = synchronized(spkJitterLock) {
+            spkJitter?.takeIf { it.streamId == streamId }?.clearForBargeIn(nowMs) ?: true
+        }
+        if (!shouldFlush) return
         spkGeneration.incrementAndGet()
         spkQueue.clear()
-        synchronized(spkJitterLock) {
-            spkJitter?.takeIf { it.streamId == streamId }?.clearForBargeIn()
-        }
         synchronized(spkTrackLock) {
             spkTrack?.let { track ->
                 runCatching {

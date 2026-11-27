@@ -1148,8 +1148,11 @@ internal class VoiceConnection(
     /** Encodes 20 ms capture reads into Opus+RED frames when negotiated (single UDP shard, DTX), else legacy PCM16. */
     private fun sendMicPcm(streamId: Long, pcm: ByteArray, offset: Int, length: Int) {
         if (closing || mutableUi.value.isMuted) return
-        val slices = VoiceAudioMath.sliceSampleAligned(offset, length, VoiceProtocol.MIC_FRAME_CHUNK_BYTES)
         if (voiceOpusEnabled) {
+            val frameBytes = synchronized(micOpusLock) {
+                micSender?.takeIf { it.streamId == streamId }?.frameBytes
+            } ?: VoiceProtocol.MIC_FRAME_CHUNK_BYTES
+            val slices = VoiceAudioMath.sliceSampleAligned(offset, length, frameBytes)
             for ((start, len) in slices) {
                 val pkt = synchronized(micOpusLock) {
                     micSender?.takeIf { it.streamId == streamId }?.encodePcm20ms(pcm, start, len)
@@ -1160,6 +1163,7 @@ internal class VoiceConnection(
             }
             return
         }
+        val slices = VoiceAudioMath.sliceSampleAligned(offset, length, VoiceProtocol.MIC_FRAME_CHUNK_BYTES)
         for ((start, len) in slices) {
             val frame = VoiceProtocol.micAudio(streamId, pcm, start, len)
             send(frame, fecRatio = MIC_UDP_FEC_RATIO)
