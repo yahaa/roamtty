@@ -136,13 +136,29 @@ class VoiceOpusPipelineTest {
     }
 
     @Test fun preprocessorRemovesDcAndSoftLimitsPeaks() {
-        val pp = VoiceAudioPreprocessor(16_000)
+        val pp = VoiceAudioPreprocessor(16_000, startupMuteMs = 0, fadeInMs = 0)
         val dc = ShortArray(320) { 20_000 } // pure DC offset
         val bytes = VoiceOpusMath.shortsToBytes(dc)
         pp.processInPlace(bytes, 0, bytes.size)
         val filtered = VoiceOpusMath.bytesToShorts(bytes, 0, bytes.size)
-        // High-pass filter decays DC significantly by end of 20 ms frame
-        assertTrue("DC should decay (end=${filtered.last()})", kotlin.math.abs(filtered.last().toInt()) < 10_000)
+        // DC-step-free HPF emits zero for pure constant DC with no startup click
+        assertEquals(0, filtered.first().toInt())
+        assertEquals(0, filtered.last().toInt())
+
+        // Default startup mute suppresses 180 ms cold-start clicks, then passes speech cleanly after 20 ms fade-in.
+        val startupPp = VoiceAudioPreprocessor(16_000)
+        val clickBytes = VoiceOpusMath.shortsToBytes(sineFrame(16_000, 400.0, 0))
+        startupPp.processInPlace(clickBytes, 0, clickBytes.size)
+        val mutedFirst = VoiceOpusMath.bytesToShorts(clickBytes, 0, clickBytes.size)
+        assertTrue("first 20 ms must be muted", mutedFirst.all { it == 0.toShort() })
+        for (idx in 1 until 10) {
+            val b = VoiceOpusMath.shortsToBytes(sineFrame(16_000, 400.0, idx))
+            startupPp.processInPlace(b, 0, b.size)
+        }
+        val speechBytes = VoiceOpusMath.shortsToBytes(sineFrame(16_000, 400.0, 10))
+        startupPp.processInPlace(speechBytes, 0, speechBytes.size)
+        val speechOut = VoiceOpusMath.bytesToShorts(speechBytes, 0, speechBytes.size)
+        assertTrue("speech passes cleanly after 200 ms warmup", VoiceOpusMath.pcmRms(speechOut) > 0.25f)
     }
 
     @Test fun wsolaCompressesWithoutDestroyingEnergy() {

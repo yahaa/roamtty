@@ -124,46 +124,78 @@ object VoiceOpusMath {
  * Lightweight capture audio front-end: 80 Hz 1st-order high-pass filter (removes handling rumble & DC bias)
  * plus soft-knee limiter (prevents harsh clipping distortion before Opus encoding).
  */
-class VoiceAudioPreprocessor(sampleRate: Int = VoiceProtocol.MIC_SAMPLE_RATE) {
+class VoiceAudioPreprocessor(
+    sampleRate: Int = VoiceProtocol.MIC_SAMPLE_RATE,
+    startupMuteMs: Int = 180,
+    fadeInMs: Int = 20,
+) {
+    private val rate: Int = sampleRate.coerceAtLeast(8_000)
     // RC = 1 / (2 * pi * 80 Hz); alpha = RC / (RC + dt)
     private val alpha: Float = run {
         val rc = 1.0 / (2.0 * PI * 80.0)
-        val dt = 1.0 / sampleRate.coerceAtLeast(8000).toDouble()
+        val dt = 1.0 / rate.toDouble()
         (rc / (rc + dt)).toFloat()
     }
+    private val muteSamples: Int = (rate.toLong() * startupMuteMs.coerceAtLeast(0) / 1000L).toInt()
+    private val fadeSamples: Int = (rate.toLong() * fadeInMs.coerceAtLeast(0) / 1000L).toInt()
+    private var initialized = false
+    private var processedSamples = 0
     private var prevX = 0f
     private var prevY = 0f
 
     fun processInPlace(pcm: ByteArray, offset: Int, length: Int) {
         val samples = length / 2
+        if (samples <= 0) return
         var bi = offset
         var xPrev = prevX
         var yPrev = prevY
+        var isInit = initialized
+        var seen = processedSamples
         val a = alpha
+        val muteEnd = muteSamples
+        val fadeEnd = muteSamples + fadeSamples
         for (i in 0 until samples) {
             val lo = pcm[bi].toInt() and 0xFF
             val hi = pcm[bi + 1].toInt()
             val raw = ((hi shl 8) or lo).toShort() / 32768f
-            val hp = a * (yPrev + raw - xPrev)
-            xPrev = raw
-            yPrev = hp
+            val hp = if (!isInit) {
+                xPrev = raw
+                yPrev = 0f
+                isInit = true
+                0f
+            } else {
+                val filtered = a * (yPrev + raw - xPrev)
+                xPrev = raw
+                yPrev = filtered
+                filtered
+            }
             // Soft-knee limiter above 0.85 full-scale
-            val limited = if (abs(hp) > 0.85f) {
+            var out = if (abs(hp) > 0.85f) {
                 val sign = if (hp >= 0f) 1f else -1f
                 sign * (0.85f + 0.15f * tanh(((abs(hp) - 0.85f) / 0.15f).toDouble()).toFloat())
             } else {
                 hp
             }
-            val s = (limited * 32767f).roundToInt().coerceIn(-32768, 32767)
+            if (seen < muteEnd) {
+                out = 0f
+            } else if (seen < fadeEnd && fadeSamples > 0) {
+                out *= (seen - muteEnd + 1).toFloat() / fadeSamples.toFloat()
+            }
+            seen++
+            val s = (out * 32767f).roundToInt().coerceIn(-32768, 32767)
             pcm[bi] = (s and 0xFF).toByte()
             pcm[bi + 1] = ((s ushr 8) and 0xFF).toByte()
             bi += 2
         }
+        initialized = isInit
+        processedSamples = seen
         prevX = xPrev
         prevY = yPrev
     }
 
     fun reset() {
+        initialized = false
+        processedSamples = 0
         prevX = 0f
         prevY = 0f
     }
