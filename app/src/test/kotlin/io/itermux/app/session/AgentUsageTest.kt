@@ -511,4 +511,139 @@ class AgentUsageTest {
             home.deleteRecursively()
         }
     }
+
+    @Test fun brandNewHookedAgySessionDoesNotBorrowOtherSessionContextInSameDirectory() {
+        val home = Files.createTempDirectory("roamtty-agy-fresh-ctx").toFile()
+        try {
+            val binDir = File(home, ".local/bin").apply { mkdirs() }
+            val tmuxStore = File(home, "tmux-store").apply { mkdirs() }
+            // Fake tmux supporting show-options, set-option (-u), and display-message for two panes in the same cwd.
+            File(binDir, "tmux").apply {
+                writeText(
+                    """#!/bin/sh
+while [ "${'$'}1" = "-u" ]; do shift; done
+cmd="${'$'}1"; shift
+case "${'$'}cmd" in
+  show-options)
+    while [ "${'$'}#" -gt 0 ]; do
+      case "${'$'}1" in
+        -t) target="${'$'}2"; shift 2 ;;
+        -*) shift ;;
+        *) opt="${'$'}1"; shift ;;
+      esac
+    done
+    cat "${tmuxStore.absolutePath}/${'$'}{target}_${'$'}{opt}" 2>/dev/null
+    ;;
+  set-option)
+    unset_flag=0
+    while [ "${'$'}#" -gt 0 ]; do
+      case "${'$'}1" in
+        -u) unset_flag=1; shift ;;
+        -t) target="${'$'}2"; shift 2 ;;
+        -*) shift ;;
+        *)
+          if [ -z "${'$'}opt" ]; then opt="${'$'}1"
+          else val="${'$'}1"; fi
+          shift ;;
+      esac
+    done
+    if [ "${'$'}unset_flag" = 1 ]; then
+      rm -f "${tmuxStore.absolutePath}/${'$'}{target}_${'$'}{opt}"
+    else
+      printf '%s' "${'$'}val" > "${tmuxStore.absolutePath}/${'$'}{target}_${'$'}{opt}"
+    fi
+    ;;
+  display-message)
+    while [ "${'$'}#" -gt 0 ]; do
+      case "${'$'}1" in
+        -t) target="${'$'}2"; shift 2 ;;
+        -*) shift ;;
+        *) shift ;;
+      esac
+    done
+    sess="${'$'}{target#=}"; sess="${'$'}{sess%:}"
+    a="${'$'}(cat "${tmuxStore.absolutePath}/${'$'}{sess}_@roamtty_agent" 2>/dev/null)"
+    s="${'$'}(cat "${tmuxStore.absolutePath}/${'$'}{sess}_@roamtty_session" 2>/dev/null)"
+    tp="${'$'}(cat "${tmuxStore.absolutePath}/${'$'}{sess}_@roamtty_transcript" 2>/dev/null)"
+    printf '%s\t%s\t%s\t/work/roamtty\t12345\n' "${'$'}a" "${'$'}s" "${'$'}tp"
+    ;;
+esac
+"""
+                )
+                setExecutable(true)
+            }
+
+            // Existing conversation in /work/roamtty with 46% context + last_conversations.json pointing to it.
+            val oldLogDir = File(home, ".gemini/antigravity-cli/brain/conv-old/.system_generated/logs").apply { mkdirs() }
+            val oldTranscript = File(oldLogDir, "transcript.jsonl")
+            oldTranscript.writeText(
+                """{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":10000,"output_tokens":500,"cache_read_tokens":450000}""" + "\n"
+            )
+            File(home, ".gemini/antigravity-cli/cache/last_conversations.json").apply { parentFile?.mkdirs() }.writeText(
+                """{"/work/roamtty":"conv-old"}"""
+            )
+            File(home, ".gemini/antigravity-cli/settings.json").apply { parentFile?.mkdirs() }.writeText(
+                """{"model":"Gemini 4 Neon (XHigh)"}"""
+            )
+            val nowSec = System.currentTimeMillis() / 1000L
+            File(home, ".roamtty/quota-agy.json").apply { parentFile?.mkdirs() }.writeText(
+                """{"_fetched_at":$nowSec,"quota":{"gemini-5h":{"remaining_fraction":0.90,"reset_time":"2099-01-01T05:00:00Z"},"gemini-weekly":{"remaining_fraction":0.70,"reset_time":"2099-01-07T00:00:00Z"}}}"""
+            )
+
+            // Pane "sess-new": freshly launched hooked agy pane with no conversation_id yet.
+            File(tmuxStore, "sess-new_@roamtty_agent").writeText("idle|$nowSec|agy||")
+            // Pane "sess-old": existing hooked agy pane bound to conv-old.
+            File(tmuxStore, "sess-old_@roamtty_agent").writeText("idle|$nowSec|agy||")
+            File(tmuxStore, "sess-old_@roamtty_session").writeText("conv-old")
+
+            val envPath = "${binDir.absolutePath}:${System.getenv("PATH") ?: "/usr/bin:/bin"}"
+            fun query(tmuxSession: String): AgentSessionUsage {
+                val p = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.sessionCommand(CodingAgent.AGY, tmuxSession, "/work/roamtty")).apply {
+                    environment()["HOME"] = home.absolutePath
+                    environment()["PATH"] = envPath
+                }.start()
+                p.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
+                val text = p.inputStream.bufferedReader().readText()
+                assertEquals(0, p.waitFor())
+                return AgentUsageCollector.parseSession(text)!!
+            }
+
+            // 1. Old pane reports its own 46% context.
+            val oldUsage = query("sess-old")
+            assertEquals(46, oldUsage.contextPercent)
+            assertEquals(90, oldUsage.quota5h?.remainingRounded)
+
+            // 2. Brand-new pane in the SAME directory must NOT inherit conv-old's 46% context,
+            //    while still displaying configured model/effort and account quotas.
+            val newUsage = query("sess-new")
+            assertNull("brand-new hooked session must not borrow another session's context", newUsage.contextPercent)
+            assertNull(newUsage.contextUsed)
+            assertEquals(0L, newUsage.sessionTotalTokens)
+            assertEquals("Gemini 4 Neon", newUsage.formattedModel)
+            assertEquals(ReasoningEffort.XHIGH, newUsage.reasoningEffort)
+            assertEquals(90, newUsage.quota5h?.remainingRounded)
+            assertEquals(70, newUsage.quota7d?.remainingRounded)
+
+            // 3. statusLine binds /resume conversation_id onto tmux pane and clears it on /clear (empty conversation_id).
+            val hookFile = File(home, "agent-hook.sh").apply { writeText(AgentHooks.script); setExecutable(true) }
+            fun runStatusLine(convId: String, tpath: String) {
+                val p = ProcessBuilder("sh", hookFile.absolutePath, "agy", "statusline").apply {
+                    environment()["HOME"] = home.absolutePath
+                    environment()["PATH"] = envPath
+                    environment()["ROAMTTY_AGENT"] = "agy"
+                    environment()["TMUX_PANE"] = "sess-new"
+                }.start()
+                p.outputStream.use {
+                    it.write("""{"conversation_id":"$convId","transcript_path":"$tpath","quota":{"gemini-5h":{"remaining_fraction":0.90,"reset_time":"2099-01-01T05:00:00Z"}}}""".toByteArray())
+                }
+                assertEquals(0, p.waitFor())
+            }
+            runStatusLine("conv-old", oldTranscript.absolutePath)
+            assertEquals(46, query("sess-new").contextPercent)
+            runStatusLine("", "")
+            assertNull("/clear emptying conversation_id must reset context back to null", query("sess-new").contextPercent)
+        } finally {
+            home.deleteRecursively()
+        }
+    }
 }
