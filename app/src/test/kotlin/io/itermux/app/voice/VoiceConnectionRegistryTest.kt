@@ -270,10 +270,10 @@ class VoiceConnectionRegistryTest {
             scope = scope,
             tmuxSessionsForHost = { emptyList() },
             onChange = {},
-            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, isOwner ->
+            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, onNotice, isOwner ->
                 VoiceConnection(
                     host = host, sessionId = sid, scope = scope, password = pw, passphrase = pp,
-                    tmuxSessions = tmux, onReady = onReady, onEnded = onEnded, isCurrentOwner = isOwner,
+                    tmuxSessions = tmux, onReady = onReady, onEnded = onEnded, onNotice = onNotice, isCurrentOwner = isOwner,
                     transport = fakeTransport(remote),
                     engineFactory = { _, _, _, _, _, _ -> FakeAudioBackend(events = events) },
                     shutdownGraceMs = 200L, mainDispatcher = Dispatchers.Unconfined,
@@ -309,10 +309,10 @@ class VoiceConnectionRegistryTest {
             scope = scope,
             tmuxSessionsForHost = { emptyList() },
             onChange = {},
-            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, isOwner ->
+            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, onNotice, isOwner ->
                 VoiceConnection(
                     host = host, sessionId = sid, scope = scope, password = pw, passphrase = pp,
-                    tmuxSessions = tmux, onReady = onReady, onEnded = onEnded, isCurrentOwner = isOwner,
+                    tmuxSessions = tmux, onReady = onReady, onEnded = onEnded, onNotice = onNotice, isCurrentOwner = isOwner,
                     transport = fakeTransport(remote),
                     engineFactory = { _, _, _, _, _, _ -> FakeAudioBackend() },
                     mainDispatcher = Dispatchers.Unconfined,
@@ -423,13 +423,14 @@ class VoiceConnectionRegistryTest {
             scope = scope,
             tmuxSessionsForHost = { emptyList() },
             onChange = {},
-            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, isOwner ->
+            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, onNotice, isOwner ->
                 val r = remotes.removeFirst()
                 val isA = (r === remoteA)
                 VoiceConnection(
                     host = host, sessionId = sid, scope = scope, password = pw, passphrase = pp,
                     tmuxSessions = tmux, onReady = onReady,
                     onEnded = { c -> onEnded(c); if (isA) endedA.countDown() },
+                    onNotice = onNotice,
                     isCurrentOwner = isOwner,
                     transport = fakeTransport(r),
                     engineFactory = { _, _, _, _, _, _ -> FakeAudioBackend() },
@@ -670,13 +671,14 @@ class VoiceConnectionRegistryTest {
             scope = scope,
             tmuxSessionsForHost = { emptyList() },
             onChange = {},
-            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, isOwner ->
+            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, onNotice, isOwner ->
                 val (r, a) = pairs.removeFirst()
                 val isFirst = (a === audio1)
                 VoiceConnection(
                     host = host, sessionId = sid, scope = scope, password = pw, passphrase = pp,
                     tmuxSessions = tmux, onReady = onReady,
                     onEnded = { c -> onEnded(c); if (isFirst) ended1.countDown() },
+                    onNotice = onNotice,
                     isCurrentOwner = isOwner,
                     transport = fakeTransport(r),
                     engineFactory = { _, _, _, _, _, _ -> a },
@@ -756,13 +758,14 @@ class VoiceConnectionRegistryTest {
             scope = scope,
             tmuxSessionsForHost = { emptyList() },
             onChange = {},
-            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, isOwner ->
+            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, onNotice, isOwner ->
                 val r = remotes.removeFirst()
                 val isFirst = (r === remote1)
                 VoiceConnection(
                     host = host, sessionId = sid, scope = scope, password = pw, passphrase = pp,
                     tmuxSessions = tmux, onReady = onReady,
                     onEnded = { c -> onEnded(c); if (isFirst) ended1.countDown() },
+                    onNotice = onNotice,
                     isCurrentOwner = isOwner,
                     transport = fakeTransport(r),
                     engineFactory = { _, _, _, _, _, _ -> FakeAudioBackend(bluetoothAvailable = true) },
@@ -838,6 +841,199 @@ class VoiceConnectionRegistryTest {
         releaseProbe.countDown()
         assertTrue(readyLatch.await(3, TimeUnit.SECONDS))
         assertEquals(listOf(AudioRoute.SPEAKER), audio.beginRoutes.toList())
+
+        conn.hangup()
+        stream.closeServerStdout(0)
+        scope.cancel()
+    }
+
+    @Test fun remoteHangUpAutoEndsLiveCallAndEmitsCallEndedNotice() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val stream = PipedRemoteStream()
+        val readyLatch = CountDownLatch(1)
+        val endedLatch = CountDownLatch(1)
+        val noticeLatch = CountDownLatch(1)
+        val notices = CopyOnWriteArrayList<VoiceNotice>()
+        val failures = CopyOnWriteArrayList<VoiceFailure>()
+        val audio = FakeAudioBackend()
+
+        val eofResponder = Thread {
+            if (stream.shutdownReceived.await(3, TimeUnit.SECONDS)) {
+                stream.closeServerStdout(0)
+            }
+        }.apply { isDaemon = true; start() }
+
+        val remote = object : RemoteHost {
+            override suspend fun probePlugins(): Set<HostPlugin>? = null
+            override suspend fun probeDesktop(): HostDesktop = HostDesktop("yes", "Linux x86_64", "roamtty-desktop 0.9.9 proto 1")
+            override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun openStream(command: String): RemoteStream {
+                stream.sendLine(helloJson())
+                return stream
+            }
+        }
+        val registry = VoiceRegistry(
+            scope = scope,
+            tmuxSessionsForHost = { emptyList() },
+            onChange = {},
+            connectionFactory = { host, sid, pw, pp, tmux, onReady, onEnded, onNotice, isOwner ->
+                VoiceConnection(
+                    host = host, sessionId = sid, scope = scope, password = pw, passphrase = pp,
+                    tmuxSessions = tmux, onReady = onReady,
+                    onEnded = { c -> onEnded(c); endedLatch.countDown() },
+                    onNotice = onNotice, isCurrentOwner = isOwner,
+                    transport = fakeTransport(remote),
+                    engineFactory = { _, _, _, _, _, _ -> audio },
+                    shutdownGraceMs = 80L,
+                    remoteEndGraceMs = 40L,
+                    noStreamHintDelayMs = 0L,
+                    mainDispatcher = Dispatchers.Unconfined,
+                )
+            },
+        )
+        val noticeCollector = launch(Dispatchers.Unconfined) {
+            registry.notices.collect { notices += it; noticeLatch.countDown() }
+        }
+        val failureCollector = launch(Dispatchers.Unconfined) {
+            registry.failures.collect { failures += it }
+        }
+
+        val conn = registry.start(testHost("h-hangup"), "s-hangup", "", "", VoiceMode.LIVE, AudioRoute.SPEAKER) { _, _ ->
+            readyLatch.countDown()
+            VoiceReadyOutcome.INJECTED
+        }
+        assertTrue(readyLatch.await(3, TimeUnit.SECONDS))
+
+        // Simulate active live call: agy opens speaker + mic, speaks farewell, then executes hang_up tool.
+        stream.sendFrame(VoiceProtocol.SPK_START, le(9) { putInt(1); putInt(24_000); put(1) })
+        stream.sendFrame(VoiceProtocol.MIC_START, le(9) { putInt(2); putInt(16_000); put(1) })
+        stream.sendFrame(VoiceProtocol.SPK_AUDIO, le(8) { putInt(1); put(1); put(2); put(3); put(4) })
+        stream.sendFrame(VoiceProtocol.MIC_STOP, le(4) { putInt(2) })
+        stream.sendFrame(VoiceProtocol.SPK_STOP, le(4) { putInt(1) })
+
+        assertTrue("remote hang_up must shut down voice daemon", stream.shutdownReceived.await(3, TimeUnit.SECONDS))
+        assertTrue("connection must end automatically", endedLatch.await(3, TimeUnit.SECONDS))
+        assertTrue("call ended notice must be emitted", noticeLatch.await(3, TimeUnit.SECONDS))
+        eofResponder.join(1000)
+
+        assertEquals(VoiceCallPhase.Idle, conn.ui.value.phase)
+        assertFalse(conn.active)
+        assertNull("ended connection must be removed from registry", registry["h-hangup"])
+        assertTrue(audio.released.get())
+        assertEquals(listOf("通话已结束"), notices.map { it.message })
+        assertTrue("clean remote end must not emit failure: $failures", failures.isEmpty())
+
+        noticeCollector.cancel()
+        failureCollector.cancel()
+        scope.cancel()
+    }
+
+    @Test fun streamReopenedWithinGraceCancelsRemoteAutoEndAndEarlyAbortEmitsWarning() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val stream = PipedRemoteStream()
+        val readyLatch = CountDownLatch(1)
+        val endedLatch = CountDownLatch(1)
+        val notices = CopyOnWriteArrayList<String>()
+        var fakeNow = 10_000L
+
+        val eofResponder = Thread {
+            if (stream.shutdownReceived.await(3, TimeUnit.SECONDS)) {
+                stream.closeServerStdout(0)
+            }
+        }.apply { isDaemon = true; start() }
+
+        val remote = object : RemoteHost {
+            override suspend fun probePlugins(): Set<HostPlugin>? = null
+            override suspend fun probeDesktop(): HostDesktop = HostDesktop("yes", "Linux x86_64", "roamtty-desktop 0.9.9 proto 1")
+            override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun openStream(command: String): RemoteStream {
+                stream.sendLine(helloJson())
+                return stream
+            }
+        }
+        val conn = VoiceConnection(
+            host = testHost(),
+            sessionId = "s-reopen",
+            scope = scope,
+            password = "",
+            passphrase = "",
+            tmuxSessions = { emptyList() },
+            onReady = { _, _ -> readyLatch.countDown(); VoiceReadyOutcome.INJECTED },
+            onEnded = { endedLatch.countDown() },
+            onNotice = { notices += it },
+            transport = fakeTransport(remote),
+            engineFactory = { _, _, _, _, _, _ -> FakeAudioBackend() },
+            shutdownGraceMs = 80L,
+            remoteEndGraceMs = 150L,
+            noStreamHintDelayMs = 0L,
+            clockMs = { fakeNow },
+            mainDispatcher = Dispatchers.Unconfined,
+        )
+        conn.start(VoiceMode.LIVE, AudioRoute.SPEAKER)
+        assertTrue(readyLatch.await(3, TimeUnit.SECONDS))
+
+        // Open and immediately close mic, then reopen within the 150ms grace window -> call must stay alive.
+        stream.sendFrame(VoiceProtocol.MIC_START, le(9) { putInt(1); putInt(16_000); put(1) })
+        fakeNow += 500L
+        stream.sendFrame(VoiceProtocol.MIC_STOP, le(4) { putInt(1) })
+        delay(40)
+        stream.sendFrame(VoiceProtocol.MIC_START, le(9) { putInt(2); putInt(16_000); put(1) })
+        delay(220)
+        assertTrue("reopening stream within grace window must cancel auto-end", conn.active)
+        assertTrue(notices.isEmpty())
+
+        // Now close stream 2 still within 5s with zero speaker audio -> early abort notice + auto-end.
+        fakeNow += 500L
+        stream.sendFrame(VoiceProtocol.MIC_STOP, le(4) { putInt(2) })
+        assertTrue(endedLatch.await(3, TimeUnit.SECONDS))
+        eofResponder.join(1000)
+
+        assertEquals(VoiceCallPhase.Idle, conn.ui.value.phase)
+        assertEquals(listOf("agy 语音已中断，请查看终端输出"), notices.toList())
+        scope.cancel()
+    }
+
+    @Test fun noStreamHintNotifiesWithoutEndingCall() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val stream = PipedRemoteStream()
+        val readyLatch = CountDownLatch(1)
+        val hintLatch = CountDownLatch(1)
+        val notices = CopyOnWriteArrayList<String>()
+
+        val remote = object : RemoteHost {
+            override suspend fun probePlugins(): Set<HostPlugin>? = null
+            override suspend fun probeDesktop(): HostDesktop = HostDesktop("yes", "Linux x86_64", "roamtty-desktop 0.9.9 proto 1")
+            override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun openStream(command: String): RemoteStream {
+                stream.sendLine(helloJson())
+                return stream
+            }
+        }
+        val conn = VoiceConnection(
+            host = testHost(),
+            sessionId = "s-nostream",
+            scope = scope,
+            password = "",
+            passphrase = "",
+            tmuxSessions = { emptyList() },
+            onReady = { _, _ -> readyLatch.countDown(); VoiceReadyOutcome.INJECTED },
+            onEnded = {},
+            onNotice = { notices += it; hintLatch.countDown() },
+            transport = fakeTransport(remote),
+            engineFactory = { _, _, _, _, _, _ -> FakeAudioBackend() },
+            shutdownGraceMs = 80L,
+            remoteEndGraceMs = 80L,
+            noStreamHintDelayMs = 80L,
+            mainDispatcher = Dispatchers.Unconfined,
+        )
+        conn.start(VoiceMode.LIVE, AudioRoute.SPEAKER)
+        assertTrue(readyLatch.await(3, TimeUnit.SECONDS))
+        assertTrue("no-stream hint must fire when agy opens no stream", hintLatch.await(3, TimeUnit.SECONDS))
+        assertTrue("no-stream hint must be non-destructive", conn.active)
+        assertEquals(listOf("未检测到 agy 语音流，请查看终端状态"), notices.toList())
 
         conn.hangup()
         stream.closeServerStdout(0)

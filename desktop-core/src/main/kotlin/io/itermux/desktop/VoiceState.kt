@@ -216,6 +216,110 @@ object VoiceStateMachine {
     }
 }
 
+/** Classification for why remote `agy` audio streams closed. */
+enum class VoiceRemoteEndReason {
+    /** Live call (`F6`) ended cleanly after running normally (e.g. `hang_up`, `Esc`, or `/voice`). */
+    ENDED,
+    /** Live call streams closed right after opening without any speaker audio (e.g. `Access denied`). */
+    ABORTED_EARLY,
+}
+
+/** Action returned by [VoiceRemoteStreamTracker] for each incoming remote stream lifecycle event. */
+sealed interface VoiceRemoteStreamAction {
+    data object None : VoiceRemoteStreamAction
+    data object StreamActive : VoiceRemoteStreamAction
+    data class ScheduleRemoteEnd(val reason: VoiceRemoteEndReason) : VoiceRemoteStreamAction
+}
+
+/**
+ * Tracks active remote `agy` mic/speaker streams so the client auto-closes live calls when `agy`
+ * exits `/voice` (clean `hang_up`, terminal `Esc`, `/voice`, or immediate errors like `Access denied`)
+ * without falsely ending calls on mute, barge-in, or transient `--resume` reconnects.
+ */
+class VoiceRemoteStreamTracker(mode: VoiceMode = VoiceMode.LIVE) {
+    var mode: VoiceMode = mode
+        private set
+    var activeMicStreamId: Long? = null
+        private set
+    var activeSpkStreamId: Long? = null
+        private set
+    var hadAnyStream: Boolean = false
+        private set
+    var receivedSpeakerAudio: Boolean = false
+        private set
+    private var firstStreamAtMs: Long? = null
+
+    fun reset(mode: VoiceMode = VoiceMode.LIVE) {
+        this.mode = mode
+        activeMicStreamId = null
+        activeSpkStreamId = null
+        hadAnyStream = false
+        receivedSpeakerAudio = false
+        firstStreamAtMs = null
+    }
+
+    /** Clears in-flight stream IDs while `--resume` reconnects so stale stops cannot trigger hangup early. */
+    fun beginRecovery() {
+        activeMicStreamId = null
+        activeSpkStreamId = null
+    }
+
+    fun onMicStarted(streamId: Long, nowMs: Long): VoiceRemoteStreamAction {
+        activeMicStreamId = streamId
+        hadAnyStream = true
+        if (firstStreamAtMs == null) firstStreamAtMs = nowMs
+        return VoiceRemoteStreamAction.StreamActive
+    }
+
+    fun onSpkStarted(streamId: Long, nowMs: Long): VoiceRemoteStreamAction {
+        activeSpkStreamId = streamId
+        hadAnyStream = true
+        if (firstStreamAtMs == null) firstStreamAtMs = nowMs
+        return VoiceRemoteStreamAction.StreamActive
+    }
+
+    fun onSpkAudio(bytes: Int): VoiceRemoteStreamAction {
+        if (bytes > 0) receivedSpeakerAudio = true
+        return VoiceRemoteStreamAction.None
+    }
+
+    fun onSpkCleared(): VoiceRemoteStreamAction = VoiceRemoteStreamAction.None
+
+    fun onMicStopped(streamId: Long, nowMs: Long): VoiceRemoteStreamAction {
+        val wasStreaming = activeMicStreamId != null || activeSpkStreamId != null
+        val matched = activeMicStreamId == streamId
+        if (matched) activeMicStreamId = null
+        if (!matched || !wasStreaming || activeMicStreamId != null || activeSpkStreamId != null) {
+            return VoiceRemoteStreamAction.None
+        }
+        return VoiceRemoteStreamAction.ScheduleRemoteEnd(classifyLiveEnd(nowMs))
+    }
+
+    fun onSpkStopped(streamId: Long, nowMs: Long): VoiceRemoteStreamAction {
+        val wasStreaming = activeMicStreamId != null || activeSpkStreamId != null
+        val matched = activeSpkStreamId == streamId
+        if (matched) activeSpkStreamId = null
+        if (!matched || !wasStreaming || activeMicStreamId != null || activeSpkStreamId != null) {
+            return VoiceRemoteStreamAction.None
+        }
+        return VoiceRemoteStreamAction.ScheduleRemoteEnd(classifyLiveEnd(nowMs))
+    }
+
+    private fun classifyLiveEnd(nowMs: Long): VoiceRemoteEndReason {
+        val started = firstStreamAtMs
+        if (!receivedSpeakerAudio && started != null && nowMs - started < EARLY_ABORT_WINDOW_MS) {
+            return VoiceRemoteEndReason.ABORTED_EARLY
+        }
+        return VoiceRemoteEndReason.ENDED
+    }
+
+    companion object {
+        const val EARLY_ABORT_WINDOW_MS = 5_000L
+        const val REMOTE_END_GRACE_MS = 350L
+        const val NO_STREAM_HINT_DELAY_MS = 8_000L
+    }
+}
+
 /** Pure PCM level metering and chunking helpers for voice audio capture/playback. */
 object VoiceAudioMath {
     /**
