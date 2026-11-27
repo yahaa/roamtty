@@ -1032,7 +1032,7 @@ internal class VoiceConnection(
                     Log.i(TAG, "${host.name}: MIC_START stream=${message.streamId} rate=${message.sampleRate} ch=${message.channels}")
                     synchronized(micOpusLock) {
                         micSender = if (voiceOpusEnabled && VoiceOpusMath.isOpusSampleRate(message.sampleRate)) {
-                            VoiceRedSender(message.streamId, message.sampleRate, enableDtx = true)
+                            VoiceRedSender(message.streamId, message.sampleRate, enableDtx = false)
                         } else null
                     }
                     if (!engine.startMic(message.streamId, message.sampleRate, message.channels)) {

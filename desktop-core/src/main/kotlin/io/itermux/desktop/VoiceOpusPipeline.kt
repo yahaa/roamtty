@@ -211,21 +211,39 @@ class VoiceOpusEncoderWrapper(
     }
 }
 
-/** Concentus Opus VOIP decoder supporting normal decode, In-band FEC (LBRR), and native PLC. */
+/**
+ * Concentus Opus VOIP decoder supporting normal decode, In-band FEC (LBRR), and native PLC.
+ * Always runs Concentus at canonical 48 kHz (avoiding Concentus 1.0.2's broken 24 kHz Hybrid/SWB path)
+ * and decimates cleanly by `48000 / sampleRate` (exact integer for 8/12/16/24/48 kHz).
+ */
 class VoiceOpusDecoderWrapper(val sampleRate: Int) {
     val frameLen: Int = VoiceOpusMath.frameSamples(sampleRate)
-    private val decoder: OpusDecoder = OpusDecoder(sampleRate, 1)
+    private val decim: Int = (48_000 / sampleRate).coerceAtLeast(1)
+    private val decoder: OpusDecoder = OpusDecoder(48_000, 1)
+    private val scratch48 = ShortArray(960)
+
+    private fun decimate(decoded48: Int): ShortArray {
+        if (decoded48 <= 0) return ShortArray(frameLen)
+        if (decim == 1) return scratch48.copyOf(decoded48)
+        val outLen = decoded48 / decim
+        val out = ShortArray(outLen)
+        var si = 0
+        for (i in 0 until outLen) {
+            var sum = 0
+            for (k in 0 until decim) sum += scratch48[si++]
+            out[i] = (sum / decim).toShort()
+        }
+        return out
+    }
 
     fun decode(packet: ByteArray, decodeFec: Boolean = false): ShortArray {
-        val out = ShortArray(frameLen)
-        val n = decoder.decode(packet, 0, packet.size, out, 0, frameLen, decodeFec)
-        return if (n == frameLen) out else if (n > 0) out.copyOf(n) else ShortArray(frameLen)
+        val n = decoder.decode(packet, 0, packet.size, scratch48, 0, scratch48.size, decodeFec)
+        return decimate(n)
     }
 
     fun decodePlc(): ShortArray {
-        val out = ShortArray(frameLen)
-        val n = decoder.decode(null, 0, 0, out, 0, frameLen, false)
-        return if (n == frameLen) out else if (n > 0) out.copyOf(n) else ShortArray(frameLen)
+        val n = decoder.decode(null, 0, 0, scratch48, 0, scratch48.size, false)
+        return decimate(n)
     }
 
     fun reset() {
@@ -428,35 +446,46 @@ class VoiceRxStats {
     fun resetSeqCursor() {
         maxSeq = null
         currentLossStreak = 0
-        lastTransitMs = null
+        resetTiming()
     }
 
-    fun onPrimary(seq: Long, nowMs: Long) {
+    /** Resets jitter arrival baseline when a stream idles between utterances so pauses aren't measured as jitter. */
+    fun resetTiming() {
+        lastTransitMs = null
+        arrivalAt.clear()
+        arrivalOffset.clear()
+    }
+
+    fun onPrimary(seq: Long, nowMs: Long, resetDiscontinuity: Boolean = false) {
         if (seenSeqs.contains(seq)) return
         seenSeqs.addLast(seq)
         while (seenSeqs.size > 256) seenSeqs.removeFirst()
 
         val transit = nowMs - seq * VoiceOpusMath.FRAME_MS
-        lastTransitMs?.let { prev ->
-            val d = abs(transit - prev).toDouble()
-            ewmaJitterMs += (d - ewmaJitterMs) / 16.0
-        }
-        lastTransitMs = transit
-        arrivalOffset.lastOrNull()?.let { lastO ->
-            if (abs(transit - lastO) > 2_000L) {
-                arrivalAt.clear()
-                arrivalOffset.clear()
+        if (resetDiscontinuity) {
+            lastTransitMs = transit
+        } else {
+            lastTransitMs?.let { prev ->
+                val d = abs(transit - prev).toDouble()
+                ewmaJitterMs += (d - ewmaJitterMs) / 16.0
             }
-        }
-        arrivalAt.addLast(nowMs)
-        arrivalOffset.addLast(transit)
-        while (arrivalAt.size > VoiceOpusMath.JITTER_WINDOW) {
-            arrivalAt.removeFirst()
-            arrivalOffset.removeFirst()
+            lastTransitMs = transit
+            arrivalOffset.lastOrNull()?.let { lastO ->
+                if (abs(transit - lastO) > 2_000L) {
+                    arrivalAt.clear()
+                    arrivalOffset.clear()
+                }
+            }
+            arrivalAt.addLast(nowMs)
+            arrivalOffset.addLast(transit)
+            while (arrivalAt.size > VoiceOpusMath.JITTER_WINDOW) {
+                arrivalAt.removeFirst()
+                arrivalOffset.removeFirst()
+            }
         }
 
         val prevMax = maxSeq
-        if (prevMax == null) {
+        if (prevMax == null || resetDiscontinuity) {
             maxSeq = seq
             windowEvents.addLast(nowMs to true)
             currentLossStreak = 0
@@ -551,6 +580,7 @@ class VoiceRxStats {
 class VoiceJitterBuffer(
     val streamId: Long,
     val sampleRate: Int,
+    private val maxSpanAboveTarget: Int = 50,
 ) {
     private class Slot(val data: ByteArray, val flags: Int)
 
@@ -612,8 +642,22 @@ class VoiceJitterBuffer(
             turnGenLocked = true
         }
 
-        rxStats.onPrimary(pkt.seq, nowMs)
+        val isDtxPkt = (pkt.flags and VoiceProtocol.VOICE_FLAG_DTX) != 0
+        val isResetPkt = (pkt.flags and VoiceProtocol.VOICE_FLAG_RESET) != 0
+        rxStats.onPrimary(pkt.seq, nowMs, resetDiscontinuity = isDtxPkt || isResetPkt || inDtx)
         if (firstArrivalMs == null) firstArrivalMs = nowMs
+
+        // Self-heal if playoutSeq drifted ahead during DTX or sustained underrun while empty.
+        val curPlayout = playoutSeq
+        if (slots.isEmpty() && curPlayout != null) {
+            val behind = (pkt.seq - curPlayout).toInt()
+            if ((inDtx && !isDtxPkt) || (behind < 0 && behind >= -64 && (inDtx || consecutivePlc >= 2))) {
+                playoutSeq = pkt.seq
+                highestSeq = pkt.seq
+                inDtx = false
+                consecutivePlc = 0
+            }
+        }
 
         fun acceptSeq(seq: Long): Boolean {
             val p = playoutSeq ?: return true
@@ -690,10 +734,10 @@ class VoiceJitterBuffer(
             started = true
         }
 
-        // Fast-forward extreme bursts (> target + 180 ms) with 5 ms crossfade.
+        // Fast-forward only extreme backlogs (> target + maxSpanAboveTarget) with 5 ms crossfade.
         var jumped = false
         val span = (highestSeq - p).toInt()
-        val maxSpan = targetFrames + 9
+        val maxSpan = targetFrames + maxSpanAboveTarget
         val curSeq = if (span > maxSpan) {
             val jumpTo = (highestSeq - targetFrames.toLong()) and 0xFFFFFFFFL
             val it = slots.keys.iterator()
@@ -744,6 +788,8 @@ class VoiceJitterBuffer(
         } else if (inDtx) {
             pcm = ShortArray(frameLen)
             isSilence = true
+            // Never let playoutSeq drift ahead of the sender during DTX silence.
+            if (slots.isEmpty()) advanceSeq = false
         } else {
             consecutivePlc++
             if (consecutivePlc == 1) {
@@ -757,21 +803,25 @@ class VoiceJitterBuffer(
                     val gain = (1f - (consecutivePlc - 2) * 0.28f).coerceAtLeast(0f)
                     for (i in pcm.indices) pcm[i] = (pcm[i] * gain).toInt().toShort()
                 }
+                // NetEQ expand: while no newer frame has arrived, hold playoutSeq at curSeq so
+                // clock drift or delayed RED packets are never rejected as late.
+                if (slots.isEmpty()) {
+                    advanceSeq = false
+                    if (expandCredits > 0) expandCredits--
+                }
             } else {
-                // Past 100 ms silence without packets: return null once completely empty so playback idles cleanly.
+                // Past 100 ms silence without packets: clean idle between utterances so next talkspurt starts fast.
                 if (slots.isEmpty()) {
                     playoutSeq = null
                     started = false
                     firstArrivalMs = null
+                    consecutivePlc = 0
+                    underrunPenaltyMs = 0.0
+                    rxStats.resetTiming()
                     return null
                 }
                 pcm = ShortArray(frameLen)
                 isSilence = true
-            }
-            // NetEQ-style expansion: hold playoutSeq at curSeq so incoming RED recovers curSeq and builds cushion.
-            if (expandCredits > 0 && slots.isEmpty() && consecutivePlc <= 2) {
-                expandCredits--
-                advanceSeq = false
             }
         }
 
@@ -780,11 +830,11 @@ class VoiceJitterBuffer(
         }
 
         val excess = ((highestSeq - curSeq).toInt()) - targetFrames
-        if (excess >= 2) {
+        if (excess >= 3) {
             if (isSilence && slots.isNotEmpty()) {
                 return popFrame(nowMs)
             } else if (!isSilence) {
-                val targetSamples = (pcm.size * 88) / 100
+                val targetSamples = (pcm.size * 90) / 100
                 pcm = VoiceOpusMath.wsolaCompress(pcm, targetSamples)
             }
         }

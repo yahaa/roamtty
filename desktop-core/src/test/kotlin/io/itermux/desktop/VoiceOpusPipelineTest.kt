@@ -151,4 +151,33 @@ class VoiceOpusPipelineTest {
         assertTrue("len=${out.size}", out.size in 380..479)
         assertTrue("energy preserved", VoiceOpusMath.pcmRms(out) > 0.2f)
     }
+
+    @Test fun clockDriftPauseAndTtsBurstsNeverDropSpeech() {
+        val rate = 24_000
+        val sender = VoiceRedSender(streamId = 3L, sampleRate = rate, enableDtx = false)
+        val jb = VoiceJitterBuffer(streamId = 3L, sampleRate = rate)
+
+        // 1. 600 ms TTS burst (30 frames arriving at once) must NOT be fast-forward-dropped!
+        val burstPkts = (0 until 30).map { sender.encodeShorts20ms(sineFrame(rate, 440.0, it))!! }
+        for (pkt in burstPkts) jb.push(pkt, 0L)
+        var burstPlayed = 0
+        for (tick in 0L until 35L) {
+            val pcm = jb.popFrame(tick * 20L)
+            if (pcm != null && VoiceOpusMath.pcmRms(pcm) > 0.05f) burstPlayed++
+        }
+        assertTrue("all 30 frames of 600 ms TTS burst must play intact (got $burstPlayed)", burstPlayed >= 28)
+
+        // 2. 400 ms pause (receiver ticks 20x with no packets) then sender resumes at seq 30.
+        for (tick in 35L until 55L) jb.popFrame(tick * 20L)
+        var resumedAudible = 0
+        for (i in 0 until 15) {
+            val now = (55L + i) * 20L
+            val pkt = sender.encodeShorts20ms(sineFrame(rate, 440.0, 30 + i))!!
+            jb.push(pkt, now)
+            val pcm = jb.popFrame(now)
+            if (pcm != null && VoiceOpusMath.pcmRms(pcm) > 0.05f) resumedAudible++
+        }
+        assertTrue("resumed speech after pause must not be dropped (got $resumedAudible/15)", resumedAudible >= 13)
+        assertEquals(0, jb.statsSnapshot(70L * 20L).lossPermille)
+    }
 }
