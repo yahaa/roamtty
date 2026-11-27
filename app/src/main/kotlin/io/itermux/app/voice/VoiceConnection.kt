@@ -1012,6 +1012,7 @@ internal class VoiceConnection(
             onVideoLost = {},
             log = { Log.i(TAG, "${host.name}: voice $it") },
             onGiveUp = { frame -> sendSsh(frame) },
+            voiceQos = true,
         )
         val loss = transport.testLoss
         if (loss > 0) {
