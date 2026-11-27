@@ -93,9 +93,9 @@ class AgentStatusUiTest {
                 working.directory.isNotEmpty()) { "$working" }
             compose.waitUntil(10_000) { compose.onAllNodesWithTag("home-session-${session.id}").fetchSemanticsNodes().isNotEmpty() }
             val row = compose.onNodeWithTag("home-session-${session.id}")
-            // Under 运行中, named by its folder, the folder and the prompt beneath, the command across the row and the
+            // Named by its folder, the folder and the prompt beneath, the command across the row and the
             // status line last.
-            compose.waitUntil(10_000) { exists("home-session-group-working") && exists("home-session-working-${session.id}") }
+            compose.waitUntil(10_000) { exists("home-session-working-${session.id}") }
             val folder = working.directory.trimEnd('/').substringAfterLast('/')
             compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true).assertTextEquals(folder)
             compose.onNodeWithTag("home-session-prompt-${session.id}", useUnmergedTree = true)
@@ -119,8 +119,8 @@ class AgentStatusUiTest {
             assertEquals(titleTop, compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true)
                 .getUnclippedBoundsInRoot().top)
             capture("agent-row-working")
-            // Once the turn stops: under 已完成, how long it worked, and the start of its answer read as plain text.
-            compose.waitUntil(30_000) { exists("home-session-done-${session.id}") && exists("home-session-group-done") }
+            // Once the turn stops: how long it worked, and the start of its answer read as plain text.
+            compose.waitUntil(30_000) { exists("home-session-done-${session.id}") }
             compose.onNodeWithTag("home-session-reply-${session.id}", useUnmergedTree = true)
                 .assertTextEquals("Parser refactored, tests pass.")
             assertEquals(titleTop, compose.onNodeWithTag("home-session-title-${session.id}", useUnmergedTree = true)
@@ -134,13 +134,13 @@ class AgentStatusUiTest {
             // Waited for in the compose clock: the send pauses between the text and Enter on the row's scope.
             compose.waitUntil(30_000) { session.agentStatus.value?.state == AgentStatus.State.WAITING }
             assertEquals("next step", session.agentStatus.value?.task)
-            // Waiting for permission: first in the list, and 允许 answers it.
-            compose.waitUntil(10_000) { exists("home-session-approve-${session.id}") && exists("home-session-group-waiting") }
+            // Waiting for permission: 允许 answers it without moving the card.
+            compose.waitUntil(10_000) { exists("home-session-approve-${session.id}") }
             compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("Running rm -rf build")
             capture("agent-row-waiting")
             compose.onNodeWithTag("home-session-approve-${session.id}", useUnmergedTree = true).performClick()
             compose.waitUntil(30_000) { session.agentStatus.value?.state == AgentStatus.State.WORKING }
-            compose.waitUntil(10_000) { exists("home-session-group-working") }
+            compose.waitUntil(10_000) { exists("home-session-working-${session.id}") }
             row.assertExists()
         } finally {
             session.write("\u0003exit\r")
@@ -190,10 +190,10 @@ class AgentStatusUiTest {
             }
 
             compose.waitUntil(25_000) { session.agentStatus.value?.state == AgentStatus.State.WAITING }
-            compose.waitUntil(10_000) { exists("home-session-group-waiting") && exists("home-session-approve-${session.id}") }
+            compose.waitUntil(10_000) { exists("home-session-approve-${session.id}") }
             compose.onNodeWithTag("home-session-activity-${session.id}", useUnmergedTree = true).assertTextEquals("ask_question Ship it?")
 
-            compose.waitUntil(25_000) { exists("home-session-done-${session.id}") && exists("home-session-group-done") }
+            compose.waitUntil(25_000) { exists("home-session-done-${session.id}") }
             compose.onNodeWithTag("home-session-reply-${session.id}", useUnmergedTree = true).assertTextEquals("Shipped agy support.")
             context.getExternalFilesDir(null)?.let { dir ->
                 java.io.FileOutputStream(java.io.File(dir, "agy-row-done.png")).use {

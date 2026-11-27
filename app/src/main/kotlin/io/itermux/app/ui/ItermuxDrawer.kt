@@ -22,12 +22,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.session.TerminalConnection
+import io.itermux.app.voice.VoiceConnection
 
 @Composable
 internal fun ItermuxDrawer(
     page: AppPage,
     hostCount: Int,
     sessions: List<TerminalConnection>,
+    voices: Map<String, VoiceConnection> = emptyMap(),
     onHosts: () -> Unit,
     onOpenSession: (String) -> Unit,
     onSettings: () -> Unit,
@@ -78,6 +80,7 @@ internal fun ItermuxDrawer(
                     val title by session.title.collectAsStateWithLifecycle()
                     val name by session.name.collectAsStateWithLifecycle()
                     val state by session.state.collectAsStateWithLifecycle()
+                    val activeVoice = voices.values.firstOrNull { it.sessionId == session.id }
                     // Compose keeps the last tapped node (and its click lambda) until the next touch: capture only the id,
                     // or a session closed right after being opened from here keeps its scrollback alive.
                     val id = session.id
@@ -90,7 +93,15 @@ internal fun ItermuxDrawer(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     } }, selected = false, onClick = { onOpenSession(id) },
-                        badge = { StatusLabel(state.phase) },
+                        badge = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (activeVoice != null) {
+                                    val voiceUi by activeVoice.ui.collectAsStateWithLifecycle()
+                                    SessionVoiceMiniIcon(voiceUi, "drawer-session-voice-${session.id}")
+                                }
+                                StatusLabel(state.phase)
+                            }
+                        },
                         modifier = Modifier.padding(horizontal = 12.dp).testTag("drawer-session-${session.id}"))
                 }
             }

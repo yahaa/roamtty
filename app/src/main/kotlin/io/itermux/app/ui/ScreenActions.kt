@@ -22,9 +22,14 @@ import io.itermux.app.session.StartDirectory
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
 import io.itermux.app.trf
+import io.itermux.app.voice.VoiceAudioEngine
+import io.itermux.app.voice.VoiceConnection
+import io.itermux.app.voice.VoiceReadyOutcome
+import io.itermux.desktop.AudioRoute
 import io.itermux.desktop.DesktopButton
 import io.itermux.desktop.DesktopPhase
 import io.itermux.desktop.DesktopProbe
+import io.itermux.desktop.VoiceMode
 import io.itermux.ssh.ConnectionState
 import io.itermux.ssh.Credentials
 import io.itermux.ssh.HostSystem
@@ -53,6 +58,7 @@ internal class ScreenActions(
     private val sessionStates: State<Map<String, ConnectionState>>,
     private val savedHosts: State<List<Host>>,
     private val openDesktops: State<Map<String, DesktopConnection>>,
+    private val openVoices: State<Map<String, VoiceConnection>>,
     /** The desktop plugin's targets ("linux-x86_64", …), which tell the hosts it runs on. */
     private val desktopTargets: Set<String>,
     /** Asks for the notification permission when it is still missing; sessions run without it. */
@@ -140,6 +146,19 @@ internal class ScreenActions(
             request.desktop -> {
                 startDesktop(request.host, password, passphrase, show = !request.desktopSmall)
                 if (request.desktopSmall) state.pipDesktopHostId = request.host.id
+            }
+            request.voice -> {
+                val targetSession = sessions.firstOrNull { it.id == request.voiceSessionId }
+                if (targetSession != null) {
+                    launchVoice(
+                        session = targetSession,
+                        host = request.host,
+                        mode = request.voiceMode ?: VoiceMode.LIVE,
+                        route = request.voiceRoute ?: AudioRoute.SPEAKER,
+                        password = password,
+                        passphrase = passphrase,
+                    )
+                }
             }
             else -> start(request, password, passphrase)
         }
@@ -256,6 +275,102 @@ internal class ScreenActions(
         hostId?.let { openDesktops.value[it] ?: service?.desktops?.get(it) }
 
     fun closeDesktop(hostId: String) { service?.desktops?.close(hostId) }
+
+    fun voiceOf(hostId: String?): VoiceConnection? =
+        hostId?.let { openVoices.value[it] ?: service?.voices?.get(it) }
+
+    fun closeVoice(hostId: String) { service?.stopVoice(hostId) }
+
+    fun isBluetoothAudioAvailable(): Boolean = VoiceAudioEngine.isBluetoothAvailable(context)
+
+    private fun sessionById(id: String): TerminalConnection? =
+        service?.sessions?.value?.find { it.id == id }
+
+    /** Starts an `agy /voice` session after user confirmation (asking for an unsaved SSH secret first if needed). */
+    fun startVoice(session: TerminalConnection, host: Host, mode: VoiceMode, route: AudioRoute) {
+        if (host.needsTypedSecret(app.vault)) {
+            state.connectRequest = ConnectRequest(
+                host = host,
+                mode = SessionMode.SHELL,
+                voice = true,
+                voiceSessionId = session.id,
+                voiceMode = mode,
+                voiceRoute = route,
+            )
+            return
+        }
+        launchVoice(session, host, mode, route)
+    }
+
+    private fun launchVoice(
+        session: TerminalConnection,
+        host: Host,
+        mode: VoiceMode,
+        route: AudioRoute,
+        password: String = "",
+        passphrase: String = "",
+    ) {
+        val bound = readyService() ?: return
+        val targetSessionId = session.id
+        // End any other active agy /voice session cleanly (F7) before VoiceRegistry hands over audio.
+        bound.voices.live.forEach { existing ->
+            if (existing.startKeySent && existing.sessionId != targetSessionId) {
+                val prevSession = sessionById(existing.sessionId)
+                if (prevSession != null && prevSession.state.value.phase == Phase.CONNECTED) {
+                    prevSession.write("\u001b[18~")
+                }
+            }
+        }
+        bound.startVoice(host, targetSessionId, password, passphrase, mode, route) { _, micPort ->
+            val target = sessionById(targetSessionId)
+            if (target == null || target.state.value.phase != Phase.CONNECTED) {
+                return@startVoice VoiceReadyOutcome.SESSION_GONE
+            }
+            if (!target.isAgyActive()) {
+                return@startVoice VoiceReadyOutcome.AGY_EXITED
+            }
+            if (micPort != io.itermux.desktop.VoiceProtocol.DEFAULT_MIC_PORT) {
+                toast(trf("语音端口 24713 被占用，已改用 %d；若当前 agy 无响应请重启会话", micPort))
+            }
+            // Trigger agy's native interactive live voice hotkey (F6) once the bridge & ANTIGRAVITY_MIC are ready.
+            target.write("\u001b[17~")
+            VoiceReadyOutcome.INJECTED
+        }
+    }
+
+    fun toggleVoiceMute(host: Host) {
+        val voice = voiceOf(host.id) ?: return
+        val muted = voice.toggleMute() ?: return
+        // F6 pauses/resumes agy voice capture on the owning session only.
+        val target = sessionById(voice.sessionId)
+        if (target != null && target.state.value.phase == Phase.CONNECTED) {
+            target.write("\u001b[17~")
+        }
+        toast(tr(if (muted) "已静音（F6）" else "已恢复麦克风"))
+    }
+
+    fun cycleVoiceRoute(host: Host) {
+        val voice = voiceOf(host.id) ?: return
+        val route = voice.cycleAudioRoute()
+        val label = when (route) {
+            AudioRoute.SPEAKER -> tr("已切换扬声器")
+            AudioRoute.EARPIECE -> tr("已切换听筒")
+            AudioRoute.BLUETOOTH -> tr("已切换蓝牙耳机")
+        }
+        toast(label)
+    }
+
+    fun hangupVoice(host: Host) {
+        val voice = voiceOf(host.id)
+        if (voice != null && voice.startKeySent) {
+            // F7 ends agy's active voice mode only if the start key was actually sent to the owning connected session.
+            val target = sessionById(voice.sessionId)
+            if (target != null && target.state.value.phase == Phase.CONNECTED) {
+                target.write("\u001b[18~")
+            }
+        }
+        service?.stopVoice(host.id)
+    }
 
     fun desktopSupported(host: Host): Boolean {
         val system = HostSystem.fromStored(host.os)

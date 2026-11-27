@@ -64,10 +64,10 @@ internal class SshChannels(private val connectTimeoutMs: Int, private val isStop
     }
 
     /**
-     * The output of a quick command that succeeded: null when it failed, took over [QUICK_COMMAND_MS], or printed more
-     * than [QUICK_COMMAND_BYTES]. For the small questions asked beside a live terminal (a folder, a tmux option).
+     * The output of a quick command that succeeded: null when it failed, took over [timeoutMs], or printed more
+     * than [QUICK_COMMAND_BYTES]. For the small questions asked beside a live terminal (a folder, a tmux option, usage).
      */
-    suspend fun capture(ssh: Session, command: String, input: String? = null): String? = withContext(Dispatchers.IO) {
+    suspend fun capture(ssh: Session, command: String, input: String? = null, timeoutMs: Long = QUICK_COMMAND_MS.toLong()): String? = withContext(Dispatchers.IO) {
         val exec = try { ssh.openChannel("exec") as ChannelExec } catch (_: Exception) { return@withContext null }
         try {
             exec.setCommand(command)
@@ -75,7 +75,7 @@ internal class SshChannels(private val connectTimeoutMs: Int, private val isStop
             val output = exec.inputStream
             exec.connect(QUICK_COMMAND_MS)
             val bytes = ByteArrayOutputStream()
-            val complete = withTimeoutOrNull(QUICK_COMMAND_MS.toLong()) {
+            val complete = withTimeoutOrNull(timeoutMs) {
                 val buffer = ByteArray(256)
                 while (!exec.isClosed || output.available() > 0) {
                     while (output.available() > 0) {

@@ -63,6 +63,8 @@ internal class DesktopConnection(
     val fps = MutableStateFlow(settings.fps(host.id))
     /** The host's sound: wanted by the user (this host's setting), and only sent by plugins that can. */
     val audio = MutableStateFlow(settings.audio(host.id))
+    /** Transiently muted while a voice call is active to protect acoustic echo cancellation. */
+    @Volatile private var voiceMuted = false
     /** Null until the host said; false when it has no sound to send (an older plugin, or no audio server). */
     val audioAvailable = MutableStateFlow<Boolean?>(null)
     /** The video size of the last frame: the page's surface is fixed to it. */
@@ -352,7 +354,7 @@ internal class DesktopConnection(
             "lock_on_close" to lockOnClose.value)
         if (miniOnly) config["max_bitrate"] = MINI_MAX_BITRATE
         audioAvailable.value = "opus" in hello.audio
-        if (audioAvailable.value == true && audio.value) config["audio"] = true
+        if (audioAvailable.value == true && audio.value && !voiceMuted) config["audio"] = true
         sendSsh(DesktopProtocol.config(config))
         if (viewOnly.value) sendSsh(DesktopProtocol.req(DesktopProtocol.REQ_VIEW_ONLY_ON))
         if ((phase.value as? DesktopPhase.Connected)?.paused == true) sendSsh(DesktopProtocol.req(DesktopProtocol.REQ_PAUSE))
@@ -512,7 +514,7 @@ internal class DesktopConnection(
         when (m) {
             is ServerMessage.Video -> handleVideo(m)
             is ServerMessage.CursorShape -> handleCursorShape(m)
-            is ServerMessage.Audio -> if (audio.value && (phase.value as? DesktopPhase.Connected)?.paused != true) player.submit(m)
+            is ServerMessage.Audio -> if (audio.value && !voiceMuted && (phase.value as? DesktopPhase.Connected)?.paused != true) player.submit(m)
             is ServerMessage.CursorPos -> cursor.value = RemoteCursor(m.x, m.y, m.visible, shapes[m.shape])
             is ServerMessage.State -> handleState(m)
             is ServerMessage.Ping -> send(DesktopProtocol.pong(m.t1, System.nanoTime() / 1000, System.nanoTime() / 1000))
@@ -623,7 +625,17 @@ internal class DesktopConnection(
         if (audioAvailable.value != null) {
             // Asking again after the host said it has no sound lets it try once more (a device plugged in since).
             if (on && audioAvailable.value == false && "opus" in hello.value?.audio.orEmpty()) audioAvailable.value = true
-            send(DesktopProtocol.config(mapOf("audio" to on)))
+            send(DesktopProtocol.config(mapOf("audio" to (on && !voiceMuted))))
+        }
+    }
+
+    /** Temporarily mutes remote desktop audio during a voice call without changing the user's saved preference. */
+    fun setVoiceMuted(muted: Boolean) {
+        if (voiceMuted == muted) return
+        voiceMuted = muted
+        if (muted) player.stop()
+        if (audioAvailable.value == true && audio.value) {
+            send(DesktopProtocol.config(mapOf("audio" to !muted)))
         }
     }
     fun setLockOnClose(on: Boolean) { lockOnClose.value = on; settings.setLockOnClose(host.id, on); send(DesktopProtocol.config(mapOf("lock_on_close" to on))) }

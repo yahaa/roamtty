@@ -112,41 +112,56 @@ internal fun rememberSessionGroups(sessions: List<TerminalConnection>, hostOffli
     }
 }
 
+/** Returns [sessions] in fixed newest-created-first order (reversing creation-ordered [SessionService.sessions]). */
+internal fun sessionsNewestFirst(sessions: List<TerminalConnection>): List<TerminalConnection> = sessions.asReversed()
+
 /**
- * Every session the app holds, in its [groups], most recently used first within a group; a tap opens its terminal.
- * With two groups or more, chips filter to one ([filter], the group's name): above the groups, unless [compact] puts
- * them elsewhere and tightens the group headers. Sessions without an agent's report take compact rows. On a phone a
- * group's sessions share one panel, split by hairlines; where the page has room for more columns, each is a card of its own.
+ * Returns [sessions] in their original fixed order, narrowed to [only] when a filter pill is active.
+ */
+internal fun filterSessionsPreservingOrder(
+    sessions: List<TerminalConnection>,
+    groupOf: Map<String, SessionGroup>,
+    only: SessionGroup?,
+): List<TerminalConnection> = if (only == null) sessions else sessions.filter { (groupOf[it.id] ?: SessionGroup.OTHER) == only }
+
+/**
+ * Every session the app holds in a fixed, non-jumping order (creation/open order); a tap opens its terminal.
+ * With two groups or more, chips filter to one status ([filter]) without reordering cards.
+ * Sessions without an agent's report take compact rows.
  */
 @Composable
 internal fun HomeSessionsList(sessions: List<TerminalConnection>, onOpen: (TerminalConnection) -> Unit,
     onClose: (TerminalConnection) -> Unit, hostOffline: (TerminalConnection) -> Boolean = { false },
     onForget: (TerminalConnection) -> Unit = {}, desktop: @Composable (TerminalConnection) -> Unit = {},
+    voice: @Composable (TerminalConnection) -> Unit = {},
     groups: List<ListedGroup> = rememberSessionGroups(sessions, hostOffline),
     filter: MutableState<String?> = rememberSaveable { mutableStateOf(null) }, compact: Boolean = false,
     gridState: LazyGridState = rememberLazyGridState()) {
     val only = filteredGroup(groups, filter.value)
+    val groupOf = remember(groups) {
+        buildMap {
+            groups.forEach { listed ->
+                listed.members.forEach { put(it.id, listed.group) }
+            }
+        }
+    }
+    val visible = remember(sessions, groupOf, only) { filterSessionsPreservingOrder(sessions, groupOf, only) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val columns = ((maxWidth - Spacing.Page * 2 + Spacing.Row) / (320.dp + Spacing.Row)).toInt().coerceAtLeast(1)
         LazyVerticalGrid(columns = GridCells.Fixed(columns), state = gridState, modifier = Modifier.fillMaxSize().testTag("home-sessions-list"),
             horizontalArrangement = Arrangement.spacedBy(Spacing.Row),
             contentPadding = PaddingValues(start = Spacing.Page, end = Spacing.Page, bottom = Spacing.Page)) {
             if (groups.size > 1 && !compact) item(key = "filters", span = { GridItemSpan(maxLineSpan) }) {
-                SessionFilters(groups, sessions.size, only) { filter.value = it?.name }
+                SessionFilters(groups, sessions.size, only, Modifier.padding(bottom = Spacing.Tight)) { filter.value = it?.name }
             }
-            groups.filter { only == null || it.group == only }.forEach { listed ->
-                val (group, members) = listed.group to listed.members
-                item(key = "group-${group.name}", span = { GridItemSpan(maxLineSpan) }) {
-                    SessionGroupHeader(group, members.size, listed.plainOnly, compact)
-                }
-                gridItemsIndexed(members, key = { _, session -> session.id }) { index, session ->
-                    val bottomSpace = if (columns == 1 && index == members.lastIndex) 0.dp else Spacing.Row
-                    SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
-                        onForget = { onForget(session) }, hostOffline = hostOffline(session),
-                        shape = RoundedCornerShape(18.dp), divider = false,
-                        modifier = Modifier.padding(bottom = bottomSpace),
-                        compact = group == SessionGroup.OTHER, desktop = { desktop(session) })
-                }
+            gridItemsIndexed(visible, key = { _, session -> session.id }) { index, session ->
+                val group = groupOf[session.id] ?: SessionGroup.OTHER
+                val bottomSpace = if (columns == 1 && index == visible.lastIndex) 0.dp else Spacing.Row
+                SessionRow(session, onClick = { onOpen(session) }, onClose = { onClose(session) },
+                    onForget = { onForget(session) }, hostOffline = hostOffline(session),
+                    shape = RoundedCornerShape(18.dp), divider = false,
+                    modifier = Modifier.padding(bottom = bottomSpace),
+                    compact = group == SessionGroup.OTHER, desktop = { desktop(session) }, voice = { voice(session) })
             }
         }
     }
@@ -190,23 +205,5 @@ private fun FilterPill(label: String, count: Int, dot: Color?, selected: Boolean
         Spacer(Modifier.width(5.dp))
         Text("$count", style = MaterialTheme.typography.labelLarge, maxLines = 1, color = colors.onSurface,
             fontWeight = FontWeight.SemiBold)
-    }
-}
-
-/**
- * A group's line: a ring in its colour (filled for the one waiting on the user), its name and how many it holds;
- * closer to its cards when [compact].
- */
-@Composable
-private fun SessionGroupHeader(group: SessionGroup, count: Int, plainOnly: Boolean, compact: Boolean) {
-    val color = group.color()
-    Row(Modifier.padding(start = 6.dp, top = if (compact) 8.dp else 14.dp, bottom = if (compact) 6.dp else 8.dp).testTag("home-session-group-${group.name.lowercase()}"),
-        verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(12.dp).clip(CircleShape).border(2.dp, color, CircleShape)
-            .background(if (group == SessionGroup.WAITING) color else Color.Transparent))
-        Spacer(Modifier.width(8.dp))
-        Text(group.label(plainOnly), style = MaterialTheme.typography.labelLarge, color = color, maxLines = 1)
-        Spacer(Modifier.width(6.dp))
-        Text("$count", style = MaterialTheme.typography.labelLarge, color = color.copy(alpha = 0.8f), maxLines = 1)
     }
 }

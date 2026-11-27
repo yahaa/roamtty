@@ -35,11 +35,12 @@ import io.itermux.ssh.Phase
 @Composable
 internal fun TerminalViewport(pane: TerminalPaneState, modifier: Modifier, lightTheme: Boolean, background: State<Color>,
     outputRevision: State<Long>, landscape: Boolean, imeVisible: Boolean, petArrowsShown: Boolean,
+    voiceActive: Boolean = false,
     notices: @Composable () -> Unit) {
     var viewportHeight by remember { mutableIntStateOf(0) }
     Box(modifier.testTag("terminal-viewport").onSizeChanged { viewportHeight = it.height }) {
         TerminalScreen(pane, lightTheme, landscape)
-        CursorRowControls(pane, outputRevision, viewportHeight, landscape, imeVisible, petArrowsShown)
+        CursorRowControls(pane, outputRevision, viewportHeight, landscape, imeVisible, petArrowsShown || voiceActive)
         StatusBarScrim(background)
         notices()
     }

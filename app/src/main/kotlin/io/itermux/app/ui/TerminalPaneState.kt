@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.IntSize
 import androidx.core.view.SoftwareKeyboardControllerCompat
 import com.termux.terminal.KeyHandler
 import com.termux.view.TerminalView
@@ -42,6 +43,7 @@ internal class TerminalPaneSaved(
     val commonCommandsOpen: MutableState<Boolean>,
     val dockPinned: MutableState<Boolean>,
     val dockExpanded: MutableState<Boolean>,
+    val voiceSuppressesPinnedDock: MutableState<Boolean>,
 )
 
 /**
@@ -86,6 +88,10 @@ internal class TerminalPaneState(
     var confirmPaste by mutableStateOf<String?>(null)
     var restartConfirm by mutableStateOf(false)
     var usageSheetOpen by mutableStateOf(false)
+    var voiceStartRequested by mutableStateOf(false)
+    var voicePopoverOpen by mutableStateOf(false)
+    /** Temporarily folds a pinned dock while a voice call is active so the phone-holding pet floats unobstructed. */
+    var voiceSuppressesPinnedDock by saved.voiceSuppressesPinnedDock
     var menu by mutableStateOf(false)
     var sessionMenu by mutableStateOf(false)
     var fileAction by mutableStateOf<FileAction?>(null)
@@ -95,11 +101,12 @@ internal class TerminalPaneState(
 
     var dockBounds by mutableStateOf(Rect.Zero)
     var workspaceOrigin by mutableStateOf(Offset.Zero)
+    var workspaceSize by mutableStateOf(IntSize.Zero)
     // Only explicit pinning reserves terminal width; placement follows the IME-sized viewport.
     // Connection notices use the same golden-section anchor; show controls only when ready.
     val dockAvailable: Boolean get() = connected && !editor
-    val dockVisible: Boolean get() = dockAvailable && (dockPinned || dockExpanded)
-    val dockReserved: Boolean get() = dockVisible && dockPinned
+    val dockVisible: Boolean get() = dockAvailable && ((dockPinned && !voiceSuppressesPinnedDock) || dockExpanded)
+    val dockReserved: Boolean get() = dockVisible && dockPinned && !voiceSuppressesPinnedDock
     val floatingDock: Boolean get() = dockVisible && !dockReserved
     /** The pet stands in for a dock that is put away. */
     val petAvailable: Boolean get() = dockAvailable && !dockVisible
@@ -116,14 +123,14 @@ internal class TerminalPaneState(
     fun dismissDockMenus() {
         menu = false
         sessionMenu = false
-        if (!dockPinned) dockExpanded = false
+        if (!dockReserved) dockExpanded = false
         sticky.clear()
     }
 
     fun collapseDock() {
         sticky.clear()
         dockExpanded = false
-        pinDock(false)
+        if (!voiceSuppressesPinnedDock) pinDock(false)
     }
 
     fun hideDock() {
@@ -385,6 +392,7 @@ internal fun rememberTerminalPaneState(session: TerminalConnection, connected: B
         commonCommandsOpen = rememberSaveable { mutableStateOf(false) },
         dockPinned = rememberSaveable { mutableStateOf(settings.dockPinned) },
         dockExpanded = rememberSaveable { mutableStateOf(false) },
+        voiceSuppressesPinnedDock = rememberSaveable { mutableStateOf(false) },
     )
     val focus = LocalFocusManager.current
     val composeView = LocalView.current

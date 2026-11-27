@@ -1,9 +1,18 @@
 package io.itermux.app.ui
 
+import io.itermux.app.data.Host
 import io.itermux.app.session.AgentStatus
 import io.itermux.app.session.RESTORED_MESSAGE
+import io.itermux.app.session.TerminalConnection
 import io.itermux.ssh.ConnectionState
+import io.itermux.ssh.HostPin
 import io.itermux.ssh.Phase
+import io.itermux.ssh.PinStore
+import io.itermux.ssh.SessionMode
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -54,5 +63,37 @@ class SessionGroupsTest {
         assertEquals("3分钟前", ago(200))
         assertEquals("2小时前", ago(7300))
         assertEquals("1天前", ago(90_000))
+    }
+
+    @Test fun filterSessionsPreservingOrderKeepsFixedSessionOrder() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val host = Host(name = "Order", address = "127.0.0.1", port = 22, username = "tester")
+        val pins = object : PinStore {
+            override suspend fun get(endpoint: String): HostPin? = null
+            override suspend fun putIfAbsent(pin: HostPin): HostPin = pin
+        }
+        fun conn(id: String) = TerminalConnection(host, SessionMode.TMUX, null, pins, scope, id = id)
+        val sessions = listOf(conn("s-1"), conn("s-2"), conn("s-3"), conn("s-4"))
+        val groupOf = mapOf(
+            "s-1" to SessionGroup.DONE,
+            "s-2" to SessionGroup.WAITING,
+            "s-3" to SessionGroup.OTHER,
+            "s-4" to SessionGroup.DONE,
+        )
+        try {
+            val ordered = sessionsNewestFirst(sessions)
+            // Newest created sits at the top and never reorders when agent states differ.
+            assertEquals(listOf("s-4", "s-3", "s-2", "s-1"),
+                filterSessionsPreservingOrder(ordered, groupOf, null).map { it.id })
+            // Filtering to a status preserves fixed newest-first relative order.
+            assertEquals(listOf("s-4", "s-1"),
+                filterSessionsPreservingOrder(ordered, groupOf, SessionGroup.DONE).map { it.id })
+            assertEquals(listOf("s-2"),
+                filterSessionsPreservingOrder(ordered, groupOf, SessionGroup.WAITING).map { it.id })
+            assertEquals(listOf("s-3"),
+                filterSessionsPreservingOrder(ordered, groupOf, SessionGroup.OTHER).map { it.id })
+        } finally {
+            scope.cancel()
+        }
     }
 }

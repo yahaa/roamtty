@@ -1,6 +1,8 @@
 package io.itermux.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -20,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.termux.terminal.TextStyle
 import io.itermux.app.session.TerminalConnection
+import io.itermux.app.voice.VoiceConnection
 import io.itermux.ssh.Phase
 
 /**
@@ -47,6 +50,10 @@ internal fun TerminalPane(
     onLeave: () -> Unit = onHostDetail,
     /** The host's desktop in a small window over the terminal, and the dock button's long press. */
     pip: TerminalPip = TerminalPip(),
+    /** Active `agy /voice` call state and controls for this session. */
+    voice: TerminalVoice = TerminalVoice(),
+    /** Looks up an active voice call owned by any session id (for the session switcher badge). */
+    voiceForSession: (String) -> VoiceConnection? = { null },
 ) {
     val state by session.state.collectAsStateWithLifecycle()
     val connected = state.phase == Phase.CONNECTED
@@ -68,14 +75,15 @@ internal fun TerminalPane(
     val agentUsage by session.agentUsage.collectAsStateWithLifecycle()
     val isAgentSession = agentStatus != null || (launchedAgent != null && !agentPolled)
 
-    TerminalPaneEffects(pane, state.phase, imeVisible, pipShown = pip.desktop != null)
+    TerminalPaneEffects(pane, state.phase, imeVisible, pipShown = pip.desktop != null, voiceActive = voice.ui.inCall)
+    BackHandler(pane.voicePopoverOpen) { pane.voicePopoverOpen = false }
     BackHandler(pane.editor || imeVisible) { pane.closeEditor() }
     // Back (once the keyboard is down) gives the terminal its input back from the desktop's small window.
     BackHandler(pane.pipFocused && !imeVisible) { pane.unfocusPip() }
 
     val dock: @Composable (Dp) -> Unit = { availableHeight ->
         TerminalPaneDock(pane, availableHeight, landscape, imeVisible, sessions, state.phase, pip,
-            DockActions(onSelectSession, onHostDetail, onClose, onDesktop))
+            DockActions(onSelectSession, onHostDetail, onClose, onDesktop), voice, voiceForSession)
     }
     // The workspace extends under the transparent status bar in the terminal's own background
     // colour (including remote OSC 11 changes). In portrait the text runs under the bar too, faded
@@ -87,7 +95,10 @@ internal fun TerminalPane(
     BoxWithConstraints(modifier.fillMaxWidth().testTag("terminal-workspace")
         .drawBehind { drawRect(background.value) }
         .windowInsetsPadding(WindowInsets.imeAnimationTarget)
-        .onGloballyPositioned { pane.workspaceOrigin = it.positionInRoot() }.workspaceTouches(pane)) {
+        .onGloballyPositioned {
+            pane.workspaceOrigin = it.positionInRoot()
+            pane.workspaceSize = it.size
+        }.workspaceTouches(pane)) {
         val safeDockHeight = with(LocalDensity.current) {
             val edges = WindowInsets.displayCutout.union(WindowInsets.statusBars)
             maxHeight - edges.getTop(this).toDp() - edges.getBottom(this).toDp() - 8.dp
@@ -96,7 +107,7 @@ internal fun TerminalPane(
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 TerminalViewport(pane, Modifier.weight(1f).fillMaxWidth(), lightTheme, background, outputRevision,
-                    landscape, imeVisible, petArrowsShown) {
+                    landscape, imeVisible, petArrowsShown, voiceActive = voice.ui.inCall) {
                     TerminalNotices(session, state, onReconnect, onShell, onReverify, onLeave)
                 }
                 if (pane.editor) DraftEditor(pane.draft, pane::updateDraft, landscape, imeVisible, connected = connected,
@@ -124,10 +135,19 @@ internal fun TerminalPane(
             }
         }
         TerminalPetRing(pane)
+        if (pane.petAvailable && voice.ui.inCall && pane.voicePopoverOpen && pane.petRing.center == null) {
+            // Tapping outside dismisses the call control bubble without ending the active voice call.
+            Box(Modifier.fillMaxSize().pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown().consume()
+                    pane.voicePopoverOpen = false
+                }
+            }.testTag("voice-popover-backdrop"))
+        }
         if (pane.floatingDock) FloatingDock(pane, landscape, imeVisible, dock)
-        else if (pane.petAvailable) TerminalPet(pane, petArrowsShown)
+        else if (pane.petAvailable) TerminalPet(pane, petArrowsShown, voice)
     }
-    TerminalPaneDialogs(pane, onRestart)
+    TerminalPaneDialogs(pane, onRestart, voice)
 }
 
 /**

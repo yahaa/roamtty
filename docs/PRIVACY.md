@@ -1,6 +1,6 @@
 # Roamtty 隐私政策
 
-生效日期：2026-10-26
+生效日期：2026-11-26
 
 Roamtty 是一款 SSH 终端客户端，提供 Android 版与 iOS 版（以下合称“应用”）。我们（Roamtty 开发者）不运营任何应用后端服务器，不要求注册账号，不会自动收集或上传你的个人数据，也不会出售你的个人数据；你主动联系支持或分享报告时，相关内容会发送给你选择的接收方。本政策适用于从 Google Play 或 App Store 获取的 Roamtty，以及网站 roamtty.com。
 
@@ -8,7 +8,7 @@ Roamtty 是一款 SSH 终端客户端，提供 Android 版与 iOS 版（以下�
 
 - 没有账号或广告，不集成第三方统计分析或崩溃上报 SDK，也不会自动上传诊断报告。
 - 主机配置、凭据和设置只保存在你的设备上；凭据由系统密钥库加密保护。
-- 终端、文件和远程桌面数据发往你自己添加的服务器；安装桌面插件时还可能连接下文列出的下载服务。开发者不会自动收到你的会话内容；你主动联系支持或分享报告时，会向你选择的接收方发送相应内容。
+- 终端、文件、远程桌面及可选的语音通话数据发往你自己添加的服务器；安装主机插件时还可能连接下文列出的下载服务。开发者不会自动收到你的会话或语音内容；你主动联系支持或分享报告时，会向你选择的接收方发送相应内容。
 
 ## 应用在设备上保存的数据
 
@@ -28,9 +28,11 @@ Roamtty 是一款 SSH 终端客户端，提供 Android 版与 iOS 版（以下�
 
 除上述 Agent 状态摘要外，终端输出、输入内容和编辑草稿只存在于内存中，不写入磁盘。Android 版关闭了系统备份与设备迁移；iOS 版把主机数据库排除在 iCloud 和电脑备份之外，钥匙串中的凭据也不会进入备份。你下载到 iOS“文稿”目录的文件与其他用户文件一样，可能包含在你自己的设备备份中。
 
-### 远程桌面缩略图
+### 远程桌面与语音通道
 
-启用远程桌面后，屏幕画面、远端声音及键盘/指针操作在设备与所选主机之间通过 SSH 或经认证的加密 UDP 传输，不经过 Roamtty 中继。声音仅用于播放，不录制手机麦克风。Android 与 iOS 都会将每台主机最近的桌面画面保存为应用私有目录下的本地 JPEG 缩略图，用于主机/会话卡片；它可能包含屏幕上的敏感信息，断开连接后仍保留，删除主机时移除，卸载应用也会删除。Android 已禁止系统备份与设备迁移；iOS 上这些缩略图可能包含在你自己的设备备份中。显示器、音量/声音、画质和控制方式等偏好保存在本机。
+启用远程桌面后，屏幕画面、远端声音及键盘/指针操作在设备与所选主机之间通过 SSH 或经认证的加密 UDP 传输，不经过 Roamtty 中继。远程桌面本身的声音仅用于播放，不录制手机麦克风。Android 与 iOS 都会将每台主机最近的桌面画面保存为应用私有目录下的本地 JPEG 缩略图，用于主机/会话卡片；它可能包含屏幕上的敏感信息，断开连接后仍保留，删除主机时移除，卸载应用也会删除。Android 已禁止系统备份与设备迁移；iOS 上这些缩略图可能包含在你自己的设备备份中。显示器、音量/声音、画质和控制方式等偏好保存在本机。
+
+仅当你主动在 Antigravity CLI（`agy`）终端会话中发起可选的 `agy /voice` 语音对话或语音听写时，Android 应用才会请求麦克风权限并采集麦克风音频，并在通话期间以前台麦克风服务保持连接。语音音频通过 SSH 或经认证的加密 UDP 直接在手机与你自己的主机之间传输，不经过 Roamtty 中继，也不会在设备上保存任何录音文件；语音会话结束后立即停止采集并释放麦克风服务。
 
 只有你点按发送或获取剪贴板时，文本才会在手机系统剪贴板与远端剪贴板之间复制；应用不自动持续同步剪贴板。远端系统及其他具有剪贴板权限的应用可能读取其系统剪贴板。
 
@@ -50,11 +52,12 @@ Roamtty 是一款 SSH 终端客户端，提供 Android 版与 iOS 版（以下�
 | 平台 | 权限 | 用途 |
 | --- | --- | --- |
 | Android | 网络访问、网络状态 | 连接你添加的服务器，检测网络变化 |
-| Android | 前台服务、唤醒锁 | 在后台保持你主动打开的终端连接；最后一个连接断开即释放 |
+| Android | 前台服务、唤醒锁 | 在后台保持你主动打开的终端、远程桌面连接，以及你主动发起的 `agy /voice` 语音通话（前台麦克风服务）；最后一个连接或通话结束后即释放 |
+| Android | 麦克风、音频设置（可选） | 仅在你主动发起 `agy /voice` 语音对话或听写时采集麦克风音频，并在扬声器、听筒和蓝牙耳机间切换；音频直接经加密 SSH/UDP 发往你自己的主机，不经过 Roamtty 中继，不保存录音 |
 | Android | 通知 | 显示进行中的连接，并提供“全部断开”操作 |
 | iOS | 本地网络 | 连接你添加的、位于局域网内的服务器 |
 
-文件上传、下载和导入私钥、字体都通过系统文件选择器或系统分享完成，应用只能访问你选择的文件；照片同样只在你选择后读取，仅用于上传到你指定的服务器。应用不访问通讯录、位置、相机、麦克风或广告标识符。
+文件上传、下载和导入私钥、字体都通过系统文件选择器或系统分享完成，应用只能访问你选择的文件；照片同样只在你选择后读取，仅用于上传到你指定的服务器。应用不访问通讯录、位置、相机或广告标识符；麦克风仅在你主动发起 `agy /voice` 语音会话并授予权限期间使用。
 
 ## 第三方服务
 
@@ -91,7 +94,7 @@ roamtty.com 是托管在 GitHub Pages、经 Cloudflare 分发的静态网站，�
 
 # Roamtty Privacy Policy
 
-Effective date: 2026-10-26
+Effective date: 2026-11-26
 
 Roamtty is an SSH terminal client for Android and iOS (together, “the app”). We, the Roamtty developers, run no app backend servers and require no account. We do not automatically collect or upload your personal data, and we do not sell it. When you contact support or share a report, the selected content goes to the recipient you choose. This policy covers Roamtty obtained from Google Play or the App Store, and the website roamtty.com.
 
@@ -99,7 +102,7 @@ Roamtty is an SSH terminal client for Android and iOS (together, “the app”).
 
 - No accounts or ads, no third-party analytics or crash-reporting SDKs, and no automatic diagnostic uploads.
 - Hosts, credentials and settings stay on your device; credentials are protected by the system keystore.
-- Terminal, file and remote desktop data goes to servers you add; desktop plugin installation may also contact the download services described below. The developers do not automatically receive your session content; contacting support or sharing a report sends the content you choose to the recipient you select.
+- Terminal, file, remote desktop and optional voice call data goes to servers you add; host plugin installation may also contact the download services described below. The developers do not automatically receive your session or voice content; contacting support or sharing a report sends the content you choose to the recipient you select.
 
 ## Data stored on your device
 
@@ -118,9 +121,11 @@ The following data stays on your device and is used only by the app itself:
 
 Except for the agent previews described above, terminal output, input and text drafts are kept in memory only and never written to disk. The Android app disables system backup and device transfer. The iOS app excludes its host database from iCloud and computer backups, and Keychain credentials never enter backups. Files you download into the iOS Documents folder may be included in your own device backups, like your other files.
 
-### Remote desktop thumbnails
+### Remote desktop & voice bridge
 
-When remote desktop is enabled, screen frames, remote sound and keyboard/pointer actions travel between your device and the selected host over SSH or authenticated encrypted UDP, without a Roamtty relay. Sound is played back; the app does not record your phone microphone. Both Android and iOS save the latest desktop frame for each host as a local JPEG thumbnail in app-private storage for host/session cards. It may contain sensitive screen content, remains after disconnection, and is removed when you delete the host or uninstall the app. Android disables system backup and device transfer; on iOS these thumbnails may be included in your own device backups. Display, sound, quality and control preferences stay on your device.
+When remote desktop is enabled, screen frames, remote sound and keyboard/pointer actions travel between your device and the selected host over SSH or authenticated encrypted UDP, without a Roamtty relay. Remote desktop sound is playback-only and does not record your phone microphone. Both Android and iOS save the latest desktop frame for each host as a local JPEG thumbnail in app-private storage for host/session cards. It may contain sensitive screen content, remains after disconnection, and is removed when you delete the host or uninstall the app. Android disables system backup and device transfer; on iOS these thumbnails may be included in your own device backups. Display, sound, quality and control preferences stay on your device.
+
+Only when you explicitly start an optional `agy /voice` voice conversation or dictation inside an Antigravity CLI (`agy`) terminal session does the Android app request microphone permission, capture microphone audio, and run a foreground microphone service while the voice session is active. Voice audio travels directly between your phone and your own host over encrypted SSH or authenticated encrypted UDP (via the headless `roamtty-desktop voice` plugin on your host), with no Roamtty relay and no local recording storage; capture and the microphone foreground service stop as soon as the voice session ends.
 
 Text is copied between the phone system clipboard and remote clipboard only when you tap the send or get clipboard action; the app does not continuously synchronize clipboards. The remote system and other apps with clipboard access may read their respective system clipboard.
 
@@ -140,11 +145,12 @@ When you choose to install or update the desktop plugin, the phone or remote com
 | Platform | Permission | Purpose |
 | --- | --- | --- |
 | Android | Internet, network state | Connect to the servers you add and notice network changes |
-| Android | Foreground service, wake lock | Keep the terminal connections you opened alive in the background; released when the last one disconnects |
+| Android | Foreground service, wake lock | Keep user-opened terminal and remote desktop connections, and user-started `agy /voice` calls (foreground microphone service), alive in the background; released when the last connection or call ends |
+| Android | Microphone, audio settings (optional) | Capture microphone audio and switch between speaker, earpiece and Bluetooth only during user-started `agy /voice` calls or dictation; audio travels directly to your own host over encrypted SSH/UDP, with no Roamtty relay or recording storage |
 | Android | Notifications | Show ongoing connections and offer a “Disconnect all” action |
 | iOS | Local Network | Connect to servers you add on your local network |
 
-Uploads, downloads and importing keys or fonts go through the system file picker or the system share sheet, so the app can access only the files you pick. Photos are likewise read only after you pick them, and only uploaded to the server you choose. The app does not access contacts, location, camera, microphone or the advertising identifier.
+Uploads, downloads and importing keys or fonts go through the system file picker or the system share sheet, so the app can access only the files you pick. Photos are likewise read only after you pick them, and only uploaded to the server you choose. The app does not access contacts, location, camera or the advertising identifier; the microphone is accessed only during user-started `agy /voice` voice sessions after you grant permission.
 
 ## Third-party services
 

@@ -239,6 +239,21 @@ object Tmux {
         val name = sanitizeSessionName(sessionName)
         return "$PATH_SETUP\ntmux has-session -t =$name 2>/dev/null || exit 0\nexec tmux kill-session -t =$name\n"
     }
+
+    /** Sets a tmux session environment variable (e.g. `ANTIGRAVITY_MIC`) so manual `agy` launches inherit it. */
+    fun setEnvironmentCommand(sessionName: String, name: String, value: String): String {
+        require(name.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) { "invalid env var name: $name" }
+        require(value.isNotEmpty() && value.none { it.isWhitespace() || it.isISOControl() || it in "'\"\\$`;&|" }) {
+            "invalid env var value: $value"
+        }
+        return command("set-environment -t ${sanitizeSessionName(sessionName)} $name $value")
+    }
+
+    /** Removes a tmux session environment variable when voice is explicitly ended. */
+    fun unsetEnvironmentCommand(sessionName: String, name: String): String {
+        require(name.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) { "invalid env var name: $name" }
+        return command("set-environment -u -t ${sanitizeSessionName(sessionName)} $name")
+    }
 }
 
 /** A tmux session already on the server, as the new-session sheet lists it to attach. */

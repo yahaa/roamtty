@@ -1,8 +1,17 @@
 package io.itermux.app.ui
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.DropdownMenu
@@ -15,8 +24,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -27,13 +38,18 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.session.TerminalConnection
+import io.itermux.app.session.isAgyActive
 import io.itermux.app.tr
 import io.itermux.app.trf
+import io.itermux.app.voice.VoiceConnection
+import io.itermux.desktop.VoiceUiState
 import io.itermux.ssh.Phase
 
 /** Where the dock's buttons lead outside the terminal page. */
@@ -45,17 +61,22 @@ internal class DockActions(
     val onDesktop: (() -> Unit)?,
 )
 
-/** The terminal page's dock: collapse, sessions, the host's desktop, files, common commands and the settings menu. */
+/** The terminal page's dock: collapse, sessions, the host's desktop, voice (for agy), files, common commands and the settings menu. */
 @Composable
 internal fun TerminalPaneDock(pane: TerminalPaneState, availableHeight: Dp, landscape: Boolean, imeVisible: Boolean,
-    sessions: List<TerminalConnection>, phase: Phase, pip: TerminalPip, actions: DockActions) {
+    sessions: List<TerminalConnection>, phase: Phase, pip: TerminalPip, actions: DockActions,
+    voice: TerminalVoice = TerminalVoice(),
+    voiceForSession: (String) -> VoiceConnection? = { null }) {
     val session = pane.session
     val sessionTitle by session.title.collectAsStateWithLifecycle()
     val transferStatus by session.transfers.status.collectAsStateWithLifecycle()
     val agentStatus by session.agentStatus.collectAsStateWithLifecycle()
     val agentPolled by session.agentPolled.collectAsStateWithLifecycle()
     val launchedAgent by session.launchedAgent.collectAsStateWithLifecycle()
+    val revision by session.revision.collectAsStateWithLifecycle()
     val isAgentSession = agentStatus != null || (launchedAgent != null && !agentPolled)
+    val screenApp = remember(session, revision) { session.screenApp() }
+    val isAgySession = voice.ui.inCall || isAgyActive(agentStatus, launchedAgent, agentPolled, screenApp)
     val connected = phase == Phase.CONNECTED
     TerminalDock(availableHeight, landscape, imeVisible,
         modifier = Modifier.onGloballyPositioned { pane.dockBounds = it.boundsInRoot() },
@@ -66,10 +87,30 @@ internal fun TerminalPaneDock(pane: TerminalPaneState, availableHeight: Dp, land
                 onHostDetail = { pane.sessionMenu = false; actions.onHostDetail() },
                 onClose = { pane.sessionMenu = false; actions.onClose() },
                 onRestart = { pane.sessionMenu = false; pane.restartConfirm = true },
-                onSelect = { pane.sessionMenu = false; actions.onSelectSession(it) })
+                onSelect = { pane.sessionMenu = false; actions.onSelectSession(it) },
+                voiceForSession = voiceForSession)
         },
         primaryControls = {
             if (actions.onDesktop != null) DockDesktopButton(pane, pip, actions.onDesktop)
+            if (isAgySession) {
+                DockVoiceButton(
+                    voiceUi = voice.ui,
+                    enabled = connected || voice.ui.inCall,
+                    onClick = {
+                        pane.hideKeyboard()
+                        if (voice.ui.inCall) {
+                            pane.menu = false
+                            pane.sessionMenu = false
+                            pane.dockExpanded = false
+                            pane.voiceSuppressesPinnedDock = true
+                            pane.voicePopoverOpen = true
+                        } else {
+                            pane.dismissDockMenus()
+                            pane.voiceStartRequested = true
+                        }
+                    },
+                )
+            }
             TerminalFileActions(enabled = connected && !transferStatus.running) { action ->
                 pane.hideKeyboard()
                 pane.fileAction = action
@@ -91,7 +132,7 @@ private fun DockCollapseButton(pane: TerminalPaneState) {
         val ring = MaterialTheme.colorScheme.primary
         val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
         Box(Modifier.size(32.dp).drawBehind {
-            if (pane.dockPinned || TerminalToolbox.dockHideMillis <= 0) return@drawBehind
+            if (pane.dockReserved || TerminalToolbox.dockHideMillis <= 0) return@drawBehind
             val stroke = Stroke(2.dp.toPx())
             drawCircle(track, style = stroke)
             drawArc(ring, -90f, 360f * pane.dockCountdown.floatValue, false, style = stroke)
@@ -121,6 +162,82 @@ private fun DockDesktopButton(pane: TerminalPaneState, pip: TerminalPip, onDeskt
         } }).testTag("terminal-desktop"), contentAlignment = Alignment.Center) {
         Icon(painterResource(R.drawable.ic_desktop), contentDescription = tr("打开桌面"),
             tint = if (shown) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+    }
+}
+
+/**
+ * Phone button in the terminal dock for `agy` sessions: outline phone when idle,
+ * sage green `#7FD19B` filled phone + breathing dot while in call with stable network
+ * (amber `#F2C46D` only when network is unstable or reconnecting).
+ */
+@Composable
+internal fun DockVoiceButton(
+    voiceUi: VoiceUiState,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val inCall = voiceUi.inCall
+    val muted = voiceUi.isMuted
+    val unstable = voiceUi.networkUnstable
+    val tint = when {
+        !inCall -> LocalContentColor.current
+        unstable -> VoiceWarn
+        else -> VoiceGreen
+    }
+    val wash = when {
+        !inCall -> androidx.compose.ui.graphics.Color.Transparent
+        unstable -> VoiceWarn.copy(alpha = 0.16f)
+        else -> VoiceGreen.copy(alpha = 0.16f)
+    }
+    val description = when {
+        !inCall -> tr("语音对话")
+        unstable -> tr("网络不稳定")
+        muted -> tr("语音通话已静音")
+        else -> tr("语音通话中")
+    }
+    val dotAlpha = if (inCall && (!muted || unstable)) {
+        rememberInfiniteTransition(label = "dock-voice-dot").animateFloat(
+            initialValue = 0.4f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "dotAlpha",
+        ).value
+    } else 1f
+
+    Box(
+        modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(wash)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.38f)
+            .semantics { contentDescription = description }
+            .testTag("terminal-voice"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painterResource(if (inCall) R.drawable.ic_phone_fill else R.drawable.ic_phone),
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(21.dp),
+        )
+        if (inCall) {
+            val badgeTag = when {
+                unstable -> "terminal-voice-badge-unstable"
+                muted -> "terminal-voice-badge-muted"
+                else -> "terminal-voice-badge-active"
+            }
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-10).dp, y = 10.dp)
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(tint.copy(alpha = dotAlpha))
+                    .testTag(badgeTag),
+            )
+        }
     }
 }
 

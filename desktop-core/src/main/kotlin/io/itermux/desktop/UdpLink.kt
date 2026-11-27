@@ -55,8 +55,8 @@ class UdpLink(
      */
     private sealed class Out {
         class Raw(val plain: ByteArray) : Out()
-        class Plain(var frame: ByteArray) : Out()
-        class Reliable(val id: Long, val frame: ByteArray, val unacked: Unacked) : Out()
+        class Plain(var frame: ByteArray, val fecRatio: Float = 0f) : Out()
+        class Reliable(val id: Long, val frame: ByteArray, val unacked: Unacked, val fecRatio: Float = 0f) : Out()
     }
     private val queue = ArrayDeque<Out>()
     private val queueLock = Object()
@@ -151,12 +151,13 @@ class UdpLink(
             is Out.Plain -> {
                 // Ids are u32 on the wire: wrap the same way as reliable ones.
                 val id = (plainSeq.getAndIncrement() * 2) and 0xFFFFFFFFL
-                UdpWire.fragment(id, 0, item.frame, 0f).forEach { emit(it.encode()) }
+                UdpWire.fragment(id, 0, item.frame, item.fecRatio).forEach { emit(it.encode()) }
             }
             is Out.Reliable -> {
                 // Handed to SSH by [giveUp] while it waited here: the host gets it from there.
                 if (unacked[item.id] !== item.unacked) return
-                val frags = UdpWire.fragment(item.id, UdpWire.FLAG_RELIABLE, item.frame, if (item.frame.size > UdpWire.SHARD) 0.25f else 0f)
+                val ratio = if (item.fecRatio > 0f) item.fecRatio else if (item.frame.size > UdpWire.SHARD) 0.25f else 0f
+                val frags = UdpWire.fragment(item.id, UdpWire.FLAG_RELIABLE, item.frame, ratio)
                 item.unacked.frags = frags
                 item.unacked.at = now()
                 frags.forEach { emit(it.encode()) }
@@ -177,13 +178,13 @@ class UdpLink(
     }
 
     /** Sends a whole protocol frame; [reliable] ones are resent until the host acknowledges them. */
-    fun send(frame: ByteArray, reliable: Boolean) {
+    fun send(frame: ByteArray, reliable: Boolean, fecRatio: Float = 0f) {
         if (reliable) {
             // The id and the resend entry exist at once, so a [giveUp] right after still hands this frame over in order.
             val id = (reliableSeq.getAndIncrement() * 2 + 1) and 0xFFFFFFFFL
             val u = Unacked(frame, null, now(), 0)
             unacked[id] = u
-            enqueue(Out.Reliable(id, frame, u))
+            enqueue(Out.Reliable(id, frame, u, fecRatio))
             return
         }
         synchronized(queueLock) {
@@ -192,7 +193,16 @@ class UdpLink(
             val merged = last?.let { merge(it.frame, frame) }
             if (merged != null) { last.frame = merged; return }
             if (queue.size >= SEND_QUEUE_CAP && coalesceable(frame)) return
-            queue.addLast(Out.Plain(frame))
+            if (isMicAudio(frame)) {
+                var micCount = queue.count { it is Out.Plain && isMicAudio(it.frame) }
+                while (micCount >= MIC_AUDIO_QUEUE_CAP) {
+                    val oldestIdx = queue.indexOfFirst { it is Out.Plain && isMicAudio(it.frame) }
+                    if (oldestIdx < 0) break
+                    queue.removeAt(oldestIdx)
+                    micCount--
+                }
+            }
+            queue.addLast(Out.Plain(frame, fecRatio))
             queueLock.notify()
         }
     }
@@ -266,12 +276,19 @@ class UdpLink(
     companion object {
         const val ALIVE_US = 3_000_000L
         private const val SEND_QUEUE_CAP = 512
+        internal const val MIC_AUDIO_QUEUE_CAP = 20
 
-        /** Which client frames must arrive: everything except pointer moves, wheel, ACK and pings. */
-        fun reliable(frame: ByteArray): Boolean = when (frame[0].toInt() and 0xFF) {
-            DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG -> false
-            DesktopProtocol.INPUT -> (frame.getOrNull(4)?.toInt() ?: 0) !in setOf(1, 2, 4)
-            else -> true
+        private fun isMicAudio(frame: ByteArray): Boolean =
+            frame.isNotEmpty() && (frame[0].toInt() and 0xFF) == VoiceProtocol.MIC_AUDIO
+
+        /** Which client frames must arrive: everything except pointer moves, wheel, ACK, pings, and live mic audio. */
+        fun reliable(frame: ByteArray): Boolean {
+            if (frame.isEmpty()) return true
+            return when (frame[0].toInt() and 0xFF) {
+                DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG, VoiceProtocol.MIC_AUDIO -> false
+                DesktopProtocol.INPUT -> (frame.getOrNull(4)?.toInt() ?: 0) !in setOf(1, 2, 4)
+                else -> true
+            }
         }
 
         private fun inputKind(frame: ByteArray): Int =

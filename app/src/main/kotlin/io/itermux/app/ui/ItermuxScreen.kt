@@ -52,6 +52,7 @@ import io.itermux.app.desktop.DesktopSettings
 import io.itermux.app.session.SessionService
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
+import io.itermux.app.voice.VoiceConnection
 import kotlinx.coroutines.launch
 
 import androidx.compose.foundation.layout.ColumnScope
@@ -100,7 +101,7 @@ fun ItermuxScreen(
     val boundService = rememberUpdatedState(service)
     val actions = remember(app, context, scope, state, homePager) {
         ScreenActions(app, context, scope, state, homePager, boundService, data.sessionsState, data.sessionStatesState,
-            data.hostsState, data.desktopsState, desktopTargets, requestNotifications = {
+            data.hostsState, data.desktopsState, data.voicesState, desktopTargets, requestNotifications = {
                 if (Build.VERSION.SDK_INT >= 33 &&
                     context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                     permission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -127,6 +128,12 @@ fun ItermuxScreen(
     }
     ScreenRequestEffects(ScreenRequests(pendingShareImages, onShareImagesConsumed, pendingDesktopHost, onDesktopHostConsumed,
         pendingSession, onSessionConsumed), state, actions, service)
+    // Surface voice bridge failures reliably even when VoiceRegistry immediately cleans up the ended connection.
+    LaunchedEffect(service) {
+        service?.voices?.failures?.collect { failure ->
+            if (failure.message.isNotBlank()) actions.toast(failure.message)
+        }
+    }
 
     MaterialTheme(colorScheme = if (lightTheme) LightColors else DarkColors, shapes = AppShapes, typography = AppTypography) {
         if (data.loadedHosts == null) {
@@ -136,11 +143,11 @@ fun ItermuxScreen(
         // A session's host is offline when nothing connects to it and its last probe found it down.
         fun sessionHostOffline(session: TerminalConnection) = data.hosts.firstOrNull { it.id == session.host.id }
             ?.let { !actions.hostConnected(it) && hostReachability.statusOf(it) == HostReachability.Offline } == true
-        val sessionGroups = rememberSessionGroups(sessionsMatching(data.sessionsByRecency, state.search), ::sessionHostOffline)
+        val sessionGroups = rememberSessionGroups(sessionsMatching(data.sessionsNewestFirst, state.search), ::sessionHostOffline)
         val sessionFilter = rememberSaveable { mutableStateOf<String?>(null) }
-        val lists = HomeLists(homePager, sessionGridState, hostGridState, data.sessionsByRecency, data.hosts, sessionGroups,
+        val lists = HomeLists(homePager, sessionGridState, hostGridState, data.sessionsNewestFirst, data.hosts, sessionGroups,
             sessionFilter, hostReachability, ::sessionHostOffline)
-        ScreenDrawer(state, drawerState, lists, gesturesEnabled = !terminalChrome && page != AppPage.HOST) {
+        ScreenDrawer(state, drawerState, lists, data.voices, gesturesEnabled = !terminalChrome && page != AppPage.HOST) {
             ScreenBody(state, actions, data, lists, service, drawerState, lightTheme, SettingsControls(theme, onTheme = { option ->
                 theme = option
                 settings.saveAppTheme(option)
@@ -152,12 +159,12 @@ fun ItermuxScreen(
 
 /** The drawer beside the pages: the hosts, the open sessions, settings and the guide. */
 @Composable
-private fun ScreenDrawer(state: ScreenState, drawerState: DrawerState, lists: HomeLists, gesturesEnabled: Boolean,
-    content: @Composable () -> Unit) {
+private fun ScreenDrawer(state: ScreenState, drawerState: DrawerState, lists: HomeLists,
+    voices: Map<String, VoiceConnection>, gesturesEnabled: Boolean, content: @Composable () -> Unit) {
     val scope = rememberCoroutineScope()
     val closeDrawer = { scope.launch { drawerState.close() }; Unit }
     ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = gesturesEnabled, drawerContent = {
-        ItermuxDrawer(state.page, lists.hosts.size, lists.sessions,
+        ItermuxDrawer(state.page, lists.hosts.size, lists.sessions, voices = voices,
             onHosts = { state.page = AppPage.HOME; lists.pager.requestScrollToPage(1); closeDrawer() },
             onOpenSession = { state.showSession(it); closeDrawer() },
             onSettings = { state.openSettings(); closeDrawer() },
@@ -225,7 +232,7 @@ private fun ScreenBody(state: ScreenState, actions: ScreenActions, data: ScreenD
                 // The screen's scope: the bar may leave (the keyboard opening) while the pager still moves.
                 onSelectTab = { scope.launch { lists.pager.animateScrollToPage(it) } }, ::toggleSearch, openDrawer)
             when (page) {
-                AppPage.HOME -> HomePage(state, actions, lists, data.sessions, data.desktops, compactHome, barSlide, searchFocus)
+                AppPage.HOME -> HomePage(state, actions, lists, data.sessions, data.desktops, data.voices, compactHome, barSlide, searchFocus)
                 AppPage.HOST -> HostRoute(data.hosts.firstOrNull { it.id == state.detailHostId }, state, actions, lists, data.sessions)
                 AppPage.FILES -> FilesPage(data.sessions.find { it.id == state.selected }, state, actions)
                 AppPage.DESKTOP -> {
@@ -240,7 +247,7 @@ private fun ScreenBody(state: ScreenState, actions: ScreenActions, data: ScreenD
                     EmptyState(tr("终端已就绪"), tr("连接一台主机，开始远端工作。"), Modifier.fillMaxSize(),
                         action = { FilledTonalButton(onClick = { state.page = AppPage.HOME }) { Text(tr("返回主机列表")) } })
                 } else {
-                    data.sessions.find { it.id == state.selected }?.let { TerminalRoute(it, data.sessions, state, actions, lightTheme) }
+                    data.sessions.find { it.id == state.selected }?.let { TerminalRoute(it, data.sessionsNewestFirst, data.voices, state, actions, lightTheme) }
                 }
             }
         }

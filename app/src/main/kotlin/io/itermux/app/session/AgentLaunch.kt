@@ -59,16 +59,34 @@ data class AgentLaunch(val agent: CodingAgent, val directory: String, val mode: 
     /**
      * What starts the agent, in tmux session [session], which Claude Code's hooks then report to from outside tmux too.
      * Windows folders open PowerShell; keep npm's .ps1 execution policy from blocking its native .cmd shim.
+     * When [antigravityMic] is set on Windows for [CodingAgent.AGY], exports `$env:ANTIGRAVITY_MIC` before starting `agy`.
      */
-    fun commandLine(session: String?): String {
+    fun commandLine(session: String?, antigravityMic: String? = null): String {
         val dir = StartDirectory.normalize(directory)
         val typed = typedCommand(session)
         if (!WindowsShell.isPath(dir)) return StartDirectory.command(dir)?.let { "$it && $typed" } ?: typed
         val cmd = "${agent.command}.cmd"
         // cmd.exe silently falls back to another cwd for UNC paths. Never run an agent there.
         val uncGuard = "if ((Get-Location).ProviderPath.StartsWith('\\\\')) { throw 'Please map this network folder to a drive letter before starting the agent.' }"
-        return WindowsShell.launch(dir, "if (Get-Command $cmd -CommandType Application -ErrorAction SilentlyContinue) { " +
-            "$uncGuard; ${agentCommand.replaceFirst(agent.command, cmd)} } else { $agentCommand }")
+        val micPrefix = if (agent == CodingAgent.AGY) {
+            val micSetup = if (antigravityMic != null) {
+                require(AgentHooks.isValidLoopbackMicEndpoint(antigravityMic)) { "invalid ANTIGRAVITY_MIC endpoint: $antigravityMic" }
+                "\$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(antigravityMic)}; "
+            } else {
+                val micFile = "\$env:USERPROFILE\\.roamtty\\voice-mic"
+                "if (-not \$env:ANTIGRAVITY_MIC) { if (Test-Path \"$micFile\") { \$env:ANTIGRAVITY_MIC = (Get-Content \"$micFile\" -Raw).Trim() }; if (-not \$env:ANTIGRAVITY_MIC) { \$env:ANTIGRAVITY_MIC = ${WindowsShell.literal(AgentHooks.DEFAULT_ANTIGRAVITY_MIC)} } }; "
+            }
+            val settingsDir = "\$env:USERPROFILE\\.roamtty"
+            val settingsFile = "\$env:USERPROFILE\\.roamtty\\agy-settings.json"
+            "${micSetup}New-Item -ItemType Directory -Force \"$settingsDir\" | Out-Null; [IO.File]::WriteAllText(\"$settingsFile\", '{\"voice\":{\"fullDuplex\":true}}'); "
+        } else ""
+        val effectiveCommand = if (agent == CodingAgent.AGY) {
+            "$agentCommand --settings \"\$env:USERPROFILE\\.roamtty\\agy-settings.json\""
+        } else {
+            agentCommand
+        }
+        return WindowsShell.launch(dir, "${micPrefix}if (Get-Command $cmd -CommandType Application -ErrorAction SilentlyContinue) { " +
+            "$uncGuard; ${effectiveCommand.replaceFirst(agent.command, cmd)} } else { $effectiveCommand }")
     }
 
     /** Session title: the agent and the folder it works in. */

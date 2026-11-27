@@ -13,7 +13,7 @@ object Psmux {
      * Chocolatey shims may not be on its PATH; [INSTALL_DIR] is where the release fallback unpacks.
      */
     private const val INSTALL_DIR = "\$env:LOCALAPPDATA\\Programs\\psmux"
-    private const val PATH_SETUP = "\$env:Path += ';' + ((\"\$env:LOCALAPPDATA\\Microsoft\\WinGet\\Links\"," +
+    const val PATH_SETUP = "\$env:Path += ';' + ((\"\$env:LOCALAPPDATA\\Microsoft\\WinGet\\Links\"," +
         "\"\$env:USERPROFILE\\.cargo\\bin\",\"\$env:USERPROFILE\\scoop\\shims\",\"\$env:ProgramData\\chocolatey\\bin\"," +
         "\"$INSTALL_DIR\") -join ';')"
     private const val HAS = "function Has(\$c) { [bool](Get-Command \$c -CommandType Application -ErrorAction SilentlyContinue) }"
@@ -63,6 +63,21 @@ object Psmux {
         psmux kill-session -t ${'$'}n
         exit ${'$'}LASTEXITCODE
     """.trimIndent()))
+
+    /** Sets a psmux session environment variable on Windows hosts. */
+    fun setEnvironmentCommand(sessionName: String, name: String, value: String): String {
+        require(name.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) { "invalid env var name: $name" }
+        require(value.isNotEmpty() && value.none { it.isWhitespace() || it.isISOControl() || it in "'\"\\$`;&|" }) {
+            "invalid env var value: $value"
+        }
+        return PowerShell.command(script(sessionName, "psmux set-environment -t \$n $name $value\nexit \$LASTEXITCODE"))
+    }
+
+    /** Removes a psmux session environment variable on Windows hosts. */
+    fun unsetEnvironmentCommand(sessionName: String, name: String): String {
+        require(name.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) { "invalid env var name: $name" }
+        return PowerShell.command(script(sessionName, "psmux set-environment -u -t \$n $name\nexit \$LASTEXITCODE"))
+    }
 
     /** psmux reports `C:\Users\me`; Windows OpenSSH's SFTP addresses it as `/C:/Users/me`. */
     fun sftpPath(path: String): String? {

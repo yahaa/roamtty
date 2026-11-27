@@ -32,11 +32,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.itermux.app.R
 import io.itermux.app.data.Host
+import io.itermux.app.data.installedPlugins
 import io.itermux.app.desktop.DesktopConnection
 import io.itermux.app.session.TerminalConnection
 import io.itermux.app.tr
+import io.itermux.app.voice.VoiceConnection
 import io.itermux.desktop.DesktopPhase
 import io.itermux.desktop.DesktopProbe
+import io.itermux.desktop.VoiceUiState
+import io.itermux.ssh.HostPlugin
 import io.itermux.ssh.Phase
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,7 +50,7 @@ internal class HomeLists(
     val pager: PagerState,
     val sessionGrid: LazyGridState,
     val hostGrid: LazyGridState,
-    /** Sessions with recent use first, as the sessions tab and the drawer list them. */
+    /** Sessions in fixed newest-created-first order, shared across home list, drawer, and terminal switcher. */
     val sessions: List<TerminalConnection>,
     val hosts: List<Host>,
     val groups: List<ListedGroup>,
@@ -109,7 +113,8 @@ internal fun ScreenToolbar(state: ScreenState, lists: HomeLists, landscape: Bool
 /** The home page: the search field while it is open, then the sessions and hosts tabs side by side. */
 @Composable
 internal fun HomePage(state: ScreenState, actions: ScreenActions, lists: HomeLists, sessions: List<TerminalConnection>,
-    desktops: Map<String, DesktopConnection>, compact: Boolean, barSlide: HomeBarSlide, searchFocus: FocusRequester) {
+    desktops: Map<String, DesktopConnection>, voices: Map<String, VoiceConnection>, compact: Boolean, barSlide: HomeBarSlide,
+    searchFocus: FocusRequester) {
     val hosts = lists.hosts
     val reachability = lists.reachability
     Column(Modifier.fillMaxSize()) {
@@ -150,6 +155,13 @@ internal fun HomePage(state: ScreenState, actions: ScreenActions, lists: HomeLis
                     val offline = !actions.hostConnected(host) && reachability.statusOf(host) == HostReachability.Offline
                     val button = actions.desktopButton(host, !offline, sessionState.phase == Phase.CONNECTED, desktopPhase)
                     DesktopCardButton(button, "home-session-desktop-${session.id}") { actions.openDesktop(host) }
+                },
+                voice = { session ->
+                    val activeVoice = voices.values.firstOrNull { it.sessionId == session.id }
+                    if (activeVoice != null) {
+                        val voiceUi by activeVoice.ui.collectAsStateWithLifecycle()
+                        SessionVoiceIconTag(voiceUi, "home-session-voice-${session.id}")
+                    }
                 })
             else HomeHostsTab(hosts, state.search, lists.hostGrid,
                 reachability = { host ->
@@ -232,8 +244,8 @@ internal fun ColumnScope.DesktopRoute(connection: DesktopConnection, state: Scre
 
 /** The terminal of [active], which reconnects by itself when it was dropped or restored; [sessions] are its tabs. */
 @Composable
-internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: List<TerminalConnection>, state: ScreenState,
-    actions: ScreenActions, lightTheme: Boolean) {
+internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: List<TerminalConnection>,
+    voices: Map<String, VoiceConnection>, state: ScreenState, actions: ScreenActions, lightTheme: Boolean) {
     // Reconnecting preserves the journal id but replaces the transport and emulator.
     key(active) {
         // The saved host, not the session's copy: a password saved since then spares a prompt.
@@ -252,6 +264,18 @@ internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: Lis
             reconnect()
         }
         val desktopReady = actions.desktopReady(host)
+        val pipDesktop = state.pipDesktopHostId?.takeIf { it == host.id }?.let(actions::desktopOf)
+        // Attach voice pet and controls strictly to the owning terminal session so other tabs on the same host never receive F5/F6/F7.
+        val voiceConnection = actions.voiceOf(host.id)?.takeIf { it.sessionId == active.id }
+        val idleVoice = remember { MutableStateFlow(VoiceUiState()) }
+        val voiceUi by (voiceConnection?.ui ?: idleVoice).collectAsStateWithLifecycle()
+        val voicePendingFlow = remember(voiceConnection) { voiceConnection?.pending ?: MutableStateFlow(null) }
+        val voicePending by voicePendingFlow.collectAsStateWithLifecycle()
+        voicePending?.let { PromptDialog(it) }
+        val desktopAudioFlow = remember(pipDesktop) { pipDesktop?.audio ?: MutableStateFlow(false) }
+        val desktopAudioOn by desktopAudioFlow.collectAsStateWithLifecycle()
+        val desktopPipAudioActive = pipDesktop != null && pipDesktop.active && desktopAudioOn
+        val pluginInstalled = HostPlugin.DESKTOP in host.installedPlugins.orEmpty()
         TerminalPane(active, Modifier.weight(1f),
             sessions = sessions, lightTheme = lightTheme, onSelectSession = { state.selected = it },
             onHostDetail = actions::showSessionHost,
@@ -264,11 +288,24 @@ internal fun ColumnScope.TerminalRoute(active: TerminalConnection, sessions: Lis
             onClose = { actions.leaveTerminal(); actions.closeSession(active) },
             // A tap opens the desktop small over the terminal (or closes it); a long press opens its page.
             onDesktop = { actions.toggleDesktopPip(host) }.takeIf { desktopReady },
-            pip = TerminalPip(desktop = state.pipDesktopHostId?.takeIf { it == host.id }?.let(actions::desktopOf),
+            pip = TerminalPip(desktop = pipDesktop,
                 onTap = { state.showDesktopFromSmallWindow(host.id) }, onClose = { state.pipDesktopHostId = null },
                 onFull = {
                     if (state.pipDesktopHostId == host.id && actions.desktopOf(host.id) != null) state.showDesktopFromSmallWindow(host.id)
                     else actions.openDesktop(host)
-                }.takeIf { desktopReady }))
+                }.takeIf { desktopReady }),
+            voice = TerminalVoice(
+                ui = voiceUi,
+                hostName = host.name,
+                pluginInstalled = pluginInstalled,
+                desktopPipAudioActive = desktopPipAudioActive,
+                bluetoothAvailable = voiceUi.bluetoothAvailable,
+                checkBluetoothAvailable = actions::isBluetoothAudioAvailable,
+                onStart = { mode, route -> actions.startVoice(active, host, mode, route) },
+                onToggleMute = { actions.toggleVoiceMute(host) },
+                onCycleRoute = { actions.cycleVoiceRoute(host) },
+                onHangup = { actions.hangupVoice(host) },
+            ),
+            voiceForSession = { id -> voices.values.firstOrNull { it.sessionId == id } })
     }
 }

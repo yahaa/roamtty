@@ -68,7 +68,9 @@ class TerminalConnection(
     /** What the agent reported last time, from the journal. */
     lastAgentStatus: AgentStatus? = null,
     /** The agent reported something new, which the journal keeps. */
-    private val onAgentReport: () -> Unit = {}
+    private val onAgentReport: () -> Unit = {},
+    /** Active `ANTIGRAVITY_MIC` endpoint for this host while a voice channel is open, or null. */
+    private val antigravityMic: () -> String? = { null },
 ) : TerminalOutput(), TerminalSession {
     val pending = MutableStateFlow<PendingPrompt?>(null)
     val inputWarning = MutableStateFlow<String?>(null)
@@ -218,13 +220,15 @@ class TerminalConnection(
         agentUsageJob = scope.launch {
             if (force) mutableAgentUsageLoading.value = true
             try {
+                val fetchAgy = fetchAgyQuota && kind == CodingAgent.AGY
                 val cmd = AgentUsageCollector.sessionCommand(
                     agent = kind,
                     tmuxSession = tmuxName,
                     directory = dir,
-                    fetchAgyQuota = fetchAgyQuota && kind == CodingAgent.AGY,
+                    fetchAgyQuota = fetchAgy,
                 )
-                val out = withContext(Dispatchers.IO) { ssh.runHostOutput(cmd, AgentUsageCollector.script) }
+                val timeoutMs = if (fetchAgy) 25_000L else 15_000L
+                val out = withContext(Dispatchers.IO) { ssh.runHostOutput(cmd, AgentUsageCollector.script, timeoutMs) }
                 lastUsageAtMs = SystemClock.elapsedRealtime()
                 AgentUsageCollector.parseSession(out)?.let { mutableAgentUsage.value = it }
             } catch (e: CancellationException) {
@@ -340,6 +344,9 @@ class TerminalConnection(
         val rows = List(parser.mRows) { row -> parser.screen.getSelectedText(0, row, parser.mColumns, row, false, false) }
         return ScreenApp.detect(rows, parser.cursorRow)
     }
+
+    /** Whether Antigravity CLI (`agy`) is currently active in this terminal (must be called on Main). */
+    fun isAgyActive(): Boolean = isAgyActive(agentStatus.value, launchedAgent.value, agentPolled.value, screenApp())
     override fun write(data: ByteArray, offset: Int, count: Int) {
         if (!ssh.write(data.copyOfRange(offset, offset + count))) inputWarning.value = tr(INPUT_NOT_SENT)
     }
@@ -444,6 +451,8 @@ class TerminalConnection(
     private suspend fun installAgentHooks(agent: CodingAgent) {
         ssh.state.first { !it.active || it.phase == Phase.CONNECTED }
         try {
+            val activeMic = if (agent == CodingAgent.AGY) antigravityMic() else null
+            // Keep ~/.roamtty/agy on the dynamic template so ephemeral fallback ports never get hardcoded.
             val (name, content, executable) = AgentHooks.hostFile(agent)
             val written = ssh.writeHostFile(AgentHooks.SCRIPT_PATH.substringAfterLast('/'), AgentHooks.script) &&
                 ssh.writeHostFile(name, content, executable)
@@ -451,6 +460,14 @@ class TerminalConnection(
                 val (sessionName, sessionContent) = AgentHooks.hostFile(agent, remoteSessionName)
                 if (sessionName != name) ssh.writeHostFile(sessionName, sessionContent)
                 ssh.runHostCommand(AgentHooks.pruneSettings)
+            }
+            if (activeMic != null && mode == SessionMode.TMUX) {
+                val setEnv = if (multiplexer.value == HostPlugin.PSMUX) {
+                    Psmux.setEnvironmentCommand(remoteSessionName, "ANTIGRAVITY_MIC", activeMic)
+                } else {
+                    Tmux.setEnvironmentCommand(remoteSessionName, "ANTIGRAVITY_MIC", activeMic)
+                }
+                ssh.runHostCommand(setEnv)
             }
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { /* The agent still starts, without reporting. */ }

@@ -504,8 +504,8 @@ class JschSession(
         auxiliarySession(interactive = false)?.let { runCommand(it, command) } != null
 
     /** Runs [command] with [input] on stdin beside the terminal and returns its stdout, or null on failure. */
-    suspend fun runHostOutput(command: String, input: String = ""): String? =
-        auxiliarySession(interactive = false)?.let { runCommand(it, command, input) }
+    suspend fun runHostOutput(command: String, input: String = "", timeoutMs: Long = 5_000L): String? =
+        auxiliarySession(interactive = false)?.let { runCommand(it, command, input, timeoutMs) }
 
     /** See [Tmux.restartPaneCommand]: the ended foreground command line ("" for a bare shell), or null on failure. */
     suspend fun restartTmuxPane(): String? = runCommand(
@@ -562,8 +562,8 @@ class JschSession(
     private suspend fun runCommand(command: String): String? =
         auxiliarySession()?.let { runCommand(it, command) }
 
-    private suspend fun runCommand(ssh: Session, command: String, input: String? = null): String? =
-        channels.capture(ssh, command, input)
+    private suspend fun runCommand(ssh: Session, command: String, input: String? = null, timeoutMs: Long = 5_000L): String? =
+        channels.capture(ssh, command, input, timeoutMs)
 
     private val probing = AtomicBoolean(false)
 

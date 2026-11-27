@@ -13,9 +13,9 @@ import java.net.URL
 /** Puts the pinned desktop plugin on a host, saying each step to [onLine] in the user's language. */
 internal class DesktopPluginSetup(private val manifest: PluginManifest, private val onLine: (String) -> Unit) {
     /** Installs or upgrades the plugin for [target]; null once it is in place, else why not. */
-    suspend fun install(remote: RemoteHost, target: String, build: PluginManifest.Target): String? {
-        onLine(trf("安装桌面插件 %s（%s）", manifest.version, target))
-        val openh264 = PluginManifest.openh264File(target, manifest.openh264)?.let { "${PluginManifest.OPENH264_BASE}/$it" }
+    suspend fun install(remote: RemoteHost, target: String, build: PluginManifest.Target, headless: Boolean = false): String? {
+        onLine(trf(if (headless) "安装主机插件 %s（%s）" else "安装桌面插件 %s（%s）", manifest.version, target))
+        val openh264 = if (headless) null else PluginManifest.openh264File(target, manifest.openh264)?.let { "${PluginManifest.OPENH264_BASE}/$it" }
         val installer = DesktopPluginInstaller(remote, fetch = ::download, onStep = { step ->
             onLine(when (step) {
                 DesktopPluginInstaller.Step.HOST_DOWNLOAD -> tr("主机直接下载…")
@@ -28,7 +28,7 @@ internal class DesktopPluginSetup(private val manifest: PluginManifest, private 
                 DesktopPluginInstaller.Step.DONE -> tr("安装完成")
             })
         }, onLine = { if (!it.startsWith("__ROAMTTY_")) onLine(it) })
-        return when (val result = installer.install(DesktopPluginInstaller.Build(manifest.version, manifest.url(build), build.sha256, openh264))) {
+        return when (val result = installer.install(DesktopPluginInstaller.Build(manifest.version, manifest.url(build), build.sha256, openh264, headless = headless))) {
             DesktopPluginInstaller.Result.Installed -> null
             is DesktopPluginInstaller.Result.Failed -> when (result.reason) {
                 DesktopPluginInstaller.Reason.DOWNLOAD -> tr("下载桌面插件失败")
