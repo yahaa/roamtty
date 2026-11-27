@@ -17,6 +17,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.os.Handler
@@ -28,7 +29,12 @@ import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import io.itermux.desktop.AudioRoute
 import io.itermux.desktop.VoiceAudioMath
+import io.itermux.desktop.VoiceAudioPreprocessor
+import io.itermux.desktop.VoiceJitterBuffer
+import io.itermux.desktop.VoiceOpusMath
+import io.itermux.desktop.VoiceOpusPacket
 import io.itermux.desktop.VoiceProtocol
+import io.itermux.desktop.VoiceStats
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -46,6 +52,8 @@ internal interface VoiceAudioBackend {
     fun stopMic(streamId: Long? = null)
     fun startSpeaker(streamId: Long, sampleRate: Int, channels: Int): String?
     fun writeSpeaker(streamId: Long, pcm: ByteArray, offset: Int, length: Int)
+    fun writeSpeakerOpus(streamId: Long, packet: VoiceOpusPacket) {}
+    fun speakerStats(streamId: Long, nowMs: Long): VoiceStats? = null
     fun clearSpeaker(streamId: Long)
     fun stopSpeaker(streamId: Long? = null)
     fun release()
@@ -111,9 +119,12 @@ internal class VoiceAudioEngine(
     private class PlayChunk(val generation: Int, val pcm: ByteArray, val offset: Int, val length: Int)
     private val spkLock = Any()
     private val spkTrackLock = Any()
+    private val spkJitterLock = Any()
     private val spkQueue = LinkedBlockingQueue<PlayChunk>(MAX_SPK_QUEUE)
     private val spkGeneration = AtomicInteger(0)
     @Volatile private var spkStreamId: Long? = null
+    @Volatile private var spkSampleRate: Int = 24_000
+    @Volatile private var spkJitter: VoiceJitterBuffer? = null
     @Volatile private var spkTrack: AudioTrack? = null
     @Volatile private var spkThread: Thread? = null
     @Volatile private var smoothedSpk: Float = 0f
@@ -716,7 +727,11 @@ internal class VoiceAudioEngine(
         val ns = if (NoiseSuppressor.isAvailable()) {
             runCatching { NoiseSuppressor.create(record.audioSessionId)?.apply { enabled = true } }.getOrNull()
         } else null
-        Log.i(TAG, "mic started stream=$streamId rate=$sampleRate aec=${aec?.enabled} ns=${ns?.enabled}")
+        val agc = if (AutomaticGainControl.isAvailable()) {
+            runCatching { AutomaticGainControl.create(record.audioSessionId)?.apply { enabled = true } }.getOrNull()
+        } else null
+        val preprocessor = VoiceAudioPreprocessor(sampleRate)
+        Log.i(TAG, "mic started stream=$streamId rate=$sampleRate chunk=${chunkBytes}B aec=${aec?.enabled} ns=${ns?.enabled} agc=${agc?.enabled}")
         val buf = ByteArray(chunkBytes)
         var fatalError: String? = null
         var consecutiveZeroReads = 0
@@ -760,6 +775,7 @@ internal class VoiceAudioEngine(
                     }
                     continue
                 }
+                preprocessor.processInPlace(buf, 0, aligned)
                 val rawLevel = VoiceAudioMath.rmsLevel(buf, 0, aligned)
                 smoothedMic = VoiceAudioMath.smoothLevel(smoothedMic, rawLevel)
                 onMicLevel(smoothedMic)
@@ -776,6 +792,7 @@ internal class VoiceAudioEngine(
             runCatching { record.stop() }
             runCatching { aec?.release() }
             runCatching { ns?.release() }
+            runCatching { agc?.release() }
             runCatching { record.release() }
             if (micStreamId == streamId) {
                 smoothedMic = 0f
@@ -806,7 +823,7 @@ internal class VoiceAudioEngine(
         ensureRouteForStream()
         val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         if (minBuf <= 0) return "audio track unavailable for $sampleRate Hz"
-        val targetBytes = sampleRate * 2 * 160 / 1000 // ~160 ms low-latency ring
+        val targetBytes = sampleRate * 2 * 60 / 1000 // ~60 ms ultra-low-latency hardware ring
         val track = try {
             AudioTrack.Builder()
                 .setAudioAttributes(
@@ -835,7 +852,7 @@ internal class VoiceAudioEngine(
             return "audio track not initialized"
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            runCatching { track.setStartThresholdInFrames((sampleRate * 40 / 1000).coerceAtLeast(1)) }
+            runCatching { track.setStartThresholdInFrames((sampleRate * 20 / 1000).coerceAtLeast(1)) }
         }
         try {
             synchronized(spkLock) {
@@ -845,7 +862,9 @@ internal class VoiceAudioEngine(
                 }
                 val gen = spkGeneration.incrementAndGet()
                 spkQueue.clear()
+                synchronized(spkJitterLock) { spkJitter = null }
                 spkStreamId = streamId
+                spkSampleRate = sampleRate
                 synchronized(spkTrackLock) { spkTrack = track }
                 val t = Thread({ playbackLoop(streamId, track, gen) }, "voice-spk-$streamId").apply {
                     isDaemon = true
@@ -865,7 +884,7 @@ internal class VoiceAudioEngine(
         return null
     }
 
-    /** Enqueues s16le PCM bytes for [streamId]; drops oldest if the queue overflows. */
+    /** Enqueues s16le PCM bytes for [streamId] (legacy pcm16 fallback); drops oldest if the queue overflows. */
     override fun writeSpeaker(streamId: Long, pcm: ByteArray, offset: Int, length: Int) {
         if (spkStreamId != streamId || length <= 0) return
         val copy = pcm.copyOfRange(offset, offset + length)
@@ -875,11 +894,32 @@ internal class VoiceAudioEngine(
         }
     }
 
+    /** Feeds a sequenced Opus packet (`SPK_OPUS`) into the adaptive speech jitter buffer (RED + LBRR + PLC + WSOLA). */
+    override fun writeSpeakerOpus(streamId: Long, packet: VoiceOpusPacket) {
+        if (spkStreamId != streamId) return
+        val nowMs = System.nanoTime() / 1_000_000L
+        val rate = spkSampleRate
+        if (!VoiceOpusMath.isOpusSampleRate(rate)) return
+        synchronized(spkJitterLock) {
+            if (spkStreamId != streamId) return
+            val jb = spkJitter?.takeIf { it.streamId == streamId }
+                ?: VoiceJitterBuffer(streamId, rate).also { spkJitter = it }
+            jb.push(packet, nowMs)
+        }
+    }
+
+    override fun speakerStats(streamId: Long, nowMs: Long): VoiceStats? = synchronized(spkJitterLock) {
+        spkJitter?.takeIf { it.streamId == streamId }?.statsSnapshot(nowMs)
+    }
+
     /** Barge-in (`SPK_CLEAR`): drops queued audio and immediately runs `pause() / flush() / play()` without blocking on `write()`. */
     override fun clearSpeaker(streamId: Long) {
         if (spkStreamId != streamId) return
         spkGeneration.incrementAndGet()
         spkQueue.clear()
+        synchronized(spkJitterLock) {
+            spkJitter?.takeIf { it.streamId == streamId }?.clearForBargeIn()
+        }
         synchronized(spkTrackLock) {
             spkTrack?.let { track ->
                 runCatching {
@@ -901,6 +941,7 @@ internal class VoiceAudioEngine(
             spkStreamId = null
             spkGeneration.incrementAndGet()
             spkQueue.clear()
+            synchronized(spkJitterLock) { spkJitter = null }
             threadToStop = spkThread.also { spkThread = null }
         }
         synchronized(sessionLock) {
@@ -924,6 +965,7 @@ internal class VoiceAudioEngine(
     private fun playbackLoop(streamId: Long, track: AudioTrack, initialGen: Int) {
         runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO) }
         var lastAudioAt = 0L
+        var nextOpusTickNs = 0L
         try {
             var startedPlaying = false
             synchronized(spkTrackLock) {
@@ -936,7 +978,51 @@ internal class VoiceAudioEngine(
                 scheduleBluetoothRouteCheck(streamId, track)
             }
             while (!Thread.currentThread().isInterrupted && spkStreamId == streamId) {
-                val chunk = spkQueue.poll(120, TimeUnit.MILLISECONDS)
+                val jb = spkJitter
+                if (jb != null && jb.streamId == streamId) {
+                    val nowNs = System.nanoTime()
+                    if (nextOpusTickNs == 0L) nextOpusTickNs = nowNs
+                    val sleepNs = nextOpusTickNs - nowNs
+                    if (sleepNs > 1_000_000L) {
+                        Thread.sleep(sleepNs / 1_000_000L, (sleepNs % 1_000_000L).toInt())
+                    }
+                    if (Thread.currentThread().isInterrupted || spkStreamId != streamId) break
+                    val popMs = System.nanoTime() / 1_000_000L
+                    val genBefore = spkGeneration.get()
+                    val samples = synchronized(spkJitterLock) {
+                        spkJitter?.takeIf { it.streamId == streamId }?.popFrame(popMs)
+                    }
+                    if (samples == null) {
+                        nextOpusTickNs = System.nanoTime() + 10_000_000L
+                        if (smoothedSpk > 0f && System.nanoTime() - lastAudioAt > SILENCE_DECAY_NS) {
+                            smoothedSpk = 0f
+                            onSpeakerLevel(0f)
+                        }
+                        continue
+                    }
+                    // Pace by the actual emitted frame duration (20 ms normal, ~17.6 ms during WSOLA catch-up).
+                    val frameDurNs = (samples.size.toLong() * 1_000_000_000L) / spkSampleRate.coerceAtLeast(8_000)
+                    val afterPopNs = System.nanoTime()
+                    val targetNext = nextOpusTickNs + frameDurNs
+                    nextOpusTickNs = if (afterPopNs > targetNext + 60_000_000L) afterPopNs + frameDurNs else targetNext
+                    if (focusSuspended || genBefore != spkGeneration.get()) continue
+                    val pcm = VoiceOpusMath.shortsToBytes(samples)
+                    val level = VoiceAudioMath.rmsLevel(pcm, 0, pcm.size)
+                    smoothedSpk = VoiceAudioMath.smoothLevel(smoothedSpk, level)
+                    lastAudioAt = System.nanoTime()
+                    onSpeakerLevel(smoothedSpk)
+                    val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+                    if (written < 0) {
+                        if (spkStreamId == streamId && !Thread.currentThread().isInterrupted) {
+                            Log.w(TAG, "AudioTrack write error=$written (stream=$streamId)")
+                        }
+                        if (written == AudioTrack.ERROR_DEAD_OBJECT || written == AudioTrack.ERROR_INVALID_OPERATION) break
+                    }
+                    continue
+                }
+
+                nextOpusTickNs = 0L
+                val chunk = spkQueue.poll(20, TimeUnit.MILLISECONDS)
                 if (chunk == null) {
                     // Decay speaker indicator cleanly back to listening once playback goes quiet.
                     if (smoothedSpk > 0f && System.nanoTime() - lastAudioAt > SILENCE_DECAY_NS) {
@@ -1042,7 +1128,7 @@ internal class VoiceAudioEngine(
 
     companion object {
         private const val TAG = "RoamttyVoice"
-        private const val MAX_SPK_QUEUE = 128
+        private const val MAX_SPK_QUEUE = 12
         private const val SILENCE_DECAY_NS = 350_000_000L
         private const val ZERO_READ_SLEEP_MS = 20L
         private const val MAX_CONSECUTIVE_ZERO_READS = 50

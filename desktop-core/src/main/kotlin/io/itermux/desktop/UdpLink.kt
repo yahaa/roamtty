@@ -32,7 +32,7 @@ class UdpLink(
     private val onGiveUp: (ByteArray) -> Unit = {},
 ) {
     private val crypto = UdpCrypto(key)
-    @Volatile private var socket: DatagramSocket = DatagramSocket()
+    @Volatile private var socket: DatagramSocket = openVoiceSocket()
     private val seq = AtomicLong(1)
     /** Reliable messages are odd (2n + 1, n counting up) so the host can apply them in order; the rest even. */
     private val reliableSeq = AtomicLong(0)
@@ -261,7 +261,7 @@ class UdpLink(
     /** A new network: a new socket (new local port), three heartbeats straight away. */
     fun rebind() {
         val old = socket
-        socket = DatagramSocket()
+        socket = openVoiceSocket()
         old.close()
         receiver(socket)
         repeat(3) { heartbeat() }
@@ -275,17 +275,31 @@ class UdpLink(
 
     companion object {
         const val ALIVE_US = 3_000_000L
+        /** DSCP Expedited Forwarding (EF = 46 << 2 = 0xB8) for Wi-Fi WMM AC_VO priority. */
+        private const val DSCP_EF_TOS = 0xB8
         private const val SEND_QUEUE_CAP = 512
-        internal const val MIC_AUDIO_QUEUE_CAP = 20
+        internal const val MIC_AUDIO_QUEUE_CAP = 8
 
-        private fun isMicAudio(frame: ByteArray): Boolean =
-            frame.isNotEmpty() && (frame[0].toInt() and 0xFF) == VoiceProtocol.MIC_AUDIO
+        private fun openVoiceSocket(): DatagramSocket = DatagramSocket().apply {
+            runCatching { trafficClass = DSCP_EF_TOS }
+        }
 
-        /** Which client frames must arrive: everything except pointer moves, wheel, ACK, pings, and live mic audio. */
+        private fun isMicAudio(frame: ByteArray): Boolean {
+            if (frame.isEmpty()) return false
+            val t = frame[0].toInt() and 0xFF
+            return t == VoiceProtocol.MIC_AUDIO || t == VoiceProtocol.MIC_OPUS
+        }
+
+        /** Which client frames must arrive: everything except pointer moves, wheel, ACK, pings, and live voice audio/stats. */
         fun reliable(frame: ByteArray): Boolean {
             if (frame.isEmpty()) return true
             return when (frame[0].toInt() and 0xFF) {
-                DesktopProtocol.ACK, DesktopProtocol.PING, DesktopProtocol.PONG, VoiceProtocol.MIC_AUDIO -> false
+                DesktopProtocol.ACK,
+                DesktopProtocol.PING,
+                DesktopProtocol.PONG,
+                VoiceProtocol.MIC_AUDIO,
+                VoiceProtocol.MIC_OPUS,
+                VoiceProtocol.VOICE_STATS_C2S -> false
                 DesktopProtocol.INPUT -> (frame.getOrNull(4)?.toInt() ?: 0) !in setOf(1, 2, 4)
                 else -> true
             }

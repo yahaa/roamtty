@@ -43,6 +43,8 @@ class VoiceConnectionRegistryTest {
         val released = AtomicBoolean(false)
         val silenced = AtomicBoolean(false)
         val beginRoutes = CopyOnWriteArrayList<AudioRoute>()
+        val spkOpusPackets = CopyOnWriteArrayList<VoiceOpusPacket>()
+        @Volatile var mockStats: VoiceStats? = null
         override fun isBluetoothAvailable(): Boolean = bluetoothAvailable
         override fun beginSession(route: AudioRoute) {
             beginRoutes += route
@@ -61,6 +63,8 @@ class VoiceConnectionRegistryTest {
         override fun stopMic(streamId: Long?) { events?.add("$label.stopMic") }
         override fun startSpeaker(streamId: Long, sampleRate: Int, channels: Int): String? = null
         override fun writeSpeaker(streamId: Long, pcm: ByteArray, offset: Int, length: Int) {}
+        override fun writeSpeakerOpus(streamId: Long, packet: VoiceOpusPacket) { spkOpusPackets += packet }
+        override fun speakerStats(streamId: Long, nowMs: Long): VoiceStats? = mockStats
         override fun clearSpeaker(streamId: Long) {}
         override fun stopSpeaker(streamId: Long?) {}
         override fun release() {
@@ -1034,6 +1038,92 @@ class VoiceConnectionRegistryTest {
         assertTrue("no-stream hint must fire when agy opens no stream", hintLatch.await(3, TimeUnit.SECONDS))
         assertTrue("no-stream hint must be non-destructive", conn.active)
         assertEquals(listOf("未检测到 agy 语音流，请查看终端状态"), notices.toList())
+
+        conn.hangup()
+        stream.closeServerStdout(0)
+        scope.cancel()
+    }
+
+    @Test fun opusNegotiationSendsConfigStreamsMicOpusAndRoutesSpkOpus() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val stream = PipedRemoteStream()
+        val readyLatch = CountDownLatch(1)
+        val audio = FakeAudioBackend().apply {
+            mockStats = VoiceStats(streamId = 2L, lossPermille = 50, jitterMs = 20, bufferMs = 40, maxBurstLoss = 1)
+        }
+        var capturedOnMic: ((Long, ByteArray, Int, Int) -> Unit)? = null
+
+        val remote = object : RemoteHost {
+            override suspend fun probePlugins(): Set<HostPlugin>? = null
+            override suspend fun probeDesktop(): HostDesktop = HostDesktop("yes", "Linux x86_64", "roamtty-desktop 0.9.9 proto 1")
+            override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int = 0
+            override suspend fun openStream(command: String): RemoteStream {
+                stream.sendLine("""{"proto":1,"ver":"0.9.9","os":"linux","mode":"voice","mic_port":24713,"session":"sess-opus","resume_token":"tok","codecs":["opus","pcm16"]}""")
+                return stream
+            }
+        }
+        val conn = VoiceConnection(
+            host = testHost(),
+            sessionId = "s-opus",
+            scope = scope,
+            password = "",
+            passphrase = "",
+            tmuxSessions = { emptyList() },
+            onReady = { _, _ -> readyLatch.countDown(); VoiceReadyOutcome.INJECTED },
+            onEnded = {},
+            transport = fakeTransport(remote),
+            engineFactory = { onMic, _, _, _, _, _ -> capturedOnMic = onMic; audio },
+            shutdownGraceMs = 80L,
+            mainDispatcher = Dispatchers.Unconfined,
+        )
+        conn.start(VoiceMode.LIVE, AudioRoute.SPEAKER)
+        assertTrue(readyLatch.await(3, TimeUnit.SECONDS))
+
+        // Must negotiate voice_codec=opus.
+        val cfgDeadline = System.currentTimeMillis() + 2_000L
+        while (System.currentTimeMillis() < cfgDeadline &&
+            stream.receivedFrames.none { it.type == DesktopProtocol.CONFIG && String(it.payload).contains("\"voice_codec\":\"opus\"") }
+        ) { delay(20) }
+        assertTrue(
+            "expected CONFIG voice_codec=opus",
+            stream.receivedFrames.any { it.type == DesktopProtocol.CONFIG && String(it.payload).contains("\"voice_codec\":\"opus\"") },
+        )
+
+        stream.sendFrame(VoiceProtocol.MIC_START, le(9) { putInt(1); putInt(16_000); put(1) })
+        stream.sendFrame(VoiceProtocol.SPK_START, le(9) { putInt(2); putInt(24_000); put(1) })
+        delay(50)
+
+        // Feed severe uplink stats so RED escalates, then send two 20 ms 16 kHz speech frames.
+        val badStats = VoiceStats(streamId = 1L, lossPermille = 200, jitterMs = 55, bufferMs = 80, maxBurstLoss = 3)
+        stream.sendFrame(VoiceProtocol.VOICE_STATS_S2C, VoiceProtocol.encodeVoiceStats(badStats))
+        delay(40)
+
+        val speech = ShortArray(320) { i -> (kotlin.math.sin(i / 16_000.0 * 440.0 * 2.0 * Math.PI) * 14_000.0).toInt().toShort() }
+        val pcmBytes = VoiceOpusMath.shortsToBytes(speech)
+        capturedOnMic!!.invoke(1L, pcmBytes, 0, pcmBytes.size)
+        capturedOnMic!!.invoke(1L, pcmBytes, 0, pcmBytes.size)
+
+        val micDeadline = System.currentTimeMillis() + 2_000L
+        while (System.currentTimeMillis() < micDeadline &&
+            stream.receivedFrames.count { it.type == VoiceProtocol.MIC_OPUS } < 2
+        ) { delay(20) }
+        val micOpus = stream.receivedFrames.filter { it.type == VoiceProtocol.MIC_OPUS }
+        assertTrue("expected >= 2 MIC_OPUS frames", micOpus.size >= 2)
+        assertTrue("must not emit legacy MIC_AUDIO in opus mode", stream.receivedFrames.none { it.type == VoiceProtocol.MIC_AUDIO })
+        val secondPkt = VoiceProtocol.decodeVoiceOpus(micOpus[1].payload)!!
+        assertTrue("high loss must attach RED to MIC_OPUS", secondPkt.red.isNotEmpty())
+
+        // SPK_OPUS routes to audio.writeSpeakerOpus and ticker emits VOICE_STATS_C2S.
+        val spkPkt = VoiceOpusPacket(streamId = 2L, seq = 1, tsSamples = 480, flags = VoiceProtocol.VOICE_FLAG_SPEECH, red = emptyList(), primary = byteArrayOf(1, 2, 3))
+        stream.sendFrame(VoiceProtocol.SPK_OPUS, VoiceProtocol.encodeVoiceOpus(spkPkt))
+        val spkDeadline = System.currentTimeMillis() + 2_000L
+        while (System.currentTimeMillis() < spkDeadline &&
+            (audio.spkOpusPackets.isEmpty() || stream.receivedFrames.none { it.type == VoiceProtocol.VOICE_STATS_C2S })
+        ) { delay(25) }
+        assertEquals(1, audio.spkOpusPackets.size)
+        assertEquals(1, audio.spkOpusPackets[0].seq)
+        assertTrue("expected periodic VOICE_STATS_C2S", stream.receivedFrames.any { it.type == VoiceProtocol.VOICE_STATS_C2S })
 
         conn.hangup()
         stream.closeServerStdout(0)

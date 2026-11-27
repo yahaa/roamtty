@@ -282,6 +282,12 @@ internal class VoiceConnection(
     private val fallbackShutdownSent = AtomicBoolean(false)
     private val ping = DesktopPing(::send)
     @Volatile private var goodSinceMs = 0L
+    @Volatile private var voiceOpusEnabled = false
+    @Volatile private var lastSpkStats: VoiceStats? = null
+    @Volatile private var lastUplinkStats: VoiceStats? = null
+    @Volatile private var lastStallRebindMs = 0L
+    private val micOpusLock = Any()
+    private var micSender: VoiceRedSender? = null
     private val handleLock = Any()
     private val trackerLock = Any()
     private val streamTracker = VoiceRemoteStreamTracker()
@@ -754,9 +760,18 @@ internal class VoiceConnection(
         activeStream = active
         ping.reset()
         goodSinceMs = 0L
+        lastSpkStats = null
+        lastUplinkStats = null
+        lastStallRebindMs = 0L
+        synchronized(micOpusLock) { micSender = null }
+        voiceOpusEnabled = hello.codecs.any { it.equals("opus", ignoreCase = true) }
         var writer: Job? = null
         var ticker: Job? = null
         try {
+            if (voiceOpusEnabled) {
+                sendSsh(VoiceProtocol.config(mapOf("voice_codec" to "opus")))
+                Log.i(TAG, "${host.name}: negotiated Opus+RED voice codec")
+            }
             startUdp(hello)
             if (closing) return Outcome.Closed
 
@@ -817,7 +832,24 @@ internal class VoiceConnection(
                         if (mutableUi.value.link != transportName) dispatch(VoiceEvent.LinkChanged(transportName))
                         if (ticks % PING_EVERY_TICKS == 0) ping.next()
                         ping.tick()
-                        updateLinkQuality(System.currentTimeMillis())
+                        val nowMs = System.currentTimeMillis()
+                        // Report speaker-side voice stats every 250 ms so host adapts Opus bitrate & RED depth live.
+                        if (voiceOpusEnabled) {
+                            mutableUi.value.activeSpkStreamId?.let { spkId ->
+                                engine.speakerStats(spkId, clockMs())?.let { st ->
+                                    lastSpkStats = st
+                                    send(VoiceProtocol.voiceStats(st), fecRatio = 0f)
+                                }
+                            }
+                        }
+                        // Fast UDP stall probe: rebind after 700 ms silence instead of waiting full 3 s ALIVE_US.
+                        if (l != null && l.alive && l.silentUs > UDP_STALL_REBIND_US && nowMs - lastStallRebindMs >= UDP_STALL_REBIND_COOLDOWN_MS) {
+                            lastStallRebindMs = nowMs
+                            launch(Dispatchers.IO) {
+                                runCatching { l.rebind() }.onFailure { Log.w(TAG, "${host.name}: voice UDP stall rebind failed", it) }
+                            }
+                        }
+                        updateLinkQuality(nowMs)
                         ticks++
                         delay(TICK_INTERVAL_MS)
                     }
@@ -998,6 +1030,11 @@ internal class VoiceConnection(
             when (message) {
                 is VoiceServerMessage.MicStart -> {
                     Log.i(TAG, "${host.name}: MIC_START stream=${message.streamId} rate=${message.sampleRate} ch=${message.channels}")
+                    synchronized(micOpusLock) {
+                        micSender = if (voiceOpusEnabled && VoiceOpusMath.isOpusSampleRate(message.sampleRate)) {
+                            VoiceRedSender(message.streamId, message.sampleRate, enableDtx = true)
+                        } else null
+                    }
                     if (!engine.startMic(message.streamId, message.sampleRate, message.channels)) {
                         if (closing) return
                         failFromAudio(tr("无法启动麦克风，请检查麦克风权限"))
@@ -1013,6 +1050,9 @@ internal class VoiceConnection(
                 }
                 is VoiceServerMessage.MicStop -> {
                     Log.i(TAG, "${host.name}: MIC_STOP stream=${message.streamId}")
+                    synchronized(micOpusLock) {
+                        if (micSender?.streamId == message.streamId) micSender = null
+                    }
                     engine.stopMic(message.streamId)
                     dispatch(VoiceEvent.MicStopped(message.streamId))
                     val action = synchronized(trackerLock) { streamTracker.onMicStopped(message.streamId, clockMs()) }
@@ -1053,6 +1093,18 @@ internal class VoiceConnection(
                     val action = synchronized(trackerLock) { streamTracker.onSpkStopped(message.streamId, clockMs()) }
                     handleTrackerAction(action)
                 }
+                is VoiceServerMessage.SpkOpus -> {
+                    val pkt = message.packet
+                    if (mutableUi.value.activeSpkStreamId != pkt.streamId) return
+                    engine.writeSpeakerOpus(pkt.streamId, pkt)
+                    synchronized(trackerLock) { streamTracker.onSpkAudio(pkt.primary.size.coerceAtLeast(1)) }
+                }
+                is VoiceServerMessage.VoiceStatsMsg -> {
+                    lastUplinkStats = message.stats
+                    synchronized(micOpusLock) {
+                        micSender?.takeIf { it.streamId == message.stats.streamId }?.onPeerStats(message.stats, clockMs())
+                    }
+                }
                 is VoiceServerMessage.State -> {
                     if (message.kicked) {
                         kicked = true
@@ -1071,28 +1123,43 @@ internal class VoiceConnection(
         }
     }
 
-    /** Two missed pings in a row, or a slow answer (or UDP stall/heavy loss), marks the voice link unstable; 5 clean seconds restore it. */
+    /** Two missed pings in a row, slow answer, UDP stall, or high voice packet loss marks the link unstable; 5 clean seconds restore it. */
     private fun updateLinkQuality(now: Long) {
         val rtt = ping.rttMs
         val l = link
+        val voiceLoss = maxOf(
+            (lastSpkStats?.lossPermille ?: 0) / 1000.0,
+            (lastUplinkStats?.lossPermille ?: 0) / 1000.0,
+        )
         val bad = if (l != null && l.alive) {
-            l.silentUs > 700_000 || l.loss > 0.25 || rtt > DesktopConnection.POOR_MS
+            l.silentUs > 700_000 || maxOf(l.loss, voiceLoss) > 0.20 || rtt > DesktopConnection.POOR_MS
         } else {
-            ping.missed >= 2 || rtt > DesktopConnection.POOR_MS
+            ping.missed >= 2 || voiceLoss > 0.20 || rtt > DesktopConnection.POOR_MS
         }
         if (bad) goodSinceMs = 0L else if (goodSinceMs == 0L) goodSinceMs = now
         val wasPoor = mutableUi.value.networkPoor
         val poor = bad || (wasPoor && now - goodSinceMs < POOR_RECOVER_MS)
         if (poor != wasPoor) {
-            Log.i(TAG, "${host.name}: voice networkPoor=$poor (udp=${l?.alive} silent=${l?.silentUs?.div(1000)}ms loss=${l?.loss} rtt=$rtt missed=${ping.missed})")
+            Log.i(TAG, "${host.name}: voice networkPoor=$poor (udp=${l?.alive} silent=${l?.silentUs?.div(1000)}ms loss=${maxOf(l?.loss ?: 0.0, voiceLoss)} rtt=$rtt missed=${ping.missed})")
             dispatch(VoiceEvent.NetworkQualityChanged(poor))
         }
     }
 
-    /** Slices a 40 ms capture read into 20 ms (`<= 640 B`) frames so each fits 1 UDP shard with 1.0 FEC parity. */
+    /** Encodes 20 ms capture reads into Opus+RED frames when negotiated (single UDP shard, DTX), else legacy PCM16. */
     private fun sendMicPcm(streamId: Long, pcm: ByteArray, offset: Int, length: Int) {
         if (closing || mutableUi.value.isMuted) return
         val slices = VoiceAudioMath.sliceSampleAligned(offset, length, VoiceProtocol.MIC_FRAME_CHUNK_BYTES)
+        if (voiceOpusEnabled) {
+            for ((start, len) in slices) {
+                val pkt = synchronized(micOpusLock) {
+                    micSender?.takeIf { it.streamId == streamId }?.encodePcm20ms(pcm, start, len)
+                }
+                if (pkt != null) {
+                    send(VoiceProtocol.micOpus(pkt), fecRatio = 0f)
+                }
+            }
+            return
+        }
         for ((start, len) in slices) {
             val frame = VoiceProtocol.micAudio(streamId, pcm, start, len)
             send(frame, fecRatio = MIC_UDP_FEC_RATIO)
@@ -1159,15 +1226,20 @@ internal class VoiceConnection(
         private const val PING_EVERY_TICKS = 4 // Every ~1s
         private const val POOR_RECOVER_MS = 5_000L
         private const val SSH_SEND_CAP = 128
-        internal const val MIC_SSH_CAP = 20
+        internal const val MIC_SSH_CAP = 6
         private const val MIC_UDP_FEC_RATIO = 1.0f
+        private const val UDP_STALL_REBIND_US = 700_000L
+        private const val UDP_STALL_REBIND_COOLDOWN_MS = 2_000L
         internal const val EXIT_UNSUPPORTED_SUBCOMMAND = 2
 
         /** Detached IO scope so `SessionService.onDestroy()` cancelling its scope cannot abort `shutdown: true` delivery. */
         private val shutdownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-        private fun isMicAudio(frame: ByteArray): Boolean =
-            frame.isNotEmpty() && (frame[0].toInt() and 0xFF) == VoiceProtocol.MIC_AUDIO
+        private fun isMicAudio(frame: ByteArray): Boolean {
+            if (frame.isEmpty()) return false
+            val t = frame[0].toInt() and 0xFF
+            return t == VoiceProtocol.MIC_AUDIO || t == VoiceProtocol.MIC_OPUS
+        }
 
         /** User-facing failure message when `roamtty-desktop voice` exits before writing `hello`. */
         internal fun voiceStartExitMessage(status: Int): String = if (status == EXIT_UNSUPPORTED_SUBCOMMAND) {
