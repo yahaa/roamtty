@@ -10,6 +10,7 @@ Licensor Line of Business: Remote terminal and remote AI coding client software.
 | --- | --- | --- |
 | Termux terminal-emulator and terminal-view | `termux/termux-app@4584488513c099f2e98bcfcd00f006d213248729` | Apache-2.0 exception declared in upstream LICENSE.md; original copyright notices retained |
 | mwiede/JSch | 2.28.0 | BSD-3-Clause; embedded JZlib BSD and jBCrypt ISC notices included |
+| Concentus (Java Opus codec) | `io.github.jaredmdobson:concentus:1.0.2` | BSD-3-Clause; full text in `licenses/Concentus-BSD-3-Clause.txt` |
 | Bouncy Castle bcprov-jdk18on | 1.80 | MIT-style Bouncy Castle license |
 | Linux Tux icon | `devicons/devicon@7330accdbc47e2dc0c19789a48533c4a3c50fe58`, rendered from `icons/linux/linux-original.svg` at 192 px | Tux originally created by Larry Ewing with GIMP; Devicon vector copyright (c) 2015 konpa, MIT. Full text in `licenses/Devicon-MIT.txt` |
 | Linux distribution icons | `devicons/devicon@7330accdbc47e2dc0c19789a48533c4a3c50fe58`, rendered from `icons/{name}/{name}-original.svg` at 192 px; names: `fedora`, `archlinux`, `redhat`, `opensuse`, `rockylinux`, `almalinux`, `gentoo`, `nixos`, `linuxmint` | Devicon vector copyright (c) 2015 konpa, MIT. Full text in `licenses/Devicon-MIT.txt` |
