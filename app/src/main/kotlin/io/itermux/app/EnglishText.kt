@@ -916,6 +916,9 @@ internal object EnglishText {
         "无法启动麦克风，请检查麦克风权限" to "Could not start microphone; please check microphone permission",
         "麦克风采集异常，语音已断开" to "Microphone capture error; voice call disconnected",
         "当前终端已退出 agy，已取消语音连接" to "agy exited in this terminal; voice call cancelled",
+        "通话已结束" to "Call ended",
+        "agy 语音已中断，请查看终端输出" to "agy voice stopped — check terminal",
+        "未检测到 agy 语音流，请查看终端状态" to "No agy audio stream yet — check terminal",
         "网络不稳定" to "Poor network",
     )
 }

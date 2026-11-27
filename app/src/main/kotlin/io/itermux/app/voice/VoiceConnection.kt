@@ -139,6 +139,7 @@ internal class VoiceConnection(
     private val tmuxSessions: () -> List<String>,
     private val onReady: (VoiceMode, Int) -> VoiceReadyOutcome,
     private val onEnded: (VoiceConnection) -> Unit,
+    private val onNotice: (String) -> Unit = {},
     private val isCurrentOwner: () -> Boolean = { true },
     private val transport: VoiceSessionTransport,
     engineFactory: (
@@ -150,6 +151,9 @@ internal class VoiceConnection(
         onRouteChanged: (AudioRoute) -> Unit,
     ) -> VoiceAudioBackend,
     private val shutdownGraceMs: Long = SHUTDOWN_GRACE_MS,
+    private val remoteEndGraceMs: Long = VoiceRemoteStreamTracker.REMOTE_END_GRACE_MS,
+    private val noStreamHintDelayMs: Long = VoiceRemoteStreamTracker.NO_STREAM_HINT_DELAY_MS,
+    private val clockMs: () -> Long = { System.nanoTime() / 1_000_000L },
     private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) {
     constructor(
@@ -162,6 +166,7 @@ internal class VoiceConnection(
         tmuxSessions: () -> List<String>,
         onReady: (VoiceMode, Int) -> VoiceReadyOutcome,
         onEnded: (VoiceConnection) -> Unit,
+        onNotice: (String) -> Unit = {},
         isCurrentOwner: () -> Boolean = { true },
     ) : this(
         host = host,
@@ -172,6 +177,7 @@ internal class VoiceConnection(
         tmuxSessions = tmuxSessions,
         onReady = onReady,
         onEnded = onEnded,
+        onNotice = onNotice,
         isCurrentOwner = isCurrentOwner,
         transport = AppVoiceSessionTransport(app),
         engineFactory = { onMicChunk, onMicLevel, onSpeakerLevel, onMicError, onBluetoothChanged, onRouteChanged ->
@@ -276,9 +282,14 @@ internal class VoiceConnection(
     private val fallbackShutdownSent = AtomicBoolean(false)
     private val ping = DesktopPing(::send)
     @Volatile private var goodSinceMs = 0L
+    private val handleLock = Any()
+    private val trackerLock = Any()
+    private val streamTracker = VoiceRemoteStreamTracker()
 
     private var job: Job? = null
     private var timerJob: Job? = null
+    private var remoteEndJob: Job? = null
+    private var noStreamHintJob: Job? = null
 
     val active: Boolean get() = mutableUi.value.inCall
     val micPort: Int? get() = activeMicPort
@@ -299,6 +310,13 @@ internal class VoiceConnection(
         fatalFailure = null
         cleanedEnv.set(false)
         fallbackShutdownSent.set(false)
+        synchronized(trackerLock) {
+            remoteEndJob?.cancel()
+            remoteEndJob = null
+            noStreamHintJob?.cancel()
+            noStreamHintJob = null
+            streamTracker.reset(mode)
+        }
         val bt = engine.isBluetoothAvailable()
         val effectiveRoute = if (route == AudioRoute.BLUETOOTH && !bt) AudioRoute.SPEAKER else route
         dispatch(VoiceEvent.Start(mode, effectiveRoute, bluetoothAvailable = bt))
@@ -362,7 +380,9 @@ internal class VoiceConnection(
         }
     }
 
-    fun hangup() = hangupInternal(keepFailure = false)
+    fun hangup() {
+        hangupInternal(keepFailure = false)
+    }
 
     private fun failFromAudio(message: String) {
         if (fatalFailure == null) fatalFailure = message
@@ -370,9 +390,10 @@ internal class VoiceConnection(
         hangupInternal(keepFailure = true)
     }
 
-    private fun hangupInternal(keepFailure: Boolean) {
-        if (!closingFlag.compareAndSet(false, true)) return
+    private fun hangupInternal(keepFailure: Boolean): Boolean {
+        if (!closingFlag.compareAndSet(false, true)) return false
         closing = true
+        cancelStreamTimers()
         engine.silenceForHangup()
         timerJob?.cancel()
         pending.value?.answer?.complete(null)
@@ -427,6 +448,7 @@ internal class VoiceConnection(
                 onEnded(this@VoiceConnection)
             }
         }
+        return true
     }
 
     fun clearSecrets() {
@@ -436,8 +458,87 @@ internal class VoiceConnection(
 
     fun release() {
         clearSecrets()
+        cancelStreamTimers()
         timerJob?.cancel()
         engine.release()
+    }
+
+    private fun cancelStreamTimers() {
+        synchronized(trackerLock) {
+            remoteEndJob?.cancel()
+            remoteEndJob = null
+            noStreamHintJob?.cancel()
+            noStreamHintJob = null
+        }
+    }
+
+    private fun beginRecovery() {
+        synchronized(trackerLock) {
+            remoteEndJob?.cancel()
+            remoteEndJob = null
+            noStreamHintJob?.cancel()
+            noStreamHintJob = null
+            streamTracker.beginRecovery()
+        }
+    }
+
+    private fun handleTrackerAction(action: VoiceRemoteStreamAction) {
+        when (action) {
+            VoiceRemoteStreamAction.None -> Unit
+            VoiceRemoteStreamAction.StreamActive -> cancelStreamTimers()
+            is VoiceRemoteStreamAction.ScheduleRemoteEnd -> {
+                if (!closing && !mutableUi.value.resuming) {
+                    scheduleRemoteEnd(action.reason)
+                }
+            }
+        }
+    }
+
+    private fun scheduleRemoteEnd(reason: VoiceRemoteEndReason) {
+        synchronized(trackerLock) {
+            remoteEndJob?.cancel()
+            remoteEndJob = scope.launch {
+                if (remoteEndGraceMs > 0L) delay(remoteEndGraceMs)
+                val shouldFinish = synchronized(trackerLock) {
+                    !closing && active && !mutableUi.value.resuming &&
+                        streamTracker.activeMicStreamId == null &&
+                        streamTracker.activeSpkStreamId == null
+                }
+                if (shouldFinish) {
+                    finishFromRemote(reason)
+                }
+            }
+        }
+    }
+
+    private fun scheduleNoStreamHint() {
+        if (noStreamHintDelayMs <= 0L) return
+        synchronized(trackerLock) {
+            if (closing || streamTracker.hadAnyStream) return
+            noStreamHintJob?.cancel()
+            noStreamHintJob = scope.launch {
+                delay(noStreamHintDelayMs)
+                val shouldWarn = synchronized(trackerLock) {
+                    !closing && active && !mutableUi.value.resuming && !streamTracker.hadAnyStream
+                }
+                if (shouldWarn) {
+                    Log.i(TAG, "${host.name}: no agy audio stream detected after ${noStreamHintDelayMs}ms")
+                    onNotice(tr("未检测到 agy 语音流，请查看终端状态"))
+                }
+            }
+        }
+    }
+
+    private fun finishFromRemote(reason: VoiceRemoteEndReason) {
+        if (closing || !active) return
+        val notice = when (reason) {
+            VoiceRemoteEndReason.ABORTED_EARLY -> tr("agy 语音已中断，请查看终端输出")
+            VoiceRemoteEndReason.ENDED -> tr("通话已结束")
+        }
+        Log.i(TAG, "${host.name}: remote agy streams closed ($reason), auto-ending live call")
+        if (hangupInternal(keepFailure = false)) {
+            onNotice(notice)
+        }
     }
 
     private fun startTimer() {
@@ -491,12 +592,14 @@ internal class VoiceConnection(
                             dispatch(VoiceEvent.Fail(tr("语音连接中断超时，已断开")))
                             break
                         }
+                        beginRecovery()
                         dispatch(VoiceEvent.Resuming(true))
                         delay(1000)
                     }
                     Outcome.Streamed -> {
                         recoveringSince = null
                         if (!closing) {
+                            beginRecovery()
                             dispatch(VoiceEvent.Resuming(true))
                             delay(500)
                         }
@@ -505,6 +608,7 @@ internal class VoiceConnection(
             }
         } finally {
             withContext(NonCancellable + Dispatchers.IO) {
+                cancelStreamTimers()
                 timerJob?.cancel()
                 clearSecrets()
                 engine.release()
@@ -670,9 +774,14 @@ internal class VoiceConnection(
             val initialLink = if (link?.alive == true) "UDP" else "SSH"
             dispatch(VoiceEvent.Ready(hello.micPort, initialLink))
             if (!readyNotified) {
-                val readyResult = withContext(mainDispatcher) { onReady(mode, hello.micPort) }
+                val readyResult = withContext(mainDispatcher) {
+                    if (closing) return@withContext VoiceReadyOutcome.SESSION_GONE
+                    onReady(mode, hello.micPort).also {
+                        if (it == VoiceReadyOutcome.INJECTED) readyNotified = true
+                    }
+                }
                 when (readyResult) {
-                    VoiceReadyOutcome.INJECTED -> readyNotified = true
+                    VoiceReadyOutcome.INJECTED -> scheduleNoStreamHint()
                     VoiceReadyOutcome.SESSION_GONE -> {
                         closingFlag.set(true)
                         closing = true
@@ -884,62 +993,80 @@ internal class VoiceConnection(
     }
 
     private fun handle(message: VoiceServerMessage) {
-        when (message) {
-            is VoiceServerMessage.MicStart -> {
-                Log.i(TAG, "${host.name}: MIC_START stream=${message.streamId} rate=${message.sampleRate} ch=${message.channels}")
-                if (!engine.startMic(message.streamId, message.sampleRate, message.channels)) {
-                    failFromAudio(tr("无法启动麦克风，请检查麦克风权限"))
-                    return
+        synchronized(handleLock) {
+            if (closing) return
+            when (message) {
+                is VoiceServerMessage.MicStart -> {
+                    Log.i(TAG, "${host.name}: MIC_START stream=${message.streamId} rate=${message.sampleRate} ch=${message.channels}")
+                    if (!engine.startMic(message.streamId, message.sampleRate, message.channels)) {
+                        if (closing) return
+                        failFromAudio(tr("无法启动麦克风，请检查麦克风权限"))
+                        return
+                    }
+                    if (closing) {
+                        engine.stopMic(message.streamId)
+                        return
+                    }
+                    dispatch(VoiceEvent.MicStarted(message.streamId))
+                    val action = synchronized(trackerLock) { streamTracker.onMicStarted(message.streamId, clockMs()) }
+                    handleTrackerAction(action)
                 }
-                dispatch(VoiceEvent.MicStarted(message.streamId))
-            }
-            is VoiceServerMessage.MicStop -> {
-                Log.i(TAG, "${host.name}: MIC_STOP stream=${message.streamId}")
-                engine.stopMic(message.streamId)
-                dispatch(VoiceEvent.MicStopped(message.streamId))
-                if (!mutableUi.value.inCall) {
-                    // Dictation finished cleanly on host FIN -> tear down voice daemon with shutdown frame and restore pet keyboard.
-                    hangup()
+                is VoiceServerMessage.MicStop -> {
+                    Log.i(TAG, "${host.name}: MIC_STOP stream=${message.streamId}")
+                    engine.stopMic(message.streamId)
+                    dispatch(VoiceEvent.MicStopped(message.streamId))
+                    val action = synchronized(trackerLock) { streamTracker.onMicStopped(message.streamId, clockMs()) }
+                    handleTrackerAction(action)
                 }
-            }
-            is VoiceServerMessage.SpkStart -> {
-                Log.i(TAG, "${host.name}: SPK_START stream=${message.streamId} rate=${message.sampleRate} ch=${message.channels}")
-                val err = engine.startSpeaker(message.streamId, message.sampleRate, message.channels)
-                if (err == null) {
-                    dispatch(VoiceEvent.SpkStarted(message.streamId))
-                } else {
-                    Log.w(TAG, "${host.name}: SPK_START failed: $err")
+                is VoiceServerMessage.SpkStart -> {
+                    Log.i(TAG, "${host.name}: SPK_START stream=${message.streamId} rate=${message.sampleRate} ch=${message.channels}")
+                    val err = engine.startSpeaker(message.streamId, message.sampleRate, message.channels)
+                    if (closing) {
+                        if (err == null) engine.stopSpeaker(message.streamId)
+                        return
+                    }
+                    if (err == null) {
+                        dispatch(VoiceEvent.SpkStarted(message.streamId))
+                        val action = synchronized(trackerLock) { streamTracker.onSpkStarted(message.streamId, clockMs()) }
+                        handleTrackerAction(action)
+                    } else {
+                        Log.w(TAG, "${host.name}: SPK_START failed: $err")
+                    }
+                    send(VoiceProtocol.spkAck(message.streamId, ok = err == null, error = err.orEmpty()), fecRatio = 1.0f)
                 }
-                send(VoiceProtocol.spkAck(message.streamId, ok = err == null, error = err.orEmpty()), fecRatio = 1.0f)
-            }
-            is VoiceServerMessage.SpkAudio -> {
-                if (mutableUi.value.activeSpkStreamId != message.streamId) return
-                // Speaker level & Speaking/Listening transitions are driven solely by VoiceAudioEngine's smoothed onSpeakerLevel.
-                engine.writeSpeaker(message.streamId, message.data, message.offset, message.length)
-            }
-            is VoiceServerMessage.SpkClear -> {
-                Log.i(TAG, "${host.name}: SPK_CLEAR stream=${message.streamId}")
-                engine.clearSpeaker(message.streamId)
-                dispatch(VoiceEvent.SpkCleared(message.streamId))
-            }
-            is VoiceServerMessage.SpkStop -> {
-                Log.i(TAG, "${host.name}: SPK_STOP stream=${message.streamId}")
-                engine.stopSpeaker(message.streamId)
-                dispatch(VoiceEvent.SpkStopped(message.streamId))
-            }
-            is VoiceServerMessage.State -> {
-                if (message.kicked) {
-                    kicked = true
-                    stream?.close()
+                is VoiceServerMessage.SpkAudio -> {
+                    if (mutableUi.value.activeSpkStreamId != message.streamId) return
+                    // Speaker level & Speaking/Listening transitions are driven solely by VoiceAudioEngine's smoothed onSpeakerLevel.
+                    engine.writeSpeaker(message.streamId, message.data, message.offset, message.length)
+                    synchronized(trackerLock) { streamTracker.onSpkAudio(message.length) }
                 }
-                message.error?.let(::line)
-            }
-            is VoiceServerMessage.Ping -> {
-                val now = System.nanoTime() / 1000
-                send(VoiceProtocol.pong(message.t1, now, now))
-            }
-            is VoiceServerMessage.Pong -> {
-                ping.answer(message.t1)
+                is VoiceServerMessage.SpkClear -> {
+                    Log.i(TAG, "${host.name}: SPK_CLEAR stream=${message.streamId}")
+                    engine.clearSpeaker(message.streamId)
+                    dispatch(VoiceEvent.SpkCleared(message.streamId))
+                    synchronized(trackerLock) { streamTracker.onSpkCleared() }
+                }
+                is VoiceServerMessage.SpkStop -> {
+                    Log.i(TAG, "${host.name}: SPK_STOP stream=${message.streamId}")
+                    engine.stopSpeaker(message.streamId)
+                    dispatch(VoiceEvent.SpkStopped(message.streamId))
+                    val action = synchronized(trackerLock) { streamTracker.onSpkStopped(message.streamId, clockMs()) }
+                    handleTrackerAction(action)
+                }
+                is VoiceServerMessage.State -> {
+                    if (message.kicked) {
+                        kicked = true
+                        stream?.close()
+                    }
+                    message.error?.let(::line)
+                }
+                is VoiceServerMessage.Ping -> {
+                    val now = System.nanoTime() / 1000
+                    send(VoiceProtocol.pong(message.t1, now, now))
+                }
+                is VoiceServerMessage.Pong -> {
+                    ping.answer(message.t1)
+                }
             }
         }
     }

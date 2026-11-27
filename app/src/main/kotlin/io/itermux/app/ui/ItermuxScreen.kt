@@ -128,10 +128,18 @@ fun ItermuxScreen(
     }
     ScreenRequestEffects(ScreenRequests(pendingShareImages, onShareImagesConsumed, pendingDesktopHost, onDesktopHostConsumed,
         pendingSession, onSessionConsumed), state, actions, service)
-    // Surface voice bridge failures reliably even when VoiceRegistry immediately cleans up the ended connection.
+    // Surface voice bridge failures and remote-end notices reliably even when VoiceRegistry immediately cleans up the ended connection.
     LaunchedEffect(service) {
-        service?.voices?.failures?.collect { failure ->
-            if (failure.message.isNotBlank()) actions.toast(failure.message)
+        val voices = service?.voices ?: return@LaunchedEffect
+        launch {
+            voices.failures.collect { failure ->
+                if (failure.message.isNotBlank()) actions.toast(failure.message)
+            }
+        }
+        launch {
+            voices.notices.collect { notice ->
+                if (notice.message.isNotBlank()) actions.toast(notice.message)
+            }
         }
     }
 

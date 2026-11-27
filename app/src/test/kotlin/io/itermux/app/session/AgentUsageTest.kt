@@ -1,6 +1,7 @@
 package io.itermux.app.session
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -271,74 +272,94 @@ class AgentUsageTest {
         }
     }
 
-    @Test fun agyQuotaNeverPollsAutomaticallyAndFetchesOnlyWhenExplicitlyRequested() {
-        val home = Files.createTempDirectory("roamtty-agy-manual-quota").toFile()
+    @Test fun agyQuotaStrictlyReadOnlyAndNeverInvokesAgyOrTmux() {
+        val home = Files.createTempDirectory("roamtty-agy-readonly-quota").toFile()
         try {
             val binDir = File(home, ".local/bin").apply { mkdirs() }
-            val marker = File(home, "agy-invoked.log")
-            val fakeAgy = File(binDir, "agy").apply {
-                writeText(
-                    """#!/bin/sh
-echo "$@" >> "${marker.absolutePath}"
-printf '%s\n' '{"command":{"data":{"groups":[{"name":"Gemini Models","buckets":[{"window":"5h","remaining_fraction":0.64,"reset_time":"2099-01-01T05:00:00Z"},{"window":"weekly","remaining_fraction":0.52,"reset_time":"2099-01-07T00:00:00Z"}]}]}}}'
-"""
-                )
+            val agyMarker = File(home, "agy-invoked.log")
+            val tmuxMarker = File(home, "tmux-runshell.log")
+            File(binDir, "agy").apply {
+                writeText("#!/bin/sh\necho \"\$@\" >> \"${agyMarker.absolutePath}\"\nexit 0\n")
                 setExecutable(true)
             }
-            assertTrue(fakeAgy.canExecute())
-            val agyLogDir = File(home, ".gemini/antigravity-cli/brain/conv-manual/.system_generated/logs").apply { mkdirs() }
+            File(binDir, "tmux").apply {
+                writeText("#!/bin/sh\necho \"\$@\" >> \"${tmuxMarker.absolutePath}\"\nexit 0\n")
+                setExecutable(true)
+            }
+            val agyLogDir = File(home, ".gemini/antigravity-cli/brain/conv-ro/.system_generated/logs").apply { mkdirs() }
             File(agyLogDir, "transcript.jsonl").writeText(
                 """{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":5000,"output_tokens":500,"cache_read_tokens":20000}""" + "\n"
             )
             val envPath = "${binDir.absolutePath}:${System.getenv("PATH") ?: "/usr/bin:/bin"}"
 
-            // 1. Default session + host reads must NOT invoke `agy -p /quota`.
-            val autoSessProc = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.sessionCommand(CodingAgent.AGY, null, "/work/app")).apply {
+            // 1. Without a statusLine cache, session + host reads (and even legacy --fetch-agy-quota) must NEVER invoke agy or tmux run-shell.
+            val sessCmd = AgentUsageCollector.sessionCommand(CodingAgent.AGY, null, "/work/app")
+            val sessProc = ProcessBuilder("/bin/sh", "-c", sessCmd).apply {
                 environment()["HOME"] = home.absolutePath
                 environment()["PATH"] = envPath
             }.start()
-            autoSessProc.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
-            val autoSess = AgentUsageCollector.parseSession(autoSessProc.inputStream.bufferedReader().readText())!!
-            assertEquals(0, autoSessProc.waitFor())
-            assertNull(autoSess.quota5h)
-            assertNull(autoSess.quota7d)
-            assertTrue("auto session read must not invoke agy", !marker.exists())
+            sessProc.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
+            val sess = AgentUsageCollector.parseSession(sessProc.inputStream.bufferedReader().readText())!!
+            assertEquals(0, sessProc.waitFor())
+            assertNull(sess.quota5h)
+            assertNull(sess.quota7d)
+            assertFalse("session read must never invoke agy", agyMarker.exists())
+            assertFalse("session read must never invoke tmux run-shell", tmuxMarker.exists())
 
-            val autoHostProc = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.hostScript(HostUsageRange.TODAY)).apply {
+            val legacyFlagProc = ProcessBuilder("python3", "-", "session", "agy", "", "/work/app", "--fetch-agy-quota").apply {
                 environment()["HOME"] = home.absolutePath
                 environment()["PATH"] = envPath
             }.start()
-            val autoHost = AgentUsageCollector.parseHost(autoHostProc.inputStream.bufferedReader().readLines(), HostUsageRange.TODAY)
-            assertEquals(0, autoHostProc.waitFor())
-            assertEquals(1, autoHost.agents.size)
-            assertNull(autoHost.agents[0].quota5h)
-            assertTrue("auto host read must not invoke agy", !marker.exists())
+            legacyFlagProc.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
+            assertEquals(0, legacyFlagProc.waitFor())
+            assertFalse("legacy --fetch-agy-quota must never invoke agy", agyMarker.exists())
+            assertFalse("legacy --fetch-agy-quota must never invoke tmux run-shell", tmuxMarker.exists())
 
-            // 2. Manual button triggers fetchAgyQuota=true -> invokes `agy -p /quota` once and caches result.
-            val manualProc = ProcessBuilder(
-                "/bin/sh", "-c",
-                AgentUsageCollector.sessionCommand(CodingAgent.AGY, null, "/work/app", fetchAgyQuota = true),
-            ).apply {
+            val hostProc = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.hostScript(HostUsageRange.TODAY)).apply {
                 environment()["HOME"] = home.absolutePath
                 environment()["PATH"] = envPath
             }.start()
-            manualProc.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
-            val manualSess = AgentUsageCollector.parseSession(manualProc.inputStream.bufferedReader().readText())!!
-            assertEquals(0, manualProc.waitFor())
-            assertEquals(64, manualSess.quota5h?.remainingRounded)
-            assertEquals(52, manualSess.quota7d?.remainingRounded)
-            assertEquals(1, marker.readLines().size)
+            val host = AgentUsageCollector.parseHost(hostProc.inputStream.bufferedReader().readLines(), HostUsageRange.TODAY)
+            assertEquals(0, hostProc.waitFor())
+            assertEquals(1, host.agents.size)
+            assertNull(host.agents[0].quota5h)
+            assertFalse("host read must never invoke agy", agyMarker.exists())
 
-            // 3. Subsequent default host read serves the cached snapshot without invoking `agy` again.
+            // 2. Once populated by official statusLine hook, both session & host reads report exact values without double-rounding.
+            val hookFile = File(home, "agent-hook.sh").apply { writeText(AgentHooks.script); setExecutable(true) }
+            val slProc = ProcessBuilder("sh", hookFile.absolutePath, "agy", "statusline").apply {
+                environment()["HOME"] = home.absolutePath
+                // Also verify statusline works even without ROAMTTY_AGENT (e.g. user-configured /statusline).
+                environment().remove("ROAMTTY_AGENT")
+            }.start()
+            slProc.outputStream.use {
+                val payload = """{"conversation_id":"conv-ro","model":{"id":"Gemini 4 Neon (XHigh)"},"quota":{""" +
+                    """"gemini-5h":{"remaining_fraction":0.9454,"reset_time":"2099-01-01T05:00:00Z","reset_in_seconds":5000},""" +
+                    """"gemini-weekly":{"remaining_fraction":0.7648,"reset_time":"2099-01-07T00:00:00Z","reset_in_seconds":500000}}}"""
+                it.write(payload.toByteArray())
+            }
+            assertEquals(0, slProc.waitFor())
+
+            val cachedSessProc = ProcessBuilder("/bin/sh", "-c", sessCmd).apply {
+                environment()["HOME"] = home.absolutePath
+                environment()["PATH"] = envPath
+            }.start()
+            cachedSessProc.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
+            val cachedSess = AgentUsageCollector.parseSession(cachedSessProc.inputStream.bufferedReader().readText())!!
+            assertEquals(0, cachedSessProc.waitFor())
+            assertEquals(95, cachedSess.quota5h?.remainingRounded)
+            // 0.7648 -> 76.48% must round to 76%, not double-round 76.48 -> 76.5 -> 77%.
+            assertEquals(76, cachedSess.quota7d?.remainingRounded)
+
             val cachedHostProc = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.hostScript(HostUsageRange.TODAY)).apply {
                 environment()["HOME"] = home.absolutePath
                 environment()["PATH"] = envPath
             }.start()
             val cachedHost = AgentUsageCollector.parseHost(cachedHostProc.inputStream.bufferedReader().readLines(), HostUsageRange.TODAY)
             assertEquals(0, cachedHostProc.waitFor())
-            assertEquals(64, cachedHost.agents[0].quota5h?.remainingRounded)
-            assertEquals(52, cachedHost.agents[0].quota7d?.remainingRounded)
-            assertEquals(1, marker.readLines().size)
+            assertEquals(95, cachedHost.agents[0].quota5h?.remainingRounded)
+            assertEquals(76, cachedHost.agents[0].quota7d?.remainingRounded)
+            assertFalse("cached reads must never invoke agy", agyMarker.exists())
         } finally {
             home.deleteRecursively()
         }
@@ -419,79 +440,7 @@ printf '%s\n' '{"command":{"data":{"groups":[{"name":"Gemini Models","buckets":[
         }
     }
 
-    @Test fun agyLiveFetchFallsBackToTmuxOnSshOAuthAndAvoidsDoubleRounding() {
-        val home = Files.createTempDirectory("roamtty-agy-tmux-fallback").toFile()
-        try {
-            val binDir = File(home, ".local/bin").apply { mkdirs() }
-            val tmuxMarker = File(home, "tmux-used.log")
-            // Fake agy: simulates macOS sshd OAuth hang when direct, succeeds when invoked via tmux run-shell.
-            File(binDir, "agy").apply {
-                writeText(
-                    """#!/bin/sh
-if [ "${'$'}{FAKE_TMUX_AQUA:-0}" != "1" ]; then
-  echo "Authentication required. Please visit the URL to log in:" >&2
-  echo "  https://accounts.google.com/o/oauth2/auth?client_id=test" >&2
-  sleep 10
-  exit 1
-fi
-printf '%s\n' '{"command":{"data":{"groups":[{"name":"Gemini Models","buckets":[{"id":"gemini-5h","window":"5h","remaining_fraction":0.9454,"reset_time":"2099-01-01T05:00:00Z"},{"id":"gemini-weekly","window":"weekly","remaining_fraction":0.7648,"reset_time":"2099-01-07T00:00:00Z"}]}]}}}'
-"""
-                )
-                setExecutable(true)
-            }
-            // Fake tmux: executes `run-shell <cmd>` with FAKE_TMUX_AQUA=1 (simulating unlocked Keychain session).
-            File(binDir, "tmux").apply {
-                writeText(
-                    """#!/bin/sh
-while [ "${'$'}#" -gt 0 ]; do
-  if [ "${'$'}1" = "run-shell" ]; then
-    shift
-    echo "run-shell" >> "${tmuxMarker.absolutePath}"
-    FAKE_TMUX_AQUA=1 /bin/sh -c "${'$'}1"
-    exit ${'$'}?
-  fi
-  shift
-done
-exit 1
-"""
-                )
-                setExecutable(true)
-            }
-            val agyLogDir = File(home, ".gemini/antigravity-cli/brain/conv-ssh/.system_generated/logs").apply { mkdirs() }
-            File(agyLogDir, "transcript.jsonl").writeText(
-                """{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":5000,"output_tokens":500,"cache_read_tokens":20000}""" + "\n"
-            )
-            // Seed stale cache so fallback must replace it rather than returning stale 98%/78%.
-            File(home, ".roamtty/quota-agy.json").apply { parentFile?.mkdirs() }.writeText(
-                """{"_fetched_at":1,"quota":{"gemini-5h":{"remaining_fraction":0.98,"reset_time":"2099-01-01T05:00:00Z"},"gemini-weekly":{"remaining_fraction":0.78,"reset_time":"2099-01-07T00:00:00Z"}}}"""
-            )
-
-            val envPath = "${binDir.absolutePath}:${System.getenv("PATH") ?: "/usr/bin:/bin"}"
-            val startedMs = System.currentTimeMillis()
-            val proc = ProcessBuilder(
-                "/bin/sh", "-c",
-                AgentUsageCollector.sessionCommand(CodingAgent.AGY, null, "/work/app", fetchAgyQuota = true),
-            ).apply {
-                environment()["HOME"] = home.absolutePath
-                environment()["PATH"] = envPath
-            }.start()
-            proc.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
-            val out = proc.inputStream.bufferedReader().readText()
-            assertEquals(0, proc.waitFor())
-            val elapsedMs = System.currentTimeMillis() - startedMs
-            assertTrue("OAuth abort + tmux fallback must not wait for sleep 10 (took ${elapsedMs}ms)", elapsedMs < 8_000L)
-            assertTrue("must invoke tmux run-shell fallback", tmuxMarker.exists())
-
-            val parsed = AgentUsageCollector.parseSession(out)!!
-            assertEquals(95, parsed.quota5h?.remainingRounded)
-            // 0.7648 -> 76.48% must round to 76%, not double-round 76.48 -> 76.5 -> 77%.
-            assertEquals(76, parsed.quota7d?.remainingRounded)
-        } finally {
-            home.deleteRecursively()
-        }
-    }
-
-    @Test fun agyStatusLineIdleRedrawDoesNotClobberFresherQuotaCache() {
+    @Test fun agyStatusLineIdleRedrawAndOlderWindowDoNotClobberFresherQuotaCache() {
         val home = Files.createTempDirectory("roamtty-agy-sl-stale").toFile()
         try {
             val hookFile = File(home, "agent-hook.sh").apply { writeText(AgentHooks.script); setExecutable(true) }
@@ -517,7 +466,6 @@ exit 1
             fun readQuota(): AgentSessionUsage {
                 val p = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.sessionCommand(CodingAgent.AGY, null, "/work/app")).apply {
                     environment()["HOME"] = home.absolutePath
-                    environment()["ROAMTTY_NO_LIVE_QUOTA"] = "1"
                 }.start()
                 p.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
                 val u = AgentUsageCollector.parseSession(p.inputStream.bufferedReader().readText())!!
@@ -540,7 +488,7 @@ exit 1
             assertEquals(94, readQuota().quota5h?.remainingRounded)
             assertEquals(76, readQuota().quota7d?.remainingRounded)
 
-            // 4. First-time redraw from an older idle Session C holding stale 97%/78% in the same window -> must NOT clobber recent 94%/76%.
+            // 4. First-time redraw from an older idle Session C holding stale 97%/78% in the same window -> must NOT clobber 94%/76%.
             runStatusLine("sess-C", 0.970, 0.776, "2099-01-01T05:00:00Z", "2099-01-07T00:00:00Z", 14100)
             assertEquals(94, readQuota().quota5h?.remainingRounded)
             assertEquals(76, readQuota().quota7d?.remainingRounded)
@@ -554,6 +502,146 @@ exit 1
             runStatusLine("sess-D", 1.0, 0.748, "2099-01-01T10:00:00Z", "2099-01-07T00:00:00Z", 18000)
             assertEquals(100, readQuota().quota5h?.remainingRounded)
             assertEquals(75, readQuota().quota7d?.remainingRounded)
+
+            // 7. Unseen idle Session E holding the older 05:00 window (40%) MUST NOT overwrite the rolled-over 10:00 window.
+            runStatusLine("sess-E", 0.40, 0.748, "2099-01-01T05:00:00Z", "2099-01-07T00:00:00Z", 100)
+            assertEquals(100, readQuota().quota5h?.remainingRounded)
+            assertEquals(75, readQuota().quota7d?.remainingRounded)
+        } finally {
+            home.deleteRecursively()
+        }
+    }
+
+    @Test fun brandNewHookedAgySessionDoesNotBorrowOtherSessionContextInSameDirectory() {
+        val home = Files.createTempDirectory("roamtty-agy-fresh-ctx").toFile()
+        try {
+            val binDir = File(home, ".local/bin").apply { mkdirs() }
+            val tmuxStore = File(home, "tmux-store").apply { mkdirs() }
+            // Fake tmux supporting show-options, set-option (-u), and display-message for two panes in the same cwd.
+            File(binDir, "tmux").apply {
+                writeText(
+                    """#!/bin/sh
+while [ "${'$'}1" = "-u" ]; do shift; done
+cmd="${'$'}1"; shift
+case "${'$'}cmd" in
+  show-options)
+    while [ "${'$'}#" -gt 0 ]; do
+      case "${'$'}1" in
+        -t) target="${'$'}2"; shift 2 ;;
+        -*) shift ;;
+        *) opt="${'$'}1"; shift ;;
+      esac
+    done
+    cat "${tmuxStore.absolutePath}/${'$'}{target}_${'$'}{opt}" 2>/dev/null
+    ;;
+  set-option)
+    unset_flag=0
+    while [ "${'$'}#" -gt 0 ]; do
+      case "${'$'}1" in
+        -u) unset_flag=1; shift ;;
+        -t) target="${'$'}2"; shift 2 ;;
+        -*) shift ;;
+        *)
+          if [ -z "${'$'}opt" ]; then opt="${'$'}1"
+          else val="${'$'}1"; fi
+          shift ;;
+      esac
+    done
+    if [ "${'$'}unset_flag" = 1 ]; then
+      rm -f "${tmuxStore.absolutePath}/${'$'}{target}_${'$'}{opt}"
+    else
+      printf '%s' "${'$'}val" > "${tmuxStore.absolutePath}/${'$'}{target}_${'$'}{opt}"
+    fi
+    ;;
+  display-message)
+    while [ "${'$'}#" -gt 0 ]; do
+      case "${'$'}1" in
+        -t) target="${'$'}2"; shift 2 ;;
+        -*) shift ;;
+        *) shift ;;
+      esac
+    done
+    sess="${'$'}{target#=}"; sess="${'$'}{sess%:}"
+    a="${'$'}(cat "${tmuxStore.absolutePath}/${'$'}{sess}_@roamtty_agent" 2>/dev/null)"
+    s="${'$'}(cat "${tmuxStore.absolutePath}/${'$'}{sess}_@roamtty_session" 2>/dev/null)"
+    tp="${'$'}(cat "${tmuxStore.absolutePath}/${'$'}{sess}_@roamtty_transcript" 2>/dev/null)"
+    printf '%s\t%s\t%s\t/work/roamtty\t12345\n' "${'$'}a" "${'$'}s" "${'$'}tp"
+    ;;
+esac
+"""
+                )
+                setExecutable(true)
+            }
+
+            // Existing conversation in /work/roamtty with 46% context + last_conversations.json pointing to it.
+            val oldLogDir = File(home, ".gemini/antigravity-cli/brain/conv-old/.system_generated/logs").apply { mkdirs() }
+            val oldTranscript = File(oldLogDir, "transcript.jsonl")
+            oldTranscript.writeText(
+                """{"type":"PLANNER_RESPONSE","created_at":"2099-01-01T00:00:01Z","model":"gemini-4-neon-xhigh","input_tokens":10000,"output_tokens":500,"cache_read_tokens":450000}""" + "\n"
+            )
+            File(home, ".gemini/antigravity-cli/cache/last_conversations.json").apply { parentFile?.mkdirs() }.writeText(
+                """{"/work/roamtty":"conv-old"}"""
+            )
+            File(home, ".gemini/antigravity-cli/settings.json").apply { parentFile?.mkdirs() }.writeText(
+                """{"model":"Gemini 4 Neon (XHigh)"}"""
+            )
+            val nowSec = System.currentTimeMillis() / 1000L
+            File(home, ".roamtty/quota-agy.json").apply { parentFile?.mkdirs() }.writeText(
+                """{"_fetched_at":$nowSec,"quota":{"gemini-5h":{"remaining_fraction":0.90,"reset_time":"2099-01-01T05:00:00Z"},"gemini-weekly":{"remaining_fraction":0.70,"reset_time":"2099-01-07T00:00:00Z"}}}"""
+            )
+
+            // Pane "sess-new": freshly launched hooked agy pane with no conversation_id yet.
+            File(tmuxStore, "sess-new_@roamtty_agent").writeText("idle|$nowSec|agy||")
+            // Pane "sess-old": existing hooked agy pane bound to conv-old.
+            File(tmuxStore, "sess-old_@roamtty_agent").writeText("idle|$nowSec|agy||")
+            File(tmuxStore, "sess-old_@roamtty_session").writeText("conv-old")
+
+            val envPath = "${binDir.absolutePath}:${System.getenv("PATH") ?: "/usr/bin:/bin"}"
+            fun query(tmuxSession: String): AgentSessionUsage {
+                val p = ProcessBuilder("/bin/sh", "-c", AgentUsageCollector.sessionCommand(CodingAgent.AGY, tmuxSession, "/work/roamtty")).apply {
+                    environment()["HOME"] = home.absolutePath
+                    environment()["PATH"] = envPath
+                }.start()
+                p.outputStream.use { it.write(AgentUsageCollector.script.toByteArray()) }
+                val text = p.inputStream.bufferedReader().readText()
+                assertEquals(0, p.waitFor())
+                return AgentUsageCollector.parseSession(text)!!
+            }
+
+            // 1. Old pane reports its own 46% context.
+            val oldUsage = query("sess-old")
+            assertEquals(46, oldUsage.contextPercent)
+            assertEquals(90, oldUsage.quota5h?.remainingRounded)
+
+            // 2. Brand-new pane in the SAME directory must NOT inherit conv-old's 46% context,
+            //    while still displaying configured model/effort and account quotas.
+            val newUsage = query("sess-new")
+            assertNull("brand-new hooked session must not borrow another session's context", newUsage.contextPercent)
+            assertNull(newUsage.contextUsed)
+            assertEquals(0L, newUsage.sessionTotalTokens)
+            assertEquals("Gemini 4 Neon", newUsage.formattedModel)
+            assertEquals(ReasoningEffort.XHIGH, newUsage.reasoningEffort)
+            assertEquals(90, newUsage.quota5h?.remainingRounded)
+            assertEquals(70, newUsage.quota7d?.remainingRounded)
+
+            // 3. statusLine binds /resume conversation_id onto tmux pane and clears it on /clear (empty conversation_id).
+            val hookFile = File(home, "agent-hook.sh").apply { writeText(AgentHooks.script); setExecutable(true) }
+            fun runStatusLine(convId: String, tpath: String) {
+                val p = ProcessBuilder("sh", hookFile.absolutePath, "agy", "statusline").apply {
+                    environment()["HOME"] = home.absolutePath
+                    environment()["PATH"] = envPath
+                    environment()["ROAMTTY_AGENT"] = "agy"
+                    environment()["TMUX_PANE"] = "sess-new"
+                }.start()
+                p.outputStream.use {
+                    it.write("""{"conversation_id":"$convId","transcript_path":"$tpath","quota":{"gemini-5h":{"remaining_fraction":0.90,"reset_time":"2099-01-01T05:00:00Z"}}}""".toByteArray())
+                }
+                assertEquals(0, p.waitFor())
+            }
+            runStatusLine("conv-old", oldTranscript.absolutePath)
+            assertEquals(46, query("sess-new").contextPercent)
+            runStatusLine("", "")
+            assertNull("/clear emptying conversation_id must reset context back to null", query("sess-new").contextPercent)
         } finally {
             home.deleteRecursively()
         }

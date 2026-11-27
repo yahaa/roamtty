@@ -20,6 +20,9 @@ import java.util.concurrent.atomic.AtomicLong
 /** One-shot failure notification emitted even when a failed [VoiceConnection] is immediately cleaned up. */
 internal data class VoiceFailure(val hostId: String, val sessionId: String, val message: String)
 
+/** Non-error status notification (e.g. remote `agy` hang_up or no-stream hint) surfaced to the UI. */
+internal data class VoiceNotice(val hostId: String, val sessionId: String, val message: String)
+
 /**
  * Holds the active `roamtty-desktop voice` session in [io.itermux.app.session.SessionService],
  * keyed by host id while enforcing at most one live voice call across the entire app so Android's
@@ -37,6 +40,7 @@ internal class VoiceRegistry(
         tmuxSessions: () -> List<String>,
         onReady: (VoiceMode, Int) -> VoiceReadyOutcome,
         onEnded: (VoiceConnection) -> Unit,
+        onNotice: (String) -> Unit,
         isCurrentOwner: () -> Boolean,
     ) -> VoiceConnection,
 ) {
@@ -49,7 +53,7 @@ internal class VoiceRegistry(
         scope = scope,
         tmuxSessionsForHost = tmuxSessionsForHost,
         onChange = onChange,
-        connectionFactory = { host, sessionId, password, passphrase, tmuxSessions, onReady, onEnded, isCurrentOwner ->
+        connectionFactory = { host, sessionId, password, passphrase, tmuxSessions, onReady, onEnded, onNotice, isCurrentOwner ->
             VoiceConnection(
                 host = host,
                 sessionId = sessionId,
@@ -60,6 +64,7 @@ internal class VoiceRegistry(
                 tmuxSessions = tmuxSessions,
                 onReady = onReady,
                 onEnded = onEnded,
+                onNotice = onNotice,
                 isCurrentOwner = isCurrentOwner,
             )
         },
@@ -70,6 +75,9 @@ internal class VoiceRegistry(
 
     private val mutableFailures = MutableSharedFlow<VoiceFailure>(extraBufferCapacity = 8)
     val failures: SharedFlow<VoiceFailure> = mutableFailures.asSharedFlow()
+
+    private val mutableNotices = MutableSharedFlow<VoiceNotice>(extraBufferCapacity = 8)
+    val notices: SharedFlow<VoiceNotice> = mutableNotices.asSharedFlow()
 
     /** Monotonic per-host generation so a superseded connection's async `VoiceEnvironment.clear()` never clobbers a new call. */
     private val hostGenerations = ConcurrentHashMap<String, AtomicLong>()
@@ -100,6 +108,11 @@ internal class VoiceRegistry(
             { tmuxSessionsForHost(host.id) },
             onReady,
             ::onEnded,
+            { msg ->
+                if (msg.isNotBlank()) {
+                    mutableNotices.tryEmit(VoiceNotice(host.id, sessionId, msg))
+                }
+            },
             { hostGenerations[host.id]?.get() == gen },
         )
         // Android only has one communication audio route & mic: supersede every active voice call across all hosts.

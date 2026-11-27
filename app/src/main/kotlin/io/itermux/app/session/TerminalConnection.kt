@@ -207,8 +207,8 @@ class TerminalConnection(
         }
     }
 
-    /** Reads current session context, quota and token counts; only runs `agy -p /quota` when [fetchAgyQuota] is true. */
-    fun refreshAgentUsage(force: Boolean = true, fetchAgyQuota: Boolean = false) {
+    /** Reads current session context, quota and token counts from local transcripts and passive statusLine caches. */
+    fun refreshAgentUsage(force: Boolean = true) {
         if (state.value.phase != Phase.CONNECTED) return
         if (!force && agentUsageJob?.isActive == true) return
         val status = mutableAgentStatus.value
@@ -220,15 +220,12 @@ class TerminalConnection(
         agentUsageJob = scope.launch {
             if (force) mutableAgentUsageLoading.value = true
             try {
-                val fetchAgy = fetchAgyQuota && kind == CodingAgent.AGY
                 val cmd = AgentUsageCollector.sessionCommand(
                     agent = kind,
                     tmuxSession = tmuxName,
                     directory = dir,
-                    fetchAgyQuota = fetchAgy,
                 )
-                val timeoutMs = if (fetchAgy) 25_000L else 15_000L
-                val out = withContext(Dispatchers.IO) { ssh.runHostOutput(cmd, AgentUsageCollector.script, timeoutMs) }
+                val out = withContext(Dispatchers.IO) { ssh.runHostOutput(cmd, AgentUsageCollector.script, 15_000L) }
                 lastUsageAtMs = SystemClock.elapsedRealtime()
                 AgentUsageCollector.parseSession(out)?.let { mutableAgentUsage.value = it }
             } catch (e: CancellationException) {

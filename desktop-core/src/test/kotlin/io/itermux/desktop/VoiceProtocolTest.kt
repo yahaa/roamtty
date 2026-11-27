@@ -284,4 +284,96 @@ class VoiceProtocolTest {
         // Odd byte length drops trailing partial sample
         assertEquals(listOf(0 to 6), VoiceAudioMath.sliceSampleAligned(0, 7, 640))
     }
+
+    @Test fun remoteStreamTrackerDetectsEarlyAbortInAnyStreamCloseOrder() {
+        val tracker = VoiceRemoteStreamTracker(VoiceMode.LIVE)
+        assertEquals(VoiceRemoteStreamAction.StreamActive, tracker.onSpkStarted(1L, 100_000L))
+        assertEquals(VoiceRemoteStreamAction.StreamActive, tracker.onMicStarted(2L, 100_050L))
+        assertTrue(tracker.hadAnyStream)
+
+        // Closing only speaker keeps call alive until mic also closes.
+        assertEquals(VoiceRemoteStreamAction.None, tracker.onSpkStopped(1L, 101_450L))
+        // Closing mic 1.46s after start with zero speaker audio -> early abort (e.g. Access denied).
+        assertEquals(
+            VoiceRemoteStreamAction.ScheduleRemoteEnd(VoiceRemoteEndReason.ABORTED_EARLY),
+            tracker.onMicStopped(2L, 101_460L),
+        )
+        assertNull(tracker.activeMicStreamId)
+        assertNull(tracker.activeSpkStreamId)
+
+        // Reversed close order: mic stops before speaker.
+        val reversed = VoiceRemoteStreamTracker(VoiceMode.LIVE)
+        assertEquals(VoiceRemoteStreamAction.StreamActive, reversed.onSpkStarted(1L, 10_000L))
+        assertEquals(VoiceRemoteStreamAction.StreamActive, reversed.onMicStarted(2L, 10_020L))
+        assertEquals(VoiceRemoteStreamAction.None, reversed.onMicStopped(2L, 10_290L))
+        assertEquals(
+            VoiceRemoteStreamAction.ScheduleRemoteEnd(VoiceRemoteEndReason.ABORTED_EARLY),
+            reversed.onSpkStopped(1L, 10_300L),
+        )
+
+        // Single-stream early abort (speaker opens & closes before mic connects).
+        val speakerOnly = VoiceRemoteStreamTracker(VoiceMode.LIVE)
+        assertEquals(VoiceRemoteStreamAction.StreamActive, speakerOnly.onSpkStarted(1L, 20_000L))
+        assertEquals(
+            VoiceRemoteStreamAction.ScheduleRemoteEnd(VoiceRemoteEndReason.ABORTED_EARLY),
+            speakerOnly.onSpkStopped(1L, 20_300L),
+        )
+    }
+
+    @Test fun remoteStreamTrackerClassifiesHangUpCleanEndAfterAudioOrPastWindow() {
+        // Short call that already played AI farewell audio -> clean ENDED (e.g. AI hang_up tool).
+        val spoke = VoiceRemoteStreamTracker(VoiceMode.LIVE)
+        spoke.onSpkStarted(1L, 50_000L)
+        spoke.onMicStarted(2L, 50_050L)
+        assertEquals(VoiceRemoteStreamAction.None, spoke.onSpkAudio(960))
+        assertTrue(spoke.receivedSpeakerAudio)
+        assertEquals(VoiceRemoteStreamAction.None, spoke.onSpkCleared())
+        assertEquals(VoiceRemoteStreamAction.None, spoke.onMicStopped(2L, 52_000L))
+        assertEquals(
+            VoiceRemoteStreamAction.ScheduleRemoteEnd(VoiceRemoteEndReason.ENDED),
+            spoke.onSpkStopped(1L, 52_010L),
+        )
+
+        // Longer silent call (>5s) without speaker audio -> clean ENDED.
+        val silent = VoiceRemoteStreamTracker(VoiceMode.LIVE)
+        silent.onSpkStarted(1L, 100_000L)
+        silent.onMicStarted(2L, 100_100L)
+        assertEquals(VoiceRemoteStreamAction.None, silent.onMicStopped(2L, 106_000L))
+        assertEquals(
+            VoiceRemoteStreamAction.ScheduleRemoteEnd(VoiceRemoteEndReason.ENDED),
+            silent.onSpkStopped(1L, 106_010L),
+        )
+    }
+
+    @Test fun remoteStreamTrackerIgnoresStaleStopsMuteReopenAndResumeRecovery() {
+        val tracker = VoiceRemoteStreamTracker(VoiceMode.LIVE)
+        tracker.onSpkStarted(1L, 1_000L)
+        tracker.onMicStarted(2L, 1_010L)
+
+        // Closing mic while speaker stays open never ends the call; stale stop for old id is ignored.
+        assertEquals(VoiceRemoteStreamAction.None, tracker.onMicStopped(2L, 2_000L))
+        assertEquals(VoiceRemoteStreamAction.StreamActive, tracker.onMicStarted(3L, 3_000L))
+        assertEquals(VoiceRemoteStreamAction.None, tracker.onMicStopped(2L, 3_100L))
+        assertEquals(3L, tracker.activeMicStreamId)
+
+        // Recovery clears in-flight stream IDs so stale stops never trigger hangup, while preserving audio history.
+        tracker.onSpkAudio(960)
+        tracker.beginRecovery()
+        assertNull(tracker.activeMicStreamId)
+        assertNull(tracker.activeSpkStreamId)
+        assertTrue(tracker.hadAnyStream)
+        assertTrue(tracker.receivedSpeakerAudio)
+        assertEquals(VoiceRemoteStreamAction.None, tracker.onMicStopped(3L, 4_000L))
+        assertEquals(VoiceRemoteStreamAction.None, tracker.onSpkStopped(1L, 4_010L))
+
+        // Re-announced streams after --resume track normally and end cleanly later (without duplicate firing).
+        assertEquals(VoiceRemoteStreamAction.StreamActive, tracker.onSpkStarted(1L, 5_000L))
+        assertEquals(VoiceRemoteStreamAction.StreamActive, tracker.onMicStarted(3L, 5_010L))
+        assertEquals(VoiceRemoteStreamAction.None, tracker.onMicStopped(3L, 10_000L))
+        assertEquals(
+            VoiceRemoteStreamAction.ScheduleRemoteEnd(VoiceRemoteEndReason.ENDED),
+            tracker.onSpkStopped(1L, 10_010L),
+        )
+        assertEquals(VoiceRemoteStreamAction.None, tracker.onSpkStopped(1L, 10_020L))
+    }
 }

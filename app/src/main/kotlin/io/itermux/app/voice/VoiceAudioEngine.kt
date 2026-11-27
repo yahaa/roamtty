@@ -627,6 +627,7 @@ internal class VoiceAudioEngine(
     /** Starts capturing 16 kHz mono s16le PCM (`1280 B` / 40 ms reads) for [streamId]. */
     @SuppressLint("MissingPermission")
     override fun startMic(streamId: Long, sampleRate: Int, channels: Int): Boolean {
+        if (hungUp.get()) return false
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "startMic denied: missing RECORD_AUDIO")
             return false
@@ -635,6 +636,7 @@ internal class VoiceAudioEngine(
         if (channels != 1) Log.w(TAG, "startMic: unexpected channels=$channels, forcing mono")
         stopMic()
         synchronized(micLock) {
+            if (hungUp.get()) return false
             micStreamId = streamId
             val t = Thread({ captureLoop(streamId, rate) }, "voice-mic-$streamId").apply {
                 isDaemon = true
@@ -792,6 +794,7 @@ internal class VoiceAudioEngine(
      * Returns null on success, or an error description for `SPK_ACK`.
      */
     override fun startSpeaker(streamId: Long, sampleRate: Int, channels: Int): String? {
+        if (hungUp.get()) return "audio engine stopped"
         if (sampleRate !in VoiceProtocol.SPK_RATE_MIN..VoiceProtocol.SPK_RATE_MAX) {
             return "unsupported sample rate $sampleRate"
         }
@@ -799,6 +802,7 @@ internal class VoiceAudioEngine(
             return "unsupported channels $channels"
         }
         stopSpeaker()
+        if (hungUp.get()) return "audio engine stopped"
         ensureRouteForStream()
         val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         if (minBuf <= 0) return "audio track unavailable for $sampleRate Hz"
@@ -835,6 +839,10 @@ internal class VoiceAudioEngine(
         }
         try {
             synchronized(spkLock) {
+                if (hungUp.get()) {
+                    runCatching { track.release() }
+                    return "audio engine stopped"
+                }
                 val gen = spkGeneration.incrementAndGet()
                 spkQueue.clear()
                 spkStreamId = streamId
