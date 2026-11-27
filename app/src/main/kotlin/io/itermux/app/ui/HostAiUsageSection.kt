@@ -48,7 +48,7 @@ internal fun HostAiUsageSection(monitor: HostMonitor, modifier: Modifier = Modif
                     .size(28.dp)
                     .clip(CircleShape)
                     .clickable(enabled = ready && !loading, role = Role.Button, onClickLabel = tr("刷新")) {
-                        monitor.refreshAiUsage(force = true, fetchAgyQuota = true)
+                        monitor.refreshAiUsage(force = true)
                     }
                     .testTag("host-ai-usage-refresh"),
                 contentAlignment = Alignment.Center,

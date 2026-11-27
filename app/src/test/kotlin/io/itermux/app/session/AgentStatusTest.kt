@@ -73,7 +73,7 @@ class AgentStatusTest {
         val launcher = AgentHooks.grokLauncher
         assertTrue("\"StopCancelled\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh grok stop\"}]}]" in launcher)
         assertTrue("export ROAMTTY_AGENT=grok\ngrok \"\$@\"\n" in launcher)
-        assertTrue("case \"\$agent\" in grok|agy) [ \"\$ROAMTTY_AGENT\" = \"\$agent\" ] || exit 0 ;; esac" in AgentHooks.script)
+        assertTrue("grok:*|agy:*) [ \"\$ROAMTTY_AGENT\" = \"\$agent\" ] || exit 0 ;;" in AgentHooks.script)
     }
 
     @Test fun agyLauncherInstallsPluginAndReportsStartAndEnd() {
