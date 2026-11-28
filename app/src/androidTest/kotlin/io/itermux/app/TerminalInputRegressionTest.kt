@@ -448,6 +448,12 @@ class TerminalInputRegressionTest {
             // A follow-up utterance on the same connection starts cleanly at the same placeholder anchor.
             speakUtterance(listOf("第", "第二句语音测试", "第二句测试"))
             assertEquals("第二句测试", session.input.toString())
+            session.input.clear()
+
+            // Long WeChat IME dictation (100+ chars) must commit in full without splitting into 100+ tiny writes.
+            val longText = "你好，你能听到我说话吗？我现在在车上跟你聊天，你现在听到的话，跟我回答一下我的问题。你知道我是谁吗？我叫什么名字？".repeat(2)
+            speakUtterance(listOf("你好", longText.take(40), longText))
+            assertEquals(longText, session.input.toString())
         }
     }
 

@@ -46,11 +46,11 @@ internal object Mosh {
             return out
         }
 
-        /** Returns null for forged, corrupt or reflected (client-direction) datagrams. */
-        fun open(packet: ByteArray, length: Int = packet.size): ByteArray? {
+        /** Returns null for forged, corrupt or wrong-direction datagrams. [fromClient] plays the server side (tests). */
+        fun open(packet: ByteArray, length: Int = packet.size, fromClient: Boolean = false): ByteArray? {
             if (length < 8 + 16) return null
             val directionSeq = ByteBuffer.wrap(packet, 0, 8).long
-            if (directionSeq and TO_CLIENT == 0L) return null
+            if ((directionSeq and TO_CLIENT != 0L) == fromClient) return null
             val cipher = cipher(false, nonce(directionSeq))
             val out = ByteArray(cipher.getOutputSize(length - 8))
             return try {

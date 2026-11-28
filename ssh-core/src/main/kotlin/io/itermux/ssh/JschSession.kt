@@ -278,7 +278,9 @@ class JschSession(
         val systemProbe = probes.launch(ssh)
         val writer = launch(Dispatchers.IO) {
             try {
-                for (bytes in queues.currentInput()) {
+                val input = queues.currentInput()
+                while (true) {
+                    val bytes = input.receive() ?: break
                     try { if (!stopped.get() && terminal.isConnected) { stdin.write(bytes); stdin.flush() } }
                     finally { bytes.fill(0) }
                 }
