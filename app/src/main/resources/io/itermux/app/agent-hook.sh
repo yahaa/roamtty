@@ -66,40 +66,85 @@ try:
     data = json.loads(sys.stdin.read() or "{}")
 except Exception:
     data = {}
-# Keep Roamtty-managed tmux pane bound to the live conversation (handles fresh start, /clear, /new, /resume).
+# Keep Roamtty-managed tmux pane bound to the live conversation (handles fresh start, /clear, /new, /resume)
+# and reconcile stale working/waiting state when agy returns to idle/error (e.g. Esc cancel skipping Stop)
+# or toggles tool confirmation dialogs.
 pane = os.environ.get("TMUX_PANE") or ""
-if pane and os.environ.get("ROAMTTY_AGENT") == "agy" and isinstance(data, dict) and "conversation_id" in data:
-    cid = data.get("conversation_id") if isinstance(data.get("conversation_id"), str) else ""
-    tpath = data.get("transcript_path") if isinstance(data.get("transcript_path"), str) else ""
-    try:
-        cur_cid = subprocess.run(
-            ["tmux", "show-options", "-qv", "-t", pane, "@roamtty_session"],
+if pane and os.environ.get("ROAMTTY_AGENT") == "agy" and isinstance(data, dict):
+    def tmux_get(opt):
+        return subprocess.run(
+            ["tmux", "show-options", "-qv", "-t", pane, opt],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1,
         ).stdout.decode("utf-8", "replace").strip()
-        cur_tp = subprocess.run(
-            ["tmux", "show-options", "-qv", "-t", pane, "@roamtty_transcript"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1,
-        ).stdout.decode("utf-8", "replace").strip()
-        if cid:
-            if cur_cid != cid:
-                subprocess.run(["tmux", "set-option", "-q", "-t", pane, "@roamtty_session", cid],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-            if tpath:
-                if cur_tp != tpath:
-                    subprocess.run(["tmux", "set-option", "-q", "-t", pane, "@roamtty_transcript", tpath],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-            elif cur_cid != cid and cur_tp:
-                subprocess.run(["tmux", "set-option", "-u", "-q", "-t", pane, "@roamtty_transcript"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-        else:
-            if cur_cid:
-                subprocess.run(["tmux", "set-option", "-u", "-q", "-t", pane, "@roamtty_session"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-            if cur_tp:
-                subprocess.run(["tmux", "set-option", "-u", "-q", "-t", pane, "@roamtty_transcript"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-    except Exception:
-        pass
+
+    def tmux_set(opt, val):
+        subprocess.run(
+            ["tmux", "set-option", "-q", "-t", pane, opt, val],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1,
+        )
+
+    def tmux_unset(opt):
+        subprocess.run(
+            ["tmux", "set-option", "-u", "-q", "-t", pane, opt],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1,
+        )
+
+    if "conversation_id" in data:
+        cid = data.get("conversation_id") if isinstance(data.get("conversation_id"), str) else ""
+        tpath = data.get("transcript_path") if isinstance(data.get("transcript_path"), str) else ""
+        try:
+            cur_cid = tmux_get("@roamtty_session")
+            cur_tp = tmux_get("@roamtty_transcript")
+            if cid:
+                if cur_cid != cid:
+                    tmux_set("@roamtty_session", cid)
+                if tpath:
+                    if cur_tp != tpath:
+                        tmux_set("@roamtty_transcript", tpath)
+                elif cur_cid != cid and cur_tp:
+                    tmux_unset("@roamtty_transcript")
+            else:
+                if cur_cid:
+                    tmux_unset("@roamtty_session")
+                if cur_tp:
+                    tmux_unset("@roamtty_transcript")
+        except Exception:
+            pass
+
+    if "agent_state" in data or "tool_confirmation_pending" in data:
+        try:
+            cur_agent = tmux_get("@roamtty_agent")
+            parts = cur_agent.split("|", 4)
+            if len(parts) >= 3 and parts[2] == "agy":
+                cur_state = parts[0]
+                cur_tool = parts[3] if len(parts) > 3 else ""
+                cur_detail = parts[4] if len(parts) > 4 else ""
+                astate = data.get("agent_state") if isinstance(data.get("agent_state"), str) else ""
+                confirm_pending = data.get("tool_confirmation_pending") is True
+                task_count = data.get("task_count")
+                if isinstance(task_count, bool) or not isinstance(task_count, int):
+                    task_count = 0
+                pending_inputs = data.get("pending_input_count")
+                if isinstance(pending_inputs, bool) or not isinstance(pending_inputs, int):
+                    pending_inputs = 0
+                subagents = data.get("subagents") if isinstance(data.get("subagents"), list) else []
+                has_running_subagent = any(isinstance(s, dict) and s.get("status") == "running" for s in subagents)
+                has_bg = task_count > 0 or has_running_subagent
+                now_ts = int(time.time())
+                if confirm_pending:
+                    if cur_state == "working":
+                        tmux_set("@roamtty_agent", f"waiting|{now_ts}|agy|{cur_tool}|{cur_detail}")
+                elif astate in ("idle", "error") and not has_bg and pending_inputs <= 0:
+                    if cur_state in ("working", "waiting"):
+                        turn = tmux_get("@roamtty_turn")
+                        if turn.isdigit():
+                            tmux_set("@roamtty_worked", str(max(0, now_ts - int(turn))))
+                        tmux_set("@roamtty_agent", f"idle|{now_ts}|agy||")
+                elif astate in ("working", "thinking", "tool_use"):
+                    if cur_state == "waiting" and cur_tool != "ask_question":
+                        tmux_set("@roamtty_agent", f"working|{now_ts}|agy|{cur_tool}|{cur_detail}")
+        except Exception:
+            pass
 quota = data.get("quota") if isinstance(data, dict) else None
 if isinstance(quota, dict):
     cleaned = {}
@@ -478,6 +523,8 @@ case "$event" in
         fi
       fi
     fi
+    [ -n "$reply" ] || reply=$(field error_details 200)
+    [ -n "$reply" ] || reply=$(field error 200)
     [ -z "$reply" ] || put @roamtty_reply "$reply"
     # Claude Code and Grok list the background work still running (shells, monitors, subagents), which wakes the
     # agent when it ends: the turn is not over yet. The first task says what it waits for.
