@@ -173,7 +173,7 @@ class MoshClientTest {
     @Test fun dictationBurstDeliversAllBytesWithoutDropping() = runBlocking {
         DatagramSocket(0, InetAddress.getLoopbackAddress()).use { server ->
             val crypto = Mosh.Crypto(key)
-            val received = java.io.ByteArrayOutputStream()
+            val stateBytes = HashMap<Long, ByteArray>().apply { put(0L, ByteArray(0)) }
             val done = CompletableDeferred<String>()
             val expected = "你好，这是一段很长的微信输入法语音测试，超过六十四字也不会报错。".repeat(5)
             val expectedBytes = expected.toByteArray(Charsets.UTF_8)
@@ -191,12 +191,20 @@ class MoshClientTest {
                         val plain = crypto.open(buf.copyOf(req.length), fromClient = true) ?: continue
                         val assembled = assembly.add(plain.copyOfRange(4, plain.size)) ?: continue
                         val inst = Mosh.Instruction.decode(Mosh.decompress(assembled))
-                        if (inst.newNum > lastClientAck) {
-                            lastClientAck = inst.newNum
-                            if (inst.diff.isNotEmpty()) {
-                                for (event in Mosh.hostMessage(inst.diff)) {
-                                    if (event is Mosh.HostEvent.Bytes) received.write(event.bytes)
+                        val base = stateBytes[inst.oldNum]
+                        if (base != null && inst.newNum > lastClientAck) {
+                            val next = java.io.ByteArrayOutputStream().apply {
+                                write(base)
+                                if (inst.diff.isNotEmpty()) {
+                                    for (event in Mosh.hostMessage(inst.diff)) {
+                                        if (event is Mosh.HostEvent.Bytes) write(event.bytes)
+                                    }
                                 }
+                            }.toByteArray()
+                            stateBytes[inst.newNum] = next
+                            lastClientAck = inst.newNum
+                            if (next.size >= expectedBytes.size) {
+                                done.complete(String(next, Charsets.UTF_8))
                             }
                         }
                         num++
@@ -205,9 +213,6 @@ class MoshClientTest {
                         val replyPlain = ByteBuffer.allocate(4 + frag.size).putShort(0).putShort(-1).put(frag).array()
                         val sealed = crypto.seal(replyPlain, toClient = true)
                         server.send(DatagramPacket(sealed, sealed.size, req.socketAddress))
-                        if (received.size() >= expectedBytes.size) {
-                            done.complete(String(received.toByteArray(), Charsets.UTF_8))
-                        }
                     }
                 } catch (_: java.io.IOException) { /* closed */ }
             }.apply { isDaemon = true; start() }
