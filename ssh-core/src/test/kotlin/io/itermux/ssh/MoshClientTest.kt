@@ -34,7 +34,7 @@ class MoshClientTest {
             val connected = CompletableDeferred<Unit>()
             val client = MoshClient(InetAddress.getLoopbackAddress(), server.localPort, key, clock::get)
             val end = async(Dispatchers.Default) {
-                client.run(Channel(), Channel(), intArrayOf(80, 24), 8_000, 600_000,
+                client.run(SessionInputQueue(), Channel(), intArrayOf(80, 24), 8_000, 600_000,
                     isStopped = { false }, onConnected = { connected.complete(Unit) }, onOutput = {})
             }
             withTimeout(5_000) { connected.await() }
@@ -69,7 +69,7 @@ class MoshClientTest {
     }.apply { isDaemon = true; start() }
 
     private fun CoroutineScope.runClient(server: DatagramSocket, clock: AtomicLong, connected: CompletableDeferred<Unit>,
-        input: Channel<ByteArray> = Channel(), stallLimitMs: Long? = 10_000): Pair<MoshClient, Deferred<MoshClient.End>> {
+        input: SessionInput = SessionInputQueue(), stallLimitMs: Long? = 10_000): Pair<MoshClient, Deferred<MoshClient.End>> {
         val client = MoshClient(InetAddress.getLoopbackAddress(), server.localPort, key, clock::get)
         return client to async(Dispatchers.Default) {
             client.run(input, Channel(), intArrayOf(80, 24), 8_000, 600_000, stallLimitMs,
@@ -118,12 +118,12 @@ class MoshClientTest {
             answerEach(server, answering::get)
             val clock = AtomicLong(1_000)
             val connected = CompletableDeferred<Unit>()
-            val input = Channel<ByteArray>(Channel.UNLIMITED)
+            val input = SessionInputQueue()
             val (_, end) = runClient(server, clock, connected, input, stallLimit)
             withTimeout(5_000) { connected.await() }
             delay(300)
             answering.set(false)
-            input.send("ls\r".toByteArray())
+            assertTrue(input.trySend("ls\r".toByteArray()))
             delay(300)
             clock.addAndGet(11_000)
             delay(700)
@@ -167,6 +167,68 @@ class MoshClientTest {
             delay(1_000)
             assertTrue("a thawed client that hears the server again keeps the session", end.isActive)
             end.cancel()
+        }
+    }
+
+    @Test fun dictationBurstDeliversAllBytesWithoutDropping() = runBlocking {
+        DatagramSocket(0, InetAddress.getLoopbackAddress()).use { server ->
+            val crypto = Mosh.Crypto(key)
+            val stateBytes = HashMap<Long, ByteArray>().apply { put(0L, ByteArray(0)) }
+            val done = CompletableDeferred<String>()
+            val expected = "你好，这是一段很长的微信输入法语音测试，超过六十四字也不会报错。".repeat(5)
+            val expectedBytes = expected.toByteArray(Charsets.UTF_8)
+            var datagramCount = 0
+            val listener = Thread {
+                val assembly = Mosh.Assembly()
+                val buf = ByteArray(65_535)
+                var num = 0L
+                var lastClientAck = 0L
+                try {
+                    while (!done.isCompleted) {
+                        val req = DatagramPacket(buf, buf.size)
+                        server.receive(req)
+                        datagramCount++
+                        val plain = crypto.open(buf.copyOf(req.length), fromClient = true) ?: continue
+                        val assembled = assembly.add(plain.copyOfRange(4, plain.size)) ?: continue
+                        val inst = Mosh.Instruction.decode(Mosh.decompress(assembled))
+                        val base = stateBytes[inst.oldNum]
+                        if (base != null && inst.newNum > lastClientAck) {
+                            val next = java.io.ByteArrayOutputStream().apply {
+                                write(base)
+                                if (inst.diff.isNotEmpty()) {
+                                    for (event in Mosh.hostMessage(inst.diff)) {
+                                        if (event is Mosh.HostEvent.Bytes) write(event.bytes)
+                                    }
+                                }
+                            }.toByteArray()
+                            stateBytes[inst.newNum] = next
+                            lastClientAck = inst.newNum
+                            if (next.size >= expectedBytes.size) {
+                                done.complete(String(next, Charsets.UTF_8))
+                            }
+                        }
+                        num++
+                        val reply = Mosh.Instruction(num - 1, num, lastClientAck, 0)
+                        val frag = Mosh.fragments(num, Mosh.compress(reply.encode()), 400).single()
+                        val replyPlain = ByteBuffer.allocate(4 + frag.size).putShort(0).putShort(-1).put(frag).array()
+                        val sealed = crypto.seal(replyPlain, toClient = true)
+                        server.send(DatagramPacket(sealed, sealed.size, req.socketAddress))
+                    }
+                } catch (_: java.io.IOException) { /* closed */ }
+            }.apply { isDaemon = true; start() }
+            val clock = AtomicLong(1_000)
+            val connected = CompletableDeferred<Unit>()
+            val input = SessionInputQueue()
+            val (_, end) = runClient(server, clock, connected, input)
+            withTimeout(5_000) { connected.await() }
+            for (ch in expected) {
+                assertTrue(input.trySend(ch.toString().toByteArray(Charsets.UTF_8)))
+            }
+            val got = withTimeout(5_000) { done.await() }
+            assertEquals(expected, got)
+            assertTrue("coalesced burst should not spam 1 datagram per char (got $datagramCount)", datagramCount < 30)
+            end.cancel()
+            listener.interrupt()
         }
     }
 

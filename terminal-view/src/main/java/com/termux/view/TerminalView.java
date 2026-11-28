@@ -719,6 +719,7 @@ public final class TerminalView extends View {
                 if (!isCurrentConnection()) return;
                 stopTextSelectionMode();
                 final int textLengthInChars = text.length();
+                StringBuilder plainBatch = null;
                 for (int i = 0; i < textLengthInChars; i++) {
                     if (!isCurrentConnection()) return;
                     char firstChar = text.charAt(i);
@@ -769,13 +770,36 @@ public final class TerminalView extends View {
                         }
                     }
 
-                    inputCodePoint(KEY_EVENT_SOURCE_SOFT_KEYBOARD, codePoint, ctrlHeld, false);
+                    // Batch plain printable characters (e.g. long voice dictation commits) into a single
+                    // session write instead of one queue slot and network flush per code point.
+                    boolean plain = mTermSession != null && !ctrlHeld
+                        && !mClient.readControlKey() && !mClient.readAltKey();
+                    if (plain) {
+                        if (mClient.onCodePoint(codePoint, false, mTermSession)) {
+                            flushPlainBatch(plainBatch);
+                            continue;
+                        }
+                        if (plainBatch == null) plainBatch = new StringBuilder(Math.min(textLengthInChars, 16384));
+                        plainBatch.appendCodePoint(codePoint);
+                        if (plainBatch.length() >= 16384) flushPlainBatch(plainBatch);
+                    } else {
+                        flushPlainBatch(plainBatch);
+                        inputCodePoint(KEY_EVENT_SOURCE_SOFT_KEYBOARD, codePoint, ctrlHeld, false);
+                    }
                 }
+                flushPlainBatch(plainBatch);
                 // AOSP-style keyboards commit Enter as a trailing newline rather than a key event.
                 if (textLengthInChars > 0 && isCurrentConnection()) {
                     char last = text.charAt(textLengthInChars - 1);
                     if (last == '\n' || last == '\r') post(mClient::onSoftKeyboardEnter);
                 }
+            }
+
+            private void flushPlainBatch(@Nullable StringBuilder batch) {
+                if (batch == null || batch.length() == 0 || mTermSession == null || !isCurrentConnection()) return;
+                scrollToBottom();
+                mTermSession.write(batch.toString());
+                batch.setLength(0);
             }
 
         };

@@ -87,7 +87,7 @@ internal class MoshClient(
     fun probe() { probeRequested = true }
 
     suspend fun run(
-        input: ReceiveChannel<ByteArray>,
+        input: SessionInput,
         sizes: ReceiveChannel<IntArray>,
         initialSize: IntArray,
         firstContactTimeoutMs: Long,
@@ -104,7 +104,12 @@ internal class MoshClient(
     ): End = coroutineScope {
         val local = Channel<Local>(Channel.UNLIMITED)
         val receiver = launch(Dispatchers.IO) { receiveLoop() }
-        val keys = launch { for (bytes in input) { local.send(Local.Keys(bytes.copyOf())); bytes.fill(0) } }
+        val keys = launch {
+            while (true) {
+                val bytes = input.receive() ?: break
+                local.send(Local.Keys(bytes))
+            }
+        }
         val resizes = launch { for (d in sizes) local.send(Local.Size(d[0], d[1])) }
         val start = clock()
         lastHop = start
@@ -142,12 +147,7 @@ internal class MoshClient(
                     packets.onReceive { packet ->
                         if (receive(packet, onConnected, onOutput)) shutdownByServer = true
                     }
-                    local.onReceive { event ->
-                        when (event) {
-                            is Local.Keys -> { push(Mosh.UserEvent.Keys(event.bytes)); event.bytes.fill(0) }
-                            is Local.Size -> push(Mosh.UserEvent.Resize(event.columns, event.rows))
-                        }
-                    }
+                    local.onReceive { event -> drainLocal(event, local) }
                     onTimeout((due - now).coerceIn(1, 250)) {}
                 }
                 if (shutdownByServer) {
@@ -159,6 +159,10 @@ internal class MoshClient(
             @Suppress("UNREACHABLE_CODE") End.STOPPED
         } finally {
             keys.cancel(); resizes.cancel()
+            while (true) {
+                val item = local.tryReceive().getOrNull() ?: break
+                if (item is Local.Keys) item.bytes.fill(0)
+            }
             if (!shutdownByServer) withContext(NonCancellable) {
                 // Best effort: let mosh-server exit (tmux detaches) rather than wait for a lost client.
                 runCatching { repeat(2) { send(clock(), shutdown = true) } }
@@ -167,6 +171,36 @@ internal class MoshClient(
             socket.close()
             events.forEach { it.fill(0) }
         }
+    }
+
+    /** Drains all immediately ready local events, coalescing consecutive key bursts into one mosh event. */
+    private fun drainLocal(first: Local, local: Channel<Local>) {
+        val keyBatch = ArrayList<ByteArray>()
+        fun flushKeys() {
+            if (keyBatch.isEmpty()) return
+            val merged = if (keyBatch.size == 1) keyBatch[0] else ByteArray(keyBatch.sumOf { it.size }).also { out ->
+                var pos = 0
+                for (part in keyBatch) {
+                    part.copyInto(out, pos)
+                    pos += part.size
+                    part.fill(0)
+                }
+            }
+            keyBatch.clear()
+            try { push(Mosh.UserEvent.Keys(merged)) } finally { merged.fill(0) }
+        }
+        var current: Local? = first
+        while (true) {
+            when (val item = current ?: break) {
+                is Local.Keys -> keyBatch.add(item.bytes)
+                is Local.Size -> {
+                    flushKeys()
+                    push(Mosh.UserEvent.Resize(item.columns, item.rows))
+                }
+            }
+            current = local.tryReceive().getOrNull()
+        }
+        flushKeys()
     }
 
     private fun push(event: Mosh.UserEvent) {
