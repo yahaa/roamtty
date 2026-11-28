@@ -23,6 +23,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.URI
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /** Logcat tag of the connection lifecycle: connects, drops, network changes and the activity in front. */
 internal const val CONNECTION_LOG_TAG = "RoamttyConn"
@@ -153,6 +154,7 @@ class TerminalConnection(
     private val mutableAgentUsageLoading = MutableStateFlow(false)
     val agentUsageLoading = mutableAgentUsageLoading.asStateFlow()
     private var agentUsageJob: Job? = null
+    private var hookSyncJob: Job? = null
     private var compactRefreshJob: Job? = null
     @Volatile private var lastUsageAtMs = 0L
     @Volatile private var lastUsageState: AgentStatus.State? = null
@@ -187,9 +189,31 @@ class TerminalConnection(
             mutableAgentPolled.value = true
         }
         AgentStatus.directory(output).takeIf { it.isNotEmpty() }?.let { mutableDirectory.value = it }
+        if (status != null && CodingAgent.fromCommand(status.agent) != null) syncHookScriptOnce()
         maybeRefreshAgentUsage(status)
         return status
     }
+
+    /** Refreshes `~/.roamtty/agent-hook.sh` once per host per app launch so already-running agents pick up hook fixes. */
+    private fun syncHookScriptOnce() {
+        if (mode != SessionMode.TMUX || multiplexer.value != HostPlugin.TMUX) return
+        val key = hookSyncHostKey()
+        if (!syncedHookScriptHosts.add(key)) return
+        hookSyncJob?.cancel()
+        hookSyncJob = scope.launch {
+            val ok = try {
+                ssh.writeHostFile(AgentHooks.SCRIPT_PATH.substringAfterLast('/'), AgentHooks.script)
+            } catch (e: CancellationException) {
+                syncedHookScriptHosts.remove(key)
+                throw e
+            } catch (_: Exception) {
+                false
+            }
+            if (!ok) syncedHookScriptHosts.remove(key)
+        }
+    }
+
+    private fun hookSyncHostKey(): String = "${host.address}:${host.port}:${host.username}"
 
     private fun maybeRefreshAgentUsage(status: AgentStatus?) {
         val kind = CodingAgent.fromCommand(status?.agent) ?: launchedAgent.value?.takeIf { !mutableAgentPolled.value }
@@ -451,8 +475,9 @@ class TerminalConnection(
             val activeMic = if (agent == CodingAgent.AGY) antigravityMic() else null
             // Keep ~/.roamtty/agy on the dynamic template so ephemeral fallback ports never get hardcoded.
             val (name, content, executable) = AgentHooks.hostFile(agent)
-            val written = ssh.writeHostFile(AgentHooks.SCRIPT_PATH.substringAfterLast('/'), AgentHooks.script) &&
-                ssh.writeHostFile(name, content, executable)
+            val scriptWritten = ssh.writeHostFile(AgentHooks.SCRIPT_PATH.substringAfterLast('/'), AgentHooks.script)
+            if (scriptWritten) syncedHookScriptHosts.add(hookSyncHostKey())
+            val written = scriptWritten && ssh.writeHostFile(name, content, executable)
             if (written && agent == CodingAgent.CLAUDE && mode == SessionMode.TMUX) {
                 val (sessionName, sessionContent) = AgentHooks.hostFile(agent, remoteSessionName)
                 if (sessionName != name) ssh.writeHostFile(sessionName, sessionContent)
@@ -499,11 +524,16 @@ class TerminalConnection(
         commonCommandsJob?.cancel()
         commonCommandsWatcher?.cancel()
         agentUsageJob?.cancel()
+        hookSyncJob?.cancel()
         compactRefreshJob?.cancel()
         agentStatusWatcher?.cancel()
         systemWatcher?.cancel()
         pending.value?.answer?.complete(null)
         ssh.disconnect()
         job?.cancel()
+    }
+
+    companion object {
+        private val syncedHookScriptHosts = ConcurrentHashMap.newKeySet<String>()
     }
 }

@@ -492,12 +492,14 @@ class JschSession(
         return auxiliarySession(interactive = false)?.let { runCommand(it, Tmux.agentStatusCommand(tmuxName)) }
     }
 
-    /** Writes [content] to `~/.roamtty/[name]` on the host, replacing it; [name] is a plain file name. */
+    /** Writes [content] to `~/.roamtty/[name]` on the host atomically; [name] is a plain file name. */
     suspend fun writeHostFile(name: String, content: String, executable: Boolean = false): Boolean {
         require(name.all { it.isLetterOrDigit() || it in "-_." } && !name.startsWith("."))
-        val chmod = if (executable) " && chmod +x \"\$HOME/.roamtty/$name\"" else ""
+        val chmod = if (executable) " && chmod +x \"\$tmp\"" else ""
+        val cmd = "/bin/sh -c 'mkdir -p \"\$HOME/.roamtty\" && tmp=\"\$HOME/.roamtty/.$name.\$\$.tmp\" && " +
+            "cat > \"\$tmp\"$chmod && mv -f \"\$tmp\" \"\$HOME/.roamtty/$name\" || { rm -f \"\$tmp\"; exit 1; }'"
         return auxiliarySession(interactive = false)?.let {
-            runCommand(it, "/bin/sh -c 'mkdir -p \"\$HOME/.roamtty\" && cat > \"\$HOME/.roamtty/$name\"$chmod'", content)
+            runCommand(it, cmd, content)
         } != null
     }
 

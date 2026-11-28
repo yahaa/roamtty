@@ -50,8 +50,9 @@ class AgentStatusTest {
     @Test fun hookSettingsNeedNoShellQuoting() {
         val json = AgentHooks.claudeSettings
         assertFalse('\'' in json || '\\' in json)
-        listOf("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "SessionEnd")
+        listOf("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "StopFailure", "SessionEnd")
             .forEach { assertTrue(it, "\"$it\"" in json) }
+        assertTrue("\"StopFailure\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"sh ~/.roamtty/agent-hook.sh claude stop\"}]}]" in json)
         assertTrue("sh ~/.roamtty/agent-hook.sh claude prompt" in json)
     }
 
@@ -510,5 +511,118 @@ class AgentStatusTest {
         assertNull(stale.agent); assertTrue(stale.idleShell)
         val vim = TmuxSessionInfo("c", 1, 0, 0, "", "vim", "|||")
         assertNull(vim.agent); assertFalse(vim.idleShell)
+    }
+
+    @Test fun agyStatusLineReconcilesIdleAfterCancelAndToolConfirmation() {
+        val dir = Files.createTempDirectory("agent-hook-agy-sl-state").toFile()
+        try {
+            val script = File(dir, "agent-hook.sh").apply { writeText(AgentHooks.script) }
+            File(dir, "tmux").apply {
+                writeText("#!/bin/sh\ncase \"\$1\" in\n  show-options) cat \"$dir/opt\$5\" 2>/dev/null ;;\n" +
+                    "  set-option) if [ \"\$2\" = -u ]; then rm -f \"$dir/opt\$6\"; else printf '%s' \"\$6\" > \"$dir/opt\$5\"; fi ;;\nesac\n")
+                setExecutable(true)
+            }
+            fun hook(event: String, json: String = "{}") {
+                val process = ProcessBuilder("sh", script.path, "agy", event).apply {
+                    environment()["HOME"] = dir.path
+                    environment()["PATH"] = "${dir.path}:${System.getenv("PATH")}"
+                    environment()["TMUX_PANE"] = "%1"
+                    environment()["ROAMTTY_AGENT"] = "agy"
+                }.start()
+                process.outputStream.use { it.write(json.toByteArray()) }
+                assertEquals(0, process.waitFor())
+            }
+            fun option(name: String) = File(dir, "opt$name").takeIf { it.exists() }?.readText()
+            fun reported() = option("@roamtty_agent")!!.split('|').let { "${it[0]}|${it[2]}|${it[3]}|${it[4]}" }
+
+            // Start a turn (PreInvocation), then simulate Esc cancel where Stop never fires: statusLine idle reconciles it.
+            hook("prompt", """{"invocationNum":0,"lastUserInput":"test voice"}""")
+            assertEquals("working|agy||", reported())
+            assertNull(option("@roamtty_worked"))
+            // Active background task, running subagent, or queued prompt must keep the turn working.
+            hook("statusline", """{"agent_state":"idle","task_count":1}""")
+            assertEquals("working|agy||", reported())
+            hook("statusline", """{"agent_state":"idle","subagents":[{"name":"w1","status":"running"}]}""")
+            assertEquals("working|agy||", reported())
+            hook("statusline", """{"agent_state":"idle","pending_input_count":1}""")
+            assertEquals("working|agy||", reported())
+            // Completed subagent only + idle reconciles working -> idle and records worked seconds without fabricating reply.
+            hook("statusline", """{"agent_state":"idle","subagents":[{"name":"w1","status":"completed"}]}""")
+            assertEquals("idle|agy||", reported())
+            assertNotNull(option("@roamtty_worked"))
+            assertNull(option("@roamtty_reply"))
+
+            // Tool confirmation dialog flips working -> waiting while keeping tool/detail, and clears back to working.
+            hook("prompt", """{"invocationNum":0,"lastUserInput":"run build"}""")
+            hook("tool", """{"toolCall":{"name":"run_command","args":{"CommandLine":"./gradlew test"}}}""")
+            assertEquals("working|agy|run_command|./gradlew test", reported())
+            hook("statusline", """{"agent_state":"reviewing","tool_confirmation_pending":true}""")
+            assertEquals("waiting|agy|run_command|./gradlew test", reported())
+            hook("statusline", """{"agent_state":"tool_use"}""")
+            assertEquals("working|agy|run_command|./gradlew test", reported())
+
+            // Error terminal state reconciles working -> idle too.
+            hook("statusline", """{"agent_state":"error"}""")
+            assertEquals("idle|agy||", reported())
+
+            // ask_question stays waiting during tool_use, but Esc -> idle clears it.
+            hook("prompt", """{"invocationNum":0,"lastUserInput":"pick"}""")
+            hook("tool", """{"toolCall":{"name":"ask_question","args":{"questions":[{"question":"Which?"}]}}}""")
+            assertEquals("waiting|agy|ask_question|Which?", reported())
+            hook("statusline", """{"agent_state":"tool_use"}""")
+            assertEquals("waiting|agy|ask_question|Which?", reported())
+            hook("statusline", """{"agent_state":"idle"}""")
+            assertEquals("idle|agy||", reported())
+
+            // Non-agy pane option is never touched by agy statusline.
+            File(dir, "opt@roamtty_agent").writeText("working|1000|claude|Bash|ls")
+            hook("statusline", """{"agent_state":"idle"}""")
+            assertEquals("working|1000|claude|Bash|ls", option("@roamtty_agent"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test fun claudeStopFailureTransitionsToIdleWithErrorFallback() {
+        val dir = Files.createTempDirectory("agent-hook-claude-fail").toFile()
+        try {
+            val script = File(dir, "agent-hook.sh").apply { writeText(AgentHooks.script) }
+            File(dir, "tmux").apply {
+                writeText("#!/bin/sh\ncase \"\$1\" in\n  show-options) cat \"$dir/opt\$5\" 2>/dev/null ;;\n" +
+                    "  set-option) if [ \"\$2\" = -u ]; then rm -f \"$dir/opt\$6\"; else printf '%s' \"\$6\" > \"$dir/opt\$5\"; fi ;;\nesac\n")
+                setExecutable(true)
+            }
+            fun hook(event: String, json: String = "{}") {
+                val process = ProcessBuilder("sh", script.path, "claude", event).apply {
+                    environment()["PATH"] = "${dir.path}:${System.getenv("PATH")}"
+                    environment()["TMUX_PANE"] = "%1"
+                }.start()
+                process.outputStream.use { it.write(json.toByteArray()) }
+                assertEquals(0, process.waitFor())
+            }
+            fun option(name: String) = File(dir, "opt$name").takeIf { it.exists() }?.readText()
+            fun reported() = option("@roamtty_agent")!!.split('|').let { "${it[0]}|${it[2]}|${it[3]}|${it[4]}" }
+
+            // StopFailure with last_assistant_message prefers the rendered message.
+            hook("prompt", """{"session_id":"s1","prompt":"check"}""")
+            assertEquals("working|claude||", reported())
+            hook("stop", """{"session_id":"s1","hook_event_name":"StopFailure","error":"rate_limit","error_details":"429","last_assistant_message":"API Error: Rate limit reached"}""")
+            assertEquals("idle|claude||", reported())
+            assertEquals("API Error: Rate limit reached", option("@roamtty_reply"))
+
+            // Without last_assistant_message, error_details takes precedence over error regardless of key order.
+            hook("prompt", """{"session_id":"s1","prompt":"retry"}""")
+            hook("stop", """{"session_id":"s1","error_details":"429 Too Many Requests","error":"rate_limit"}""")
+            assertEquals("idle|claude||", reported())
+            assertEquals("429 Too Many Requests", option("@roamtty_reply"))
+
+            // With only error set, falls back to error.
+            hook("prompt", """{"session_id":"s1","prompt":"retry 2"}""")
+            hook("stop", """{"session_id":"s1","error":"server_error"}""")
+            assertEquals("idle|claude||", reported())
+            assertEquals("server_error", option("@roamtty_reply"))
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 }

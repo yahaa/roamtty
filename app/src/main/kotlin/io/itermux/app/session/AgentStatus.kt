@@ -223,7 +223,7 @@ object AgentHooks {
         fun hook(event: String, action: String) =
             "\"$event\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.CLAUDE, action, session)}\"}]}]"
         val hooks = listOf("SessionStart" to "start", "UserPromptSubmit" to "prompt", "PreToolUse" to "tool",
-            "PostToolUse" to "post", "Notification" to "notify", "Stop" to "stop", "SessionEnd" to "end")
+            "PostToolUse" to "post", "Notification" to "notify", "Stop" to "stop", "StopFailure" to "stop", "SessionEnd" to "end")
             .joinToString(",") { (event, action) -> hook(event, action) }
         val statusLine = "\"statusLine\":{\"type\":\"command\",\"command\":\"${hookCommand(CodingAgent.CLAUDE, "statusline")}\"}"
         return "{\"hooks\":{$hooks},$statusLine}"
