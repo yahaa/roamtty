@@ -352,6 +352,7 @@ class VoiceRedSender(
 ) {
     val controller = VoiceLinkController(sampleRate)
     private val encoder = VoiceOpusEncoderWrapper(sampleRate, controller.profile().bitrate, dtx = enableDtx)
+    val frameBytes: Int get() = encoder.frameLen * 2
     private val recent = ArrayDeque<Pair<Long, ByteArray>>()
     private val shortScratch = ShortArray(encoder.frameLen)
     private var seq = 0L
@@ -624,6 +625,8 @@ class VoiceJitterBuffer(
     private var firstArrivalMs: Long? = null
     private var turnGen = 0
     private var turnGenLocked = false
+    private var pendingClearSkips = 0
+    private var lastImplicitAdvanceMs = 0L
     private var targetFrames = 1
     private var underrunPenaltyMs = 0.0
     private var lastDecayMs = 0L
@@ -633,6 +636,10 @@ class VoiceJitterBuffer(
     private var lastTail = ShortArray(0)
     private val rxStats = VoiceRxStats()
 
+    companion object {
+        private const val LATE_CLEAR_WINDOW_MS = 5_000L
+    }
+
     var plcFrames: Long = 0L
         private set
     var redRecovered: Long = 0L
@@ -640,7 +647,7 @@ class VoiceJitterBuffer(
     var lbrrRecovered: Long = 0L
         private set
 
-    fun clear(nextTurnGen: Int? = null) {
+    fun clear(nextTurnGen: Int? = null, resetPendingSkips: Boolean = true) {
         slots.clear()
         playoutSeq = null
         started = false
@@ -651,16 +658,32 @@ class VoiceJitterBuffer(
         lastTail = ShortArray(0)
         decoder.reset()
         rxStats.resetSeqCursor()
+        if (resetPendingSkips) {
+            pendingClearSkips = 0
+            lastImplicitAdvanceMs = 0L
+        }
         if (nextTurnGen != null) {
             turnGen = nextTurnGen and 0x0F
             turnGenLocked = true
         }
     }
 
-    /** Called on explicit `SPK_CLEAR` to advance expected turn generation and reject stale in-flight UDP packets. */
-    fun clearForBargeIn() {
+    /**
+     * Called on explicit `SPK_CLEAR` to advance expected turn generation and reject stale in-flight UDP packets.
+     * Returns `false` when a newer-turn UDP packet already implicitly advanced `turnGen` ahead of this late `SPK_CLEAR`.
+     */
+    fun clearForBargeIn(nowMs: Long = 0L): Boolean {
+        if (pendingClearSkips > 0) {
+            val withinWindow = nowMs <= 0L || lastImplicitAdvanceMs <= 0L || (nowMs - lastImplicitAdvanceMs) <= LATE_CLEAR_WINDOW_MS
+            if (withinWindow) {
+                pendingClearSkips--
+                return false
+            }
+            pendingClearSkips = 0
+        }
         val nextGen = if (turnGenLocked) (turnGen + 1) and 0x0F else null
         clear(nextGen)
+        return true
     }
 
     fun push(pkt: VoiceOpusPacket, nowMs: Long) {
@@ -668,7 +691,9 @@ class VoiceJitterBuffer(
         if (turnGenLocked && pktGen != turnGen) {
             val ahead = (pktGen - turnGen) and 0x0F
             if (ahead == 0 || ahead >= 8) return
-            clear(pktGen)
+            pendingClearSkips = (pendingClearSkips + ahead).coerceAtMost(7)
+            lastImplicitAdvanceMs = nowMs
+            clear(pktGen, resetPendingSkips = false)
         } else if (!turnGenLocked) {
             turnGen = pktGen
             turnGenLocked = true
@@ -744,6 +769,7 @@ class VoiceJitterBuffer(
     }
 
     fun queuedFrames(): Int {
+        if (slots.isEmpty()) return 0
         val p = playoutSeq ?: return 0
         val span = (highestSeq - p).toInt()
         return if (span < 0) 0 else minOf(span + 1, slots.size + 4)

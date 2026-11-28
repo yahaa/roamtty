@@ -79,4 +79,42 @@ class VoicePluginInstallerTest {
             Tmux.setEnvironmentCommand("s", "ANTIGRAVITY_MIC", "127.0.0.1:24713;id")
         }
     }
+
+    @Test fun headlessMacAppUpgradeReloadsExistingLaunchAgentBestEffort() = runBlocking {
+        val home = Files.createTempDirectory("voice-mac-install").toFile()
+        try {
+            val plist = File(home, "Library/LaunchAgents/com.roamtty.desktop.plist")
+            plist.parentFile.mkdirs()
+            plist.writeText("<plist/>")
+
+            val ranScripts = mutableListOf<String>()
+            val remote = object : RemoteHost {
+                override suspend fun probePlugins(): Set<HostPlugin>? = null
+                override suspend fun run(script: String, timeoutMs: Long, onLine: (String) -> Unit): Int {
+                    ranScripts += script
+                    return 0
+                }
+                override suspend fun runCommand(command: String, timeoutMs: Long, onLine: (String) -> Unit): Int? = null
+                override suspend fun upload(remotePath: String, source: InputStream) = Unit
+            }
+
+            val installer = DesktopPluginInstaller(remote, fetch = { ByteArray(0) })
+            val result = installer.install(
+                DesktopPluginInstaller.Build(
+                    version = "0.9.12",
+                    url = "https://example.invalid/macos-universal.zip",
+                    sha256 = "00".repeat(32),
+                    openh264Url = null,
+                    headless = true,
+                )
+            )
+            assertEquals(DesktopPluginInstaller.Result.Installed, result)
+            assertTrue(
+                "headless macOS app upgrade must best-effort reload existing LaunchAgent",
+                ranScripts.any { "com.roamtty.desktop.plist" in it && "roamtty-desktop\" install" in it },
+            )
+        } finally {
+            home.deleteRecursively()
+        }
+    }
 }

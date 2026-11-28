@@ -30,9 +30,10 @@ class UdpLink(
      * resends, or when the link has gone quiet. Without it a lost key release left the key held down.
      */
     private val onGiveUp: (ByteArray) -> Unit = {},
+    private val voiceQos: Boolean = false,
 ) {
     private val crypto = UdpCrypto(key)
-    @Volatile private var socket: DatagramSocket = openVoiceSocket()
+    @Volatile private var socket: DatagramSocket = openSocket(voiceQos)
     private val seq = AtomicLong(1)
     /** Reliable messages are odd (2n + 1, n counting up) so the host can apply them in order; the rest even. */
     private val reliableSeq = AtomicLong(0)
@@ -261,7 +262,7 @@ class UdpLink(
     /** A new network: a new socket (new local port), three heartbeats straight away. */
     fun rebind() {
         val old = socket
-        socket = openVoiceSocket()
+        socket = openSocket(voiceQos)
         old.close()
         receiver(socket)
         repeat(3) { heartbeat() }
@@ -275,13 +276,13 @@ class UdpLink(
 
     companion object {
         const val ALIVE_US = 3_000_000L
-        /** DSCP Expedited Forwarding (EF = 46 << 2 = 0xB8) for Wi-Fi WMM AC_VO priority. */
+        /** DSCP Expedited Forwarding (EF = 46 << 2 = 0xB8) for Wi-Fi WMM AC_VO priority (voice only). */
         private const val DSCP_EF_TOS = 0xB8
         private const val SEND_QUEUE_CAP = 512
         internal const val MIC_AUDIO_QUEUE_CAP = 8
 
-        private fun openVoiceSocket(): DatagramSocket = DatagramSocket().apply {
-            runCatching { trafficClass = DSCP_EF_TOS }
+        private fun openSocket(voiceQos: Boolean): DatagramSocket = DatagramSocket().apply {
+            if (voiceQos) runCatching { trafficClass = DSCP_EF_TOS }
         }
 
         private fun isMicAudio(frame: ByteArray): Boolean {
